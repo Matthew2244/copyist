@@ -975,6 +975,55 @@ was at zero loss.
 that punishes a correct change is worse than no metric, because it argues
 against the fix.
 
+### 22.7 The live-quantizer gap was mostly a measurement error
+
+Setting out to build §7.2's beat-scoring quantizer, the first step was to
+measure what it would be worth. It is worth much less than believed, because
+the number motivating it was wrong.
+
+**Tuplets had already fixed most of it.** The `live` population went from
+roughly 60% to **74.4%** without a line of quantizer code — much of what
+looked like unquantized performance was triplet figuration being mangled.
+
+**And the rest was the metric.** Across every `humanized` and `live` file, the
+round-trip figure tracked `onGrid%` — the share of notes already sitting
+exactly on a grid position — almost exactly:
+
+    onGrid 93.4% -> match 93.4%      onGrid 51.9% -> match 52.2%
+    onGrid  8.4% -> match  8.4%      onGrid 43.6% -> match 44.0%
+
+Copyist was preserving every note already on the grid and "losing" every note
+it correctly moved. **Exact-position matching measures fidelity to the
+performance, but the job is fidelity to the intent** — moving a note onto the
+grid is what quantizing *is*.
+
+Measured within an eighth of a beat, the same files:
+
+| | exact | within ⅛ beat |
+|---|---|---|
+| `humanized` | 69.1% | **100.0%** |
+| `live` (classical) | 70.8% | 83.8% |
+| `live` (sequenced demos) | 24.6% | 66.7% |
+
+Humanized material is **already perfect** — every note recovered onto the
+right grid position. The "65 points lost on live material" that justified this
+whole task was largely the same class of error as the drum-map episode in
+§22.2: a metric punishing a correct behaviour.
+
+`stress.py` now reports both. `exact` still matters — for hard-quantized
+material it is the right measure and any drop there is a real defect — but
+`kept` is what to read for anything unquantized.
+
+**What remains is genuinely smaller and better located.** Sequenced demos at
+66.7% kept are the real gap, and they are the material closest to Matthew's
+own: groove-based, humanized, often swung. A handful of classical files stay
+poor even tolerantly (Aguado Op. 4 No. 6 at 26.4%), and those are real defects
+worth chasing individually rather than a missing feature.
+
+This is the third time a measurement has argued against a correct change or
+for an unnecessary one. Worth stating as a rule: **before building what a
+metric says is missing, check what the metric is actually measuring.**
+
 ### 22.5 Tuplets — shipped
 
 **Six attempts. The first four failed because of how I was measuring, not what

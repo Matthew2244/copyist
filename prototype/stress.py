@@ -52,6 +52,45 @@ def _alarm(*_):
     raise TimeUp("exceeded the per-file time limit")
 
 
+def note_list(path, pitched_only=True):
+    mid = A.parse_midi(path)
+    x = A.extract(mid)
+    d = mid["division"]
+    return [(n.on / d, n.pitch) for n in x["notes"]
+            if not (pitched_only and n.chan == 9)]
+
+
+def preserved(src, back, tol=0.125):
+    """
+    Fraction of played notes that survive, allowing for the fact that
+    QUANTIZATION IS SUPPOSED TO MOVE THEM.
+
+    Exact-position matching measures fidelity to the performance, but the job
+    is fidelity to the intent. Measured exactly, humanized material scored
+    69.1% — and every one of those "lost" notes had simply been moved onto the
+    grid, which is the entire point. Measured within an eighth of a beat the
+    same files score 100.0%.
+
+    The exact figure is still reported, because for hard-quantized material it
+    is the right one and any drop there is a genuine defect.
+    """
+    import bisect
+    by_pitch = {}
+    for t, p in back:
+        by_pitch.setdefault(p, []).append(t)
+    for v in by_pitch.values():
+        v.sort()
+    ok = 0
+    for t, p in src:
+        v = by_pitch.get(p)
+        if not v:
+            continue
+        i = bisect.bisect_left(v, t)
+        if any(0 <= j < len(v) and abs(v[j] - t) <= tol for j in (i - 1, i, i + 1)):
+            ok += 1
+    return ok / len(src) * 100 if src else 0.0
+
+
 def note_set(path, pitched_only=True):
     """
     Percussion is excluded by default, and that is not a convenience.
@@ -125,8 +164,8 @@ def main():
 
     print(f"{len(files)} file(s)\n")
     print(f"{'file':<38}{'notes':>7}{'bars':>6}{'bad':>5}  {'verdict':<15}"
-          + ("  match" if ms else ""))
-    print("-" * (74 + (7 if ms else 0)))
+          + ("  exact   kept" if ms else ""))
+    print("-" * (74 + (14 if ms else 0)))
 
     rows, failed = [], []
     for f in files:
@@ -160,17 +199,19 @@ def main():
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if os.path.exists(rt):
                 try:
-                    src, back = note_set(f), note_set(rt)
-                    match = len(src & back) / len(src) * 100 if src else 0.0
+                    sa, sb = note_set(f), note_set(rt)
+                    match = len(sa & sb) / len(sa) * 100 if sa else 0.0
+                    near = preserved(note_list(f), note_list(rt))
                 except Exception:
-                    match = None
+                    match = near = None
                 os.remove(rt)
 
-        rows.append((name, kind, info["timing"]["grid"], bad, match))
+        rows.append((name, kind, info["timing"]["grid"], bad, match, near))
         line = (f"{name:<38}{s.get('notes', 0):>7}{s.get('measures', 0):>6}"
                 f"{bad:>5}  {kind:<15}")
         if ms:
-            line += f"{match:>6.1f}%" if match is not None else "     —"
+            line += (f"{match:>6.1f}%{near:>7.1f}%" if match is not None
+                     else "     —      —")
         print(line)
 
     shutil.rmtree(tmp, ignore_errors=True)
@@ -190,13 +231,17 @@ def main():
         print("point. Copyist should reproduce a piece well exactly when it")
         print("found a grid, and poorly when it did not (DESIGN 7.6).")
         print()
-        print(f"  {'verdict':<16}{'files':>6}{'mean':>9}{'range':>18}")
+        print("  'exact' is same-position; 'kept' allows an eighth of a beat,")
+        print("  because moving a note onto the grid is what quantizing IS.")
+        print()
+        print(f"  {'verdict':<16}{'files':>6}{'exact':>9}{'kept':>9}")
         for kind in ("hard-quantized", "humanized", "ambiguous", "live"):
-            g = [r[4] for r in rows if r[1] == kind and r[4] is not None]
+            g = [(r[4], r[5]) for r in rows
+                 if r[1] == kind and r[4] is not None]
             if not g:
                 continue
-            print(f"  {kind:<16}{len(g):>6}{sum(g) / len(g):>8.1f}%"
-                  f"{f'{min(g):.1f} – {max(g):.1f}%':>18}")
+            print(f"  {kind:<16}{len(g):>6}{sum(x[0] for x in g)/len(g):>8.1f}%"
+                  f"{sum(x[1] for x in g)/len(g):>8.1f}%")
 
     for n, e in failed:
         print(f"\nFAILED {n}\n  {e}")
