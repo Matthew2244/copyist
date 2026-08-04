@@ -1,0 +1,24 @@
+name: corpus
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  corpus:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # No pip install step on purpose — the prototype has no dependencies,
+      # including its MIDI parser. If this ever needs one, that is a decision
+      # to argue for, not to slip in.
+      - name: Run corpus regressions
+        run: python3 prototype/test_corpus.py

@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Prototype scratch output — corpus/ is tracked, this is not
+prototype/*.musicxml
+prototype/*.png
+prototype/*.mid
+prototype/*.MID
