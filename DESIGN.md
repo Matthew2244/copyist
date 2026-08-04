@@ -1062,6 +1062,34 @@ is worth considerably more than one that confidently mangles it, and shipping
 the second because the work was done would be the exact failure §4.3 exists to
 prevent. The measurement is the deliverable here; the feature is not ready.
 
+### 22.6 Validated across six genres, 120 licence-verified files
+
+Orchestral, organ, hymn, gospel, spiritual and choral — every file checked
+individually against its Mutopia `.rdf` metadata: 83 public domain, 34
+CC BY-SA, 3 CC BY, none unknown. Attribution list kept alongside the corpus,
+since 37 carry that requirement.
+
+**120/120 convert. Zero failures. Zero unbalanced measures.** Parts per file
+range from 1 to 14.
+
+Organ detection fires on 13 files, correctly reading Bach's BWV 565, BWV 549,
+BWV 651 and BWV 680, Buxtehude, de Grigny, Muffat and Roberday as **one part
+on two or three staves** rather than separate instruments.
+
+Two honest caveats. Only 13 of 34 organ pieces are detected, because the rest
+do not use organ GM programs on consecutive channels — the conservative test
+that keeps two organ patches in a rock band from being mistaken for an organ
+score also declines material it should probably accept. And one *choral* file
+(Tallis) is read as an organ, because its parts are voiced with organ patches;
+defensible, but a false positive.
+
+**Big band and jazz ensemble remain absent, deliberately.** Every free
+big-band MIDI archive found is sequences of copyrighted Basie, Ellington and
+Miller-era standards. Genuinely public-domain charts from before 1930 exist as
+scans, but nobody distributes them as openly-licensed MIDI. Filling this would
+be a transcription job, not a download, and padding the corpus with material
+that cannot be published would defeat its purpose.
+
 ### 22.4 Organ
 
 An organ is not three instruments that happen to play together. It is one
