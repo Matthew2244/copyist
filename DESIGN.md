@@ -1,7 +1,8 @@
 # Copyist — Design
 
-**Status:** design in progress. Nothing built yet.
-**Last updated:** 2026-08-03
+**Status:** working prototype. Engine, both GUIs and the corpus are real; see
+§22 for exactly what is built and what is not.
+**Last updated:** 2026-08-04
 
 ---
 
