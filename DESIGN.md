@@ -858,9 +858,47 @@ directly would make the whole app GPL-3.
   chart uses `D.S. al Coda` and `To Coda`, so Matthew's actual deliverables
   depend on it. Revisit once section labels from markers (§12.3) are working —
   they may cover most of the need.
-- **O10 — Articulation from relative velocity.** Accent, marcato and tenuto
-  cannot come from gate time. Needs a velocity-versus-neighbours pass that
-  currently does not exist.
+*(O10 is now built — see §22.)*
+
+---
+
+## 22. Built so far
+
+| Area | State |
+|---|---|
+| MusicXML output (D1) | working; 100% round-trip on every fixture |
+| Gate time as articulation (D9) | working |
+| Stream separation by physics (D10, D11, D12) | working, greedy rather than the full DP |
+| Timing classification and humanize reversal (D17) | working, self-calibrating (§7.5.2) |
+| **ps13 spelling (D13)** | **working**, with one documented departure — see below |
+| **Articulation from relative velocity (was O10)** | **working**: accent, marcato, tenuto from local velocity z-scores |
+| **JSON protocol (§5.2)** | **working** — `prototype/engine.py` |
+| **macOS GUI (D2)** | **builds and runs**; VoiceOver not yet verified at runtime |
+| **Windows GUI (D2)** | **compiles in CI**; never run, NVDA not verified |
+| Tuplets (§7.2) | not built — the reference chart used 48 |
+| Chord symbols and slashes (D19, §12) | not built |
+| Detail levels (D18, §11) | not built |
+| Transposing instruments (§10.3) | not built |
+| Free tempo (§7.6) | not built, by design |
+| MCP server (D7) | not built, by design — last |
+
+**The ps13 departure.** The paper's context window is a hard 10 notes back and
+42 forward, tuned on pieces of thousands of notes. On shorter material a
+42-note forward window reaches straight across a modulation and spells the
+first key with the second key's accidentals; and inside a hard window a note 42
+away counts exactly as much as the note beside it, which is not what "local"
+should mean. Context is therefore distance-weighted, with a forward bias kept.
+Meredith's published 99.3% is **not** a claim about this implementation.
+Measured here: 95.8% on a fixture that modulates every four bars (against 70.8%
+for the best single key), 100% on a five-key holdout, zero double accidentals.
+Parameters were chosen by sweep on one fixture and confirmed on the other, and
+the good region is a broad plateau rather than a knife edge.
+
+**Windows uses WPF, not WinUI 3.** Same reasoning that chose native over a
+webview: WPF's UI Automation is mature and NVDA works well with its stock
+controls, while WinUI 3 is newer with more accessibility gaps. Neither GUI
+contains a custom control template or a custom AutomationPeer, which is the
+usual way an accessible toolkit stops being accessible.
 
 ---
 
