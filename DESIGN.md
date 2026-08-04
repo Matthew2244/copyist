@@ -975,6 +975,63 @@ was at zero loss.
 that punishes a correct change is worse than no metric, because it argues
 against the fix.
 
+### 22.5 Tuplets: analysis shipped, notation withheld
+
+Three attempts, measured each time, and the notation half is **still worse
+than not having it**. So it is built, gated off, and the analysis ships
+without it.
+
+Per-beat grid selection works and is trusted. Chopin's Op. 10 No. 5 reads as
+96% tuplet beats, Debussy's first Arabesque 54%, while Satie's *Gnossienne
+No. 2* and Schubert's *Gretchen* correctly report none at all. That took one
+real correction: the cost model's fidelity term was linear and modest, so on
+the Arabesque a sextuplet grid fitting with **residual 0.0000** still lost to
+plain sixteenths, because moving every note by a sixteenth cost about one
+unit. Fidelity is now squared and weighted heavily — near-misses cheap, real
+misses ruinous — so complexity only decides between candidates that all fit,
+which is exactly when "prefer the simpler notation" is right.
+
+The notation half went the other way, on the same matched samples:
+
+| | triplet-heavy | binary | gap |
+|---|---|---|---|
+| No tuplet support | 64.5% | 98.1% | 33.5 |
+| One-note tuplets *(bug)* | 34.1% | 98.6% | 64.5 |
+| Grouped brackets *(fixed)* | 44.0% | 98.6% | 54.6 |
+
+The middle row was a real bug worth recording: `<tuplet type="start">` and
+`type="stop"` were emitted on every note, making each one its own one-note
+tuplet — 672 of them in a single Debussy piece. Brackets span a *group*.
+Fixing that recovered 10 points and left it still 20 points behind doing
+nothing.
+
+Per file, against known baselines, it is worse everywhere it applies and
+harmless everywhere it does not:
+
+    Arabesque        11.1% -> 7.1%
+    Chopin 10/5      20.0% -> failed to render
+    Beethoven 2/1 IV 21.7% -> 6.3%
+    Pathétique III   73.8% -> 17.0%
+    Gnossienne 2    100.0% -> 100.0%
+    Gretchen        100.0% -> 100.0%
+
+Durations are 100% expressible as whole subdivisions and every measure
+balances, so the arithmetic is right and the fault is somewhere in how the
+notation reads back. It is not diagnosed yet.
+
+**So `EMIT_TUPLETS = False`.** The detection still runs on every file and the
+finding is raised at `will-look-bad` severity:
+
+> 96% of beats are tuplets and cannot be notated yet — these are being snapped
+> to the binary grid, which will not read correctly. Tuplet notation is
+> measured as still worse than this fallback. Fix those passages by hand for
+> now.
+
+A tool that says *"this piece is 96% sextuplets and I cannot write that yet"*
+is worth considerably more than one that confidently mangles it, and shipping
+the second because the work was done would be the exact failure §4.3 exists to
+prevent. The measurement is the deliverable here; the feature is not ready.
+
 ### 22.4 Organ
 
 An organ is not three instruments that happen to play together. It is one

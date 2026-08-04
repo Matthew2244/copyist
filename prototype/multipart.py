@@ -42,6 +42,7 @@ import instruments as I                                    # noqa: E402
 import organ                                               # noqa: E402
 import pedals                                              # noqa: E402
 import smf                                                 # noqa: E402
+import tuplets                                             # noqa: E402
 from spelling import ps13                                  # noqa: E402
 
 # Chromatic semitones -> diatonic steps, for <transpose>.
@@ -129,13 +130,32 @@ def report_parts(parts, find):
                  + (" …" if len(parts) > 8 else ""))
 
 
-def process_part(part, div, grid, measure_ticks, reach, comfortable, find):
+EMIT_TUPLETS = False    # see DESIGN 22.5 — analysis is trusted, notation is not
+
+
+def process_part(part, div, grid, measure_ticks, reach, comfortable, find,
+                 beat_ticks=None):
     """Everything that is per-instrument: snapping, staves, durations, spelling."""
     notes = part.notes
-    for n in notes:
-        snapped = int(round(n.on / grid)) * grid
-        n.off += snapped - n.on
-        n.on = snapped
+
+    # 7.2.1 — the grid is chosen PER BEAT, so a piece can be straight eighths
+    # in bar 1 and sextuplets in bar 12 and come out right in both places.
+    beat_ticks = beat_ticks or grid * 2
+    part.analysis_grids = tuplets.choose(sorted({n.on for n in notes}),
+                                         beat_ticks)
+    part.beat_ticks = beat_ticks
+    if EMIT_TUPLETS:
+        part.grids = part.analysis_grids
+        tuplets.snap(notes, beat_ticks, part.grids)
+    else:
+        # Snap uniformly, as before. The per-beat analysis above is still
+        # computed and reported, because knowing a piece is 96% sextuplets is
+        # useful even when Copyist cannot yet write one.
+        part.grids = {}
+        for n in notes:
+            snapped = int(round(n.on / grid)) * grid
+            n.off += snapped - n.on
+            n.on = snapped
 
     for n, sp in zip(notes, ps13(notes)):
         n.spell = sp
@@ -164,6 +184,21 @@ def process_part(part, div, grid, measure_ticks, reach, comfortable, find):
             group = by_onset[on]
             part.streams[1].append(
                 dict(on=on, notes=group, gate=max(n.off for n in group) - on))
+
+    # A tuplet bracket spans a GROUP, not a note. Emitting start and stop on
+    # every note makes each one its own one-note tuplet — 672 of them on a
+    # single Debussy piece — which is malformed and made the output markedly
+    # worse than having no tuplet support at all.
+    for seq in part.streams.values():
+        by_beat = {}
+        for ch in seq:
+            by_beat.setdefault(int(ch["on"] // beat_ticks), []).append(ch)
+        for b, group in by_beat.items():
+            if not tuplets.modification(part.grids.get(b, 2)):
+                continue
+            group.sort(key=lambda c: c["on"])
+            group[0]["tup_start"] = True
+            group[-1]["tup_stop"] = True
 
     # 7.3 — gate time is articulation, never rests
     for seq in part.streams.values():
@@ -297,7 +332,10 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
                     if fits <= 0:
                         continue
                     L += emit(ch["notes"], fits, div, voice, staff,
-                              ch.get("artic"), p, tie_start=fits < ch["dur"])
+                              ch.get("artic"), p, tie_start=fits < ch["dur"],
+                              onset=ch["on"],
+                              tup_start=ch.get("tup_start", False),
+                              tup_stop=ch.get("tup_stop", False))
                     if fits < ch["dur"]:
                         carry[staff] = (ch["dur"] - fits, ch["notes"])
                     pos += fits
@@ -313,9 +351,25 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
 
 
 def emit(ns, ticks, div, voice, staff, artic, part,
-         tie_stop=False, tie_start=False):
+         tie_stop=False, tie_start=False, onset=None,
+         tup_start=False, tup_stop=False):
     out = []
-    parts_ = C.decompose(ticks, div)
+    # Inside a tuplet beat, name the duration in the tuplet's own terms and
+    # carry <time-modification>. Fall back to binary decomposition when the
+    # duration is not a whole number of subdivisions, rather than forcing it.
+    mod = tup_parts = None
+    if onset is not None and getattr(part, "grids", None):
+        b = int(onset // part.beat_ticks)
+        sub = part.grids.get(b)
+        if sub is not None:
+            mod = tuplets.modification(sub)
+            if mod:
+                nt = tuplets.notated(ticks, part.beat_ticks, sub)
+                if nt:
+                    tup_parts = [(ticks, nt[0], nt[1])]
+                else:
+                    mod = None
+    parts_ = tup_parts or C.decompose(ticks, div)
     drums = part.info["drums"]
     tr = part.info["transpose"]
     for pi, (plen, ptype, dots) in enumerate(parts_):
@@ -348,6 +402,11 @@ def emit(ns, ticks, div, voice, staff, artic, part,
             out.append(f'        <voice>{voice}</voice>')
             out.append(f'        <type>{ptype}</type>')
             out += ['        <dot/>'] * dots
+            if mod:
+                out += ['        <time-modification>',
+                        f'          <actual-notes>{mod["actual"]}</actual-notes>',
+                        f'          <normal-notes>{mod["normal"]}</normal-notes>',
+                        '        </time-modification>']
             if drums:
                 _, _, head = I.drum_position(n.pitch)
                 if head != "normal":
@@ -362,6 +421,10 @@ def emit(ns, ticks, div, voice, staff, artic, part,
                 notations.append('<tied type="stop"/>')
             if (tie_start and last) or not last:
                 notations.append('<tied type="start"/>')
+            if mod and ni == 0 and first and tup_start:
+                notations.append('<tuplet type="start" bracket="yes"/>')
+            if mod and ni == 0 and last and tup_stop:
+                notations.append('<tuplet type="stop"/>')
             if artic and last and ni == 0:
                 notations.append(f'<articulations><{artic}/></articulations>')
             if notations:
@@ -415,6 +478,7 @@ def convert(path, out_path, key_name=None, reach=17, comfortable=14,
 
     gname, _ = A.classify_timing(notes, div, bpm, (ts_num, ts_den))
     grid = max(int(round(dict(A.GRIDS).get(gname, 0.5) * div)), 1)
+    beat_ticks = max(int(div * 4 / ts_den), 1)
 
     parts = group_parts(mid, x, find)
 
@@ -439,10 +503,11 @@ def convert(path, out_path, key_name=None, reach=17, comfortable=14,
         if getattr(p, "divisions", None):
             for staff, dpart in p.divisions.items():
                 process_part(dpart, div, grid, measure_ticks,
-                             reach, comfortable, find)
+                             reach, comfortable, find, beat_ticks)
                 p.streams[staff] = dpart.streams[1]
         else:
-            process_part(p, div, grid, measure_ticks, reach, comfortable, find)
+            process_part(p, div, grid, measure_ticks, reach, comfortable,
+                         find, beat_ticks)
         # Pedalling belongs to keyboards. A trumpet part with sustain marks on
         # it is noise, and DESIGN 11.3 found that even a real piano part in an
         # ensemble chart carries none.
@@ -452,6 +517,32 @@ def convert(path, out_path, key_name=None, reach=17, comfortable=14,
         p.pedals = (pedals.collect(mid["tracks"], p.chan,
                                    find if p.info["staves"] == 2 else None)
                     if p.info["staves"] == 2 else {})
+
+    # A beat is a tuplet beat if ANY part plays tuplets in it. Merging with
+    # dict.update() let a block-chord left hand overwrite a sextuplet right
+    # hand and under-reported Chopin's Op. 10 No. 5 as 15% instead of 96%.
+    allg = {}
+    for p in parts:
+        for b, sub in getattr(p, "analysis_grids", {}).items():
+            if b not in allg or (tuplets.modification(sub)
+                                 and not tuplets.modification(allg[b])):
+                allg[b] = sub
+    tup = sum(1 for s in allg.values() if tuplets.modification(s))
+    if tup:
+        share = tup / max(len(allg), 1) * 100
+        if EMIT_TUPLETS:
+            find.add("fixed-silently", f"{tup} beat(s) notated as tuplets",
+                     why=tuplets.summarize(allg)[:140])
+        else:
+            find.add("will-look-bad",
+                     f"{share:.0f}% of beats are tuplets and cannot be "
+                     f"notated yet",
+                     why=tuplets.summarize(allg)[:120]
+                         + " — these are being snapped to the binary grid, "
+                           "which will not read correctly",
+                     suggestion="Tuplet notation is measured as still worse "
+                                "than this fallback (DESIGN 22.5). Fix those "
+                                "passages by hand for now.")
 
     pitched = [n for n in notes if n.chan != 9]
     chords = harmony.detect(pitched, measure_ticks, fifths, find=find) \
