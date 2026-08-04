@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import analyze as A                                    # noqa: E402
 import convert as C                                    # noqa: E402
+import multipart as MP                                 # noqa: E402
 from spelling import ps13, double_accidentals          # noqa: E402
 
 
@@ -115,9 +116,18 @@ def do_analyze(path):
 
 
 def do_convert(path, out, key, reach, comfortable, level="full"):
+    # Multi-part whenever the file actually has parts. A solo piano export is
+    # one part and takes the original path, so single-part behaviour and the
+    # corpus fixtures are untouched.
+    mid = A.parse_midi(path)
+    x = A.extract(mid)
+    groups = {(n.track, n.chan) for n in x["notes"]}
     buf = io.StringIO()
     with redirect_stdout(buf):
-        C.convert(path, out, key, reach, comfortable, level)
+        if len(groups) > 1:
+            MP.convert(path, out, key, reach, comfortable, level)
+        else:
+            C.convert(path, out, key, reach, comfortable, level)
     text = buf.getvalue()
     if not os.path.exists(out):
         return {"ok": False, "error": text.strip()[:500] or "Conversion failed."}

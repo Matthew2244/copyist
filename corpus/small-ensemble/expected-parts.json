@@ -1,0 +1,26 @@
+[
+ {
+  "channel": 0,
+  "program": 0,
+  "name": "Piano",
+  "transpose": 0
+ },
+ {
+  "channel": 1,
+  "program": 56,
+  "name": "Trumpet",
+  "transpose": 2
+ },
+ {
+  "channel": 2,
+  "program": 33,
+  "name": "Electric Bass",
+  "transpose": 12
+ },
+ {
+  "channel": 9,
+  "program": 0,
+  "name": "Drum Kit",
+  "transpose": 0
+ }
+]

@@ -199,6 +199,42 @@ def check_key_names_are_usable():
           not missing, f"unusable: {sorted(set(missing))}")
 
 
+def check_parts(d):
+    """
+    10 — multi-part. The fixture has NO track names on purpose: every real
+    file that prompted this work was labelled entirely by GM program, and
+    name-only resolution identified none of them.
+    """
+    import json
+    import xml.etree.ElementTree as ET
+    want_path = os.path.join(d, "expected-parts.json")
+    if not os.path.exists(want_path):
+        return
+    want = json.load(open(want_path))
+    r = ET.parse(os.path.join(d, "expected.musicxml")).getroot()
+
+    got = [sp.findtext("part-name") for sp in r.findall(".//score-part")]
+    check(f"{len(want)} parts detected from GM programs alone",
+          got == [w["name"] for w in want], f"got {got}")
+
+    for sp, w in zip(r.findall(".//score-part"), want):
+        pid = sp.get("id")
+        part = [p for p in r.findall("part") if p.get("id") == pid][0]
+        t = part.find(".//transpose")
+        chromatic = int(t.findtext("chromatic")) if t is not None else 0
+        # MusicXML <transpose> is written -> sounding, the opposite direction
+        check(f"{w['name']} transposes correctly",
+              chromatic == -w["transpose"],
+              f"expected {-w['transpose']}, got {chromatic}")
+
+    drums = [w for w in want if "Drum" in w["name"]]
+    if drums:
+        check("percussion is written unpitched",
+              len(r.findall(".//unpitched")) > 0)
+        check("percussion carries noteheads",
+              len(r.findall(".//notehead")) > 0)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -212,7 +248,12 @@ def run_fixture(name, key, expect_verdicts):
         if not os.path.exists(path):
             continue
         out = os.path.join(tmp, f"{label}.musicxml")
-        convert_to(path, out, key)
+        if os.path.exists(os.path.join(d, "expected-parts.json")):
+            import multipart
+            with redirect_stdout(io.StringIO()):
+                multipart.convert(path, out, key, 17, 14)
+        else:
+            convert_to(path, out, key)
         outputs[label] = out
         check(f"{label}.mid converts byte-identical to expected.musicxml",
               open(out, "rb").read() == golden)
@@ -222,7 +263,9 @@ def run_fixture(name, key, expect_verdicts):
         check(f"{src} classifies as {want}", got == want, f"got {got}")
 
     check_spelling(d, key)
-    check_detail_levels(d, key)
+    check_parts(d)
+    if not os.path.exists(os.path.join(d, 'expected-parts.json')):
+        check_detail_levels(d, key)
 
     ms = find_mscore()
     if not ms:
@@ -252,6 +295,7 @@ if __name__ == "__main__":
                  "humanized.mid": "QUANTIZED THEN HUMANIZED"})
     run_fixture("spelling-modulation", "Eb major",
                 {"clean.mid": "HARD QUANTIZED"})
+    run_fixture("small-ensemble", None, {})
 
     print(f"\n{passed} passed, {failed} failed, {skipped} skipped")
     sys.exit(1 if failed else 0)

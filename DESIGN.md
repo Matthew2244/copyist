@@ -936,11 +936,49 @@ that is finished correctly tells you, in advance and per file, how much to
 trust everything downstream of it. Until §7.2 lands, `live` should probably be
 a warning in the UI rather than a silent best effort.
 
-**Also exposed, not yet addressed:** these are 6-to-19-track band arrangements,
-and Copyist merges every track onto two piano staves. There is no multi-part
-support at all (§10 assumes one instrument), no drum-track routing, and
-non-4/4 meters appear in the wild — `Flourish` is in 7/8 — while the metrical
-statistics in §7.5.2 assume four beats to a bar.
+### 22.2 Multi-part support
+
+Built in response to §22.1. `prototype/multipart.py` gives each instrument its
+own part instead of merging a nineteen-track arrangement onto two piano staves
+and applying a model of what one pair of hands can reach to a whole horn
+section.
+
+- **(track, channel) pairs become parts.** All 25 real files are format 1 with
+  one instrument per track, so the rule is simple and it holds.
+- **GM programs finally resolve instruments.** This was the real gap: every
+  one of those files has *empty track names* and a correct program on every
+  channel, so name-only resolution identified nothing in material that was
+  fully labelled the whole time. Brandenburg now comes out Strings,
+  Harpsichord, Violin; `jazz1` comes out Piano, Flute, Trumpet, Electric Bass,
+  Jazz Guitar, Drum Kit.
+- **Channel 10 is one kit**, however many tracks it was sequenced across —
+  `prtytime` had eight, which would otherwise be eight "Drum Kit" staves and
+  no drummer who could read them.
+- **Transposing instruments** are written at written pitch with `<transpose>`
+  (§10.3), and hand separation runs only for two-staff instruments.
+
+**Result: 25/25 convert, zero unbalanced measures, and pitched-note round-trip
+accuracy identical to the single-part path on every file, to the decimal.** The
+score's structure changes completely while its content does not.
+
+#### The metric lied first
+
+Measured naively, multi-part looked like a 4.3-point regression — even on
+hard-quantized files. It was not. A percussion staff conflates instruments by
+position on purpose (an acoustic and an electric snare are the same line), so
+the GM-pitch-to-staff map is many-to-one and cannot be inverted. Comparing
+sounding pitch after a round-trip scores correct drum notation as loss. On
+`Metal Mosh`, 239 of 251 "missing" notes were drums and every pitched channel
+was at zero loss.
+
+`stress.py` now excludes percussion from the comparison and says why. A metric
+that punishes a correct change is worse than no metric, because it argues
+against the fix.
+
+**Still not addressed:** non-4/4 meters appear in the wild — `Flourish` is in
+7/8 — while the metrical statistics in §7.5.2 assume four beats to a bar. And
+the `live` gap is unchanged at 27%, because it is §7.2 and nothing here
+touched it.
 
 **The ps13 departure.** The paper's context window is a hard 10 notes back and
 42 forward, tuned on pieces of thousands of notes. On shorter material a

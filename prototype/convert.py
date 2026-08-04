@@ -764,6 +764,8 @@ def root_step(pc, fifths):
     return step, alter
 
 
+_TRANSPOSE_TABLE = {}   # set by multipart.convert
+
 ACC_NAME = {-2: "flat-flat", -1: "flat", 0: "natural", 1: "sharp", 2: "sharp-sharp"}
 
 

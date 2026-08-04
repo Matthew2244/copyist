@@ -52,11 +52,22 @@ def _alarm(*_):
     raise TimeUp("exceeded the per-file time limit")
 
 
-def note_set(path):
+def note_set(path, pitched_only=True):
+    """
+    Percussion is excluded by default, and that is not a convenience.
+
+    A percussion staff conflates instruments by position on purpose — an
+    acoustic and an electric snare are the same line — so the GM-pitch-to-staff
+    map is many-to-one and cannot be inverted. Comparing sounding pitch after a
+    round-trip therefore scores correct drum notation as loss. Measuring it
+    that way once suggested multi-part support had made things 4 points worse,
+    when pitched notes were in fact byte-for-byte identical.
+    """
     mid = A.parse_midi(path)
     x = A.extract(mid)
     d = mid["division"]
-    return {(round(n.on / d, 4), n.pitch) for n in x["notes"]}
+    return {(round(n.on / d, 4), n.pitch) for n in x["notes"]
+            if not (pitched_only and n.chan == 9)}
 
 
 def unbalanced_measures(path):
