@@ -137,29 +137,15 @@ def process_part(part, div, grid, measure_ticks, reach, comfortable, find,
                  beat_ticks=None):
     """Everything that is per-instrument: snapping, staves, durations, spelling."""
     notes = part.notes
-
-    # 7.2.1 — the grid is chosen PER BEAT, so a piece can be straight eighths
-    # in bar 1 and sextuplets in bar 12 and come out right in both places.
     beat_ticks = beat_ticks or grid * 2
-    part.analysis_grids = tuplets.choose(sorted({n.on for n in notes}),
-                                         beat_ticks)
     part.beat_ticks = beat_ticks
-    if EMIT_TUPLETS:
-        part.grids = part.analysis_grids
-        tuplets.snap(notes, beat_ticks, part.grids)
-    else:
-        # Snap uniformly, as before. The per-beat analysis above is still
-        # computed and reported, because knowing a piece is 96% sextuplets is
-        # useful even when Copyist cannot yet write one.
-        part.grids = {}
-        for n in notes:
-            snapped = int(round(n.on / grid)) * grid
-            n.off += snapped - n.on
-            n.on = snapped
 
-    for n, sp in zip(notes, ps13(notes)):
-        n.spell = sp
-
+    # Streams are separated FIRST, on raw onsets, because the grid has to be
+    # chosen per stream and not per part. Two hands genuinely play different
+    # subdivisions at the same moment — three against two is the whole idea of
+    # Debussy's first Arabesque, where 44% of beats have the hands wanting
+    # different subdivisions. One grid for the part cannot express that, and
+    # forcing one destroyed whichever hand lost the vote.
     by_onset = defaultdict(list)
     for n in notes:
         by_onset[n.on].append(n)
@@ -185,16 +171,57 @@ def process_part(part, div, grid, measure_ticks, reach, comfortable, find,
             part.streams[1].append(
                 dict(on=on, notes=group, gate=max(n.off for n in group) - on))
 
+    # 7.2.1 — grid per beat, and now per stream.
+    part.stream_grids = {}
+    part.analysis_grids = {}
+    for staff, seq in part.streams.items():
+        if not seq:
+            continue
+        snotes = [n for ch in seq for n in ch["notes"]]
+        g = tuplets.choose(sorted({n.on for n in snotes}), beat_ticks)
+        part.stream_grids[staff] = g
+        for b, sub in g.items():
+            if b not in part.analysis_grids or (
+                    tuplets.modification(sub)
+                    and not tuplets.modification(part.analysis_grids[b])):
+                part.analysis_grids[b] = sub
+
+        if EMIT_TUPLETS:
+            tuplets.snap(snotes, beat_ticks, g)
+        else:
+            for n in snotes:
+                snapped = int(round(n.on / grid)) * grid
+                n.off += snapped - n.on
+                n.on = snapped
+
+        # Snapping moves onsets, so the chord list has to be rebuilt — two
+        # chords can land on the same tick and must merge rather than one
+        # silently overwriting the other.
+        merged = {}
+        for ch in seq:
+            on = min(n.on for n in ch["notes"])
+            if on in merged:
+                merged[on]["notes"] += ch["notes"]
+            else:
+                merged[on] = dict(on=on, notes=list(ch["notes"]))
+        for on, ch in merged.items():
+            ch["gate"] = max(n.off for n in ch["notes"]) - on
+        part.streams[staff] = [merged[k] for k in sorted(merged)]
+
+    for n, sp in zip(notes, ps13(notes)):
+        n.spell = sp
+
     # A tuplet bracket spans a GROUP, not a note. Emitting start and stop on
     # every note makes each one its own one-note tuplet — 672 of them on a
     # single Debussy piece — which is malformed and made the output markedly
     # worse than having no tuplet support at all.
-    for seq in part.streams.values():
+    for staff_no, seq in part.streams.items():
         by_beat = {}
         for ch in seq:
             by_beat.setdefault(int(ch["on"] // beat_ticks), []).append(ch)
         for b, group in by_beat.items():
-            if not tuplets.modification(part.grids.get(b, 2)):
+            if not tuplets.modification(
+                    part.stream_grids.get(staff_no, {}).get(b, 2)):
                 continue
             group.sort(key=lambda c: c["on"])
             group[0]["tup_start"] = True
@@ -326,7 +353,7 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
 
                 for ch in seq:
                     if ch["on"] > pos:
-                        L += emit_rest(ch["on"] - pos, div, voice, staff, staves)
+                        L += emit_rest(ch["on"] - pos, div, voice, staff, staves, p, pos)
                         pos = ch["on"]
                     fits = min(ch["dur"], m_end - pos)
                     if fits <= 0:
@@ -341,7 +368,7 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
                     pos += fits
 
                 if pos < m_end:
-                    L += emit_rest(m_end - pos, div, voice, staff, staves)
+                    L += emit_rest(m_end - pos, div, voice, staff, staves, p, pos)
 
             L.append('    </measure>')
         L.append('  </part>')
@@ -358,9 +385,9 @@ def emit(ns, ticks, div, voice, staff, artic, part,
     # carry <time-modification>. Fall back to binary decomposition when the
     # duration is not a whole number of subdivisions, rather than forcing it.
     mod = tup_parts = None
-    if onset is not None and getattr(part, "grids", None):
+    if onset is not None and getattr(part, "stream_grids", None):
         b = int(onset // part.beat_ticks)
-        sub = part.grids.get(b)
+        sub = part.stream_grids.get(staff, {}).get(b)
         if sub is not None:
             mod = tuplets.modification(sub)
             if mod:
@@ -434,7 +461,28 @@ def emit(ns, ticks, div, voice, staff, artic, part,
     return out
 
 
-def emit_rest(ticks, div, voice, staff, staves):
+def emit_rest(ticks, div, voice, staff, staves, part=None, onset=None):
+    """
+    Rests need the same tuplet treatment as notes.
+
+    They did not get it, and the result was rests declaring <type>32nd</type>
+    with <duration>64</duration> — at that division a 32nd is 24 ticks, so the
+    type and the duration flatly contradicted each other and the reader was
+    entitled to believe either.
+    """
+    mod = None
+    if part is not None and onset is not None and getattr(part, "stream_grids", None):
+        b = int(onset // part.beat_ticks)
+        sub = part.stream_grids.get(staff, {}).get(b)
+        if sub is not None:
+            mod = tuplets.modification(sub)
+            if mod:
+                nt = tuplets.notated(ticks, part.beat_ticks, sub)
+                if nt:
+                    return _rest_xml(ticks, nt[0], nt[1], voice, staff,
+                                     staves, mod)
+                mod = None
+
     out = []
     for plen, ptype, dots in C.decompose(ticks, div):
         out.append('      <note><rest/>')
@@ -445,6 +493,22 @@ def emit_rest(ticks, div, voice, staff, staves):
         if staves >= 2:
             out.append(f'        <staff>{staff}</staff>')
         out.append('      </note>')
+    return out
+
+
+def _rest_xml(plen, ptype, dots, voice, staff, staves, mod):
+    out = ['      <note><rest/>',
+           f'        <duration>{plen}</duration>',
+           f'        <voice>{voice}</voice>',
+           f'        <type>{ptype}</type>']
+    out += ['        <dot/>'] * dots
+    out += ['        <time-modification>',
+            f'          <actual-notes>{mod["actual"]}</actual-notes>',
+            f'          <normal-notes>{mod["normal"]}</normal-notes>',
+            '        </time-modification>']
+    if staves >= 2:
+        out.append(f'        <staff>{staff}</staff>')
+    out.append('      </note>')
     return out
 
 

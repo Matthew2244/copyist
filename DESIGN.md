@@ -1015,9 +1015,39 @@ harmless everywhere it does not:
     Gnossienne 2    100.0% -> 100.0%
     Gretchen        100.0% -> 100.0%
 
-Durations are 100% expressible as whole subdivisions and every measure
-balances, so the arithmetic is right and the fault is somewhere in how the
-notation reads back. It is not diagnosed yet.
+#### Two more attempts, two real bugs found, still not shippable
+
+**The grid must be per STREAM, not per part.** Two hands genuinely play
+different subdivisions at the same instant — three against two is the entire
+idea of the Arabesque, where **44% of beats have the hands wanting different
+subdivisions**. One grid per part cannot express that, so whichever hand lost
+the vote was destroyed. Streams are now separated first, on raw onsets, and
+each gets its own per-beat grid. This is correct and it is kept: Pathétique
+III went **17.0% → 76.4%**, past the no-tuplet baseline of 73.8%.
+
+**Rests needed the same tuplet treatment as notes, and never got it.** The
+output contained rests declaring `<type>32nd</type>` with `<duration>64</duration>`
+— at that division a 32nd is 24 ticks, so type and duration flatly
+contradicted each other. Fixed.
+
+**And the metric itself broke.** MuseScore *crashes* on heavy tuplet output —
+`libc++abi: terminating due to uncaught exception ... mutex lock failed` — on
+Chopin Op. 10 No. 5, the Arabesque and Beethoven Op. 2 No. 1. The MusicXML is
+valid, parses cleanly and has zero unbalanced measures; the renderer falls
+over. Since round-trip accuracy is measured *through* MuseScore, the tool that
+validates this feature cannot currently survive it.
+
+#### What is actually known
+
+- The core notation is **right**. A minimal fixture — four bars of triplet
+  eighths, one voice — round-trips at **100%**, with correct `duration`,
+  `type`, `time-modification` and one bracket per group.
+- Per-stream grids are necessary and are a clear win where they can be
+  measured.
+- Real repertoire adds mixed subdivisions, chords, rests and cross-beat notes,
+  and something in that combination is still wrong or triggers the crash.
+- Four attempts have each been measured rather than assumed, which is why the
+  feature is off rather than shipped hopefully.
 
 **So `EMIT_TUPLETS = False`.** The detection still runs on every file and the
 finding is raised at `will-look-bad` severity:
