@@ -1037,6 +1037,45 @@ valid, parses cleanly and has zero unbalanced measures; the renderer falls
 over. Since round-trip accuracy is measured *through* MuseScore, the tool that
 validates this feature cannot currently survive it.
 
+#### Attempt 5: the method was the problem
+
+Four attempts measured a symptom — round-trip accuracy on real repertoire —
+across dozens of confounded differences at once, and each time I guessed at
+the cause. `prototype/tuplet_ladder.py` replaces that with escalation: start
+from a case known to work, add ONE complication, report the first rung that
+breaks.
+
+    01 pure triplets              100%
+    02 triplets with chords       100%
+    03 triplets with rests        MUSESCORE CRASH   <- found immediately
+    04 mixed bars                 100%
+    05 mixed subdivisions in a bar 100%
+    06 three against two          100%
+    07 sextuplets                 100%
+    08 long notes over triplets   100%
+
+Two real bugs fell out in minutes that four rounds of guessing had missed:
+
+**Tuplet brackets must span rests.** The bracket closed on the last *note*, so
+trailing rests carried `<time-modification>` while sitting outside any tuplet
+— malformed, and it crashed MuseScore outright. Brackets are now assigned over
+the complete element timeline, notes and rests together.
+
+**A beat is a tuplet only if EVERYTHING in it can be expressed as one.** A note
+whose duration was not a whole number of subdivisions fell back to binary but
+still received a bracket, producing `<tuplet>` on a note with no
+`<time-modification>`. Such beats now fall back to binary entirely.
+
+It also exposed a flaw in the harness itself: single-track files route to
+`convert.py`, which has no tuplet support, so the first ladder run was
+measuring the wrong implementation and reported 2.1% on a case that was
+actually perfect.
+
+All eight rungs pass. **Real piano repertoire still does not** — the Arabesque
+and Beethoven Op. 2 No. 1 still crash MuseScore, Chopin Op. 10 No. 5 now
+renders but at 17.6% against a 20.0% baseline. Whatever remains is not on the
+ladder yet. The next attempt adds a rung; it does not guess.
+
 #### What is actually known
 
 - The core notation is **right**. A minimal fixture — four bars of triplet

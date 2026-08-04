@@ -75,6 +75,7 @@ class Part:
         self.info = info
         self.streams = {1: [], 2: [], 3: []}
         self.divisions = None
+        self.tuplet_skip = set()
 
 
 def group_parts(mid, x, find):
@@ -215,18 +216,6 @@ def process_part(part, div, grid, measure_ticks, reach, comfortable, find,
     # every note makes each one its own one-note tuplet — 672 of them on a
     # single Debussy piece — which is malformed and made the output markedly
     # worse than having no tuplet support at all.
-    for staff_no, seq in part.streams.items():
-        by_beat = {}
-        for ch in seq:
-            by_beat.setdefault(int(ch["on"] // beat_ticks), []).append(ch)
-        for b, group in by_beat.items():
-            if not tuplets.modification(
-                    part.stream_grids.get(staff_no, {}).get(b, 2)):
-                continue
-            group.sort(key=lambda c: c["on"])
-            group[0]["tup_start"] = True
-            group[-1]["tup_stop"] = True
-
     # 7.3 — gate time is articulation, never rests
     for seq in part.streams.values():
         for i, ch in enumerate(seq):
@@ -271,6 +260,7 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
         chords_by_measure[c["measure"]].append(c)
 
     for pi, p in enumerate(parts):
+        p.tuplet_skip = set()
         L.append(f'  <part id="{p.id}">')
         staves = p.info["staves"]
         carry = {i: None for i in range(1, staves + 1)}
@@ -340,35 +330,77 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
                 voice = (staff - 1) * 4 + 1
                 if staff > 1:
                     L.append(f'      <backup><duration>{mticks}</duration></backup>')
+                # Build the complete element timeline for this staff first —
+                # notes AND rests — because a tuplet bracket has to span
+                # everything inside the beat. Closing it on the last NOTE left
+                # trailing rests carrying <time-modification> outside any
+                # tuplet, which is malformed and crashed MuseScore outright.
                 pos = m_start
+                elements = []          # (start, dur, kind, payload)
                 seq = [c for c in p.streams[staff] if m_start <= c["on"] < m_end]
 
                 if carry[staff]:
                     length, notes = carry[staff]
                     fits = min(length, mticks)
-                    L += emit(notes, fits, div, voice, staff, None, p,
-                              tie_stop=True, tie_start=fits < length)
+                    elements.append((pos, fits, "carry", (notes, length)))
                     carry[staff] = (length - fits, notes) if fits < length else None
                     pos += fits
 
                 for ch in seq:
                     if ch["on"] > pos:
-                        L += emit_rest(ch["on"] - pos, div, voice, staff, staves, p, pos)
+                        elements.append((pos, ch["on"] - pos, "rest", None))
                         pos = ch["on"]
                     fits = min(ch["dur"], m_end - pos)
                     if fits <= 0:
                         continue
-                    L += emit(ch["notes"], fits, div, voice, staff,
-                              ch.get("artic"), p, tie_start=fits < ch["dur"],
-                              onset=ch["on"],
-                              tup_start=ch.get("tup_start", False),
-                              tup_stop=ch.get("tup_stop", False))
+                    elements.append((pos, fits, "note", ch))
                     if fits < ch["dur"]:
                         carry[staff] = (ch["dur"] - fits, ch["notes"])
                     pos += fits
 
                 if pos < m_end:
-                    L += emit_rest(m_end - pos, div, voice, staff, staves, p, pos)
+                    elements.append((pos, m_end - pos, "rest", None))
+
+                # Tuplet brackets, assigned over that timeline per beat.
+                bracket = {}
+                by_beat = {}
+                for idx, (start, dur, kind, _) in enumerate(elements):
+                    by_beat.setdefault(int(start // p.beat_ticks), []).append(idx)
+                for b, idxs in by_beat.items():
+                    sub = p.stream_grids.get(staff, {}).get(b, 2)
+                    if not tuplets.modification(sub):
+                        continue
+                    # Every element in the beat must be expressible in this
+                    # tuplet. If one is not it falls back to binary, and a
+                    # bracket around a note carrying no <time-modification> is
+                    # malformed — which is what still crashed MuseScore on
+                    # real piano writing after the synthetic cases all passed.
+                    if any(tuplets.notated(elements[i][1], p.beat_ticks, sub)
+                           is None for i in idxs):
+                        p.tuplet_skip.add((staff, b))
+                        continue
+                    bracket[idxs[0]] = "start"
+                    bracket[idxs[-1]] = ("both" if idxs[0] == idxs[-1]
+                                         else "stop")
+
+                for idx, (start, dur, kind, payload) in enumerate(elements):
+                    bk = bracket.get(idx)
+                    ts = bk in ("start", "both")
+                    tp = bk in ("stop", "both")
+                    if kind == "rest":
+                        L += emit_rest(dur, div, voice, staff, staves, p, start,
+                                       tup_start=ts, tup_stop=tp)
+                    elif kind == "carry":
+                        notes, length = payload
+                        L += emit(notes, dur, div, voice, staff, None, p,
+                                  tie_stop=True, tie_start=dur < length,
+                                  onset=start, tup_start=ts, tup_stop=tp)
+                    else:
+                        ch = payload
+                        L += emit(ch["notes"], dur, div, voice, staff,
+                                  ch.get("artic"), p,
+                                  tie_start=dur < ch["dur"], onset=ch["on"],
+                                  tup_start=ts, tup_stop=tp)
 
             L.append('    </measure>')
         L.append('  </part>')
@@ -387,7 +419,10 @@ def emit(ns, ticks, div, voice, staff, artic, part,
     mod = tup_parts = None
     if onset is not None and getattr(part, "stream_grids", None):
         b = int(onset // part.beat_ticks)
-        sub = part.stream_grids.get(staff, {}).get(b)
+        if (staff, b) in getattr(part, "tuplet_skip", ()):
+            sub = None
+        else:
+            sub = part.stream_grids.get(staff, {}).get(b)
         if sub is not None:
             mod = tuplets.modification(sub)
             if mod:
@@ -461,7 +496,8 @@ def emit(ns, ticks, div, voice, staff, artic, part,
     return out
 
 
-def emit_rest(ticks, div, voice, staff, staves, part=None, onset=None):
+def emit_rest(ticks, div, voice, staff, staves, part=None, onset=None,
+              tup_start=False, tup_stop=False):
     """
     Rests need the same tuplet treatment as notes.
 
@@ -473,14 +509,17 @@ def emit_rest(ticks, div, voice, staff, staves, part=None, onset=None):
     mod = None
     if part is not None and onset is not None and getattr(part, "stream_grids", None):
         b = int(onset // part.beat_ticks)
-        sub = part.stream_grids.get(staff, {}).get(b)
+        if (staff, b) in getattr(part, "tuplet_skip", ()):
+            sub = None
+        else:
+            sub = part.stream_grids.get(staff, {}).get(b)
         if sub is not None:
             mod = tuplets.modification(sub)
             if mod:
                 nt = tuplets.notated(ticks, part.beat_ticks, sub)
                 if nt:
                     return _rest_xml(ticks, nt[0], nt[1], voice, staff,
-                                     staves, mod)
+                                     staves, mod, tup_start, tup_stop)
                 mod = None
 
     out = []
@@ -496,7 +535,8 @@ def emit_rest(ticks, div, voice, staff, staves, part=None, onset=None):
     return out
 
 
-def _rest_xml(plen, ptype, dots, voice, staff, staves, mod):
+def _rest_xml(plen, ptype, dots, voice, staff, staves, mod,
+              tup_start=False, tup_stop=False):
     out = ['      <note><rest/>',
            f'        <duration>{plen}</duration>',
            f'        <voice>{voice}</voice>',
@@ -508,6 +548,13 @@ def _rest_xml(plen, ptype, dots, voice, staff, staves, mod):
             '        </time-modification>']
     if staves >= 2:
         out.append(f'        <staff>{staff}</staff>')
+    notations = []
+    if tup_start:
+        notations.append('<tuplet type="start" bracket="yes"/>')
+    if tup_stop:
+        notations.append('<tuplet type="stop"/>')
+    if notations:
+        out.append('        <notations>' + "".join(notations) + '</notations>')
     out.append('      </note>')
     return out
 
