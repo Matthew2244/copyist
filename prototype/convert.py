@@ -386,7 +386,7 @@ def convert(path, out_path, key_name, reach, comfortable,
     # REAPER's humanize moves every note INDEPENDENTLY, so a three-note chord
     # becomes three onsets up to 67 ms apart. Snapping re-forms the chords;
     # without it the score notates one chord as three shattered events.
-    gname, tstats = classify_timing(notes, div, bpm)
+    gname, tstats = classify_timing(notes, div, bpm, (ts_num, ts_den))
     gbeats = dict(GRIDS).get(gname, 0.5)
     gticks = max(int(round(gbeats * div)), 1)
     before = len({n.on for n in notes})

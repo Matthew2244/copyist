@@ -383,7 +383,7 @@ def convert(path, out_path, key_name=None, reach=17, comfortable=14,
     mode = "minor" if key_name.endswith("minor") else "major"
     C._TRANSPOSE_TABLE = C.spelling_table(fifths, find)
 
-    gname, _ = A.classify_timing(notes, div, bpm)
+    gname, _ = A.classify_timing(notes, div, bpm, (ts_num, ts_den))
     grid = max(int(round(dict(A.GRIDS).get(gname, 0.5) * div)), 1)
 
     parts = group_parts(mid, x, find)

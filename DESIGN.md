@@ -975,10 +975,52 @@ was at zero loss.
 that punishes a correct change is worse than no metric, because it argues
 against the fix.
 
-**Still not addressed:** non-4/4 meters appear in the wild — `Flourish` is in
-7/8 — while the metrical statistics in §7.5.2 assume four beats to a bar. And
-the `live` gap is unchanged at 27%, because it is §7.2 and nothing here
-touched it.
+### 22.3 Validated against 70 public-domain classical files
+
+Mutopia Project engravings — Bach, Beethoven, Chopin, Mozart, Schubert,
+Handel, Satie, Debussy, Joplin, Brahms — a completely different kind of
+material from the sequenced demos in §22.1: engraved scores rendered to MIDI,
+so mostly clean timing, real classical texture, and **ten different time
+signatures** (4/4, 3/4, 2/4, 6/8, 12/8, 2/2, 3/2, 6/4, 9/8, 3/8).
+
+**68/68 convert, zero failures, zero unbalanced measures.**
+
+| Timing verdict | Files | Mean round-trip |
+|---|---|---|
+| `hard-quantized` | 55 | 92.8% |
+| `humanized` | 2 | 73.2% |
+| `live` | 11 | 59.4% |
+
+The meter variety immediately justified a fix: `_structure()` hardcoded four
+beats to a bar, so every 3/4, 6/8 and 7/8 file had its notes sorted into the
+wrong metrical slots — corrupting the exact signal that statistic exists to
+measure. The real time signature is now threaded through from the file.
+
+#### Tuplets are the largest remaining accuracy gap, and now it is measured
+
+One `hard-quantized` file came back at **11.1%**, which should be impossible —
+if the grid is exact, the notes should survive. The outliers had one thing in
+common:
+
+| File | Onsets on triplet subdivisions | Round-trip |
+|---|---|---|
+| Debussy, *Arabesque No. 1* | 100% | **11.1%** |
+| Chopin, Op. 10 No. 5 | 97.4% | 20.0% |
+| Beethoven, Op. 2 No. 1, finale | 99.9% | 21.7% |
+| Satie, *Gnossienne No. 2* | 0% | 100.0% |
+| Schubert, *Gretchen* | 0% | 100.0% |
+
+Copyist has no tuplet support: it snaps to the detected binary grid, which
+annihilates triplet figuration. §7.2's cost model already describes tuplets as
+a candidate with a fixed setup cost plus a per-note cost — it is simply not
+built.
+
+So the two open accuracy items are now both quantified rather than guessed:
+**tuplets** cost 80 points on triplet-heavy repertoire, and **§7.2's live
+quantizer** costs roughly 65 points on unquantized performance. Tuplets are
+the better next target: the failure is total where it applies, the fix is
+bounded, and the classifier already says `hard-quantized` on the affected
+files, so it is currently confident and wrong — the worst combination.
 
 **The ps13 departure.** The paper's context window is a hard 10 notes back and
 42 forward, tuned on pieces of thousands of notes. On shorter material a

@@ -58,7 +58,7 @@ def do_analyze(path):
 
     bpm = 60_000_000 / x["tempos"][0][1] if x["tempos"] else 120.0
     ts = (x["timesigs"][0][1], x["timesigs"][0][2]) if x["timesigs"] else (4, 4)
-    gname, st = A.classify_timing(notes, div, bpm)
+    gname, st = A.classify_timing(notes, div, bpm, ts)
     kind, explanation = verdict_of(st)
     keys = A.estimate_key(notes)
     sim, wide = A.texture(notes)

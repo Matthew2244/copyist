@@ -138,7 +138,11 @@ def main():
             if not info.get("ok"):
                 raise ValueError(info.get("error", "analyze failed"))
             with redirect_stdout(io.StringIO()):
-                C.convert(f, out, None, 17, 14)
+                # Through the engine, so this exercises the same multi-part
+                # routing the GUIs use rather than a path only the test takes.
+                r = E.do_convert(f, out, None, 17, 14)
+            if not r.get("ok"):
+                raise ValueError(r.get("error", "convert failed"))
             signal.alarm(0)
         except Exception as ex:
             signal.alarm(0)
@@ -146,7 +150,7 @@ def main():
             failed.append((name, f"{type(ex).__name__}: {ex}"))
             continue
 
-        s = C.LAST_SUMMARY or {}
+        s = r.get("summary") or {}
         bad = unbalanced_measures(out)
         kind = info["timing"]["kind"]
         match = None

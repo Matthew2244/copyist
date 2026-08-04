@@ -187,7 +187,7 @@ def residuals(beats, grid):
     return out
 
 
-def classify_timing(notes, division, bpm):
+def classify_timing(notes, division, bpm, ts=(4, 4)):
     """Return (grid_name, stats dict) for the finest grid that explains onsets."""
     beats = [n.on / division for n in notes]
     if len(beats) < 8:
@@ -247,8 +247,12 @@ def classify_timing(notes, division, bpm):
     # against the null hypothesis by simulation: take this file's own grid
     # positions, jitter them with this file's own sd, and see what structure
     # pure noise produces. The answer is a percentile, not a magic number.
-    structure = _structure(beats, ms, g, sd)
-    pct = _null_percentile(beats, g, sd, structure, bpm)
+    # The bar length must come from the actual time signature. Assuming four
+    # beats put every 3/4, 6/8 and 7/8 file's notes into the wrong metrical
+    # slots, which is precisely the signal this statistic exists to measure.
+    per_bar = ts[0] * (4.0 / ts[1])
+    structure = _structure(beats, ms, g, sd, per_bar)
+    pct = _null_percentile(beats, g, sd, structure, bpm, per_bar=per_bar)
 
     return name, dict(mean=mean, sd=sd, peak=peak, exact=exact, r1=r1,
                       shape=shape, structure=structure, pct=pct, n=n)
@@ -268,7 +272,8 @@ def _structure(beats, ms, g, sd, per_bar=4.0):
     return between / (sd * sd / avg)
 
 
-def _null_percentile(beats, g, sd, observed, bpm, trials=300):
+def _null_percentile(beats, g, sd, observed, bpm, trials=300,
+                     per_bar=4.0):
     """What fraction of pure-noise runs score BELOW the observed value?"""
     if sd <= 1e-9:
         return 0.0
@@ -278,7 +283,7 @@ def _null_percentile(beats, g, sd, observed, bpm, trials=300):
     for _ in range(trials):
         jitter = [rng.gauss(0, sd) for _ in grid_beats]
         fake_beats = [gb + j * bpm / 60000.0 for gb, j in zip(grid_beats, jitter)]
-        if _structure(fake_beats, jitter, g, sd) < observed:
+        if _structure(fake_beats, jitter, g, sd, per_bar) < observed:
             below += 1
     return below / trials * 100.0
 
@@ -444,7 +449,7 @@ def main(path):
               "regions and take markers do not.")
 
     print("\nTIMING")
-    grid, st = classify_timing(notes, div, bpm)
+    grid, st = classify_timing(notes, div, bpm, (ts_num, ts_den))
     if not st:
         print("  Too few notes to classify.")
     else:
