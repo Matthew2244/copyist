@@ -334,6 +334,7 @@ struct Row: View {
             }
         }
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isStaticText)
         .accessibilityLabel("\(label). \(value). \(extra ?? "")")
     }
 }
@@ -413,6 +414,7 @@ struct FindingRow: View {
         }
         .padding(.leading, 8)
         .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isStaticText)
         .accessibilityLabel(finding.spoken)
     }
 }
