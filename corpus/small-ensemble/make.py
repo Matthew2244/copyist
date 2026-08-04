@@ -112,6 +112,17 @@ if __name__ == "__main__":
     chunks = [conductor]
     for ch, prog, _, _ in PARTS:
         ev = [(0, bytes([0xC0 | ch, prog]))]     # program change, no track name
+        if ch == 0:                              # piano: exercise all 3 pedals
+            for bar in range(BARS):
+                b = bar * 4 * DIV
+                ev.append((b + 10, bytes([0xB0, 64, 100])))          # sustain
+                ev.append((b + 4 * DIV - 20, bytes([0xB0, 64, 0])))
+                if bar % 4 == 0:                                     # sostenuto
+                    ev.append((b + 5, bytes([0xB0, 66, 110])))
+                    ev.append((b + 8 * DIV - 30, bytes([0xB0, 66, 0])))
+                if bar in (2, 3):                                    # una corda
+                    ev.append((b, bytes([0xB0, 67, 90])))
+                    ev.append((b + 4 * DIV - 10, bytes([0xB0, 67, 0])))
         for on, off, p, v in sorted(per_part[ch]):
             ev.append((on, bytes([0x90 | ch, p, v])))
             ev.append((off, bytes([0x80 | ch, p, 0])))

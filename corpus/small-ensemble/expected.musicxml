@@ -66,6 +66,18 @@
         <direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>96</per-minute></metronome></direction-type>
         <sound tempo="96.00"/>
       </direction>
+      <direction placement="below">
+        <direction-type><pedal type="start" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><pedal type="stop" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><pedal type="sostenuto" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
       <harmony>
         <root><root-step>A</root-step></root>
         <kind text="m">minor</kind>
@@ -137,6 +149,18 @@
       </note>
     </measure>
     <measure number="2">
+      <direction placement="below">
+        <direction-type><pedal type="start" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><pedal type="stop" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><pedal type="stop" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
       <harmony>
         <root><root-step>A</root-step></root>
         <kind text="m7">minor-seventh</kind>
@@ -206,6 +230,22 @@
       </note>
     </measure>
     <measure number="3">
+      <direction placement="below">
+        <direction-type><pedal type="start" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><pedal type="stop" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><words>una corda</words></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><words>tre corde</words></direction-type>
+        <staff>2</staff>
+      </direction>
       <harmony>
         <root><root-step>F</root-step></root>
         <kind text="maj7">major-seventh</kind>
@@ -275,6 +315,22 @@
       </note>
     </measure>
     <measure number="4">
+      <direction placement="below">
+        <direction-type><pedal type="start" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><pedal type="stop" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><words>una corda</words></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><words>tre corde</words></direction-type>
+        <staff>2</staff>
+      </direction>
       <harmony>
         <root><root-step>F</root-step></root>
         <kind text="">major</kind>
@@ -344,6 +400,18 @@
       </note>
     </measure>
     <measure number="5">
+      <direction placement="below">
+        <direction-type><pedal type="start" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><pedal type="stop" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><pedal type="sostenuto" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
       <harmony>
         <root><root-step>C</root-step></root>
         <kind text="">major</kind>
@@ -413,6 +481,18 @@
       </note>
     </measure>
     <measure number="6">
+      <direction placement="below">
+        <direction-type><pedal type="start" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><pedal type="stop" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><pedal type="stop" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
       <note>
         <pitch><step>C</step><octave>4</octave></pitch>
         <duration>960</duration>
@@ -478,6 +558,14 @@
       </note>
     </measure>
     <measure number="7">
+      <direction placement="below">
+        <direction-type><pedal type="start" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><pedal type="stop" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
       <harmony>
         <root><root-step>G</root-step></root>
         <kind text="6">major-sixth</kind>
@@ -547,6 +635,14 @@
       </note>
     </measure>
     <measure number="8">
+      <direction placement="below">
+        <direction-type><pedal type="start" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
+      <direction placement="below">
+        <direction-type><pedal type="stop" line="yes"/></direction-type>
+        <staff>2</staff>
+      </direction>
       <harmony>
         <root><root-step>G</root-step></root>
         <kind text="">major</kind>

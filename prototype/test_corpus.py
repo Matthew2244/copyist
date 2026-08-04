@@ -227,6 +227,16 @@ def check_parts(d):
               chromatic == -w["transpose"],
               f"expected {-w['transpose']}, got {chromatic}")
 
+    # All three pedals, not just sustain. Sostenuto is the one that lets a
+    # bass note ring under a dry passage; dropping it asks the player to do
+    # what the composer specifically avoided.
+    ptypes = {p.get("type") for p in r.findall(".//pedal")}
+    words = {w.text for w in r.findall(".//words")}
+    check("sustain pedal written", "start" in ptypes and "stop" in ptypes)
+    check("sostenuto pedal written", "sostenuto" in ptypes)
+    check("una corda written as text",
+          "una corda" in words and "tre corde" in words)
+
     drums = [w for w in want if "Drum" in w["name"]]
     if drums:
         check("percussion is written unpitched",

@@ -39,6 +39,7 @@ import convert as C                                        # noqa: E402
 import detail                                              # noqa: E402
 import harmony                                             # noqa: E402
 import instruments as I                                    # noqa: E402
+import pedals                                              # noqa: E402
 import smf                                                 # noqa: E402
 from spelling import ps13                                  # noqa: E402
 
@@ -233,6 +234,11 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
                           f'        <sound tempo="{bpm:.2f}"/>',
                           '      </direction>']
 
+            for d in pedals.directions_for_measure(
+                    getattr(p, 'pedals', {}), m_start, m_end,
+                    2 if staves == 2 else 1):
+                L.append(d)
+
             if pi == 0:
                 for c in chords_by_measure.get(m, []):
                     step, alter = C.root_step(c["root"], fifths)
@@ -389,6 +395,12 @@ def convert(path, out_path, key_name=None, reach=17, comfortable=14,
     parts = group_parts(mid, x, find)
     for p in parts:
         process_part(p, div, grid, measure_ticks, reach, comfortable, find)
+        # Pedalling belongs to keyboards. A trumpet part with sustain marks on
+        # it is noise, and DESIGN 11.3 found that even a real piano part in an
+        # ensemble chart carries none.
+        p.pedals = (pedals.collect(mid["tracks"], p.chan,
+                                   find if p.info["staves"] == 2 else None)
+                    if p.info["staves"] == 2 else {})
 
     pitched = [n for n in notes if n.chan != 9]
     chords = harmony.detect(pitched, measure_ticks, fifths, find=find) \

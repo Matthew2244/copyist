@@ -541,20 +541,10 @@ def convert(path, out_path, key_name, reach, comfortable,
             measure_dyn[m] = d
             last = d
 
-    # ---- pedal (10) — CC64 spans
-    pedal = []
-    for ti, ev in enumerate(mid["tracks"]):
-        down = None
-        for e in ev:
-            if e[1] == "chan" and e[2] == 0xB0 and e[4] == 64:
-                if e[5] >= 64 and down is None:
-                    down = e[0]
-                elif e[5] < 64 and down is not None:
-                    pedal.append((down, e[0]))
-                    down = None
-    if pedal:
-        find.add("fixed-silently", f"{len(pedal)} pedal marks written",
-                 why="CC64 spans, normally discarded entirely on MIDI import")
+    # ---- pedals (10) — all three, not just sustain
+    import pedals as _ped
+    ped_all = _ped.collect(mid["tracks"], None, find)
+    pedal = ped_all.get(_ped.SUSTAIN, [])
 
     total_ticks = max(n.off for n in notes)
     n_measures = total_ticks // measure_ticks + 1
@@ -695,7 +685,7 @@ def render(streams, measure_dyn, pedal, div, mticks, n_measures,
             if staff == 2:
                 L.append(f'      <backup><duration>{mticks}</duration></backup>')
 
-            for p in pedal if staff == 2 else []:
+            for p in (pedal if staff == 2 else []):
                 if m_start <= p[0] < m_end:
                     L += ['      <direction placement="below">',
                           '        <direction-type>'
