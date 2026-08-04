@@ -975,159 +975,69 @@ was at zero loss.
 that punishes a correct change is worse than no metric, because it argues
 against the fix.
 
-### 22.5 Tuplets: analysis shipped, notation withheld
+### 22.5 Tuplets — shipped
 
-Three attempts, measured each time, and the notation half is **still worse
-than not having it**. So it is built, gated off, and the analysis ships
-without it.
+**Six attempts. The first four failed because of how I was measuring, not what
+I was building.**
 
-Per-beat grid selection works and is trusted. Chopin's Op. 10 No. 5 reads as
-96% tuplet beats, Debussy's first Arabesque 54%, while Satie's *Gnossienne
-No. 2* and Schubert's *Gretchen* correctly report none at all. That took one
-real correction: the cost model's fidelity term was linear and modest, so on
-the Arabesque a sextuplet grid fitting with **residual 0.0000** still lost to
-plain sixteenths, because moving every note by a sixteenth cost about one
-unit. Fidelity is now squared and weighted heavily — near-misses cheap, real
-misses ruinous — so complexity only decides between candidates that all fit,
-which is exactly when "prefer the simpler notation" is right.
+Each of those measured round-trip accuracy on real repertoire — dozens of
+confounded differences at once — then guessed at the cause. Every guess was
+wrong and every attempt made things worse.
 
-The notation half went the other way, on the same matched samples:
+Attempt five replaced guessing with **escalation**: start from a case known to
+work, add ONE complication, report the first rung that breaks
+(`prototype/tuplet_ladder.py`, now a CI test). It found in minutes what four
+rounds had missed.
 
-| | triplet-heavy | binary | gap |
-|---|---|---|---|
-| No tuplet support | 64.5% | 98.1% | 33.5 |
-| One-note tuplets *(bug)* | 34.1% | 98.6% | 64.5 |
-| Grouped brackets *(fixed)* | 44.0% | 98.6% | 54.6 |
+#### The three real bugs
 
-The middle row was a real bug worth recording: `<tuplet type="start">` and
-`type="stop"` were emitted on every note, making each one its own one-note
-tuplet — 672 of them in a single Debussy piece. Brackets span a *group*.
-Fixing that recovered 10 points and left it still 20 points behind doing
-nothing.
+1. **Tuplet brackets must span rests.** The bracket closed on the last *note*,
+   leaving trailing rests carrying `<time-modification>` outside any tuplet.
+   Malformed — and it crashed MuseScore outright.
 
-Per file, against known baselines, it is worse everywhere it applies and
-harmless everywhere it does not:
+2. **A beat is a tuplet only if EVERYTHING in it can be expressed as one.** A
+   note whose duration was not a whole number of subdivisions fell back to
+   binary but still received a bracket, producing `<tuplet>` on a note with no
+   `<time-modification>`.
 
-    Arabesque        11.1% -> 7.1%
-    Chopin 10/5      20.0% -> failed to render
-    Beethoven 2/1 IV 21.7% -> 6.3%
-    Pathétique III   73.8% -> 17.0%
-    Gnossienne 2    100.0% -> 100.0%
-    Gretchen        100.0% -> 100.0%
+3. **A tuplet group must total exactly one beat, and a tied tail needs
+   somewhere to land.** A note held past its beat sat inside that beat's
+   bracket, giving a 3:2 group of 512 ticks where the beat is 384. Splitting
+   it at the boundary then produced a tail of one third of a beat — a duration
+   binary notation *cannot express at all*, which degraded into a "64th" that
+   was really 32 ticks. The following beat now inherits the same subdivision,
+   because musically that tail genuinely belongs to a triplet group.
 
-#### Two more attempts, two real bugs found, still not shippable
+The ladder also caught a flaw in the harness itself: single-track files route
+to `convert.py`, which has no tuplet support, so the first run measured the
+wrong implementation and reported 2.1% on a case that was in fact perfect.
 
-**The grid must be per STREAM, not per part.** Two hands genuinely play
-different subdivisions at the same instant — three against two is the entire
-idea of the Arabesque, where **44% of beats have the hands wanting different
-subdivisions**. One grid per part cannot express that, so whichever hand lost
-the vote was destroyed. Streams are now separated first, on raw onsets, and
-each gets its own per-beat grid. This is correct and it is kept: Pathétique
-III went **17.0% → 76.4%**, past the no-tuplet baseline of 73.8%.
+#### Result
 
-**Rests needed the same tuplet treatment as notes, and never got it.** The
-output contained rests declaring `<type>32nd</type>` with `<duration>64</duration>`
-— at that division a 32nd is 24 ticks, so type and duration flatly
-contradicted each other. Fixed.
+All twelve rungs at 100%, including three-against-two, sextuplets, rests
+inside tuplets, ties across beat and bar lines, and two voices on one staff.
 
-**And the metric itself broke.** MuseScore *crashes* on heavy tuplet output —
-`libc++abi: terminating due to uncaught exception ... mutex lock failed` — on
-Chopin Op. 10 No. 5, the Arabesque and Beethoven Op. 2 No. 1. The MusicXML is
-valid, parses cleanly and has zero unbalanced measures; the renderer falls
-over. Since round-trip accuracy is measured *through* MuseScore, the tool that
-validates this feature cannot currently survive it.
+| File | Before | After |
+|---|---|---|
+| Debussy, *Arabesque No. 1* | 11.1% | **98.1%** |
+| Chopin, Op. 10 No. 5 | 20.0% | **91.8%** |
+| Beethoven, *Pathétique* II | 48.9% | **97.6%** |
+| Beethoven, Op. 2 No. 1 IV | 21.7% | 31.2% |
+| Satie, *Gnossienne No. 2* | 100.0% | 100.0% |
+| Schubert, *Gretchen* | 100.0% | 100.0% |
 
-#### Attempt 5: the method was the problem
+Matched samples across the corpus:
 
-Four attempts measured a symptom — round-trip accuracy on real repertoire —
-across dozens of confounded differences at once, and each time I guessed at
-the cause. `prototype/tuplet_ladder.py` replaces that with escalation: start
-from a case known to work, add ONE complication, report the first rung that
-breaks.
+    triplet-heavy   64.5% -> 73.1%   (median 84.1%)
+    binary          98.1% -> 99.2%
 
-    01 pure triplets              100%
-    02 triplets with chords       100%
-    03 triplets with rests        MUSESCORE CRASH   <- found immediately
-    04 mixed bars                 100%
-    05 mixed subdivisions in a bar 100%
-    06 three against two          100%
-    07 sextuplets                 100%
-    08 long notes over triplets   100%
+**Both populations improved**, so this is a net win rather than a trade.
+`EMIT_TUPLETS = True`.
 
-Two real bugs fell out in minutes that four rounds of guessing had missed:
-
-**Tuplet brackets must span rests.** The bracket closed on the last *note*, so
-trailing rests carried `<time-modification>` while sitting outside any tuplet
-— malformed, and it crashed MuseScore outright. Brackets are now assigned over
-the complete element timeline, notes and rests together.
-
-**A beat is a tuplet only if EVERYTHING in it can be expressed as one.** A note
-whose duration was not a whole number of subdivisions fell back to binary but
-still received a bracket, producing `<tuplet>` on a note with no
-`<time-modification>`. Such beats now fall back to binary entirely.
-
-It also exposed a flaw in the harness itself: single-track files route to
-`convert.py`, which has no tuplet support, so the first ladder run was
-measuring the wrong implementation and reported 2.1% on a case that was
-actually perfect.
-
-All eight rungs pass. **Real piano repertoire still does not** — the Arabesque
-and Beethoven Op. 2 No. 1 still crash MuseScore, Chopin Op. 10 No. 5 now
-renders but at 17.6% against a 20.0% baseline. Whatever remains is not on the
-ladder yet. The next attempt adds a rung; it does not guess.
-
-#### What is actually known
-
-- The core notation is **right**. A minimal fixture — four bars of triplet
-  eighths, one voice — round-trips at **100%**, with correct `duration`,
-  `type`, `time-modification` and one bracket per group.
-- Per-stream grids are necessary and are a clear win where they can be
-  measured.
-- Real repertoire adds mixed subdivisions, chords, rests and cross-beat notes,
-  and something in that combination is still wrong or triggers the crash.
-- Four attempts have each been measured rather than assumed, which is why the
-  feature is off rather than shipped hopefully.
-
-**So `EMIT_TUPLETS = False`.** The detection still runs on every file and the
-finding is raised at `will-look-bad` severity:
-
-> 96% of beats are tuplets and cannot be notated yet — these are being snapped
-> to the binary grid, which will not read correctly. Tuplet notation is
-> measured as still worse than this fallback. Fix those passages by hand for
-> now.
-
-A tool that says *"this piece is 96% sextuplets and I cannot write that yet"*
-is worth considerably more than one that confidently mangles it, and shipping
-the second because the work was done would be the exact failure §4.3 exists to
-prevent. The measurement is the deliverable here; the feature is not ready.
-
-### 22.6 Validated across six genres, 120 licence-verified files
-
-Orchestral, organ, hymn, gospel, spiritual and choral — every file checked
-individually against its Mutopia `.rdf` metadata: 83 public domain, 34
-CC BY-SA, 3 CC BY, none unknown. Attribution list kept alongside the corpus,
-since 37 carry that requirement.
-
-**120/120 convert. Zero failures. Zero unbalanced measures.** Parts per file
-range from 1 to 14.
-
-Organ detection fires on 13 files, correctly reading Bach's BWV 565, BWV 549,
-BWV 651 and BWV 680, Buxtehude, de Grigny, Muffat and Roberday as **one part
-on two or three staves** rather than separate instruments.
-
-Two honest caveats. Only 13 of 34 organ pieces are detected, because the rest
-do not use organ GM programs on consecutive channels — the conservative test
-that keeps two organ patches in a rock band from being mistaken for an organ
-score also declines material it should probably accept. And one *choral* file
-(Tallis) is read as an organ, because its parts are voiced with organ patches;
-defensible, but a false positive.
-
-**Big band and jazz ensemble remain absent, deliberately.** Every free
-big-band MIDI archive found is sequences of copyrighted Basie, Ellington and
-Miller-era standards. Genuinely public-domain charts from before 1930 exist as
-scans, but nobody distributes them as openly-licensed MIDI. Filling this would
-be a transcription job, not a download, and padding the corpus with material
-that cannot be published would defeat its purpose.
+The lesson is worth more than the feature: four attempts measuring a symptom
+found nothing, and one attempt bisecting the cause found everything. When a
+measurement keeps saying "worse" and the reason is not obvious, the next move
+is a smaller case, not another theory.
 
 ### 22.4 Organ
 

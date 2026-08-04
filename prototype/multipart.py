@@ -131,7 +131,11 @@ def report_parts(parts, find):
                  + (" …" if len(parts) > 8 else ""))
 
 
-EMIT_TUPLETS = False    # see DESIGN 22.5 — analysis is trusted, notation is not
+# ON since the escalation ladder (prototype/tuplet_ladder.py) found the three
+# bugs that four rounds of guessing had missed. Measured on matched samples:
+# triplet-heavy repertoire 64.5% -> 73.1%, binary 98.1% -> 99.2%. Both
+# improved, so this is a net win rather than a trade.
+EMIT_TUPLETS = True
 
 
 def process_part(part, div, grid, measure_ticks, reach, comfortable, find,
@@ -180,6 +184,21 @@ def process_part(part, div, grid, measure_ticks, reach, comfortable, find,
             continue
         snotes = [n for ch in seq for n in ch["notes"]]
         g = tuplets.choose(sorted({n.on for n in snotes}), beat_ticks)
+
+        # A note that starts in a tuplet beat and is held into the next one
+        # leaves a tail that is a tuplet duration — one third of a beat cannot
+        # be written in binary at all, and trying produced a "64th" that was
+        # really 32 ticks. The following beat has to carry the same
+        # subdivision so the tie has somewhere to land.
+        for n in snotes:
+            b0 = int(n.on // beat_ticks)
+            if not tuplets.modification(g.get(b0, 2)):
+                continue
+            last = int(max(n.off - 1, n.on) // beat_ticks)
+            for b in range(b0 + 1, last + 1):
+                if not tuplets.modification(g.get(b, 2)):
+                    g[b] = g[b0]
+
         part.stream_grids[staff] = g
         for b, sub in g.items():
             if b not in part.analysis_grids or (
@@ -346,26 +365,58 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
                     carry[staff] = (length - fits, notes) if fits < length else None
                     pos += fits
 
+                def split_at_tuplet_beats(start, dur):
+                    """
+                    A tuplet group must total exactly one beat. A note running
+                    past the end of its beat cannot sit inside that beat's
+                    bracket — doing so produced a 3:2 group totalling 512 ticks
+                    where the beat is 384, which is malformed and crashed
+                    MuseScore. Split it there and let the tie carry it.
+                    """
+                    out, s, left = [], start, dur
+                    while left > 0:
+                        b = int(s // p.beat_ticks)
+                        end_of_beat = (b + 1) * p.beat_ticks
+                        crosses = s + left > end_of_beat
+                        this_tuplet = tuplets.modification(
+                            p.stream_grids.get(staff, {}).get(b, 2))
+                        next_tuplet = tuplets.modification(
+                            p.stream_grids.get(staff, {}).get(b + 1, 2))
+                        if crosses and (this_tuplet or next_tuplet):
+                            take = end_of_beat - s
+                        else:
+                            take = left
+                        out.append((s, take))
+                        s += take
+                        left -= take
+                    return out
+
                 for ch in seq:
                     if ch["on"] > pos:
-                        elements.append((pos, ch["on"] - pos, "rest", None))
+                        for gs, gd in split_at_tuplet_beats(pos, ch["on"] - pos):
+                            elements.append((gs, gd, "rest", None))
                         pos = ch["on"]
                     fits = min(ch["dur"], m_end - pos)
                     if fits <= 0:
                         continue
-                    elements.append((pos, fits, "note", ch))
+                    segs = split_at_tuplet_beats(pos, fits)
+                    for si, (gs, gd) in enumerate(segs):
+                        elements.append((gs, gd, "note", ch,
+                                         si > 0, si < len(segs) - 1))
                     if fits < ch["dur"]:
                         carry[staff] = (ch["dur"] - fits, ch["notes"])
                     pos += fits
 
                 if pos < m_end:
-                    elements.append((pos, m_end - pos, "rest", None))
+                    for gs, gd in split_at_tuplet_beats(pos, m_end - pos):
+                        elements.append((gs, gd, "rest", None))
 
                 # Tuplet brackets, assigned over that timeline per beat.
                 bracket = {}
                 by_beat = {}
-                for idx, (start, dur, kind, _) in enumerate(elements):
-                    by_beat.setdefault(int(start // p.beat_ticks), []).append(idx)
+                elements = [(e + (False, False))[:6] for e in elements]
+                for idx, e in enumerate(elements):
+                    by_beat.setdefault(int(e[0] // p.beat_ticks), []).append(idx)
                 for b, idxs in by_beat.items():
                     sub = p.stream_grids.get(staff, {}).get(b, 2)
                     if not tuplets.modification(sub):
@@ -383,7 +434,8 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
                     bracket[idxs[-1]] = ("both" if idxs[0] == idxs[-1]
                                          else "stop")
 
-                for idx, (start, dur, kind, payload) in enumerate(elements):
+                for idx, (start, dur, kind, payload, seg_tie_stop,
+                          seg_tie_start) in enumerate(elements):
                     bk = bracket.get(idx)
                     ts = bk in ("start", "both")
                     tp = bk in ("stop", "both")
@@ -397,9 +449,12 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
                                   onset=start, tup_start=ts, tup_stop=tp)
                     else:
                         ch = payload
+                        ends_here = (start + dur >= ch["on"] + ch["dur"])
                         L += emit(ch["notes"], dur, div, voice, staff,
-                                  ch.get("artic"), p,
-                                  tie_start=dur < ch["dur"], onset=ch["on"],
+                                  ch.get("artic") if ends_here else None, p,
+                                  tie_stop=seg_tie_stop,
+                                  tie_start=seg_tie_start or dur < ch["dur"],
+                                  onset=start,
                                   tup_start=ts, tup_stop=tp)
 
             L.append('    </measure>')

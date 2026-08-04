@@ -160,6 +160,74 @@ def rung_08_long_notes_over_triplets():
     return [(0, hi), (1, lo)]
 
 
+def rung_09_tie_across_tuplet_beat():
+    """
+    A note that STARTS inside a tuplet beat and ends inside the next one.
+
+    Its duration is not a whole number of that beat's subdivisions, so it has
+    to be split and tied across the boundary — and the two halves may belong
+    to beats with different subdivisions.
+    """
+    n = []
+    for b in range(4):
+        base = b * BAR
+        # beat 1: three triplets, the last held over into beat 2
+        n.append((base, base + T - 4, 60, 80))
+        n.append((base + T, base + 2 * T - 4, 62, 80))
+        n.append((base + 2 * T, base + DIV + T - 4, 64, 80))     # ties over
+        # beat 3-4: straight eighths
+        for i in range(4):
+            on = base + 2 * DIV + i * EI
+            n.append((on, on + EI - 4, SC[i % 8], 80))
+    return [(0, n)]
+
+
+def rung_10_two_voices_one_staff():
+    """
+    Two independent lines on ONE channel: a triplet line above a held pedal
+    tone. Hand separation must not split them and both must share a staff.
+    """
+    n = []
+    for b in range(4):
+        base = b * BAR
+        for i in range(12):
+            on = base + i * T
+            n.append((on, on + T - 4, SC[i % 8] + 12, 80))
+        n.append((base, base + BAR - 8, 55, 60))                 # held under
+    return [(0, n)]
+
+
+def rung_11_tie_across_barline():
+    """A tuplet note held over the bar line."""
+    n = []
+    for b in range(4):
+        base = b * BAR
+        for i in range(11):
+            on = base + i * T
+            n.append((on, on + T - 4, SC[i % 8], 80))
+        # last triplet of the bar spills into the next
+        n.append((base + 11 * T, base + BAR + T - 4, 72, 80))
+    return [(0, n)]
+
+
+def rung_12_arabesque_texture():
+    """
+    The real thing, in miniature: right hand in triplets, left hand in
+    straight eighths, both hands sustaining across beats, on two channels.
+    """
+    hi, lo = [], []
+    for b in range(4):
+        base = b * BAR
+        for i in range(12):
+            on = base + i * T
+            hi.append((on, on + T - 4, SC[i % 8] + 12, 80))
+        for i in range(8):
+            on = base + i * EI
+            dur = EI * 2 if i % 4 == 0 else EI - 4      # some held over beats
+            lo.append((on, on + dur - 4, SC[i % 8] - 12, 68))
+    return [(0, hi), (1, lo)]
+
+
 RUNGS = [(k, v) for k, v in sorted(globals().items()) if k.startswith("rung_")]
 
 

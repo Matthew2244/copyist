@@ -271,6 +271,70 @@ def check_organ(d):
           any("drawbars" in w for w in words), f"got {sorted(words)}")
 
 
+def check_tuplet_ladder():
+    """
+    7.2 — the escalation ladder as a regression test.
+
+    Four attempts at tuplets failed because they measured a symptom on real
+    repertoire across dozens of confounded differences. The ladder adds one
+    complication at a time to a case known to work, and it found all three
+    real bugs — brackets not spanning rests, beats containing anything the
+    tuplet cannot express, and ties across a tuplet beat boundary — in
+    minutes. Every rung must keep producing valid, balanced MusicXML.
+    """
+    import xml.etree.ElementTree as ET
+    import tuplet_ladder as TL
+    import multipart as MP
+    tmp = tempfile.mkdtemp()
+    bad = []
+    for name, fn in TL.RUNGS:
+        src = TL.write(name, fn())
+        out = os.path.join(tmp, name + ".musicxml")
+        try:
+            with redirect_stdout(io.StringIO()):
+                MP.convert(src, out, "C major", 17, 14)
+            r = ET.parse(out).getroot()
+        except Exception as e:
+            bad.append(f"{name}: {type(e).__name__}")
+            continue
+        div = int(r.findtext(".//divisions"))
+        expect = None
+        for part in r.findall("part"):
+            for m in part.findall("measure"):
+                t = m.find(".//time")
+                if t is not None:
+                    expect = (int(t.findtext("beats"))
+                              * (4 / int(t.findtext("beat-type"))) * div)
+                per = {}
+                for e in m:
+                    if e.tag != "note" or e.find("chord") is not None:
+                        continue
+                    v = e.findtext("voice")
+                    per[v] = per.get(v, 0) + int(e.findtext("duration"))
+                if per and not all(abs(x - expect) < 1e-6 for x in per.values()):
+                    bad.append(f"{name}: measure {m.get('number')} unbalanced")
+                    break
+        # every tuplet group must total a whole number of beats
+        for part in r.findall("part"):
+            run, inside = 0, False
+            for n in part.iter("note"):
+                tup = n.find(".//tuplet")
+                if tup is not None and tup.get("type") == "start":
+                    inside, run = True, 0
+                # Chord members share a tick — counting each one double-counts
+                # the group, which is what this assertion got wrong first.
+                if inside and n.find("chord") is None:
+                    run += int(n.findtext("duration"))
+                if tup is not None and tup.get("type") == "stop":
+                    if run % div != 0:
+                        bad.append(f"{name}: tuplet group {run} ticks, "
+                                   f"not a whole beat ({div})")
+                    inside = False
+    shutil.rmtree(tmp, ignore_errors=True)
+    check(f"all {len(TL.RUNGS)} tuplet ladder rungs valid and balanced",
+          not bad, "; ".join(bad[:3]))
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -328,6 +392,7 @@ if __name__ == "__main__":
     print("\ninvariants")
     check_duration_algebra()
     check_key_names_are_usable()
+    check_tuplet_ladder()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
