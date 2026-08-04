@@ -32,6 +32,7 @@ from analyze import (parse_midi, extract, estimate_key, classify_timing,
                      GRIDS, PC, name_interval)
 from spelling import ps13, double_accidentals
 import articulation
+import smf
 
 # --------------------------------------------------------------- constants
 
@@ -528,8 +529,22 @@ def convert(path, out_path, key_name, reach, comfortable):
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(xml)
 
+    # 16 — render what the SCORE says back to MIDI, for the A/B audition.
+    # Not the performance: quantized onsets, notated durations, the
+    # articulations Copyist chose. If these two disagree audibly, Copyist is
+    # wrong about something.
+    notated_midi = out_path.rsplit(".", 1)[0] + ".notated.mid"
+    try:
+        smf.write(notated_midi, smf.notes_from_streams(streams),
+                  div, bpm, (ts_num, ts_den), "Copyist — as notated")
+    except Exception as e:
+        notated_midi = None
+        find.add("uncertain", "Could not render the notated version for audition",
+                 why=str(e))
+
     LAST_FINDINGS = find
     LAST_SUMMARY = {
+        "notatedMidi": notated_midi,
         "key": key_name, "fifths": fifths, "instrument": inst_name,
         "instrumentSound": inst_sound, "measures": int(n_measures),
         "notes": len(notes),

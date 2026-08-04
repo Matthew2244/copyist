@@ -59,9 +59,27 @@ guard let app = NSWorkspace.shared.runningApplications.first(where: {
     exit(2)
 }
 
+// A background app has no accessibility tree to speak of — AppKit builds it
+// for the app the user is actually in. Bring it forward, or the audit reports
+// an empty tree and looks like a failure of the UI rather than of the setup.
+if !app.isActive {
+    app.activate(options: [.activateAllWindows])
+    Thread.sleep(forTimeInterval: 1.2)
+}
+
 let root = AXUIElementCreateApplication(app.processIdentifier)
 AXUIElementSetAttributeValue(root, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
-Thread.sleep(forTimeInterval: 0.8)
+Thread.sleep(forTimeInterval: 1.0)
+
+let windows = children(root).filter {
+    attr($0, kAXRoleAttribute as String) == "AXWindow"
+}
+if windows.isEmpty {
+    print("The app is running but exposes no accessibility window.")
+    print("  pid \(app.processIdentifier), active \(app.isActive)")
+    print("Nothing was inspected. This is a failure to audit, not a pass.")
+    exit(2)
+}
 
 // MARK: - Walk
 
@@ -130,9 +148,7 @@ func walk(_ e: AXUIElement, _ depth: Int, chrome: Bool = false) {
     }
 }
 
-for w in children(root) where attr(w, kAXRoleAttribute as String) == "AXWindow" {
-    walk(w, 0)
-}
+for w in windows { walk(w, 0) }
 
 // MARK: - Report
 

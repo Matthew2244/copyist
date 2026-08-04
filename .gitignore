@@ -12,3 +12,5 @@ prototype/*.MID
 gui/macos/.build/
 gui/windows/bin/
 gui/windows/obj/
+gui/macos/Copyist.app/
+corpus/*/*.notated.mid

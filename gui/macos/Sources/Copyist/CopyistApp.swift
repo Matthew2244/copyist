@@ -69,8 +69,11 @@ struct ContentView: View {
     @State private var analysis: Analysis?
     @State private var conversion: Conversion?
     @State private var chosenKey = ""
-    @State private var reach = 17
-    @State private var comfortable = 14
+    // 8.3 / 14 — reach belongs to the PLAYER, not the song. Answer once.
+    @AppStorage("maximumReach") private var reach = 17
+    @AppStorage("comfortableReach") private var comfortable = 14
+    @StateObject private var player = Player()
+    @FocusState private var resultFocused: Bool
     @State private var status = "No file open. Press Command O to choose a MIDI file."
     @State private var busy = false
     @State private var errorText: String?
@@ -82,8 +85,13 @@ struct ContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     if let a = analysis { AnalysisSection(analysis: a) }
+                    if analysis != nil { auditionSection }
                     if analysis != nil { settingsSection }
-                    if let c = conversion { ResultSection(conversion: c) }
+                    if let c = conversion {
+                        ResultSection(conversion: c)
+                            .focusable()
+                            .focused($resultFocused)
+                    }
                     if analysis == nil && !busy { welcome }
                 }
                 .padding(20)
@@ -175,6 +183,66 @@ struct ContentView: View {
         }
     }
 
+    // MARK: Audition (DESIGN 16)
+
+    private var auditionSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Listen").font(.headline).accessibilityAddTraits(.isHeader)
+            Text("Play what you recorded, then play what the score says. If "
+                 + "they differ in a way you can hear, something is wrong.")
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Button(player.playing == "original"
+                       ? "Stop" : "Play what you recorded") {
+                    toggle(midiPath, "original")
+                }
+                .keyboardShortcut("1")
+                .disabled(midiPath == nil || !player.available)
+                .accessibilityHint("Plays the MIDI file you opened.")
+
+                Button(player.playing == "notated"
+                       ? "Stop" : "Play what the score says") {
+                    toggle(conversion?.notatedMidi, "notated")
+                }
+                .keyboardShortcut("2")
+                .disabled(conversion?.notatedMidi == nil || !player.available)
+                .accessibilityHint(
+                    "Plays the quantized onsets, notated durations and "
+                    + "articulations Copyist chose.")
+
+                Button("Stop") { player.stop(); announce("Stopped.") }
+                    .keyboardShortcut(".", modifiers: .command)
+                    .disabled(player.playing == nil)
+                    .accessibilityHint("Stops whichever version is playing.")
+            }
+
+            if !player.available {
+                Text("No General MIDI sound bank on this Mac, so playback is "
+                     + "unavailable.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func toggle(_ path: String?, _ label: String) {
+        if player.playing == label { player.stop(); announce("Stopped."); return }
+        guard let path else { return }
+        do {
+            try player.play(URL(fileURLWithPath: path), label: label) {
+                announce(label == "original"
+                         ? "Recording finished." : "Score finished.")
+            }
+            announce(label == "original"
+                     ? "Playing what you recorded."
+                     : "Playing what the score says.")
+        } catch {
+            errorText = error.localizedDescription
+            announce("Could not play that.")
+        }
+    }
+
     // MARK: Status
 
     private var statusBar: some View {
@@ -243,6 +311,7 @@ struct ContentView: View {
                     conversion = c
                     busy = false
                     status = c.headline
+                    resultFocused = true
                     announce("Conversion finished. " + c.headline
                              + " Saved as \((c.output as NSString).lastPathComponent).")
                 }

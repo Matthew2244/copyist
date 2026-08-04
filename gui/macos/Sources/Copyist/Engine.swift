@@ -19,6 +19,11 @@ enum Engine {
         if let env = ProcessInfo.processInfo.environment["COPYIST_ENGINE"],
            fm.isReadableFile(atPath: env) { return env }
 
+        // Inside a built .app the engine ships in Resources.
+        if let res = Bundle.main.resourceURL?
+            .appendingPathComponent("prototype/engine.py"),
+           fm.isReadableFile(atPath: res.path) { return res.path }
+
         var dir = URL(fileURLWithPath: CommandLine.arguments[0])
             .resolvingSymlinksInPath()
             .deletingLastPathComponent()
@@ -183,11 +188,13 @@ struct Finding: Identifiable {
 
 struct Conversion {
     let output: String
+    let notatedMidi: String?
     let summary: [String: Any]
     let findings: [Finding]
 
     init(_ d: [String: Any]) {
         output = d["output"] as? String ?? ""
+        notatedMidi = d["notatedMidi"] as? String
         summary = d["summary"] as? [String: Any] ?? [:]
         findings = (d["findings"] as? [[String: Any]] ?? []).map(Finding.init)
     }

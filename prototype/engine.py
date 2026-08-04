@@ -127,6 +127,7 @@ def do_convert(path, out, key, reach, comfortable):
     return {
         "ok": True,
         "output": os.path.abspath(out),
+        "notatedMidi": summary.get("notatedMidi"),
         "summary": summary,
         "findings": findings.items if findings else [],
         "log": text,
