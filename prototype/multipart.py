@@ -39,6 +39,7 @@ import convert as C                                        # noqa: E402
 import detail                                              # noqa: E402
 import harmony                                             # noqa: E402
 import instruments as I                                    # noqa: E402
+import organ                                               # noqa: E402
 import pedals                                              # noqa: E402
 import smf                                                 # noqa: E402
 from spelling import ps13                                  # noqa: E402
@@ -55,6 +56,11 @@ CLEF_XML = {
     "percussion": ('<clef><sign>percussion</sign><line>2</line></clef>',),
     "grand": ('<clef number="1"><sign>G</sign><line>2</line></clef>',
               '<clef number="2"><sign>F</sign><line>4</line></clef>'),
+    # Organ: manuals then pedals. The pedal staff is always bass clef — feet
+    # do not play above it.
+    "organ": ('<clef number="1"><sign>G</sign><line>2</line></clef>',
+              '<clef number="2"><sign>F</sign><line>4</line></clef>',
+              '<clef number="3"><sign>F</sign><line>4</line></clef>'),
 }
 
 
@@ -66,7 +72,8 @@ class Part:
         self.program = program
         self.track_name = name
         self.info = info
-        self.streams = {1: [], 2: []}
+        self.streams = {1: [], 2: [], 3: []}
+        self.divisions = None
 
 
 def group_parts(mid, x, find):
@@ -108,12 +115,18 @@ def group_parts(mid, x, find):
                      f"{tracks} percussion tracks merged into one kit",
                      why="channel 10 is one player, however many tracks it "
                          "was sequenced across")
+    return parts
+
+
+def report_parts(parts, find):
+    """Called AFTER organ divisions are folded, or it counts one organ as three."""
     find.add("fixed-silently",
              f"{len(parts)} part(s) detected",
-             why="; ".join(f"{p.info['name']} ({p.info['source']})"
+             why="; ".join(f"{p.info['name']}"
+                           + (f" ({p.info['staves']} staves)"
+                              if p.info["staves"] > 1 else "")
                            for p in parts[:8])
                  + (" …" if len(parts) > 8 else ""))
-    return parts
 
 
 def process_part(part, div, grid, measure_ticks, reach, comfortable, find):
@@ -198,7 +211,7 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
     for pi, p in enumerate(parts):
         L.append(f'  <part id="{p.id}">')
         staves = p.info["staves"]
-        carry = {1: None, 2: None}
+        carry = {i: None for i in range(1, staves + 1)}
 
         for m in range(int(n_measures)):
             m_start, m_end = m * mticks, (m + 1) * mticks
@@ -212,8 +225,8 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
                       f'</fifths><mode>{mode}</mode></key>',
                       f'        <time><beats>{ts_num}</beats>'
                       f'<beat-type>{ts_den}</beat-type></time>']
-                if staves == 2:
-                    L.append('        <staves>2</staves>')
+                if staves >= 2:
+                    L.append(f'        <staves>{staves}</staves>')
                 for c in CLEF_XML[p.info["clef"]]:
                     L.append('        ' + c)
                 if tr:
@@ -234,6 +247,15 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
                           f'        <sound tempo="{bpm:.2f}"/>',
                           '      </direction>']
 
+            for staff_i, marks in getattr(p, "organ_marks", {}).items():
+                for tick, text in marks:
+                    if m_start <= tick < m_end:
+                        L += ['      <direction placement="above">',
+                              f'        <direction-type><words>{escape(text)}'
+                              '</words></direction-type>',
+                              f'        <staff>{staff_i}</staff>',
+                              '      </direction>']
+
             for d in pedals.directions_for_measure(
                     getattr(p, 'pedals', {}), m_start, m_end,
                     2 if staves == 2 else 1):
@@ -251,8 +273,10 @@ def render(parts, chords, div, mticks, n_measures, fifths, mode,
                           '      </harmony>']
 
             for staff in range(1, staves + 1):
-                voice = 1 if staff == 1 else 5
-                if staff == 2:
+                # Convention: staff 1 owns voices 1-4, staff 2 owns
+                # 5-8, staff 3 owns 9-12.
+                voice = (staff - 1) * 4 + 1
+                if staff > 1:
                     L.append(f'      <backup><duration>{mticks}</duration></backup>')
                 pos = m_start
                 seq = [c for c in p.streams[staff] if m_start <= c["on"] < m_end]
@@ -331,7 +355,7 @@ def emit(ns, ticks, div, voice, staff, artic, part,
             elif not drums and n.spell and n.spell[1]:
                 out.append(f'        <accidental>'
                            f'{C.ACC_NAME[n.spell[1]]}</accidental>')
-            if part.info["staves"] == 2:
+            if part.info["staves"] >= 2:
                 out.append(f'        <staff>{staff}</staff>')
             notations = []
             if tie_stop and first:
@@ -355,7 +379,7 @@ def emit_rest(ticks, div, voice, staff, staves):
         out.append(f'        <voice>{voice}</voice>')
         out.append(f'        <type>{ptype}</type>')
         out += ['        <dot/>'] * dots
-        if staves == 2:
+        if staves >= 2:
             out.append(f'        <staff>{staff}</staff>')
         out.append('      </note>')
     return out
@@ -393,11 +417,38 @@ def convert(path, out_path, key_name=None, reach=17, comfortable=14,
     grid = max(int(round(dict(A.GRIDS).get(gname, 0.5) * div)), 1)
 
     parts = group_parts(mid, x, find)
+
+    # 8 / 10 — an organ is ONE player at ONE instrument on three staves, not
+    # three instruments in the part list.
+    organ_parts = organ.looks_like_organ(parts)
+    organ_divisions = {}
+    if organ_parts:
+        organ_divisions = organ.assign_divisions(organ_parts)
+        keep = organ_divisions[organ.STAFF_UPPER]
+        keep.info = dict(keep.info)
+        keep.info.update(name="Organ", abbrev="Org.",
+                         sound="keyboard.organ",
+                         staves=len(organ_divisions), clef="organ")
+        keep.divisions = organ_divisions
+        parts = [keep] + [p for p in parts if p not in organ_parts]
+        for i, p in enumerate(parts, start=1):
+            p.id = f"P{i}"
+    report_parts(parts, find)
+
     for p in parts:
-        process_part(p, div, grid, measure_ticks, reach, comfortable, find)
+        if getattr(p, "divisions", None):
+            for staff, dpart in p.divisions.items():
+                process_part(dpart, div, grid, measure_ticks,
+                             reach, comfortable, find)
+                p.streams[staff] = dpart.streams[1]
+        else:
+            process_part(p, div, grid, measure_ticks, reach, comfortable, find)
         # Pedalling belongs to keyboards. A trumpet part with sustain marks on
         # it is noise, and DESIGN 11.3 found that even a real piano part in an
         # ensemble chart carries none.
+        if getattr(p, "divisions", None):
+            p.organ_marks = organ.describe(p.divisions, mid["tracks"],
+                                           level, find)
         p.pedals = (pedals.collect(mid["tracks"], p.chan,
                                    find if p.info["staves"] == 2 else None)
                     if p.info["staves"] == 2 else {})

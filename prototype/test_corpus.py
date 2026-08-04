@@ -245,6 +245,32 @@ def check_parts(d):
               len(r.findall(".//notehead")) > 0)
 
 
+def check_organ(d):
+    """
+    8 / 10 — an organ is ONE player at ONE instrument on THREE staves.
+    Copyist's generic one-part-per-channel rule gets this exactly wrong.
+    """
+    import json
+    import xml.etree.ElementTree as ET
+    want_path = os.path.join(d, "expected-organ.json")
+    if not os.path.exists(want_path):
+        return
+    want = json.load(open(want_path))
+    r = ET.parse(os.path.join(d, "expected.musicxml")).getroot()
+
+    names = [sp.findtext("part-name") for sp in r.findall(".//score-part")]
+    check("three organ channels become ONE part",
+          names == [want["name"]], f"got {names}")
+    check(f"organ part has {want['staves']} staves",
+          r.findtext(".//attributes/staves") == str(want["staves"]))
+    clefs = [c.findtext("sign") for c in r.findall(".//clef")]
+    check("pedal staff is bass clef",
+          len(clefs) == want["staves"] and clefs[-1] == "F", f"got {clefs}")
+    words = {w.text for w in r.findall(".//words")}
+    check("drawbar registration written",
+          any("drawbars" in w for w in words), f"got {sorted(words)}")
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -258,7 +284,8 @@ def run_fixture(name, key, expect_verdicts):
         if not os.path.exists(path):
             continue
         out = os.path.join(tmp, f"{label}.musicxml")
-        if os.path.exists(os.path.join(d, "expected-parts.json")):
+        if os.path.exists(os.path.join(d, "expected-parts.json")) or \
+                os.path.exists(os.path.join(d, "expected-organ.json")):
             import multipart
             with redirect_stdout(io.StringIO()):
                 multipart.convert(path, out, key, 17, 14)
@@ -274,7 +301,9 @@ def run_fixture(name, key, expect_verdicts):
 
     check_spelling(d, key)
     check_parts(d)
-    if not os.path.exists(os.path.join(d, 'expected-parts.json')):
+    check_organ(d)
+    if not any(os.path.exists(os.path.join(d, f))
+               for f in ('expected-parts.json', 'expected-organ.json')):
         check_detail_levels(d, key)
 
     ms = find_mscore()
@@ -306,6 +335,7 @@ if __name__ == "__main__":
     run_fixture("spelling-modulation", "Eb major",
                 {"clean.mid": "HARD QUANTIZED"})
     run_fixture("small-ensemble", None, {})
+    run_fixture("hammond-organ", None, {})
 
     print(f"\n{passed} passed, {failed} failed, {skipped} skipped")
     sys.exit(1 if failed else 0)

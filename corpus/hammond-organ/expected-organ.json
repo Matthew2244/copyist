@@ -1,0 +1,13 @@
+{
+ "parts": 1,
+ "name": "Organ",
+ "staves": 3,
+ "divisions": [
+  "upper manual",
+  "lower manual",
+  "pedals"
+ ],
+ "uninterpreted_cc": [
+  68
+ ]
+}

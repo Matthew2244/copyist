@@ -975,6 +975,45 @@ was at zero loss.
 that punishes a correct change is worse than no metric, because it argues
 against the fix.
 
+### 22.4 Organ
+
+An organ is not three instruments that happen to play together. It is one
+player at one instrument, notated as **one part on three staves** — upper
+manual, lower manual, pedals. Copyist's generic rule of one part per
+(track, channel) got this exactly wrong, listing three separate "Organ"
+instruments in a score no organist would accept.
+
+Detection requires organ programs on **consecutive** channels plus something
+actually low enough to be feet, so two organ patches in a rock band are not
+mistaken for an organ score. Channel order is trusted when present — it is
+both Hammond's default and the common convention — with range as the fallback.
+
+    channel 1   upper manual        CC 80  upper drawbars
+    channel 2   lower manual        CC 81  lower drawbars
+    channel 3   pedals              CC 82  pedal drawbars
+                                    CC 11  swell
+
+**What Copyist deliberately will not infer.** Leslie speed, chorus/vibrato,
+percussion on/off and drawbar detail are model-specific and largely NRPN.
+There is no portable mapping, and inventing one would put confident nonsense
+on the page — precisely the failure this project exists to avoid. Copyist
+reports the controllers it can see, **names the ones it cannot interpret**,
+and leaves them to a human:
+
+> 1 organ controller not interpreted — CC 68. Leslie, chorus and percussion
+> are model-specific and largely NRPN, with no portable mapping. Add them by
+> hand, or leave them to the player. Copyist will not guess.
+
+That is also the musically right answer. Registration is one of the things a
+composer either specifies or deliberately leaves open, so it belongs on the
+same axis as everything else in §11: at full detail write what was played, at
+reduced detail write *"registration ad lib."* and let the performer be a
+musician.
+
+Pipe organ is the same shape with a larger vocabulary — stops, couplers,
+swell box — and none of it is in MIDI either. The three-staff structure is
+what transfers.
+
 ### 22.3 Validated against 70 public-domain classical files
 
 Mutopia Project engravings — Bach, Beethoven, Chopin, Mozart, Schubert,
