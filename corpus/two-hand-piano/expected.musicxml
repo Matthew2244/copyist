@@ -1202,329 +1202,68 @@
       <backup><duration>1920</duration></backup>
       <note>
         <pitch><step>C</step><alter>1</alter><octave>1</octave></pitch>
-        <duration>960</duration>
+        <duration>1920</duration>
         <tie type="stop"/>
-        <tie type="start"/>
         <voice>5</voice>
-        <type>half</type>
+        <type>whole</type>
         <accidental>sharp</accidental>
         <staff>2</staff>
-        <notations><tied type="stop"/><tied type="start"/></notations>
+        <notations><tied type="stop"/></notations>
       </note>
       <note>
         <chord/>
         <pitch><step>C</step><alter>1</alter><octave>2</octave></pitch>
-        <duration>960</duration>
+        <duration>1920</duration>
         <tie type="stop"/>
-        <tie type="start"/>
         <voice>5</voice>
-        <type>half</type>
+        <type>whole</type>
         <accidental>sharp</accidental>
         <staff>2</staff>
-        <notations><tied type="stop"/><tied type="start"/></notations>
+        <notations><tied type="stop"/></notations>
       </note>
       <note>
         <chord/>
         <pitch><step>G</step><alter>1</alter><octave>2</octave></pitch>
-        <duration>960</duration>
+        <duration>1920</duration>
         <tie type="stop"/>
-        <tie type="start"/>
         <voice>5</voice>
-        <type>half</type>
+        <type>whole</type>
         <accidental>sharp</accidental>
         <staff>2</staff>
-        <notations><tied type="stop"/><tied type="start"/></notations>
+        <notations><tied type="stop"/></notations>
       </note>
       <note>
         <chord/>
         <pitch><step>C</step><alter>1</alter><octave>3</octave></pitch>
-        <duration>960</duration>
+        <duration>1920</duration>
         <tie type="stop"/>
-        <tie type="start"/>
         <voice>5</voice>
-        <type>half</type>
+        <type>whole</type>
         <accidental>sharp</accidental>
         <staff>2</staff>
-        <notations><tied type="stop"/><tied type="start"/></notations>
+        <notations><tied type="stop"/></notations>
       </note>
       <note>
         <chord/>
         <pitch><step>C</step><alter>1</alter><octave>4</octave></pitch>
-        <duration>960</duration>
+        <duration>1920</duration>
         <tie type="stop"/>
-        <tie type="start"/>
         <voice>5</voice>
-        <type>half</type>
+        <type>whole</type>
         <accidental>sharp</accidental>
         <staff>2</staff>
-        <notations><tied type="stop"/><tied type="start"/></notations>
+        <notations><tied type="stop"/></notations>
       </note>
       <note>
         <chord/>
         <pitch><step>G</step><alter>1</alter><octave>4</octave></pitch>
-        <duration>960</duration>
+        <duration>1920</duration>
         <tie type="stop"/>
-        <tie type="start"/>
         <voice>5</voice>
-        <type>half</type>
+        <type>whole</type>
         <accidental>sharp</accidental>
         <staff>2</staff>
-        <notations><tied type="stop"/><tied type="start"/></notations>
-      </note>
-      <note>
-        <pitch><step>C</step><alter>1</alter><octave>1</octave></pitch>
-        <duration>480</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>quarter</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>2</octave></pitch>
-        <duration>480</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>quarter</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>G</step><alter>1</alter><octave>2</octave></pitch>
-        <duration>480</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>quarter</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>3</octave></pitch>
-        <duration>480</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>quarter</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>4</octave></pitch>
-        <duration>480</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>quarter</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>G</step><alter>1</alter><octave>4</octave></pitch>
-        <duration>480</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>quarter</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <pitch><step>C</step><alter>1</alter><octave>1</octave></pitch>
-        <duration>240</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>eighth</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>2</octave></pitch>
-        <duration>240</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>eighth</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>G</step><alter>1</alter><octave>2</octave></pitch>
-        <duration>240</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>eighth</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>3</octave></pitch>
-        <duration>240</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>eighth</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>4</octave></pitch>
-        <duration>240</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>eighth</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>G</step><alter>1</alter><octave>4</octave></pitch>
-        <duration>240</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>eighth</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <pitch><step>C</step><alter>1</alter><octave>1</octave></pitch>
-        <duration>120</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>16th</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>2</octave></pitch>
-        <duration>120</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>16th</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>G</step><alter>1</alter><octave>2</octave></pitch>
-        <duration>120</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>16th</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>3</octave></pitch>
-        <duration>120</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>16th</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>4</octave></pitch>
-        <duration>120</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>16th</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>G</step><alter>1</alter><octave>4</octave></pitch>
-        <duration>120</duration>
-        <tie type="start"/>
-        <voice>5</voice>
-        <type>16th</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-        <notations><tied type="start"/></notations>
-      </note>
-      <note>
-        <pitch><step>C</step><alter>1</alter><octave>1</octave></pitch>
-        <duration>60</duration>
-        <voice>5</voice>
-        <type>32nd</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>2</octave></pitch>
-        <duration>60</duration>
-        <voice>5</voice>
-        <type>32nd</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>G</step><alter>1</alter><octave>2</octave></pitch>
-        <duration>60</duration>
-        <voice>5</voice>
-        <type>32nd</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>3</octave></pitch>
-        <duration>60</duration>
-        <voice>5</voice>
-        <type>32nd</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>4</octave></pitch>
-        <duration>60</duration>
-        <voice>5</voice>
-        <type>32nd</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>G</step><alter>1</alter><octave>4</octave></pitch>
-        <duration>60</duration>
-        <voice>5</voice>
-        <type>32nd</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-      </note>
-      <note>
-        <rest/>
-        <duration>30</duration>
-        <voice>5</voice>
-        <type>64th</type>
-        <staff>2</staff>
+        <notations><tied type="stop"/></notations>
       </note>
     </measure>
   </part>

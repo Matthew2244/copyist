@@ -316,10 +316,17 @@ def estimate_key(notes):
                         sum((w[i] - mw) ** 2 for i in range(12)))
         return num / den if den else 0
 
+    # Name keys the way a score would. PC is all sharps, which would produce
+    # "A# major" and "D# major" — spellings no engraver uses and, until this
+    # was fixed, ones the converter could not look up at all.
+    MAJOR_NAME = {0: "C", 1: "Db", 2: "D", 3: "Eb", 4: "E", 5: "F",
+                  6: "F#", 7: "G", 8: "Ab", 9: "A", 10: "Bb", 11: "B"}
+    MINOR_NAME = {0: "C", 1: "C#", 2: "D", 3: "Eb", 4: "E", 5: "F",
+                  6: "F#", 7: "G", 8: "G#", 9: "A", 10: "Bb", 11: "B"}
     scores = []
     for r in range(12):
-        scores.append((corr(KRUMHANSL_MAJ, r), f"{PC[r]} major"))
-        scores.append((corr(KRUMHANSL_MIN, r), f"{PC[r]} minor"))
+        scores.append((corr(KRUMHANSL_MAJ, r), f"{MAJOR_NAME[r]} major"))
+        scores.append((corr(KRUMHANSL_MIN, r), f"{MINOR_NAME[r]} minor"))
     scores.sort(reverse=True)
     top = scores[:2]
     span = sum(max(s, 0) for s, _ in top) or 1

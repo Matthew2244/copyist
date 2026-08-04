@@ -63,6 +63,15 @@ for i, (maj, mi) in enumerate([
     KEYS[f"{maj} major"] = fifths
     KEYS[f"{mi} minor"] = fifths
 
+# Enharmonic aliases. estimate_key now emits conventional names, but a user
+# typing --key "A# major" should not silently produce an empty score.
+for _alias, _real in [("A# major", "Bb major"), ("D# major", "Eb major"),
+                      ("G# major", "Ab major"), ("C# major", "Db major"),
+                      ("Db minor", "C# minor"), ("Gb minor", "F# minor"),
+                      ("Ab minor", "G# minor"), ("Cb major", "B major"),
+                      ("E# minor", "F minor"), ("B# major", "C major")]:
+    KEYS.setdefault(_alias, KEYS[_real])
+
 STEP_OF_FIFTH = ["F", "C", "G", "D", "A", "E", "B"]
 
 NOTE_TYPES = [(4.0, "whole"), (2.0, "half"), (1.0, "quarter"), (0.5, "eighth"),
@@ -171,9 +180,16 @@ def spell(pitch, table):
 # --------------------------------------------------------------- durations
 
 def decompose(ticks, div):
-    """Split an arbitrary duration into tied note values, largest first."""
+    """
+    Split a duration into tied note values, largest first.
+
+    Must never lose time. A remainder smaller than the shortest notatable
+    value used to be dropped on the floor, which produced measures that were a
+    few ticks short — silently, and only on real material whose final chord
+    does not land on the grid. Nine of twenty-five real files hit it.
+    """
     out = []
-    remaining = ticks
+    remaining = int(ticks)
     guard = 0
     while remaining > 0 and guard < 16:
         guard += 1
@@ -191,6 +207,15 @@ def decompose(ticks, div):
                 placed = True
                 break
         if not placed:
+            # Smaller than a 64th. Absorb it into the value already emitted so
+            # the measure still adds up; if there is nothing to absorb into,
+            # emit the shortest value we have rather than nothing.
+            if out:
+                ln, nm, dots = out[-1]
+                out[-1] = (ln + remaining, nm, dots)
+            else:
+                out.append((remaining, "64th", 0))
+            remaining = 0
             break
     return out
 
@@ -298,8 +323,7 @@ def convert(path, out_path, key_name, reach, comfortable,
     find = Findings()
 
     if not notes:
-        print("No notes.")
-        return
+        raise ValueError("That file contains no notes.")
 
     bpm = 60_000_000 / x["tempos"][0][1] if x["tempos"] else 120.0
     ts_num, ts_den = (x["timesigs"][0][1], x["timesigs"][0][2]) if x["timesigs"] else (4, 4)
@@ -315,8 +339,12 @@ def convert(path, out_path, key_name, reach, comfortable,
                      suggestion=f'Pass --key "{est[1][0]}" if that is right')
     fifths = KEYS.get(key_name)
     if fifths is None:
-        print(f"Unknown key '{key_name}'. Try e.g. \"C# minor\".")
-        return
+        # Returning here used to leave the caller believing it had succeeded,
+        # which is exactly the silent failure this project exists to avoid.
+        # Six of twenty-five real files hit it before anyone noticed.
+        raise ValueError(
+            f"Unknown key {key_name!r}. Known: "
+            + ", ".join(sorted(KEYS)[:6]) + ", …")
     mode = "minor" if key_name.endswith("minor") else "major"
 
     # ---- 9: ps13. Spelling is per note from its local context, not one table
@@ -450,7 +478,13 @@ def convert(path, out_path, key_name, reach, comfortable,
     for staff, seq in streams.items():
         for i, ch in enumerate(seq):
             nxt = seq[i + 1]["on"] if i + 1 < len(seq) else None
-            slot = (nxt - ch["on"]) if nxt else max(ch["gate"], grid)
+            if nxt:
+                slot = nxt - ch["on"]
+            else:
+                # The final chord has no following onset to bound it. Its raw
+                # gate time is not a grid value, and a non-grid duration is
+                # what leaves a measure a few ticks short.
+                slot = max(int(round(ch["gate"] / grid)) * grid, grid)
             gap = max(slot - ch["gate"], 0)
             gap_q = int(round(gap / grid)) * grid
             gap_q = min(gap_q, slot - grid) if slot > grid else 0

@@ -884,6 +884,64 @@ directly would make the whole app GPL-3.
 | Free tempo (§7.6) | not built, by design |
 | MCP server (D7) | not built, by design — last |
 
+### 22.1 Measured against 25 real files
+
+The corpus fixtures are synthetic, small, and isolate one pathology each. They
+are also, for those reasons, gentle. Running `prototype/stress.py` over the
+complete set of MIDI files Microsoft shipped with Windows — the Passport
+Designs demos from the Tandy Multimedia Extensions through the Windows 95 and
+IE4 era, 25 files and 68,649 notes across every style those were meant to
+demonstrate — found in one pass what months of synthetic fixtures had not.
+
+**Two real defects, both invisible to the corpus:**
+
+*Silent failure on six of twenty-five files.* `estimate_key` named keys with
+sharps only, so it produced `A# major` and `D# major`; `convert()` had no such
+entries, printed a message, and **returned**. The caller saw success, the file
+came out empty, and nothing anywhere said so. Two vocabularies for the same
+concept, and a failure path that lied. Both are now fixed and both have
+invariant tests: unusable key names, and the function raises rather than
+returns.
+
+*Lost time on nine of twenty-five files.* A duration remainder smaller than a
+64th could not be expressed by `decompose()` and was dropped, leaving measures
+a few ticks short. The remainders existed because the FINAL chord in a stream
+took its raw gate time as a duration instead of a grid value. Neither shows up
+on fixtures that end cleanly. `decompose` is now exhaustively tested to
+conserve time for every duration from 1 tick to 4 beats at three divisions.
+
+**And a measurement worth more than either.** Round-tripping every file back
+through MuseScore and diffing against the source:
+
+| Timing verdict | Files | Mean note match | Range |
+|---|---|---|---|
+| `hard-quantized` | 6 | **99.1%** | 98.0 – 100.0% |
+| `ambiguous` | 1 | 89.6% | — |
+| `live` | 18 | **30.3%** | 1.8 – 86.9% |
+
+| Grid detection | Files | Mean note match |
+|---|---|---|
+| grid found | 13 | 77.6% |
+| no grid found | 12 | 18.4% |
+
+That is not a defect report. It is the size of §7.6, measured. Copyist
+reproduces a piece almost perfectly exactly when it says the grid is exact,
+and badly when it says the material was played live — because the beat-scoring
+cost model (§7.2) that live material requires **is not built**, and the
+converter currently snaps to the detected grid, which is the naive approach
+§7.1 exists to criticize.
+
+The useful part is that the classifier predicts the failure. The one component
+that is finished correctly tells you, in advance and per file, how much to
+trust everything downstream of it. Until §7.2 lands, `live` should probably be
+a warning in the UI rather than a silent best effort.
+
+**Also exposed, not yet addressed:** these are 6-to-19-track band arrangements,
+and Copyist merges every track onto two piano staves. There is no multi-part
+support at all (§10 assumes one instrument), no drum-track routing, and
+non-4/4 meters appear in the wild — `Flourish` is in 7/8 — while the metrical
+statistics in §7.5.2 assume four beats to a bar.
+
 **The ps13 departure.** The paper's context window is a hard 10 notes back and
 42 forward, tuned on pieces of thousands of notes. On shorter material a
 42-note forward window reaches straight across a modulation and spells the

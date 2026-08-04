@@ -155,6 +155,50 @@ def check_detail_levels(d, key):
         check(f"{level} carries chord symbols", counts[level]["harmony"] > 0)
 
 
+def check_duration_algebra():
+    """
+    Time must be conserved for EVERY duration, not just tidy ones.
+
+    A remainder smaller than the shortest notatable value used to be dropped,
+    which left measures a few ticks short — silently, and only on material
+    whose final chord does not land on the grid. Nine of twenty-five real
+    files hit it; not one synthetic fixture did.
+    """
+    from convert import decompose
+    bad = []
+    for div in (384, 480, 960):
+        for t in range(1, 4 * div + 1):
+            if sum(x[0] for x in decompose(t, div)) != t:
+                bad.append((div, t))
+    check(f"decompose conserves time for all durations at 3 divisions",
+          not bad, f"{len(bad)} failures, e.g. {bad[:3]}")
+
+
+def check_key_names_are_usable():
+    """
+    Every key estimate_key can produce must be one convert() accepts.
+
+    These were two different vocabularies: the estimator named keys with
+    sharps only, so it emitted 'A# major' and 'D# major', which the converter
+    could not look up. It then printed a message and RETURNED, leaving the
+    caller believing it had succeeded. Six of twenty-five real files came out
+    empty and reported success.
+    """
+    from convert import KEYS
+    import analyze
+    class FakeNote:
+        def __init__(self, p): self.pitch, self.dur = p, 480
+    missing = []
+    for pc in range(12):
+        for chord in ([0, 4, 7], [0, 3, 7]):
+            notes = [FakeNote(60 + (pc + i) % 12) for i in chord] * 4
+            for name, _ in analyze.estimate_key(notes):
+                if name not in KEYS:
+                    missing.append(name)
+    check("every estimated key name is one the converter accepts",
+          not missing, f"unusable: {sorted(set(missing))}")
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -199,6 +243,10 @@ def run_fixture(name, key, expect_verdicts):
 
 
 if __name__ == "__main__":
+    print("\ninvariants")
+    check_duration_algebra()
+    check_key_names_are_usable()
+
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
                  "humanized.mid": "QUANTIZED THEN HUMANIZED"})
