@@ -15,6 +15,16 @@ import UniformTypeIdentifiers
 //   * anything that finishes without focus moving gets announced, because a
 //     result you cannot see and are not told about has not been delivered
 
+enum Launch {
+    static let args = CommandLine.arguments
+    static var auditing: Bool { args.contains("--audit") }
+    static var openPath: String? {
+        guard let i = args.firstIndex(of: "--open"), i + 1 < args.count
+        else { return nil }
+        return args[i + 1]
+    }
+}
+
 @main
 struct CopyistApp: App {
     var body: some Scene {
@@ -88,6 +98,18 @@ struct ContentView: View {
         } message: { Text($0) }
         .onReceive(NotificationCenter.default.publisher(for: .copyistOpen)) { _ in
             openFile()
+        }
+        .onAppear {
+            if let path = Launch.openPath { load(path) }
+            if Launch.auditing {
+                // Give SwiftUI time to build the tree, and time for an
+                // auto-opened file to finish analyzing, before inspecting.
+                let delay: DispatchTimeInterval =
+                    Launch.openPath == nil ? .milliseconds(900) : .seconds(4)
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    Audit.start()
+                }
+            }
         }
     }
 
@@ -174,7 +196,11 @@ struct ContentView: View {
         panel.prompt = "Analyze"
         panel.message = "Choose a MIDI file exported from your DAW."
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        load(url.path)
+    }
 
+    private func load(_ path: String) {
+        let url = URL(fileURLWithPath: path)
         midiPath = url.path
         conversion = nil
         chosenKey = ""
