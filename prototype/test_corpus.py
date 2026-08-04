@@ -121,6 +121,40 @@ def check_spelling(d, key):
               not bad, f"single-spelled: {bad}")
 
 
+def check_detail_levels(d, key):
+    """11 — reduction must actually reduce, and keep the harmony."""
+    import xml.etree.ElementTree as ET
+    src = os.path.join(d, "clean.mid")
+    tmp = tempfile.mkdtemp()
+    counts = {}
+    for level in ("full", "slashes", "symbols"):
+        out = os.path.join(tmp, f"{level}.musicxml")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            convert.convert(src, out, key, 17, 14, level)
+        r = ET.parse(out).getroot()
+        notes = r.findall(".//note")
+        slashes = [n for n in notes if (n.findtext("notehead") or "") == "slash"]
+        counts[level] = {
+            "pitched": len(notes) - len(slashes),
+            "slashes": len(slashes),
+            "harmony": len(r.findall(".//harmony")),
+            "staves": int(r.findtext(".//attributes/staves") or 1),
+        }
+    shutil.rmtree(tmp, ignore_errors=True)
+
+    check("full detail notates pitches", counts["full"]["pitched"] > 0)
+    check("full detail uses two staves", counts["full"]["staves"] == 2)
+    check("slashes level notates no pitches", counts["slashes"]["pitched"] == 0)
+    check("slashes level emits slashes", counts["slashes"]["slashes"] > 0)
+    check("symbols level is sparser than slashes",
+          counts["symbols"]["slashes"] < counts["slashes"]["slashes"])
+    check("reduced levels use one staff",
+          counts["slashes"]["staves"] == 1 and counts["symbols"]["staves"] == 1)
+    for level in ("full", "slashes", "symbols"):
+        check(f"{level} carries chord symbols", counts[level]["harmony"] > 0)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -144,6 +178,7 @@ def run_fixture(name, key, expect_verdicts):
         check(f"{src} classifies as {want}", got == want, f"got {got}")
 
     check_spelling(d, key)
+    check_detail_levels(d, key)
 
     ms = find_mscore()
     if not ms:

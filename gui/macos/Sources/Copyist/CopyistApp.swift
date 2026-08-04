@@ -70,6 +70,7 @@ struct ContentView: View {
     @State private var conversion: Conversion?
     @State private var chosenKey = ""
     // 8.3 / 14 — reach belongs to the PLAYER, not the song. Answer once.
+    @AppStorage("detailLevel") private var detailLevel = "full"
     @AppStorage("maximumReach") private var reach = 17
     @AppStorage("comfortableReach") private var comfortable = 14
     @StateObject private var player = Player()
@@ -157,6 +158,15 @@ struct ContentView: View {
     private var settingsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Settings").font(.headline).accessibilityAddTraits(.isHeader)
+
+            Picker("How much to tell them", selection: $detailLevel) {
+                Text("Everything notated").tag("full")
+                Text("Chord symbols with slashes").tag("slashes")
+                Text("Chord symbols and bar count only").tag("symbols")
+            }
+            .accessibilityHint(
+                "A demo is source material a collaborator interprets. Less "
+                + "detail is often the better chart.")
 
             Picker("Key", selection: $chosenKey) {
                 Text("Let Copyist decide").tag("")
@@ -306,7 +316,8 @@ struct ContentView: View {
             do {
                 let c = try Engine.convert(path, to: out,
                                            key: chosenKey.isEmpty ? nil : chosenKey,
-                                           reach: reach, comfortable: comfortable)
+                                           reach: reach, comfortable: comfortable,
+                                           detail: detailLevel)
                 DispatchQueue.main.async {
                     conversion = c
                     busy = false

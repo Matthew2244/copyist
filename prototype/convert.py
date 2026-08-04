@@ -33,6 +33,8 @@ from analyze import (parse_midi, extract, estimate_key, classify_timing,
 from spelling import ps13, double_accidentals
 import articulation
 import smf
+import harmony
+import detail
 
 # --------------------------------------------------------------- constants
 
@@ -285,7 +287,8 @@ LAST_FINDINGS = None      # set by convert(), read by engine.py
 LAST_SUMMARY = None
 
 
-def convert(path, out_path, key_name, reach, comfortable):
+def convert(path, out_path, key_name, reach, comfortable,
+            level="full"):
     global LAST_FINDINGS, LAST_SUMMARY
     LAST_FINDINGS = LAST_SUMMARY = None
     mid = parse_midi(path)
@@ -522,9 +525,19 @@ def convert(path, out_path, key_name, reach, comfortable):
     total_ticks = max(n.off for n in notes)
     n_measures = total_ticks // measure_ticks + 1
 
+    # ---- 12.1 harmony, then 11 reduction. Reduction runs LAST because you
+    # cannot decide a bar becomes four slashes until you know what is in it.
+    chords = harmony.detect(notes, measure_ticks, fifths,
+                            per_bar=1, find=find)
+    if level != "full":
+        streams, _ = detail.reduce_streams(
+            streams, level, measure_ticks, div, ts_num, ts_den,
+            n_measures, find)
+        pedal = []                      # a slash chart carries no pedalling
+
     xml = render(streams, measure_dyn, pedal, div, measure_ticks, n_measures,
                  fifths, mode, ts_num, ts_den, bpm, table,
-                 inst_name, abbrev, inst_sound)
+                 inst_name, abbrev, inst_sound, chords, level)
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(xml)
@@ -575,7 +588,10 @@ def convert(path, out_path, key_name, reach, comfortable):
 
 def render(streams, measure_dyn, pedal, div, mticks, n_measures,
            fifths, mode, ts_num, ts_den, bpm, table,
-           inst_name, abbrev, inst_sound):
+           inst_name, abbrev, inst_sound, chords=(), level="full"):
+    by_measure_chords = {}
+    for c in chords:
+        by_measure_chords.setdefault(c["measure"], []).append(c)
     L = ['<?xml version="1.0" encoding="UTF-8"?>',
          '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 '
          'Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">',
@@ -610,9 +626,11 @@ def render(streams, measure_dyn, pedal, div, mticks, n_measures,
                   f'<mode>{mode}</mode></key>',
                   f'        <time><beats>{ts_num}</beats>'
                   f'<beat-type>{ts_den}</beat-type></time>',
-                  '        <staves>2</staves>',
+                  ] + (['        <staves>2</staves>',
                   '        <clef number="1"><sign>G</sign><line>2</line></clef>',
-                  '        <clef number="2"><sign>F</sign><line>4</line></clef>',
+                  '        <clef number="2"><sign>F</sign><line>4</line></clef>']
+                  if level == 'full' else
+                  ['        <clef><sign>G</sign><line>2</line></clef>']) + [
                   '      </attributes>',
                   '      <direction placement="above">',
                   '        <direction-type><metronome>'
@@ -622,6 +640,15 @@ def render(streams, measure_dyn, pedal, div, mticks, n_measures,
                   f'        <sound tempo="{bpm:.2f}"/>',
                   '      </direction>']
 
+        for c in by_measure_chords.get(m, []):
+            step, alter = root_step(c["root"], fifths)
+            L += ['      <harmony>',
+                  '        <root><root-step>' + step + '</root-step>'
+                  + (f'<root-alter>{alter}</root-alter>' if alter else '')
+                  + '</root>',
+                  f'        <kind text="{escape(c["suffix"])}">{c["kind"]}</kind>',
+                  '      </harmony>']
+
         if m in measure_dyn:
             L += ['      <direction placement="below">',
                   '        <direction-type><dynamics>'
@@ -629,7 +656,7 @@ def render(streams, measure_dyn, pedal, div, mticks, n_measures,
                   '        <staff>1</staff>',
                   '      </direction>']
 
-        for staff in (1, 2):
+        for staff in ((1, 2) if level == 'full' else (1,)):
             voice = 1 if staff == 1 else 5
             if staff == 2:
                 L.append(f'      <backup><duration>{mticks}</duration></backup>')
@@ -658,6 +685,14 @@ def render(streams, measure_dyn, pedal, div, mticks, n_measures,
             carry[staff] = []
 
             for ch in events:
+                if ch.get("slash"):
+                    if ch["on"] > pos:
+                        L += emit_rest(ch["on"] - pos, div, voice, staff)
+                        pos = ch["on"]
+                    fits = min(ch["dur"], m_end - pos)
+                    L += emit_slash(fits, div, voice, staff, level)
+                    pos += fits
+                    continue
                 if ch["on"] > pos:
                     L += emit_rest(ch["on"] - pos, div, voice, staff)
                     pos = ch["on"]
@@ -685,6 +720,14 @@ carry_notes = {1: [], 2: []}
 
 def tied_notes(ns):
     return ns
+
+
+def root_step(pc, fifths):
+    """Spell a chord root the way the key would spell that pitch class."""
+    from spelling import _KEY_TABLES, spell_fifth as _sf
+    f = _KEY_TABLES[max(-7, min(7, fifths))][pc % 12]
+    step, alter, _ = _sf(f)
+    return step, alter
 
 
 ACC_NAME = {-2: "flat-flat", -1: "flat", 0: "natural", 1: "sharp", 2: "sharp-sharp"}
@@ -732,6 +775,29 @@ def emit_note(ns, ticks, div, voice, staff, table, artic,
     return out
 
 
+def emit_slash(ticks, div, voice, staff, level):
+    """
+    11 — a slash: play the chord above, in your own time. Pitchless by
+    design, sitting on the middle line, with no stem so it does not read as
+    a specific rhythm.
+    """
+    out = []
+    for plen, ptype, dots in decompose(ticks, div):
+        out.append('      <note>')
+        out.append('        <unpitched><display-step>B</display-step>'
+                   '<display-octave>4</display-octave></unpitched>')
+        out.append(f'        <duration>{plen}</duration>')
+        out.append(f'        <voice>{voice}</voice>')
+        out.append(f'        <type>{ptype}</type>')
+        out += ['        <dot/>'] * dots
+        out.append('        <stem>none</stem>')
+        out.append('        <notehead>slash</notehead>')
+        if staff != 1 or True:
+            out.append(f'        <staff>{staff}</staff>')
+        out.append('      </note>')
+    return out
+
+
 def emit_rest(ticks, div, voice, staff):
     out = []
     for plen, ptype, dots in decompose(ticks, div):
@@ -757,6 +823,8 @@ if __name__ == "__main__":
                     help="maximum reach in semitones (default 17, an eleventh)")
     ap.add_argument("--comfortable", type=int, default=14,
                     help="comfortable reach in semitones (default 14)")
+    ap.add_argument("--detail", default="full", choices=detail.LEVELS,
+                    help="how much to tell them (DESIGN 11). default full")
     a = ap.parse_args()
     out = a.output or a.input.rsplit(".", 1)[0] + ".musicxml"
-    convert(a.input, out, a.key, a.reach, a.comfortable)
+    convert(a.input, out, a.key, a.reach, a.comfortable, a.detail)

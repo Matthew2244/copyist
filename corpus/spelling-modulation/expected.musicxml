@@ -26,6 +26,10 @@
         <direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>80</per-minute></metronome></direction-type>
         <sound tempo="80.00"/>
       </direction>
+      <harmony>
+        <root><root-step>E</root-step><root-alter>-1</root-alter></root>
+        <kind text="sus4">suspended-fourth</kind>
+      </harmony>
       <direction placement="below">
         <direction-type><dynamics><mf/></dynamics></direction-type>
         <staff>1</staff>
@@ -79,6 +83,10 @@
       </note>
     </measure>
     <measure number="2">
+      <harmony>
+        <root><root-step>E</root-step><root-alter>-1</root-alter></root>
+        <kind text="sus4">suspended-fourth</kind>
+      </harmony>
       <note>
         <pitch><step>B</step><alter>-1</alter><octave>4</octave></pitch>
         <duration>480</duration>
@@ -128,6 +136,10 @@
       </note>
     </measure>
     <measure number="3">
+      <harmony>
+        <root><root-step>B</root-step><root-alter>-1</root-alter></root>
+        <kind text="m">minor</kind>
+      </harmony>
       <note>
         <pitch><step>D</step><octave>5</octave></pitch>
         <duration>480</duration>
@@ -176,6 +188,10 @@
       </note>
     </measure>
     <measure number="4">
+      <harmony>
+        <root><root-step>E</root-step><root-alter>-1</root-alter></root>
+        <kind text="">major</kind>
+      </harmony>
       <note>
         <pitch><step>A</step><octave>4</octave></pitch>
         <duration>480</duration>
@@ -225,6 +241,10 @@
       </note>
     </measure>
     <measure number="5">
+      <harmony>
+        <root><root-step>E</root-step></root>
+        <kind text="sus4">suspended-fourth</kind>
+      </harmony>
       <note>
         <pitch><step>E</step><octave>4</octave></pitch>
         <duration>480</duration>
@@ -272,6 +292,10 @@
       </note>
     </measure>
     <measure number="6">
+      <harmony>
+        <root><root-step>E</root-step></root>
+        <kind text="sus4">suspended-fourth</kind>
+      </harmony>
       <note>
         <pitch><step>B</step><octave>4</octave></pitch>
         <duration>480</duration>
@@ -319,6 +343,10 @@
       </note>
     </measure>
     <measure number="7">
+      <harmony>
+        <root><root-step>C</root-step><root-alter>-1</root-alter></root>
+        <kind text="m">minor</kind>
+      </harmony>
       <note>
         <pitch><step>D</step><alter>1</alter><octave>5</octave></pitch>
         <duration>480</duration>
@@ -367,6 +395,10 @@
       </note>
     </measure>
     <measure number="8">
+      <harmony>
+        <root><root-step>E</root-step></root>
+        <kind text="sus4">suspended-fourth</kind>
+      </harmony>
       <note>
         <pitch><step>G</step><alter>1</alter><octave>4</octave></pitch>
         <duration>480</duration>

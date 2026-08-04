@@ -26,6 +26,10 @@
         <direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>72</per-minute></metronome></direction-type>
         <sound tempo="72.00"/>
       </direction>
+      <harmony>
+        <root><root-step>C</root-step><root-alter>1</root-alter></root>
+        <kind text="m">minor</kind>
+      </harmony>
       <direction placement="below">
         <direction-type><dynamics><mp/></dynamics></direction-type>
         <staff>1</staff>
@@ -145,6 +149,10 @@
       </note>
     </measure>
     <measure number="2">
+      <harmony>
+        <root><root-step>C</root-step><root-alter>1</root-alter></root>
+        <kind text="sus4">suspended-fourth</kind>
+      </harmony>
       <note>
         <pitch><step>C</step><alter>1</alter><octave>4</octave></pitch>
         <duration>240</duration>
@@ -277,6 +285,10 @@
       </note>
     </measure>
     <measure number="3">
+      <harmony>
+        <root><root-step>A</root-step></root>
+        <kind text="">major</kind>
+      </harmony>
       <note>
         <rest/>
         <duration>240</duration>
@@ -542,6 +554,10 @@
       </note>
     </measure>
     <measure number="5">
+      <harmony>
+        <root><root-step>E</root-step></root>
+        <kind text="">major</kind>
+      </harmony>
       <direction placement="below">
         <direction-type><dynamics><mp/></dynamics></direction-type>
         <staff>1</staff>
@@ -676,6 +692,10 @@
       </note>
     </measure>
     <measure number="6">
+      <harmony>
+        <root><root-step>E</root-step></root>
+        <kind text="6">major-sixth</kind>
+      </harmony>
       <note>
         <rest/>
         <duration>480</duration>
@@ -824,6 +844,10 @@
       </note>
     </measure>
     <measure number="7">
+      <harmony>
+        <root><root-step>B</root-step></root>
+        <kind text="">major</kind>
+      </harmony>
       <note>
         <rest/>
         <duration>240</duration>
@@ -1077,6 +1101,10 @@
       </note>
     </measure>
     <measure number="9">
+      <harmony>
+        <root><root-step>C</root-step><root-alter>1</root-alter></root>
+        <kind text="5">power</kind>
+      </harmony>
       <direction placement="below">
         <direction-type><dynamics><pp/></dynamics></direction-type>
         <staff>1</staff>

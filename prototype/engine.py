@@ -114,10 +114,10 @@ def do_analyze(path):
     }
 
 
-def do_convert(path, out, key, reach, comfortable):
+def do_convert(path, out, key, reach, comfortable, level="full"):
     buf = io.StringIO()
     with redirect_stdout(buf):
-        C.convert(path, out, key, reach, comfortable)
+        C.convert(path, out, key, reach, comfortable, level)
     text = buf.getvalue()
     if not os.path.exists(out):
         return {"ok": False, "error": text.strip()[:500] or "Conversion failed."}
@@ -142,6 +142,7 @@ def main():
     ap.add_argument("--key")
     ap.add_argument("--reach", type=int, default=17)
     ap.add_argument("--comfortable", type=int, default=14)
+    ap.add_argument("--detail", default="full")
     try:
         a = ap.parse_args()
     except SystemExit:
@@ -153,7 +154,8 @@ def main():
             result = do_analyze(a.input)
         else:
             out = a.out or a.input.rsplit(".", 1)[0] + ".musicxml"
-            result = do_convert(a.input, out, a.key, a.reach, a.comfortable)
+            result = do_convert(a.input, out, a.key, a.reach,
+                                a.comfortable, a.detail)
     except Exception as e:
         result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
 

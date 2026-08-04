@@ -875,9 +875,10 @@ directly would make the whole app GPL-3.
 | **JSON protocol (§5.2)** | **working** — `prototype/engine.py` |
 | **macOS GUI (D2)** | **builds and runs**; VoiceOver not yet verified at runtime |
 | **Windows GUI (D2)** | **compiles in CI**; never run, NVDA not verified |
+| **Chord symbols (D19, §12.1)** | **working** — template matching over duration-weighted profiles, always with a confidence and a finding |
+| **Detail levels (D18, §11)** | **working** for `full`, `slashes`, `symbols`; `simplified` and `rhythmic-slashes` not built |
+| **A/B audition (§16)** | **working** in the macOS app |
 | Tuplets (§7.2) | not built — the reference chart used 48 |
-| Chord symbols and slashes (D19, §12) | not built |
-| Detail levels (D18, §11) | not built |
 | Transposing instruments (§10.3) | not built |
 | Free tempo (§7.6) | not built, by design |
 | MCP server (D7) | not built, by design — last |

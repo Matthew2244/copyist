@@ -70,8 +70,9 @@ enum Engine {
     }
 
     static func convert(_ path: String, to out: String, key: String?,
-                        reach: Int, comfortable: Int) throws -> Conversion {
-        var args = ["convert", path, "--out", out,
+                        reach: Int, comfortable: Int,
+                        detail: String = "full") throws -> Conversion {
+        var args = ["convert", path, "--out", out, "--detail", detail,
                     "--reach", String(reach), "--comfortable", String(comfortable)]
         if let key, !key.isEmpty { args += ["--key", key] }
         return Conversion(try run(args))
