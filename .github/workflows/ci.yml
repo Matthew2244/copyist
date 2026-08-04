@@ -1,4 +1,4 @@
-name: corpus
+name: ci
 
 on:
   push:
@@ -17,8 +17,45 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      # No pip install step on purpose — the prototype has no dependencies,
+      # No pip install step on purpose — the engine has no dependencies,
       # including its MIDI parser. If this ever needs one, that is a decision
       # to argue for, not to slip in.
       - name: Run corpus regressions
         run: python3 prototype/test_corpus.py
+
+  fixtures-reproducible:
+    # A fixture generator that no longer reproduces its own fixture is a
+    # corpus that silently stopped meaning anything.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Regenerate every fixture and diff
+        run: |
+          for m in corpus/*/make.py; do
+            echo "regenerating $m"
+            python3 "$m"
+          done
+          git diff --exit-code -- corpus/ \
+            || { echo "::error::A fixture generator no longer reproduces its committed output."; exit 1; }
+
+  gui-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the SwiftUI app
+        run: swift build -c release
+        working-directory: gui/macos
+
+  gui-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build the WPF app
+        run: dotnet build -c Release --nologo
+        working-directory: gui/windows

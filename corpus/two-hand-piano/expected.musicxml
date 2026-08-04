@@ -59,6 +59,7 @@
         <voice>1</voice>
         <type>eighth</type>
         <staff>1</staff>
+        <notations><articulations><accent/></articulations></notations>
       </note>
       <note>
         <pitch><step>C</step><alter>1</alter><octave>5</octave></pitch>
@@ -100,29 +101,30 @@
         <staff>2</staff>
       </direction>
       <note>
-        <pitch><step>C</step><alter>1</alter><octave>2</octave></pitch>
+        <pitch><step>D</step><alter>-1</alter><octave>2</octave></pitch>
         <duration>960</duration>
         <voice>5</voice>
         <type>half</type>
-        <accidental>sharp</accidental>
+        <accidental>flat</accidental>
+        <staff>2</staff>
+        <notations><articulations><tenuto/></articulations></notations>
+      </note>
+      <note>
+        <chord/>
+        <pitch><step>A</step><alter>-1</alter><octave>2</octave></pitch>
+        <duration>960</duration>
+        <voice>5</voice>
+        <type>half</type>
+        <accidental>flat</accidental>
         <staff>2</staff>
       </note>
       <note>
         <chord/>
-        <pitch><step>G</step><alter>1</alter><octave>2</octave></pitch>
+        <pitch><step>D</step><alter>-1</alter><octave>3</octave></pitch>
         <duration>960</duration>
         <voice>5</voice>
         <type>half</type>
-        <accidental>sharp</accidental>
-        <staff>2</staff>
-      </note>
-      <note>
-        <chord/>
-        <pitch><step>C</step><alter>1</alter><octave>3</octave></pitch>
-        <duration>960</duration>
-        <voice>5</voice>
-        <type>half</type>
-        <accidental>sharp</accidental>
+        <accidental>flat</accidental>
         <staff>2</staff>
       </note>
       <note>
@@ -176,10 +178,11 @@
         <staff>1</staff>
       </note>
       <note>
-        <pitch><step>C</step><octave>5</octave></pitch>
+        <pitch><step>B</step><alter>1</alter><octave>4</octave></pitch>
         <duration>240</duration>
         <voice>1</voice>
         <type>eighth</type>
+        <accidental>sharp</accidental>
         <staff>1</staff>
       </note>
       <note>
@@ -474,6 +477,7 @@
         <voice>5</voice>
         <type>half</type>
         <staff>2</staff>
+        <notations><articulations><accent/></articulations></notations>
       </note>
       <note>
         <chord/>
@@ -600,6 +604,7 @@
         <voice>5</voice>
         <type>eighth</type>
         <staff>2</staff>
+        <notations><articulations><tenuto/></articulations></notations>
       </note>
       <note>
         <chord/>
@@ -792,6 +797,7 @@
         <type>eighth</type>
         <accidental>sharp</accidental>
         <staff>2</staff>
+        <notations><articulations><accent/></articulations></notations>
       </note>
       <note>
         <chord/>
@@ -832,6 +838,7 @@
         <type>eighth</type>
         <accidental>sharp</accidental>
         <staff>1</staff>
+        <notations><articulations><accent/></articulations></notations>
       </note>
       <note>
         <pitch><step>F</step><alter>1</alter><octave>4</octave></pitch>

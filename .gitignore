@@ -7,3 +7,8 @@ prototype/*.musicxml
 prototype/*.png
 prototype/*.mid
 prototype/*.MID
+
+# Swift / .NET build output
+gui/macos/.build/
+gui/windows/bin/
+gui/windows/obj/

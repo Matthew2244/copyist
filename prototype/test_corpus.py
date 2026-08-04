@@ -88,6 +88,39 @@ def note_set(path):
     return {(round(n.on / d, 4), n.pitch) for n in x["notes"]}
 
 
+def check_spelling(d, key):
+    """Fixtures carrying expected-spelling.json assert per-note spelling."""
+    truth_path = os.path.join(d, "expected-spelling.json")
+    if not os.path.exists(truth_path):
+        return
+    import json
+    truth = json.load(open(truth_path))
+    mid = analyze.parse_midi(os.path.join(d, "clean.mid"))
+    notes = analyze.extract(mid)["notes"]
+    from spelling import ps13, double_accidentals
+    got = ps13(notes)
+    if len(got) != len(truth):
+        check("spelling: note count matches ground truth", False,
+              f"{len(got)} vs {len(truth)}")
+        return
+    ok = sum(1 for g, t in zip(got, truth)
+             if g[0] == t["step"] and g[1] == t["alter"])
+    pct = ok / len(truth) * 100
+    check(f"spelling accuracy >= 95% (got {pct:.1f}%)", pct >= 95.0)
+    check("no double accidentals", double_accidentals(got) == 0)
+
+    # The point of a modulating fixture: pitches that must be spelled two ways.
+    want_two = {t["pitch"] for t in truth
+                if len({(u["step"], u["alter"]) for u in truth
+                        if u["pitch"] == t["pitch"]}) > 1}
+    if want_two:
+        bad = [p for p in want_two
+               if len({(g[0], g[1]) for g, n in zip(got, notes)
+                       if n.pitch == p}) < 2]
+        check(f"{len(want_two)} pitch(es) spelled both ways as required",
+              not bad, f"single-spelled: {bad}")
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -109,6 +142,8 @@ def run_fixture(name, key, expect_verdicts):
     for src, want in expect_verdicts.items():
         got = verdict(os.path.join(d, src))
         check(f"{src} classifies as {want}", got == want, f"got {got}")
+
+    check_spelling(d, key)
 
     ms = find_mscore()
     if not ms:
@@ -132,6 +167,8 @@ if __name__ == "__main__":
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
                  "humanized.mid": "QUANTIZED THEN HUMANIZED"})
+    run_fixture("spelling-modulation", "Eb major",
+                {"clean.mid": "HARD QUANTIZED"})
 
     print(f"\n{passed} passed, {failed} failed, {skipped} skipped")
     sys.exit(1 if failed else 0)

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    WPF rather than WinUI 3, chosen for accessibility rather than novelty.
+    WPF's UI Automation implementation is mature and NVDA works well with its
+    stock controls; WinUI 3 is newer and its accessibility has more gaps. The
+    same reasoning that picked native over a webview on the Mac applies here.
+
+    Everything is a stock control — TextBlock, Button, ComboBox, Slider,
+    ItemsControl — so name, role and value come for free and there is not one
+    custom AutomationPeer in this project.
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Copyist</AssemblyName>
+    <RootNamespace>Copyist</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+  </PropertyGroup>
+
+</Project>

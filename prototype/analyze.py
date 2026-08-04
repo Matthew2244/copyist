@@ -112,12 +112,13 @@ def parse_track(r):
 # ---------------------------------------------------------------- extraction
 
 class Note:
-    __slots__ = ("pitch", "on", "off", "vel", "chan", "track")
+    __slots__ = ("pitch", "on", "off", "vel", "chan", "track", "spell")
 
     def __init__(self, pitch, on, vel, chan, track):
         self.pitch, self.on, self.vel = pitch, on, vel
         self.chan, self.track = chan, track
         self.off = None
+        self.spell = None          # set by ps13 (DESIGN 9)
 
     @property
     def dur(self):

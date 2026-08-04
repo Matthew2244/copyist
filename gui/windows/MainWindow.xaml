@@ -1,0 +1,119 @@
+<Window x:Class="Copyist.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Copyist" Height="620" Width="720" MinHeight="480" MinWidth="620">
+
+    <!-- Every control here is stock WPF, so UI Automation reports correct
+         name, role and value without one custom AutomationPeer. Rows that
+         belong together are a single automation element with the whole
+         sentence as their name, so NVDA reads one thing rather than stopping
+         twice on a label and its value. -->
+
+    <DockPanel LastChildFill="True" Margin="0">
+
+        <!-- Toolbar -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="12">
+            <Button x:Name="OpenButton" Content="_Open MIDI File…"
+                    Click="OnOpen" Padding="12,6" Margin="0,0,8,0"
+                    AutomationProperties.HelpText="Choose a MIDI file exported from your DAW."/>
+            <Button x:Name="ConvertButton" Content="Convert to Music_XML"
+                    Click="OnConvert" Padding="12,6" IsEnabled="False"
+                    AutomationProperties.HelpText="Writes a MusicXML file you can open in MuseScore."/>
+        </StackPanel>
+
+        <!-- Status line, announced to screen readers when it changes -->
+        <TextBlock x:Name="StatusText" DockPanel.Dock="Bottom" Margin="12,8"
+                   AutomationProperties.LiveSetting="Assertive"
+                   Text="No file open. Press Alt then O to choose a MIDI file."/>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12,0,12,12">
+            <StackPanel>
+
+                <TextBlock x:Name="WelcomeText" Style="{StaticResource Heading}"
+                           Text="Copyist"/>
+                <TextBlock x:Name="WelcomeBody"
+                           Text="Open a MIDI file exported from your DAW. Copyist reads what you played, tells you what it found, and writes MusicXML that opens cleanly in MuseScore."/>
+
+                <!-- Analysis -->
+                <StackPanel x:Name="AnalysisPanel" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource Heading}" Text="What Copyist found"/>
+                    <ItemsControl x:Name="AnalysisRows">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,0,0,8"
+                                            AutomationProperties.Name="{Binding Spoken}">
+                                    <TextBlock Text="{Binding Label}" FontWeight="Bold"/>
+                                    <TextBlock Text="{Binding Value}"/>
+                                    <TextBlock Text="{Binding Extra}" Opacity="0.7" FontSize="11"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <!-- Settings -->
+                <StackPanel x:Name="SettingsPanel" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource Heading}" Text="Settings"/>
+
+                    <Label Content="_Key" Target="{Binding ElementName=KeyBox}"/>
+                    <ComboBox x:Name="KeyBox" Margin="0,0,0,10"
+                              DisplayMemberPath="Display"
+                              AutomationProperties.HelpText="Copyist guesses the key. When two are close, choose the right one here."/>
+
+                    <Label Content="Maximum _reach in semitones"
+                           Target="{Binding ElementName=ReachBox}"/>
+                    <ComboBox x:Name="ReachBox" Margin="0,0,0,10"
+                              AutomationProperties.HelpText="The widest interval you can play with one hand. Used to decide which notes must be two hands."/>
+
+                    <Label Content="_Comfortable reach in semitones"
+                           Target="{Binding ElementName=ComfortBox}"/>
+                    <ComboBox x:Name="ComfortBox" Margin="0,0,0,10"
+                              AutomationProperties.HelpText="The widest interval you play without stretching."/>
+                </StackPanel>
+
+                <!-- Result -->
+                <StackPanel x:Name="ResultPanel" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource Heading}" Text="Result"/>
+                    <ItemsControl x:Name="ResultRows">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,0,0,8"
+                                            AutomationProperties.Name="{Binding Spoken}">
+                                    <TextBlock Text="{Binding Label}" FontWeight="Bold"/>
+                                    <TextBlock Text="{Binding Value}"/>
+                                    <TextBlock Text="{Binding Extra}" Opacity="0.7" FontSize="11"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <Button x:Name="RevealButton" Content="Show in _File Explorer"
+                            Click="OnReveal" Padding="12,6" HorizontalAlignment="Left"
+                            Margin="0,4,0,12"
+                            AutomationProperties.HelpText="Shows the MusicXML file so you can open it in MuseScore."/>
+
+                    <ItemsControl x:Name="FindingGroups">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,0,0,10">
+                                    <TextBlock Style="{StaticResource SubHeading}"
+                                               Text="{Binding Title}"/>
+                                    <ItemsControl ItemsSource="{Binding Items}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Display}"
+                                                           Margin="12,0,0,6"
+                                                           AutomationProperties.Name="{Binding Spoken}"/>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

@@ -30,6 +30,8 @@ from xml.sax.saxutils import escape
 
 from analyze import (parse_midi, extract, estimate_key, classify_timing,
                      GRIDS, PC, name_interval)
+from spelling import ps13, double_accidentals
+import articulation
 
 # --------------------------------------------------------------- constants
 
@@ -278,7 +280,13 @@ class Hands:
 
 # --------------------------------------------------------------- conversion
 
+LAST_FINDINGS = None      # set by convert(), read by engine.py
+LAST_SUMMARY = None
+
+
 def convert(path, out_path, key_name, reach, comfortable):
+    global LAST_FINDINGS, LAST_SUMMARY
+    LAST_FINDINGS = LAST_SUMMARY = None
     mid = parse_midi(path)
     x = extract(mid)
     div = mid["division"]
@@ -306,7 +314,18 @@ def convert(path, out_path, key_name, reach, comfortable):
         print(f"Unknown key '{key_name}'. Try e.g. \"C# minor\".")
         return
     mode = "minor" if key_name.endswith("minor") else "major"
+
+    # ---- 9: ps13. Spelling is per note from its local context, not one table
+    # for the whole piece, so a pitch can be E-flat in one bar and D-sharp in
+    # the next. `table` stays as the fallback for anything ps13 cannot see.
     table = spelling_table(fifths, find)
+    _sp = ps13(notes)
+    for _n, _s in zip(notes, _sp):
+        _n.spell = _s
+    dbl = double_accidentals(_sp)
+    if dbl:
+        find.add("uncertain", f"{dbl} notes needed a double accidental",
+                 why="ps13 could not find a single-accidental spelling in context")
 
     # ---- instrument (10.2)
     track_name = ""
@@ -438,9 +457,18 @@ def convert(path, out_path, key_name, reach, comfortable):
             elif gap > 0:
                 phantom_rests_killed += 1
 
-            ratio = ch["gate"] / ch["dur"] if ch["dur"] else 1.0
-            ch["artic"] = ("staccatissimo" if ratio < 0.25 else
-                           "staccato" if ratio < 0.45 else None)
+
+    # ---- O10: articulation. Gate time alone gives staccato and nothing else;
+    # accent, marcato and tenuto come from velocity relative to neighbours.
+    artic_counts = {}
+    for seq in streams.values():
+        for k, v in articulation.annotate(seq).items():
+            artic_counts[k] = artic_counts.get(k, 0) + v
+    if artic_counts:
+        find.add("fixed-silently",
+                 f"Articulation: {articulation.summarize(artic_counts)}",
+                 why="gate time for staccato; velocity relative to neighbours "
+                     "for accent, marcato and tenuto")
 
     if phantom_rests_killed:
         find.add("fixed-silently",
@@ -499,6 +527,20 @@ def convert(path, out_path, key_name, reach, comfortable):
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(xml)
+
+    LAST_FINDINGS = find
+    LAST_SUMMARY = {
+        "key": key_name, "fifths": fifths, "instrument": inst_name,
+        "instrumentSound": inst_sound, "measures": int(n_measures),
+        "notes": len(notes),
+        "handsCertain": hands.certain, "handsInferred": hands.inferred,
+        "handsLowConfidence": hands.low_conf,
+        "phantomRestsRemoved": phantom_rests_killed,
+        "genuineRests": real_rests,
+        "articulation": artic_counts,
+        "pedalMarks": len(pedal),
+        "doubleAccidentals": dbl,
+    }
 
     print(f"\nCOPYIST — {path}")
     print("=" * 60)
@@ -641,7 +683,7 @@ def emit_note(ns, ticks, div, voice, staff, table, artic,
         return out
     for pi, (plen, ptype, dots) in enumerate(parts):
         for ni, n in enumerate(sorted(ns, key=lambda z: z.pitch)):
-            step, alter, octave = spell(n.pitch, table)
+            step, alter, octave = n.spell or spell(n.pitch, table)
             out.append('      <note>')
             if ni:
                 out.append('        <chord/>')
