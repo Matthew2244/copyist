@@ -1,0 +1,359 @@
+# The Copyist chart format
+
+**Status:** draft specification, 2026-08-30. Nothing here is implemented yet;
+this is the design the chart compiler will be built against.
+**Read DESIGN.md first.** This document extends it: where DESIGN.md turns a
+performance into a chart, this format lets a chart be *written* directly — as
+text — and compiled into the same MusicXML the engine already emits.
+
+---
+
+## 1. What this is
+
+A chart is a plain text file (`.chart`, UTF-8) that a blind composer can read
+and write with a screen reader, kept in git, and compiled deterministically
+into a conductor score and per-instrument parts (MusicXML, rendered to PDF by
+MuseScore's command line — verified working headless).
+
+The format was designed against a measured corpus, not guessed: eleven real
+scores from the author's book (eight big-band charts engraved by Jeremy Hegg,
+Guy Barker's 24-part orchestral *Emotions*, Michael McElroy's vocal
+arrangement of *Tomorrow*, and the *Finally Free* string arrangement), plus
+27 originals batch-exported from Sibelius. Every construct below exists
+because those scores use it; §9 is the coverage table.
+
+The reader of a compiled part is a collaborator, not a machine (DESIGN.md §11).
+Most of a chart is chords, slashes and words. Fully notated material enters by
+*reference* to MIDI, MusicXML or audio-derived sources — the existing Copyist
+engine — or, for short figures, inline.
+
+## 2. Design rules
+
+1. **One statement per line, and every line is speakable.** A screen reader
+   reads line by line; each line must make sense read aloud, in order, without
+   sight of any other line. No layout-as-meaning, no ASCII art, no alignment.
+2. **Words over symbols.** The only structural punctuation is the comma
+   (list separator), the colon (introduces content), `@` (read "at"), `x`
+   (read "times"), and `+` after a beat number (read "and"). Chord symbols use
+   their ordinary spellings.
+3. **Every length is declared, and the compiler enforces it.** A section says
+   how many bars it is; its contents must add up. A chart that does not add up
+   does not compile, and the error is a sentence naming the section and the
+   count. This is the accessibility feature: bar arithmetic is proofread by
+   the machine, not by eye.
+4. **Never silently guess** (DESIGN.md principle 3). An unknown chord quality,
+   an unresolvable instrument, a reference to a missing figure — all errors,
+   never best-effort.
+5. **Bar numbers inside a section are section-relative.** Inserting a section
+   never renumbers the rest of the chart.
+6. **Tempo comes from the composer.** Never from detection (measured finding:
+   detection fails on dense material), and it may be omitted entirely — the
+   2024 *Matt's Blues* engraving carries no metronome mark and is correct.
+7. **Same input, same output, byte for byte** (DESIGN.md principle 6).
+
+Comments: a line whose first non-blank character is `#` is ignored. There are
+no end-of-line comments, so `F#7` is never at risk.
+
+## 3. File anatomy
+
+In order: a **header**, a **band** block, any number of named **chords** and
+**figure** definitions, an optional **pickup**, the **sections** in
+performance order, and an optional **output** block. Blank lines are free.
+
+### 3.1 Header
+
+Key–value lines, one per line:
+
+    title: Matt's Blues
+    composer: Matthew Whitaker
+    arranger: Jeremy Hegg
+    key: Bb
+    meter: 4/4
+    tempo: 132
+    feel: swing
+
+- `key` is the concert key; written keys per part come from the instrument
+  database (DESIGN.md §10). `tempo` is a number, or words (`rubato`,
+  `Slow, freely` — both appear in *Lush Life*), or absent.
+- `feel` is printed verbatim at the top (`Swing`, `Latin`, `Afro-Cuban feel`
+  are all in the corpus) and tells the compiler how to interpret eighths.
+- `source: "<file.musicxml>"` names the chart's default engraving — the
+  score that `as engraved` directives (§3.6) lift from. Optional; only
+  charts derived from an existing score need it.
+
+### 3.2 Band
+
+One instrument per line. The label before `=` is the part name; the name
+after it resolves through the instrument database, which supplies clef,
+transposition and range. No `=` means the label is the instrument.
+
+    band:
+      alto 1 = alto sax
+      trumpet 2 = trumpet
+      voice = soprano
+      guitar
+      bass = electric bass, tuning Bb0 Eb1 Ab1 Db2 Gb2
+      drums = drum set, detail symbols
+
+- `detail <level>` sets that part's default detail level (DESIGN.md §11):
+  `full`, `simplified`, `rhythmic-slashes`, `slashes`, `symbols`. Defaults
+  come from the instrument profile (rhythm section → slashes, melodic → full).
+- `tuning` overrides the range check — the five-string tuned a half-step
+  down is a real bass in this band.
+- Built-in groups resolve automatically from the band list: `saxes`,
+  `trumpets`, `trombones`, `horns` (all winds), `rhythm` (guitar, piano,
+  bass, drums), `all`. Custom: `group shout team: trumpet 1, alto 1`.
+
+### 3.3 Chord progressions
+
+Defined once, used by name — a solo form is written one time:
+
+    chords solo blues: Bb7, Eb7, Bb7 x2, Eb7 x2, Bb7, Dm7 G7@3, Cm7, F7, Bb7, F7
+
+**The bars grammar** (used by every `chords:` line):
+
+- **Commas separate bars.** The line above is twelve bars.
+- **`xN` after a bar means that bar lasts N bars total.** `Bb7 x2` is two
+  bars of B-flat seven. A parenthesized group repeats whole:
+  `( F7, Bb7 ) x4` is eight bars.
+- **Chords within one bar** are separated by spaces and split the bar evenly
+  unless placed. `Dm7 G7` in 4/4 is two beats each.
+- **`@beat` places a chord explicitly**: `C9 F7@3 Bb7@4+` reads "C nine,
+  F seven at three, B flat seven at four-and" — beats 1, 3, and the and of
+  four. An off-beat eighth may be spelled any of three ways — `4+`, `4.5`,
+  or `and-of-4` — all equivalent (decided by Matthew 2026-08-30: the format
+  should meet each writer's habit, not impose one). Documentation and
+  shipped examples use `4+`; the read-aloud view always speaks "the and of
+  four" regardless of source spelling.
+- **`nc`** is no chord. A bar that continues the previous chord restates it;
+  the printer suppresses repeated symbols the way an engraver would, so the
+  source stays explicit and the page stays clean.
+- Chord spelling: root with `b` or `#`, then quality: `7 9 11 13 maj maj7 m
+  m7 m9 m7b5 dim dim7 sus4 7sus4 aug 6 69 m6 7b9 7#9 7#11 13b9 alt`, plus
+  slash bass (`C7/E`). This list covers every quality in the measured corpus
+  (dominant-family and minor sevenths dominate: 3,306 symbols measured);
+  anything outside it is an error until added deliberately.
+
+### 3.4 Figures — notated material
+
+A figure is named, has a declared length, and gets its notes from one of
+three sources, in descending order of preference:
+
+    figure head hits, 6 bars:
+      from xml "Scores XML/Matt's Blues.musicxml", part "Trumpet 1", bars 15-20
+
+    figure bass line, 12 bars:
+      from midi "demos/mattsblues.mid", track "Bass", bars 1-12
+
+    figure pickup lick, 3 beats:
+      notes: rest e, C5 e, A4 e, C5 e, A4 e, F4 e
+
+- **`from xml`** lifts bars from existing MusicXML — the Sibelius book, a
+  collaborator's Finale export — verbatim, including articulation, dynamics
+  and lyrics. This is how "play this exact" usually works.
+- **`from midi`** runs the full existing Copyist pipeline (timing
+  classification, quantization, spelling, articulation) on the referenced
+  bars, and its findings surface in the chart build like any conversion.
+- **`notes:`** is the inline escape hatch for short material. Pitch is name,
+  accidental, octave (`Bb4`, `F#3`); duration letters are `w h q e s`
+  with `.` for dotted; tied durations join with `+` inside one note
+  (`C5 q+e` — "C five, quarter plus eighth"); `rest <dur>`;
+  `triplet( F4 e, A4 e, C5 e )`. Deliberately minimal: anything long or
+  intricate should come in by reference, where the engine's machinery and
+  verification already work.
+- **A figure is one line — one part's material.** When a whole ensemble
+  should play its *own* engraved lines (a thirteen-horn soli is thirteen
+  different parts, not one line in unison), use the `as engraved` directive
+  (§3.6) instead: each targeted part lifts its own identically-named part's
+  bars from the header's `source:` score, so the passage is exact per
+  player without naming thirteen figures. Part names match by normalized
+  comparison (case-insensitive, transposition words dropped); an ambiguous
+  match is an error, never a guess.
+- `lyrics:` may follow a figure's source for vocal parts: syllables split
+  with hyphens, melisma extended with an underscore, aligned to the notes in
+  order (`lyrics: To-mor-row, to-mor-row_`). Lyrics riding in referenced
+  XML come along automatically (Michael McElroy's *Tomorrow* carries 1,385
+  syllables — the reference path is the realistic one).
+
+### 3.5 Pickup
+
+    pickup 3 beats: piano, figure pickup lick, text "(piano pickups)"
+
+At most one, before the first section. The compiler emits a real implicit
+bar — *Matt's Blues* opens with exactly this.
+
+### 3.6 Sections
+
+    section A, 12 bars, label "head"
+      feel: 1/2 Time Funk
+      chords: Bb7, Eb7, F7 Cb7@3, Bb7, Eb7 Bbm7@3, Eb7, C9 F7@3 Bb7@4+, Bb7 x2, Bb7 E13@4+, E13 x2
+      horns: figure head hits A
+      rhythm: groove
+
+The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
+[, open]`.
+
+- **`name` is the rehearsal mark**, and it may be a letter, a number, or a
+  word — the corpus uses all three styles (A–K in *Matt's Blues*, bar
+  numbers in *Jeannine* and *Take a Break*, "head" / "shout!" / "piano solo"
+  as names). `label` adds the human title printed beside the mark.
+- **`repeat Nx`** prints repeat barlines around the section. **`open`**
+  prints an open repeat ("solos (open)", "on cue" until cued off).
+- **Endings** (the volta brackets *Jeannine* uses 144 of): the section
+  length is the body; endings declare their own bars.
+
+      section B, 8 bars, repeat 2x
+        chords: F7, Bb7, F7, F7, Bb7, Bb7
+        ending 1, 2 bars: chords: C7, F7
+        ending 2, 2 bars: chords: C7 Bb7@3, F7
+
+- **Directive lines** are `target: instruction[, instruction ...]` where
+  target is a part label, a group, or `all`. Instructions:
+
+  | Instruction | Prints |
+  |---|---|
+  | `groove` | slashes under this section's chords |
+  | `groove "half-time funk"` | the same, with the words above the first bar |
+  | `figure <name> [at bar N]` | the notated figure, from that section-relative bar (default 1) |
+  | `as engraved bars A-B [at bar N]` | each targeted part's own bars A–B of the `source:` score, exact |
+  | `hits on 1, 2+, 4` | rhythmic-slash kicks on those beats (bar prefix: `hits bar 3 on 2+, 4`) |
+  | `solo` / `solo open` | solo changes shown, "Solo" / "solos (open)" printed |
+  | `backgrounds, on cue` | the figure marked "backgrounds on cue" |
+  | `tacet` | whole-section multirest in the part |
+  | `as demo` | "as demo" over slashes — symbols-level (DESIGN.md §11) |
+  | `double <part>` | this part plays another part's line (printed full size) |
+  | `cue <part>` | another part's line printed cue-size, not played — "(Piano cue)" |
+  | `text "words" [at bar N]` | the words, verbatim, at that (section-relative) bar |
+  | `mute cup` / `mute harmon` / `open` | technique text at its position |
+  | `on pass 2: <instruction>` | the instruction on that repeat pass only — prints "(2x only)" |
+
+  A part not named in a section follows its band-block default: rhythm
+  section grooves, everything else is tacet. **The compiler lists every
+  part's resolved behavior per section in its findings**, so an accidental
+  twelve-bar rest in the lead alto is read back in text before it is ever
+  printed.
+
+- **Timed events inside a section** use section-relative bars:
+
+      at bar 9: text "Swing--"
+      at bar 5: meter 5/4
+      at bar 7: tempo 96
+      build: add saxes at 3, add trombones at 11
+
+  `build:` prints the "+saxes" style entrance cues *Jeannine*'s montuno
+  uses. Tempo words (`molto rall.`, `a tempo`, `Colla Voce`, `Tempo I`)
+  go through `text` — they are performance language, printed verbatim.
+
+- `use chords <name> [xN]` cites a named progression instead of an inline
+  `chords:` line.
+
+### 3.7 Output
+
+    output:
+      score
+      parts: each
+      pdf: yes
+
+Optional; these are the defaults. Transposition to written pitch is always
+automatic from the instrument database — a B-flat trumpet part comes out in
+the right key or the build fails, never silently concert. Multirests in
+parts are automatic. Pedal marks are **never** emitted in ensemble parts
+(measured: zero in every ensemble piano part in the corpus; DESIGN.md §11.3).
+
+## 4. Validation contract
+
+`copyist chart check` must enforce, with one-sentence errors:
+
+1. Every section's contents sum to its declared length; endings likewise.
+2. Every `figure`/`chords` reference resolves; unused definitions are warned.
+3. Every directive target resolves to the band block.
+4. Every chord parses against the quality list; every note is inside its
+   instrument's range (honoring `tuning`), or a finding says which bar.
+5. `on pass N` only inside a repeated section; `ending N` numbers complete.
+6. Every `from xml` / `from midi` file exists, the part exists, the bars are
+   in range, and the referenced length equals the declared figure length.
+7. Section-relative bars in `at bar N` are within the section.
+8. Build is idempotent, and findings (DESIGN.md §15) carry anything reduced,
+   guessed, or worth hearing about — filtered by detail level as always.
+
+`copyist chart read <file> --part "alto 1"` renders any part as prose — the
+part as the player will experience it, section by section, in sentences.
+That is the blind proofread, and it is a first-class output, not a debug aid.
+
+## 5. What is deliberately absent
+
+- **Segno, coda, D.S., D.C.** — zero occurrences across all eleven measured
+  scores; every chart writes its form out linearly (with section repeats and
+  voltas). The section model can grow a `goto`-style construct later without
+  breaking anything, but it is not v1 (this revises O9's worry downward:
+  the 13-part reference chart in DESIGN.md §11.3 used D.S., but the current
+  book does not).
+- **Pedal marks** — see §3.7.
+- **Nested repeats, in-bar meter tricks, cross-staff inline notation** — the
+  inline `notes:` grammar stays small on purpose; the reference path exists
+  precisely so text never has to express what MusicXML already can.
+
+## 6. How it attaches to the engine
+
+New: the chart parser and the section/part resolver. Reused as-is: the
+instrument database and transposition (§10), chord symbol emission (§12.1),
+slash regions (§12.2), detail levels and reduction (§11), the MusicXML
+writer, findings (§15), and — for `from midi` — the entire conversion
+pipeline including its verification. MuseScore CLI renders PDFs headless
+(verified 2026-08-30; note it may crash *after* writing a valid PDF — judge
+by the output file, not the exit code).
+
+## 7. The worked example
+
+`Matt's Blues.chart` (kept with the private chart library, not in this
+repository) expresses the full 147-measure 2024 big-band chart in this
+format. Its chord timeline was machine-verified against the source
+MusicXML's 118 harmony events at eighth-note resolution — the verifying
+script is `prototype/chartcheck.py`, which doubles as the reference
+implementation of the bars grammar in §3.3.
+
+`prototype/chartc.py` is the first compiler increment, built against that
+example: it compiles the chart to a conductor score plus seventeen parts,
+all rendering through MuseScore headless. Verification runs both ways with
+the same checker — the chart against the original engraving, and the
+compiled score against the chart — so the compiled output's harmony
+timeline provably matches the source engraving transitively. Everything the
+increment does not implement fails with a one-sentence error naming the
+construct, never a partial page (the docstring lists them).
+
+## 8. Decided (all three settled by Matthew, 2026-08-30)
+
+- **Q1 — beat spelling: accept all three.** `2+`, `2.5` and `and-of-2` are
+  equivalent on input, because the format is meant for more writers than one
+  and each will bring a habit. Canonical in docs and examples: `2+`. The
+  read-aloud view always speaks "the and of two."
+- **Q2 — continuation bars restate the chord, with `xN`.** No `same`
+  shorthand: `E13 x8` is explicit, short, and audible without looking back
+  up the line. The printer still prints a symbol only where it changes.
+- **Q3 — `open` sections end with printed text only.** "solos (open)" /
+  "on cue" on the page, the band handles the cue live — exactly what the
+  real charts do. No cue-target modeling.
+
+## 9. Coverage against the measured book
+
+| Measured in the corpus | Construct |
+|---|---|
+| 3,306 chord symbols | chords grammar §3.3 |
+| Slash regions (97–238 per chart) | `groove`, detail levels |
+| Repeats with volta endings (*Jeannine*: 180/144) | `repeat Nx`, `ending N` |
+| Rehearsal letters, bar-number marks, named sections | section `name` + `label` |
+| "1/2 Time Funk", "Swing", "Latin", "2-feel" | `feel:`, `groove "…"` |
+| "solo", "solos (open)", "on cue", "drum solo" | `solo`, `open`, `backgrounds, on cue` |
+| "+saxes / +bones / +trumpets" (montuno build) | `build: add … at N` |
+| "1x only", "3x-4x play upper part" | `on pass N:` |
+| Cup/Harmon mutes, "open" | `mute`, `open` |
+| "Colla Voce", "molto rall.", "Tempo I", "Slow, freely" | `tempo:` words, `text` |
+| Meters 2/4, 4/4, 5/4, 7/8; mid-chart changes | `meter:`, `at bar N: meter` |
+| Tuplets (26–182 per chart) | referenced figures; inline `triplet(…)` |
+| "(Piano cue)" cue-size notes (*Finally Free*) | `cue <part>` |
+| Multirests in parts | automatic |
+| "(noodle a bit)", "(float above it all)", "as is..." | `text`, verbatim always |
+| Vocal parts with lyrics (*Tomorrow*: SAT, 1,385 syllables) | `lyrics:`, XML reference |
+| Kicks over slashes | `hits on …` |
+| A five-string bass tuned Bb0–Gb2 | `tuning` on the band line |
+| Pickup bar ("(piano pickups)", 3 beats) | `pickup` |
