@@ -278,7 +278,13 @@ parts are automatic. Pedal marks are **never** emitted in ensemble parts
 
 `copyist chart read <file> --part "alto 1"` renders any part as prose — the
 part as the player will experience it, section by section, in sentences.
-That is the blind proofread, and it is a first-class output, not a debug aid.
+That is the blind proofread, and it is a first-class output, not a debug
+aid. Built: `prototype/chartread.py`, which resolves the chart with the
+same plan builder the compiler uses, so the prose and the printed page
+cannot disagree. Chords are spoken as a musician says them ("B flat
+seven"), off-beats are always "the and of four" whatever the source
+spelling, and the whole answer is written in one pass — a screen reader
+restarts on every write.
 
 ## 5. What is deliberately absent
 

@@ -436,7 +436,20 @@ def compile_chart(chart_path, outdir):
                    'drum' not in next(b for b in band
                                       if b['label'] == l)['instrument'].lower()}
 
-    # ---- resolve every part x section into a content plan
+    plans, total = build_plans(chart, band, groups, labels)
+    if source is None and any(
+            plan['content'][l][0] == 'engraved'
+            for plan in plans for l in labels):
+        fail("'as engraved' is used but the chart has no source: line "
+             "naming an engraving")
+    return _compile_rest(chart, band, groups, labels, plans, total,
+                         source, src_of, chord_parts, hdr, chart_path, outdir)
+
+
+def build_plans(chart, band, groups, labels):
+    """Resolve every part x section into a content plan. Shared by the
+    compiler and the read-aloud part view, so the prose and the page can
+    never disagree."""
     plans = []           # per section: {'start': bar, ...}
     start = 1
     for sec in chart['sections']:
@@ -484,8 +497,6 @@ def compile_chart(chart_path, outdir):
                 if engraved == 'tacet':
                     plan['content'][l] = ('tacet', None)
                 elif engraved:
-                    if not source:
-                        fail(f"{loc}: 'as engraved' needs a source: line")
                     plan['content'][l] = ('engraved', engraved)
                 elif groove_words is not None:
                     plan['content'][l] = ('groove', groove_words)
@@ -495,8 +506,11 @@ def compile_chart(chart_path, outdir):
                 plan['texts'][l].append((bar, text))
         plans.append(plan)
         start += sec['bars']
-    total = start - 1
+    return plans, start - 1
 
+
+def _compile_rest(chart, band, groups, labels, plans, total,
+                  source, src_of, chord_parts, hdr, chart_path, outdir):
     # ---- emit one part's measures
     def part_measures(label, with_directions, with_harmony):
         b = next(x for x in band if x['label'] == label)
