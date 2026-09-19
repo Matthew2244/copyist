@@ -213,6 +213,15 @@ the conversion pipeline.
   "These bars are eighth notes" is authorship, not measurement, and the
   format records it.
 - **`fall`** puts a falloff on the last note of that directive's material.
+- **`countin: N`** (header) drops the demo's count-in bars from the page:
+  demo bar N+1 prints as bar 1, and every default placement shifts with
+  it. Directives keep speaking the DAW's bar numbers — the numbers the
+  writer is looking at.
+- **Dynamics come from the expression pedal.** CC 11 is read per figure:
+  each playing bar's median level maps to p/mp/mf/f/ff and a mark prints
+  wherever the level changes. The findings say what was derived, and the
+  read-aloud view speaks the marks, so the writer corrects them by ear
+  like everything else.
 
 ### 3.5 Pickup
 

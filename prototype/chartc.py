@@ -47,6 +47,17 @@ KEY_FIFTHS = {'c': 0, 'g': 1, 'd': 2, 'a': 3, 'e': 4, 'b': 5, 'f#': 6,
               'c#': 7, 'f': -1, 'bb': -2, 'eb': -3, 'ab': -4, 'db': -5,
               'gb': -6, 'cb': -7}
 
+# MusicXML Standard Sound and 1-based GM program, so renderers play a
+# horn chart with horns rather than the default piano.
+SOUNDS = {
+    'flute':        ('Flute', 'wind.flutes.flute', 74),
+    'alto sax':     ('Alto Saxophone', 'wind.reed.saxophone.alto', 66),
+    'tenor sax':    ('Tenor Saxophone', 'wind.reed.saxophone.tenor', 67),
+    'baritone sax': ('Baritone Saxophone', 'wind.reed.saxophone.baritone', 68),
+    'trumpet':      ('Trumpet', 'brass.trumpet.bflat', 57),
+    'trombone':     ('Trombone', 'brass.trombone', 58),
+}
+
 
 def parse_key(text):
     """'Eb minor' -> (fifths, mode)."""
@@ -206,7 +217,7 @@ def parse_chart(path):
             m = re.match(r'(\w+):\s*(.+)$', s)
             if m and m.group(1) in ('title', 'composer', 'arranger', 'key',
                                     'meter', 'tempo', 'feel', 'source',
-                                    'demo'):
+                                    'demo', 'countin'):
                 chart['header'][m.group(1)] = m.group(2).strip().strip('"')
                 continue
             fail(f"{loc}: cannot read '{s}'")
@@ -600,9 +611,12 @@ def build_plans(chart, band, groups, labels):
                     if hi < lo:
                         fail(f"{loc}: demo bars {lo}-{hi} run backwards")
                     # default placement: the demo and the chart share one
-                    # grid, so demo bar N lands on chart bar N unless an
+                    # grid, shifted by the demo's count-in bars, so demo
+                    # bar N lands on printed bar N - countin unless an
                     # explicit `at bar` moves it
-                    at = (start + int(m.group(4)) - 1) if m.group(4) else lo
+                    shift = int(chart['header'].get('countin', 0))
+                    at = (start + int(m.group(4)) - 1) if m.group(4) \
+                        else lo - shift
                     demo_refs.append({'track': m.group(1), 'lo': lo,
                                       'hi': hi, 'at': at, 'loc': loc})
                     continue
@@ -829,8 +843,23 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         L.append('  <part-list>\n')
         for i, l in enumerate(part_labels, 1):
             name = src_of.get(l, l)
+            inst = next(x for x in band
+                        if x['label'] == l)['instrument'].lower()
+            sound = SOUNDS.get(inst)
             L.append(f'    <score-part id="P{i}">'
-                     f'<part-name>{name}</part-name></score-part>\n')
+                     f'<part-name>{name}</part-name>')
+            if sound:
+                iname, sid, prog = sound
+                chan = i if i < 10 else i + 1      # never channel 10
+                L.append(f'<score-instrument id="P{i}-I1">'
+                         f'<instrument-name>{iname}</instrument-name>'
+                         f'<instrument-sound>{sid}</instrument-sound>'
+                         f'</score-instrument>'
+                         f'<midi-instrument id="P{i}-I1">'
+                         f'<midi-channel>{chan}</midi-channel>'
+                         f'<midi-program>{prog}</midi-program>'
+                         f'</midi-instrument>')
+            L.append('</score-part>\n')
         L.append('  </part-list>\n')
         for i, l in enumerate(part_labels, 1):
             L.append(f'  <part id="P{i}">\n')

@@ -57,12 +57,17 @@ class Demo:
         for n in ex["notes"]:
             by_track.setdefault(n.track, []).append(n)
         self.tracks = by_track
+        self.cc = {}                    # track -> [(tick, CC11 value)]
+        for ti, trk in enumerate(mid["tracks"]):
+            for ev in trk:
+                if ev[1] == "chan" and ev[2] == 0xB0 and ev[4] == 11:
+                    self.cc.setdefault(ti, []).append((ev[0], ev[5]))
 
-    def track(self, name):
+    def idx(self, name):
         note_tracks = sorted(self.tracks)
         if name is None:
             if len(note_tracks) == 1:
-                return self.tracks[note_tracks[0]]
+                return note_tracks[0]
             raise SystemExit(
                 f"chartc: demo '{os.path.basename(self.path)}' has "
                 f"{len(note_tracks)} note tracks — name one")
@@ -70,12 +75,18 @@ class Demo:
         hits = [ti for ti in note_tracks
                 if self.names.get(ti, "").strip().lower() == want]
         if len(hits) == 1:
-            return self.tracks[hits[0]]
+            return hits[0]
         have = [self.names.get(ti, f"(track {ti})") for ti in note_tracks]
         raise SystemExit(
             f"chartc: demo track '{name}' "
             f"{'is ambiguous' if hits else 'not found'} in "
             f"{os.path.basename(self.path)} — tracks: {have}")
+
+    def track(self, name):
+        return self.tracks[self.idx(name)]
+
+    def cc11(self, name):
+        return self.cc.get(self.idx(name), [])
 
 
 _DEMOS = {}
@@ -219,9 +230,37 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
 
     grids_chart = {b: grids.get(b, default_sub)
                    for b in range((n_units // DIV) + 1)}
+
+    # ---- dynamics from the expression pedal (CC 11): one mark per level
+    # change, judged by each bar's median, printed only on bars that play
+    def klass(v):
+        for cap, k in ((40, 'p'), (64, 'mp'), (90, 'mf'), (112, 'f')):
+            if v < cap:
+                return k
+        return 'ff'
+    by_bar = {}
+    for t, v in demo.cc11(track_name):
+        if lo_t <= t < hi_t:
+            by_bar.setdefault(int((t - lo_t) // tick_bar), []).append(v)
+    active = {s // BAR for s, _, _ in timeline}
+    dyns, prev = [], None
+    for bo in sorted(active):
+        vs = sorted(by_bar.get(bo, []))
+        if not vs:
+            continue
+        k = klass(vs[len(vs) // 2])
+        if k != prev:
+            dyns.append((bo * BAR, k))
+            prev = k
+    if dyns:
+        find.add(f"{part_label}: bars {bar_lo}-{bar_hi} dynamics read from "
+                 "the expression pedal: "
+                 + ", ".join(f"{k} at bar {at_bar + t // BAR}"
+                             for t, k in dyns))
+
     return {'timeline': timeline, 'grids': grids_chart,
             'n_units': n_units, 'at': at_bar,
-            'bars': (bar_lo, bar_hi)}
+            'bars': (bar_lo, bar_hi), 'dyns': dyns}
 
 
 def render_range(res, fifths_written, transpose_to_written, fall,
@@ -248,6 +287,16 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     if pos < n_units:
         _emit(out, at_bar, pos, n_units, None, table, grids_chart,
               False, transpose_to_written)
+
+    SOUND_DYN = {'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123}
+    for t, k in res.get('dyns', []):
+        bar = at_bar + t // BAR
+        if bar in out:
+            out[bar].insert(
+                0,
+                '      <direction placement="below"><direction-type>'
+                f'<dynamics><{k}/></dynamics></direction-type>'
+                f'<sound dynamics="{SOUND_DYN[k]}"/></direction>\n')
 
     return {b: "".join(lines) for b, lines in out.items()}
 
@@ -450,4 +499,10 @@ def say_range(res, concert_fifths, fall=False, findings=None):
         if fall and j == len(tl) - 1:
             clauses[-1] += ", with a big fall off the end"
         i = j + 1
+    DYN_WORD = {'p': 'piano', 'mp': 'mezzo piano', 'mf': 'mezzo forte',
+                'f': 'forte', 'ff': 'fortissimo'}
+    for t, k in res.get('dyns', []):
+        bar = at_bar + t // BAR
+        if bar in out:
+            out[bar].insert(0, DYN_WORD[k])
     return {b: "; ".join(cl) + "." for b, cl in out.items()}
