@@ -150,7 +150,15 @@ def spelling_table(fifths, find):
             step, alter, p = spell_fifth(f)
             if p == pc and abs(alter) <= 1:
                 cost = abs(f - centre)
-                if best is None or cost < best[0]:
+                # A chromatic white-key alteration (Cb, Fb, B#, E#) is a
+                # readability tax a player pays on every glance; charge
+                # for it here. Diatonic ones never reach this loop, so a
+                # six-flat key keeps its signature Cb untouched.
+                if (step in 'CF' and alter == -1) or \
+                        (step in 'BE' and alter == 1):
+                    cost += 2
+                if best is None or (cost, abs(alter)) < (best[0],
+                                                         abs(best[2])):
                     best = (cost, step, alter)
         if best is None:                   # genuinely needs a double accidental
             for f in range(centre - 21, centre + 22):
