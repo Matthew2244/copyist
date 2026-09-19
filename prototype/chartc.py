@@ -524,7 +524,8 @@ def compile_chart(chart_path, outdir):
             ms = chartdemo.render_range(item['res'], key[0] + foff, tr,
                                         item['fall'], findings,
                                         short=item['short'],
-                                        marcato=item['marcato'])
+                                        marcato=item['marcato'],
+                                        scoops=item['scoops'])
             for bar, xml in ms.items():
                 if bar in demo_measures[l]:
                     fail(f"'{l}' has two demo figures landing on bar {bar}")
@@ -580,6 +581,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
                 resolved[l].append({'res': res, 'fall': ref['fall'],
                                     'short': ref.get('short', False),
                                     'marcato': ref.get('marcato', False),
+                                    'scoops': ref.get('scoops', []),
                                     'plan': plan})
     return resolved, horn_of, (fifths, mode)
 
@@ -602,7 +604,7 @@ def build_plans(chart, band, groups, labels):
                 fail(f"{loc}: '{target}' is not a band part or group")
             anns, engraved, groove_words = [], None, None
             demo_refs, fall, quant, short = [], False, None, False
-            marcato, dyn_marks = False, []
+            marcato, dyn_marks, scoops = False, [], []
             for piece in [p.strip() for p in instr.split(',')]:
                 m = re.match(r'as engraved bars (\d+)-(\d+)'
                              r'(?:\s+at bar (\d+))?$', piece)
@@ -656,6 +658,14 @@ def build_plans(chart, band, groups, labels):
                 if piece in ('marcato', 'short and fat'):
                     marcato = True
                     continue
+                m = re.match(r'scoop (first|last)$', piece)
+                if m:
+                    scoops.append(m.group(1))
+                    continue
+                m = re.match(r'scoop bar (\d+) beat ([\d.]+)$', piece)
+                if m:
+                    scoops.append((int(m.group(1)), float(m.group(2))))
+                    continue
                 m = re.match(r'dyn (pp|p|mp|mf|f|ff)'
                              r'(?:\s+at bar (\d+))?'
                              r'(?:\s+beat (\S+))?$', piece)
@@ -701,7 +711,8 @@ def build_plans(chart, band, groups, labels):
                     plan['overlays'][l].append(dict(ref, fall=fall,
                                                     quant=quant,
                                                     short=short,
-                                                    marcato=marcato))
+                                                    marcato=marcato,
+                                                    scoops=scoops))
                 plan['texts'][l].extend(anns)
                 plan['dyns'][l].extend(dyn_marks)
         for bar, kind, text in sec['events']:

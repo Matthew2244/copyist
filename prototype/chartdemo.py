@@ -287,8 +287,26 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             'bars': (bar_lo, bar_hi), 'dyns': dyns}
 
 
+def scoop_indices(res, scoops):
+    """Resolve scoop placements ('first' | 'last' | (demo_bar, beat)) to
+    timeline event indices — shared by the page and the prose."""
+    tl = res['timeline']
+    idx = set()
+    for sp in scoops or ():
+        if sp == 'first':
+            idx.add(0)
+        elif sp == 'last':
+            idx.add(len(tl) - 1)
+        else:
+            bar, beat = sp
+            target = (bar - res['bars'][0]) * BAR + (beat - 1) * DIV
+            best = min(range(len(tl)), key=lambda i: abs(tl[i][0] - target))
+            idx.add(best)
+    return idx
+
+
 def render_range(res, fifths_written, transpose_to_written, fall,
-                 findings=None, short=False, marcato=False):
+                 findings=None, short=False, marcato=False, scoops=None):
     """Resolved timeline -> {abs_bar: MusicXML measure content}."""
     find = findings if findings is not None else Findings()
     at_bar = res['at']
@@ -298,6 +316,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     table = spelling_table(fifths_written, find)
     last_artic = 'falloff' if fall else ('staccato' if short else None)
     every = 'strong-accent' if marcato else None    # the big-band daht
+    scooped = scoop_indices(res, scoops)
 
     out = {b: [] for b in
            range(at_bar, at_bar + (n_units // BAR))}
@@ -309,7 +328,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
         is_last = ti == len(timeline) - 1
         _emit(out, at_bar, start, end, pitches, table, grids_chart,
               (last_artic if is_last else None) or every,
-              transpose_to_written)
+              transpose_to_written, scoop=ti in scooped)
         pos = end
     if pos < n_units:
         _emit(out, at_bar, pos, n_units, None, table, grids_chart,
@@ -385,7 +404,8 @@ def _name(ticks, sub):
     return [(t, ty, d, None) for t, ty, d in decompose(ticks, DIV)]
 
 
-def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose):
+def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
+          scoop=False):
     pieces = _pieces(start, end, grids)
     for pi, (a, b) in enumerate(pieces):
         bar = at_bar + a // BAR
@@ -440,9 +460,14 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose):
                     notations.append('<tied type="stop"/>')
                 if not plast:
                     notations.append('<tied type="start"/>')
+                arts = []
+                if scoop and pfirst and ni == len(pitches) - 1:
+                    arts.append('<scoop/>')
                 if artic and plast and ni == len(pitches) - 1:
-                    notations.append(f'<articulations><{artic}/>'
-                                     '</articulations>')
+                    arts.append(f'<{artic}/>')
+                if arts:
+                    notations.append('<articulations>' + ''.join(arts)
+                                     + '</articulations>')
                 if notations:
                     lines.append('        <notations>' + ''.join(notations)
                                  + '</notations>')
@@ -490,11 +515,13 @@ def _say_dur(ticks):
     return f"about {ticks / DIV:.1f} beats"
 
 
-def say_range(res, concert_fifths, fall=False, findings=None, short=False):
+def say_range(res, concert_fifths, fall=False, findings=None, short=False,
+              scoops=None):
     """Resolved timeline -> {abs_bar: prose}, spoken at concert pitch."""
     find = findings if findings is not None else Findings()
     table = spelling_table(concert_fifths, find)
     at_bar = res['at']
+    scooped = scoop_indices(res, scoops)
     out = {}
     # group consecutive same-duration single notes into runs
     tl = res['timeline']
@@ -507,7 +534,8 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False):
                and tl[j + 1][0] == tl[j][1]                 # gapless
                and tl[j + 1][1] - tl[j + 1][0] == dur       # same length
                and tl[j + 1][0] // BAR == start // BAR      # same bar
-               and len(tl[j + 1][2]) == 1 and len(pitches) == 1):
+               and len(tl[j + 1][2]) == 1 and len(pitches) == 1
+               and j not in scooped and (j + 1) not in scooped):
             j += 1
         bar = at_bar + start // BAR
         clauses = out.setdefault(bar, [])
@@ -523,6 +551,8 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False):
             if end // BAR > start // BAR and end % BAR:
                 held = f", held into bar {at_bar + end // BAR}"
             clauses.append(f"{where}: {_say_dur(end - start)} {what}{held}")
+        if i == j and i in scooped:
+            clauses[-1] += ", scooped"
         if j == len(tl) - 1:
             if fall:
                 clauses[-1] += ", with a big fall off the end"

@@ -128,7 +128,8 @@ def part_section(plan, label, chord_parts, figures=None):
                          f"concert pitch:{extra}")
             prose = chartdemo.say_range(item['res'], item['concert_fifths'],
                                         item['fall'],
-                                        short=item.get('short', False))
+                                        short=item.get('short', False),
+                                        scoops=item.get('scoops'))
             for bar in sorted(prose):
                 lines.append(f"Bar {bar}: {prose[bar]}")
         rest = sec['bars'] - sum(i['res']['n_units'] // chartdemo.BAR
