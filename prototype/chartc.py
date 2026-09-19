@@ -78,6 +78,7 @@ CHORD_KINDS = {
     '7sus4': ('suspended-fourth', '7sus4'),
     'aug': ('augmented', 'aug'),
     'maj9': ('major-ninth', 'maj9'),
+    'm11': ('minor-11th', 'm11'),
     '7#9': ('dominant', '7#9', [(9, 1, 'add')]),
     '7b9': ('dominant', '7b9', [(9, -1, 'add')]),
     '7#9#11': ('dominant', '7#9#11', [(9, 1, 'add'), (11, 1, 'add')]),
@@ -620,6 +621,9 @@ def build_plans(chart, band, groups, labels):
                     continue
                 if piece == 'triplets':
                     quant = 'triplets'
+                    continue
+                if piece in ('sixteenths', 'straight sixteenths'):
+                    quant = 'sixteenths'
                     continue
                 m = re.match(r'groove(?:\s+"([^"]*)")?$', piece)
                 if m:

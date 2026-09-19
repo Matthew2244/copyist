@@ -33,7 +33,8 @@ QUAL = {
     'dim': ' diminished', 'dim7': ' diminished seven',
     'm7b5': ' minor seven flat five', 'sus4': ' sus four',
     '7sus4': ' seven sus four', 'aug': ' augmented',
-    'maj9': ' major nine', '7#9': ' seven sharp nine',
+    'maj9': ' major nine', 'm11': ' minor eleven',
+    '7#9': ' seven sharp nine',
     '7b9': ' seven flat nine', '7#11': ' seven sharp eleven',
     '7#9#11': ' seven sharp nine sharp eleven',
 }

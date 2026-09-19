@@ -135,6 +135,9 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     elif quant == 'triplets':
         allow = {k: v for k, v in tuplets.CANDIDATES.items()
                  if k in (1, 2, 3, 6)}
+    elif quant == 'sixteenths':
+        allow = {k: v for k, v in tuplets.CANDIDATES.items()
+                 if k in (1, 2, 4)}
     grids = tuplets.choose(sorted(max(0, on) for on, _, _ in moved),
                            beat, allow)
     tupl = tuplets.summarize({b: s for b, s in grids.items()
@@ -279,12 +282,30 @@ def _pieces(start, end, grids):
 
 
 def _name(ticks, sub):
-    """(len, type, dots, time-modification) pieces for one duration."""
+    """(len, type, dots, time-modification) pieces for one duration.
+
+    Inside a tuplet beat every piece must speak tuplet language — a binary
+    64th sliver in a sextuplet beat is exactly what MuseScore refuses. A
+    duration that is not one nameable value splits greedily into nameable
+    tuplet chunks (five sextuplet-sixteenths = quarter + sixteenth, both
+    carrying the 6:4 modification)."""
     mod = tuplets.modification(sub)
     if mod:
         nd = tuplets.notated(ticks, DIV, sub)
         if nd:
             return [(ticks, nd[0], nd[1], mod)]
+        step = DIV // sub
+        if ticks % step == 0:
+            out, rem = [], ticks // step
+            for mult in (8, 6, 4, 3, 2, 1):
+                while rem >= mult:
+                    nd = tuplets.notated(mult * step, DIV, sub)
+                    if nd is None:
+                        break
+                    out.append((mult * step, nd[0], nd[1], mod))
+                    rem -= mult
+                if rem == 0:
+                    return out
     return [(t, ty, d, None) for t, ty, d in decompose(ticks, DIV)]
 
 

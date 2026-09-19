@@ -208,9 +208,10 @@ the conversion pipeline.
   per horn, slivers of daylight between legato notes close, and
   out-of-range notes fold by octaves into the part's range, each with a
   finding naming the bar.
-- **`eighths` / `triplets`** on the directive are the writer's word
-  beating the statistics: they restrict the per-beat grid. "These bars are
-  eighth notes" is authorship, not measurement, and the format records it.
+- **`eighths` / `sixteenths` / `triplets`** on the directive are the
+  writer's word beating the statistics: they restrict the per-beat grid.
+  "These bars are eighth notes" is authorship, not measurement, and the
+  format records it.
 - **`fall`** puts a falloff on the last note of that directive's material.
 
 ### 3.5 Pickup
