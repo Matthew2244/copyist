@@ -64,6 +64,57 @@ def verify_measures(files):
     return bad
 
 
+def parse_readaloud(path):
+    """A read-aloud file -> ({bar_number: line}, [every other line])."""
+    bars, other = {}, []
+    if not os.path.exists(path):
+        return None
+    for line in open(path, encoding='utf-8'):
+        line = line.strip()
+        if not line:
+            continue
+        m = re.match(r'Bar (\d+): (.*)$', line)
+        if m:
+            bars[int(m.group(1))] = m.group(2)
+        else:
+            other.append(line)
+    return bars, other
+
+
+def diff_readalouds(prev_dir, cur_dir, title, labels):
+    """Compare the previous build's read-alouds with the current ones.
+    Returns (sentences, had_previous). Spoken style: the writer's own
+    bar numbers, was/now, and an explicit all-clear."""
+    out = []
+    had_prev = False
+    for label in labels:
+        name = f"{title} — {label} part, read aloud.txt"
+        old = parse_readaloud(os.path.join(prev_dir, name))
+        new = parse_readaloud(os.path.join(cur_dir, name))
+        if old is None or new is None:
+            continue
+        had_prev = True
+        ob, oo = old
+        nb, no = new
+        for bar in sorted(set(ob) | set(nb)):
+            if bar not in nb:
+                out.append(f"{label}, bar {bar} — the written material "
+                           f"is gone. Was: {ob[bar]}")
+            elif bar not in ob:
+                out.append(f"{label}, bar {bar} — new material: {nb[bar]}")
+            elif ob[bar] != nb[bar]:
+                out.append(f"{label}, bar {bar} — was: {ob[bar]} "
+                           f"Now: {nb[bar]}")
+        if oo != no:
+            import difflib
+            for d in difflib.unified_diff(oo, no, lineterm='', n=0):
+                if d.startswith('-') and not d.startswith('---'):
+                    out.append(f"{label} — wording removed: {d[1:]}")
+                elif d.startswith('+') and not d.startswith('+++'):
+                    out.append(f"{label} — wording added: {d[1:]}")
+    return out, had_prev
+
+
 def subset_listen(listen_src, keep_labels, dst):
     """Cut the listening score down to the named parts — the isolated
     listen that settles 'which line is that' questions by ear."""
@@ -130,9 +181,10 @@ def main():
         description="Compile a chart and make everything a writer needs.")
     ap.add_argument('chart', help="the .chart file")
     ap.add_argument('command', nargs='?', default='build',
-                    choices=['build', 'check', 'read', 'parts'],
+                    choices=['build', 'check', 'read', 'parts', 'diff'],
                     help="build (default): everything; check: compile "
-                         "only; read: speak the chart; parts: list the band")
+                         "only; read: speak the chart; parts: list the "
+                         "band; diff: what changed since the last build")
     ap.add_argument('--part', help='with read: one part, e.g. "trumpet 1"')
     ap.add_argument('--outdir', help="where the built files go "
                                      "(default: build, beside the chart)")
@@ -163,6 +215,23 @@ def main():
         chartread.main()
         return
 
+    chart = chartc.parse_chart(path)
+    title = chart['header'].get('title', 'chart')
+    labels = [b['label'] for b in chart['band']]
+    prev_dir = os.path.join(title_dir, "previous read-alouds")
+
+    if args.command == 'diff':
+        sentences, had = diff_readalouds(prev_dir, base_dir, title, labels)
+        if not had:
+            say("Nothing to compare yet — the diff needs two builds.")
+        elif not sentences:
+            say("Nothing changed since the last build.")
+        else:
+            say(f"{len(sentences)} change(s) since the last build:")
+            for s in sentences:
+                say(s)
+        return
+
     # ---- check / build: compile first, loudly, then prove the arithmetic
     written = chartc.compile_chart(path, title_dir)
     bad = verify_measures(written)
@@ -176,10 +245,17 @@ def main():
             "rendered — that was a check.")
         return
 
-    # ---- read-alouds, next to the chart where the writer lives
-    chart = chartc.parse_chart(path)
-    title = chart['header'].get('title', 'chart')
-    labels = [b['label'] for b in chart['band']]
+    # ---- read-alouds, next to the chart where the writer lives.
+    # snapshot the outgoing read-alouds so the new build has something
+    # to answer "what changed?" against
+    os.makedirs(prev_dir, exist_ok=True)
+    for label in labels:
+        cur = os.path.join(base_dir,
+                           f"{title} — {label} part, read aloud.txt")
+        if os.path.exists(cur):
+            import shutil
+            shutil.copy2(cur, prev_dir)
+
     for label in labels + [None]:
         argv = [path] + (['--part', label] if label else [])
         name = (f"{title} — {label} part, read aloud.txt" if label
@@ -193,6 +269,19 @@ def main():
             sys.stdout.close()
             sys.stdout = old_stdout
     say(f"Read-alouds written for all {len(labels)} parts and the form.")
+
+    # ---- the blast radius: what did this build change?
+    sentences, had = diff_readalouds(prev_dir, base_dir, title, labels)
+    if had:
+        if not sentences:
+            say("Nothing changed since the last build.")
+        elif len(sentences) <= 12:
+            say(f"{len(sentences)} change(s) since the last build:")
+            for s in sentences:
+                say(s)
+        else:
+            say(f"{len(sentences)} changes since the last build — run "
+                "the diff command for the full list.")
 
     # ---- pages and the listen file
     mscore = find_mscore()
