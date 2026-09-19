@@ -423,7 +423,9 @@ def slash_bar(div, clef, staves, fifths):
                     f'<alter>{alter}</alter>' if alter else '', octv))
     out = []
     for _ in range(BEATS):
-        out += ['      <note>',
+        # dynamics="0": a slash is an instruction, not a pitch — playback
+        # renderers must not sound the B the notehead happens to sit on
+        out += ['      <note dynamics="0">',
                 pitch,
                 f'        <duration>{div}</duration>',
                 '        <voice>1</voice>',
