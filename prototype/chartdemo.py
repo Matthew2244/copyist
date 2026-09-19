@@ -131,8 +131,9 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     # the writer named — measuring triplet positions against the sixteenth
     # grid manufactures a phantom lag that pushes the notes exactly
     # between the tuplet grids (the bari climb taught this).
-    gmod = {'eighths': beat / 2, 'triplets': beat / 6,
-            'triplet8': beat / 3, 'sixteenths': beat / 4}.get(quant, beat / 4)
+    gmod = {'eighths': beat / 2, 'triplets': beat / 6, 'triplet8': beat / 3,
+            'triplet16': beat / 6, 'sixteenths': beat / 4}.get(quant,
+                                                               beat / 4)
     half = gmod / 2
     offs = sorted((on % gmod) if (on % gmod) < half
                   else (on % gmod) - gmod for on, _, _ in picked)
@@ -159,6 +160,10 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         # the writer said eighth-note triplets: no binary escape hatch
         allow = {k: v for k, v in tuplets.CANDIDATES.items()
                  if k in (1, 3)}
+    elif quant == 'triplet16':
+        # sixteenth-note triplets: the whole swung-sextuplet family
+        allow = {k: v for k, v in tuplets.CANDIDATES.items()
+                 if k in (1, 3, 6)}
     elif quant == 'sixteenths':
         allow = {k: v for k, v in tuplets.CANDIDATES.items()
                  if k in (1, 2, 4)}
@@ -173,7 +178,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
 
     n_units = (bar_hi - bar_lo + 1) * BAR
     scale = DIV / beat                     # demo ticks -> chart ticks
-    default_sub = {'eighths': 2, 'triplet8': 3}.get(quant, 4)
+    default_sub = {'eighths': 2, 'triplet8': 3, 'triplet16': 6}.get(quant, 4)
 
     events = {}                            # chart-tick onset -> [(pitch, off)]
     for on, off, p in moved:
@@ -193,11 +198,13 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         # binary beat, releases on the eighth grid.
         x = off * scale
         ob = int(x // DIV)
-        osub = grids.get(ob, default_sub)
-        if x - q_on >= 16 and osub in (1, 2, 4, 8):
+        osub = grids.get(ob)               # None: no onsets in that beat
+        if x - q_on >= 16 and (osub is None or osub in (1, 2, 4, 8)):
+            # a sustained release in a beat nobody attacks in is a
+            # cutoff, and cutoffs land on the eighth grid
             q_off = int(round(x / (DIV // 2))) * (DIV // 2)
         else:
-            ostep = DIV / osub
+            ostep = DIV / (osub or default_sub)
             q_off = int(round(ob * DIV + round((x - ob * DIV) / ostep)
                               * ostep))
         onstep = int(DIV / sub)

@@ -650,6 +650,9 @@ def build_plans(chart, band, groups, labels):
                 if piece == 'eighth triplets':
                     quant = 'triplet8'
                     continue
+                if piece == 'sixteenth triplets':
+                    quant = 'triplet16'
+                    continue
                 if piece in ('sixteenths', 'straight sixteenths'):
                     quant = 'sixteenths'
                     continue
