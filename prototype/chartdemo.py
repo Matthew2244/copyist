@@ -568,7 +568,7 @@ def _say_dur(ticks):
     if ticks in DUR_WORD:
         return DUR_WORD[ticks]
     pieces = decompose(ticks, DIV)
-    if 1 < len(pieces) <= 3:
+    if 1 <= len(pieces) <= 3:
         words = []
         for _, name, dots in pieces:
             words.append(("double-dotted " if dots == 2 else
