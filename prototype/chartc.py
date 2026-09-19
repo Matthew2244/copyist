@@ -523,7 +523,8 @@ def compile_chart(chart_path, outdir):
             tr, rng, _clef, foff = horn_of[l]
             ms = chartdemo.render_range(item['res'], key[0] + foff, tr,
                                         item['fall'], findings,
-                                        short=item['short'])
+                                        short=item['short'],
+                                        marcato=item['marcato'])
             for bar, xml in ms.items():
                 if bar in demo_measures[l]:
                     fail(f"'{l}' has two demo figures landing on bar {bar}")
@@ -578,6 +579,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
                     part_label=l, findings=findings)
                 resolved[l].append({'res': res, 'fall': ref['fall'],
                                     'short': ref.get('short', False),
+                                    'marcato': ref.get('marcato', False),
                                     'plan': plan})
     return resolved, horn_of, (fifths, mode)
 
@@ -600,7 +602,7 @@ def build_plans(chart, band, groups, labels):
                 fail(f"{loc}: '{target}' is not a band part or group")
             anns, engraved, groove_words = [], None, None
             demo_refs, fall, quant, short = [], False, None, False
-            dyn_marks = []
+            marcato, dyn_marks = False, []
             for piece in [p.strip() for p in instr.split(',')]:
                 m = re.match(r'as engraved bars (\d+)-(\d+)'
                              r'(?:\s+at bar (\d+))?$', piece)
@@ -648,6 +650,9 @@ def build_plans(chart, band, groups, labels):
                 if piece == 'short':
                     short = True
                     continue
+                if piece in ('marcato', 'short and fat'):
+                    marcato = True
+                    continue
                 m = re.match(r'dyn (pp|p|mp|mf|f|ff)'
                              r'(?:\s+at bar (\d+))?'
                              r'(?:\s+beat (\S+))?$', piece)
@@ -692,7 +697,8 @@ def build_plans(chart, band, groups, labels):
                 for ref in demo_refs:
                     plan['overlays'][l].append(dict(ref, fall=fall,
                                                     quant=quant,
-                                                    short=short))
+                                                    short=short,
+                                                    marcato=marcato))
                 plan['texts'][l].extend(anns)
                 plan['dyns'][l].extend(dyn_marks)
         for bar, kind, text in sec['events']:

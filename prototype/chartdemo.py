@@ -284,7 +284,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
 
 
 def render_range(res, fifths_written, transpose_to_written, fall,
-                 findings=None, short=False):
+                 findings=None, short=False, marcato=False):
     """Resolved timeline -> {abs_bar: MusicXML measure content}."""
     find = findings if findings is not None else Findings()
     at_bar = res['at']
@@ -293,6 +293,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     grids_chart = res['grids']
     table = spelling_table(fifths_written, find)
     last_artic = 'falloff' if fall else ('staccato' if short else None)
+    every = 'strong-accent' if marcato else None    # the big-band daht
 
     out = {b: [] for b in
            range(at_bar, at_bar + (n_units // BAR))}
@@ -303,7 +304,8 @@ def render_range(res, fifths_written, transpose_to_written, fall,
                   None, transpose_to_written)
         is_last = ti == len(timeline) - 1
         _emit(out, at_bar, start, end, pitches, table, grids_chart,
-              last_artic if is_last else None, transpose_to_written)
+              (last_artic if is_last else None) or every,
+              transpose_to_written)
         pos = end
     if pos < n_units:
         _emit(out, at_bar, pos, n_units, None, table, grids_chart,

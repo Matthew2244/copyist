@@ -122,8 +122,10 @@ def part_section(plan, label, chord_parts, figures=None):
     if figures:
         for item in figures:
             lo, hi = item['res']['bars']
+            extra = (" Every note marcato — short and fat."
+                     if item.get('marcato') else "")
             lines.append(f"Your line, bars {lo} to {hi}, spoken at "
-                         "concert pitch:")
+                         f"concert pitch:{extra}")
             prose = chartdemo.say_range(item['res'], item['concert_fifths'],
                                         item['fall'],
                                         short=item.get('short', False))
