@@ -123,10 +123,15 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             f"chartc: {part_label}: demo bars {bar_lo}-{bar_hi} of "
             f"'{track_name or os.path.basename(demo.path)}' hold no notes")
 
-    # ---- take the lay-back out
-    half = beat / 8
-    offs = sorted((on % (beat / 4)) if (on % (beat / 4)) < half
-                  else (on % (beat / 4)) - beat / 4 for on, _, _ in picked)
+    # ---- take the lay-back out. The offset is measured against the grid
+    # the writer named — measuring triplet positions against the sixteenth
+    # grid manufactures a phantom lag that pushes the notes exactly
+    # between the tuplet grids (the bari climb taught this).
+    gmod = {'eighths': beat / 2, 'triplets': beat / 6,
+            'sixteenths': beat / 4}.get(quant, beat / 4)
+    half = gmod / 2
+    offs = sorted((on % gmod) if (on % gmod) < half
+                  else (on % gmod) - gmod for on, _, _ in picked)
     lag = offs[len(offs) // 2]
     if abs(lag) > beat * 0.04:
         ms = abs(lag) * 60000 / (87 * beat)
@@ -198,18 +203,30 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                          f"moved {'up' if folded > p else 'down'} "
                          f"{abs(folded - p) // 12} octave(s) into range")
                 p = folded
-        dist = abs(on * scale - q_on)
-        events.setdefault(q_on, []).append((p, q_off, dist))
+        events.setdefault(q_on, []).append((p, q_off, on))
 
     # A horn is one voice: when several played notes land on one slot,
-    # keep the one played closest to it and say so.
-    for q_on, lst in events.items():
-        if len(lst) > 1:
-            lst.sort(key=lambda t: t[2])
-            find.add(f"{part_label}: bar {at_bar + q_on // BAR} had "
-                     f"{len(lst)} played notes land on one slot — kept "
-                     "the closest; proofread this bar")
-            del lst[1:]
+    # the latest-played keeps it and earlier ones step back one free
+    # subdivision — a note that exists in the playing should survive
+    # quantization whenever there is room for it.
+    for q_on in sorted(events):
+        lst = events[q_on]
+        if len(lst) <= 1:
+            continue
+        lst.sort(key=lambda t: t[2])
+        events[q_on] = [lst[-1]]
+        for mv in reversed(lst[:-1]):
+            step = DIV // grids.get(q_on // DIV, default_sub)
+            tgt = q_on - step
+            if tgt >= 0 and tgt not in events:
+                events[tgt] = [(mv[0], min(mv[1], q_on), mv[2])]
+                find.add(f"{part_label}: bar {at_bar + q_on // BAR}: two "
+                         "played notes landed on one slot — moved the "
+                         "earlier one back a step")
+            else:
+                find.add(f"{part_label}: bar {at_bar + q_on // BAR}: two "
+                         "played notes landed on one slot with no room — "
+                         "dropped the earlier one; proofread this bar")
 
     # ---- monophonic cleanup and legato gap-closing
     onsets = sorted(events)
