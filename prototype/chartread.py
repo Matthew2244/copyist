@@ -151,6 +151,9 @@ def part_section(plan, label, chord_parts, figures=None):
         g = f'Groove, "{arg}"' if arg else "Groove"
         what = "slashes with the changes" if shows_chords else "slashes"
         lines.append(f"{g} — {what}.")
+    elif any(t[1].lower().startswith('solo') for t in texts):
+        lines.append(f"You solo — {sec['bars']} bars over the changes, "
+                     "nothing written out.")
     else:
         lines.append(f"Tacet — {sec['bars']} bars rest.")
 
