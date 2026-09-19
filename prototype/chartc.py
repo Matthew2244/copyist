@@ -973,12 +973,18 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             f.write(document([l], directions_on=lambda _: True,
                              harmony_on=lambda _: True))
         written.append(p)
-    if findings and findings.lines:
-        seen = set()
+    if findings:
+        seen = []
         for line in findings.lines:
             if line not in seen:
                 print("finding:", line)
-                seen.add(line)
+                seen.append(line)
+        # findings also land in a file: console scroll is not a record
+        with open(os.path.join(outdir, f'{title} — findings.txt'), 'w',
+                  encoding='utf-8') as f:
+            f.write("\n".join(seen) + "\n" if seen else
+                    "No findings — nothing was reduced, guessed, "
+                    "or moved.\n")
     print(f"chartc: wrote {len(written)} files, {total} bars, "
           f"{len(chart['sections'])} sections.")
     return written
