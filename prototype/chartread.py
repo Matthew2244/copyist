@@ -112,7 +112,8 @@ def part_section(plan, label, chord_parts, figures=None):
 
     for dbar, dbeat, mark in sorted(plan.get('dyns', {}).get(label, ())):
         word = {'pp': 'pianissimo', 'p': 'piano', 'mp': 'mezzo piano',
-                'mf': 'mezzo forte', 'f': 'forte', 'ff': 'fortissimo'}[mark]
+                'mf': 'mezzo forte', 'f': 'forte', 'ff': 'fortissimo',
+                'sfz': 'sforzando'}[mark]
         where = f"at bar {dbar}"
         if dbeat != 1.0:
             whole = int(dbeat)

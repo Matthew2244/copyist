@@ -672,13 +672,18 @@ def build_plans(chart, band, groups, labels):
                 if m:
                     scoops.append((int(m.group(1)), float(m.group(2))))
                     continue
-                m = re.match(r'dyn (pp|p|mp|mf|f|ff)'
+                m = re.match(r'dyn (pp|p|mp|mf|f|ff|sfz)'
                              r'(?:\s+at bar (\d+))?'
                              r'(?:\s+beat (\S+))?$', piece)
                 if m:
-                    dyn_marks.append((int(m.group(2) or 1),
-                                      parse_beat(m.group(3)) if m.group(3)
-                                      else 1.0,
+                    if m.group(3):
+                        try:
+                            beat = float(m.group(3))
+                        except ValueError:
+                            beat = parse_beat(m.group(3))
+                    else:
+                        beat = 1.0
+                    dyn_marks.append((int(m.group(2) or 1), beat,
                                       m.group(1)))
                     continue
                 m = re.match(r'groove(?:\s+"([^"]*)")?$', piece)
@@ -739,7 +744,8 @@ TRANSPOSE_XML = {
 CLEF_XML = {'G': '<sign>G</sign><line>2</line>',
             'F': '<sign>F</sign><line>4</line>'}
 
-SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123}
+SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
+             'sfz': 112}
 
 
 def _compile_rest(chart, band, groups, labels, plans, total,
@@ -750,7 +756,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     horn_of = horn_of or {}
 
     # ---- emit one part's measures
-    def part_measures(label, with_directions, with_harmony):
+    def part_measures(label, with_directions, with_harmony, listen=False):
         b = next(x for x in band if x['label'] == label)
         default_groove = label in groups['rhythm']
         sp = source[src_of[label]] if source else None
@@ -795,6 +801,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                        '    </measure>\n')
 
         need_attrs = source is None
+        was_groove = False
         for plan in plans:
             sec = plan['sec']
             kind, arg = plan['content'][label]
@@ -807,6 +814,18 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 if need_attrs:
                     pieces.append(attributes())
                     need_attrs = False
+                # slashes are instructions, not pitches: mute the part's
+                # playback through a groove region, restore after (the
+                # dynamics="0" note attribute alone is ignored by
+                # MuseScore's importer — measured, not assumed)
+                if off == 0 and kind == 'groove' and not was_groove:
+                    pieces.append('      <direction>'
+                                  '<sound dynamics="0"/></direction>\n')
+                    was_groove = True
+                elif off == 0 and kind != 'groove' and was_groove:
+                    pieces.append('      <direction>'
+                                  '<sound dynamics="80"/></direction>\n')
+                    was_groove = False
                 if with_directions and absbar == 1 and not chart['pickup']:
                     if hdr.get('feel'):
                         pieces.append(direction(hdr['feel'].capitalize()))
@@ -867,7 +886,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     else:
                         pieces.append(rest_bar(div, staves))
                 elif kind == 'groove':
-                    pieces.append(slash_bar(div, clef, staves, fifths))
+                    # MuseScore's importer plays slash noteheads no matter
+                    # what (dynamics="0", cue, sound directions and
+                    # unpitched all measured audible), so the listening
+                    # variant renders groove regions as real rests
+                    pieces.append(rest_bar(div, staves) if listen else
+                                  slash_bar(div, clef, staves, fifths))
                 else:
                     pieces.append(rest_bar(div, staves))
 
@@ -887,7 +911,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         return "".join(out)
 
     # ---- whole documents
-    def document(part_labels, directions_on, harmony_on):
+    def document(part_labels, directions_on, harmony_on, listen=False):
         L = [XMLHEAD, '<score-partwise version="3.1">\n',
              '  <work><work-title>%s</work-title></work>\n' %
              hdr.get('title', 'Untitled'),
@@ -921,7 +945,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         L.append('  </part-list>\n')
         for i, l in enumerate(part_labels, 1):
             L.append(f'  <part id="P{i}">\n')
-            L.append(part_measures(l, directions_on(l), harmony_on(l)))
+            L.append(part_measures(l, directions_on(l), harmony_on(l),
+                                   listen))
             L.append('  </part>\n')
         L.append('</score-partwise>\n')
         return "".join(L)
@@ -934,6 +959,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                          directions_on=lambda l: l == labels[0],
                          harmony_on=lambda l: l in chord_parts))
     written = [score_path]
+    listen_path = os.path.join(outdir, f'{title} — for listening.musicxml')
+    with open(listen_path, 'w', encoding='utf-8') as f:
+        f.write(document(labels,
+                         directions_on=lambda l: l == labels[0],
+                         harmony_on=lambda l: l in chord_parts,
+                         listen=True))
+    written.append(listen_path)
     for l in labels:
         p = os.path.join(outdir, f'{title} — {src_of.get(l, l)}.musicxml')
         with open(p, 'w', encoding='utf-8') as f:
