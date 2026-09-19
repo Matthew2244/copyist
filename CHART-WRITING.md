@@ -102,7 +102,8 @@ All of these ride on a `from demo` line, after commas:
   that keeps every tradition welcome: any word the parser does not
   know still reaches the page verbatim through `text "..."` — gospel's
   "push it", a string section's "sul tasto", anything. No one's
-  language is blocked.
+  language is blocked. Funk's `stabs` and gospel's `punchy` are the
+  housetop too, and `quarters` pins a ballad figure to the beat.
 - **Words on the page** — `text "harmon mute - stem out" at bar 9`,
   `mute cup`, `open`. Say anything; it prints verbatim. One catch: keep
   commas out of quoted text (use a dash) — the comma is how instructions

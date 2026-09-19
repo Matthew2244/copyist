@@ -66,6 +66,10 @@ PIECE_SYNONYMS = [
     (r'^(housetop|rooftop|daht)$', 'marcato'),
     (r'^(ten|ten\.)$', 'tenuto'),
     (r'^(accents|accented)$', 'accent'),
+    (r'^(stabs?|punchy|punched)$', 'marcato'),
+    (r'^triplet eighths$', 'eighth triplets'),
+    (r'^triplet sixteenths$', 'sixteenth triplets'),
+    (r'^quarter notes$', 'quarters'),
     (r'^crescendo\b', 'cresc'),
     (r'^(diminuendo|decrescendo|decresc)\b', 'dim'),
     (r'^slide\b', 'scoop'),
@@ -683,6 +687,9 @@ def build_plans(chart, band, groups, labels):
                     continue
                 if piece in ('eighths', 'straight eighths'):
                     quant = 'eighths'
+                    continue
+                if piece == 'quarters':
+                    quant = 'quarters'
                     continue
                 if piece == 'triplets':
                     quant = 'triplets'

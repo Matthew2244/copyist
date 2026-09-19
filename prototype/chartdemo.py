@@ -135,9 +135,9 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     # the writer named — measuring triplet positions against the sixteenth
     # grid manufactures a phantom lag that pushes the notes exactly
     # between the tuplet grids (the bari climb taught this).
-    gmod = {'eighths': beat / 2, 'triplets': beat / 6, 'triplet8': beat / 3,
-            'triplet16': beat / 6, 'sixteenths': beat / 4}.get(quant,
-                                                               beat / 4)
+    gmod = {'quarters': beat, 'eighths': beat / 2, 'triplets': beat / 6,
+            'triplet8': beat / 3, 'triplet16': beat / 6,
+            'sixteenths': beat / 4}.get(quant, beat / 4)
     half = gmod / 2
     offs = sorted((on % gmod) if (on % gmod) < half
                   else (on % gmod) - gmod for on, _, _ in picked)
@@ -155,7 +155,9 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     # ---- per-beat grid, then snap. A `quant` hint from the writer beats
     # any statistics: "eighths" means these bars are eighth notes, full stop.
     allow = ALLOW
-    if quant == 'eighths':
+    if quant == 'quarters':
+        allow = {k: v for k, v in tuplets.CANDIDATES.items() if k in (1,)}
+    elif quant == 'eighths':
         allow = {k: v for k, v in tuplets.CANDIDATES.items() if k in (1, 2)}
     elif quant == 'triplets':
         allow = {k: v for k, v in tuplets.CANDIDATES.items()
@@ -182,7 +184,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
 
     n_units = (bar_hi - bar_lo + 1) * BAR
     scale = DIV / beat                     # demo ticks -> chart ticks
-    default_sub = {'eighths': 2, 'triplet8': 3, 'triplet16': 6}.get(quant, 4)
+    default_sub = {'quarters': 1, 'eighths': 2, 'triplet8': 3,
+                   'triplet16': 6}.get(quant, 4)
 
     events = {}                            # chart-tick onset -> [(pitch, off)]
     for on, off, p in moved:
