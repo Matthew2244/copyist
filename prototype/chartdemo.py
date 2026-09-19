@@ -131,7 +131,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     # grid manufactures a phantom lag that pushes the notes exactly
     # between the tuplet grids (the bari climb taught this).
     gmod = {'eighths': beat / 2, 'triplets': beat / 6,
-            'sixteenths': beat / 4}.get(quant, beat / 4)
+            'triplet8': beat / 3, 'sixteenths': beat / 4}.get(quant, beat / 4)
     half = gmod / 2
     offs = sorted((on % gmod) if (on % gmod) < half
                   else (on % gmod) - gmod for on, _, _ in picked)
@@ -154,6 +154,10 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     elif quant == 'triplets':
         allow = {k: v for k, v in tuplets.CANDIDATES.items()
                  if k in (1, 2, 3, 6)}
+    elif quant == 'triplet8':
+        # the writer said eighth-note triplets: no binary escape hatch
+        allow = {k: v for k, v in tuplets.CANDIDATES.items()
+                 if k in (1, 3)}
     elif quant == 'sixteenths':
         allow = {k: v for k, v in tuplets.CANDIDATES.items()
                  if k in (1, 2, 4)}
@@ -168,7 +172,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
 
     n_units = (bar_hi - bar_lo + 1) * BAR
     scale = DIV / beat                     # demo ticks -> chart ticks
-    default_sub = 2 if quant == 'eighths' else 4
+    default_sub = {'eighths': 2, 'triplet8': 3}.get(quant, 4)
 
     events = {}                            # chart-tick onset -> [(pitch, off)]
     for on, off, p in moved:
