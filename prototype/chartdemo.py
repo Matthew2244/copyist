@@ -102,7 +102,7 @@ def load_demo(path):
 
 def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   octave_shift=0, sounding_range=None, quant=None,
-                  part_label="", findings=None):
+                  derive_dyns=True, part_label="", findings=None):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
     into a quantized timeline of sounding pitches starting at absolute
@@ -115,7 +115,10 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     tick_bar = beat * BEATS
     lo_t = (bar_lo - 1) * tick_bar
     hi_t = bar_hi * tick_bar
-    slack = beat // 2          # a laid-back entry starts late, never early
+    # A hair of pre-roll for an attack played a touch early — no more: a
+    # generous slack swallows the previous figure's last note and makes a
+    # phantom collision at beat 1 (the trombone climb taught this).
+    slack = beat // 8
     picked = [(n.on, n.off or n.on, n.pitch) for n in src
               if lo_t - slack <= n.on < hi_t]
     if not picked:
@@ -256,7 +259,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                 return k
         return 'ff'
     by_bar = {}
-    for t, v in demo.cc11(track_name):
+    for t, v in (demo.cc11(track_name) if derive_dyns else ()):
         if lo_t <= t < hi_t:
             by_bar.setdefault(int((t - lo_t) // tick_bar), []).append(v)
     active = {s // BAR for s, _, _ in timeline}
@@ -281,7 +284,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
 
 
 def render_range(res, fifths_written, transpose_to_written, fall,
-                 findings=None):
+                 findings=None, short=False):
     """Resolved timeline -> {abs_bar: MusicXML measure content}."""
     find = findings if findings is not None else Findings()
     at_bar = res['at']
@@ -289,6 +292,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     timeline = res['timeline']
     grids_chart = res['grids']
     table = spelling_table(fifths_written, find)
+    last_artic = 'falloff' if fall else ('staccato' if short else None)
 
     out = {b: [] for b in
            range(at_bar, at_bar + (n_units // BAR))}
@@ -296,14 +300,14 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     for ti, (start, end, pitches) in enumerate(timeline):
         if start > pos:
             _emit(out, at_bar, pos, start, None, table, grids_chart,
-                  False, transpose_to_written)
+                  None, transpose_to_written)
         is_last = ti == len(timeline) - 1
         _emit(out, at_bar, start, end, pitches, table, grids_chart,
-              fall and is_last, transpose_to_written)
+              last_artic if is_last else None, transpose_to_written)
         pos = end
     if pos < n_units:
         _emit(out, at_bar, pos, n_units, None, table, grids_chart,
-              False, transpose_to_written)
+              None, transpose_to_written)
 
     SOUND_DYN = {'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123}
     for t, k in res.get('dyns', []):
@@ -375,7 +379,7 @@ def _name(ticks, sub):
     return [(t, ty, d, None) for t, ty, d in decompose(ticks, DIV)]
 
 
-def _emit(out, at_bar, start, end, pitches, table, grids, fall, transpose):
+def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose):
     pieces = _pieces(start, end, grids)
     for pi, (a, b) in enumerate(pieces):
         bar = at_bar + a // BAR
@@ -430,8 +434,8 @@ def _emit(out, at_bar, start, end, pitches, table, grids, fall, transpose):
                     notations.append('<tied type="stop"/>')
                 if not plast:
                     notations.append('<tied type="start"/>')
-                if fall and plast and ni == len(pitches) - 1:
-                    notations.append('<articulations><falloff/>'
+                if artic and plast and ni == len(pitches) - 1:
+                    notations.append(f'<articulations><{artic}/>'
                                      '</articulations>')
                 if notations:
                     lines.append('        <notations>' + ''.join(notations)
@@ -480,7 +484,7 @@ def _say_dur(ticks):
     return f"about {ticks / DIV:.1f} beats"
 
 
-def say_range(res, concert_fifths, fall=False, findings=None):
+def say_range(res, concert_fifths, fall=False, findings=None, short=False):
     """Resolved timeline -> {abs_bar: prose}, spoken at concert pitch."""
     find = findings if findings is not None else Findings()
     table = spelling_table(concert_fifths, find)
@@ -513,8 +517,11 @@ def say_range(res, concert_fifths, fall=False, findings=None):
             if end // BAR > start // BAR and end % BAR:
                 held = f", held into bar {at_bar + end // BAR}"
             clauses.append(f"{where}: {_say_dur(end - start)} {what}{held}")
-        if fall and j == len(tl) - 1:
-            clauses[-1] += ", with a big fall off the end"
+        if j == len(tl) - 1:
+            if fall:
+                clauses[-1] += ", with a big fall off the end"
+            elif short:
+                clauses[-1] += ", short"
         i = j + 1
     DYN_WORD = {'p': 'piano', 'mp': 'mezzo piano', 'mf': 'mezzo forte',
                 'f': 'forte', 'ff': 'fortissimo'}

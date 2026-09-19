@@ -110,13 +110,23 @@ def part_section(plan, label, chord_parts, figures=None):
         t[1].lower().startswith('solo') for t in texts)) and \
         label not in plan.get('percussion', ())
 
+    for dbar, dbeat, mark in sorted(plan.get('dyns', {}).get(label, ())):
+        word = {'pp': 'pianissimo', 'p': 'piano', 'mp': 'mezzo piano',
+                'mf': 'mezzo forte', 'f': 'forte', 'ff': 'fortissimo'}[mark]
+        where = f"at bar {dbar}"
+        if dbeat != 1.0:
+            whole = int(dbeat)
+            where += (f" on the and of {whole}" if dbeat != whole
+                      else f" on beat {whole}")
+        lines.append(f"Dynamic: {word} {where}.")
     if figures:
         for item in figures:
             lo, hi = item['res']['bars']
             lines.append(f"Your line, bars {lo} to {hi}, spoken at "
                          "concert pitch:")
             prose = chartdemo.say_range(item['res'], item['concert_fifths'],
-                                        item['fall'])
+                                        item['fall'],
+                                        short=item.get('short', False))
             for bar in sorted(prose):
                 lines.append(f"Bar {bar}: {prose[bar]}")
         rest = sec['bars'] - sum(i['res']['n_units'] // chartdemo.BAR

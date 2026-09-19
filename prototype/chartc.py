@@ -217,7 +217,7 @@ def parse_chart(path):
             m = re.match(r'(\w+):\s*(.+)$', s)
             if m and m.group(1) in ('title', 'composer', 'arranger', 'key',
                                     'meter', 'tempo', 'feel', 'source',
-                                    'demo', 'countin'):
+                                    'demo', 'countin', 'dynamics'):
                 chart['header'][m.group(1)] = m.group(2).strip().strip('"')
                 continue
             fail(f"{loc}: cannot read '{s}'")
@@ -522,7 +522,8 @@ def compile_chart(chart_path, outdir):
         for item in resolved[l]:
             tr, rng, _clef, foff = horn_of[l]
             ms = chartdemo.render_range(item['res'], key[0] + foff, tr,
-                                        item['fall'], findings)
+                                        item['fall'], findings,
+                                        short=item['short'])
             for bar, xml in ms.items():
                 if bar in demo_measures[l]:
                     fail(f"'{l}' has two demo figures landing on bar {bar}")
@@ -572,8 +573,11 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
                     dm, track, ref['lo'], ref['hi'], ref['at'],
                     octave_shift=b['demo_octave'],
                     sounding_range=rng, quant=ref.get('quant'),
+                    derive_dyns=hdr.get('dynamics', '') not in
+                    ('by hand', 'manual'),
                     part_label=l, findings=findings)
                 resolved[l].append({'res': res, 'fall': ref['fall'],
+                                    'short': ref.get('short', False),
                                     'plan': plan})
     return resolved, horn_of, (fifths, mode)
 
@@ -588,13 +592,15 @@ def build_plans(chart, band, groups, labels):
         plan = {'sec': sec, 'start': start,
                 'content': {l: ('default', None) for l in labels},
                 'texts': {l: [] for l in labels},
+                'dyns': {l: [] for l in labels},
                 'overlays': {l: [] for l in labels}}
         for target, instr, loc in sec['directives']:
             tgts = groups.get(target) or ([target] if target in labels else None)
             if tgts is None:
                 fail(f"{loc}: '{target}' is not a band part or group")
             anns, engraved, groove_words = [], None, None
-            demo_refs, fall, quant = [], False, None
+            demo_refs, fall, quant, short = [], False, None, False
+            dyn_marks = []
             for piece in [p.strip() for p in instr.split(',')]:
                 m = re.match(r'as engraved bars (\d+)-(\d+)'
                              r'(?:\s+at bar (\d+))?$', piece)
@@ -639,6 +645,18 @@ def build_plans(chart, band, groups, labels):
                 if piece in ('sixteenths', 'straight sixteenths'):
                     quant = 'sixteenths'
                     continue
+                if piece == 'short':
+                    short = True
+                    continue
+                m = re.match(r'dyn (pp|p|mp|mf|f|ff)'
+                             r'(?:\s+at bar (\d+))?'
+                             r'(?:\s+beat (\S+))?$', piece)
+                if m:
+                    dyn_marks.append((int(m.group(2) or 1),
+                                      parse_beat(m.group(3)) if m.group(3)
+                                      else 1.0,
+                                      m.group(1)))
+                    continue
                 m = re.match(r'groove(?:\s+"([^"]*)")?$', piece)
                 if m:
                     groove_words = m.group(1) or ''
@@ -673,8 +691,10 @@ def build_plans(chart, band, groups, labels):
                     plan['content'][l] = ('groove', groove_words)
                 for ref in demo_refs:
                     plan['overlays'][l].append(dict(ref, fall=fall,
-                                                    quant=quant))
+                                                    quant=quant,
+                                                    short=short))
                 plan['texts'][l].extend(anns)
+                plan['dyns'][l].extend(dyn_marks)
         for bar, kind, text in sec['events']:
             for l in labels:
                 plan['texts'][l].append((bar, text))
@@ -692,6 +712,8 @@ TRANSPOSE_XML = {
 
 CLEF_XML = {'G': '<sign>G</sign><line>2</line>',
             'F': '<sign>F</sign><line>4</line>'}
+
+SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123}
 
 
 def _compile_rest(chart, band, groups, labels, plans, total,
@@ -785,6 +807,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     for tbar, text in sorted(plan['texts'][label]):
                         if tbar == off + 1:
                             pieces.append(direction(text, 'above'))
+                for dbar, dbeat, mark in plan.get('dyns', {}).get(label, ()):
+                    if dbar == off + 1:
+                        doff = int(round((dbeat - 1.0) * div))
+                        pieces.append(
+                            '      <direction placement="below">'
+                            '<direction-type><dynamics>'
+                            f'<{mark}/></dynamics></direction-type>'
+                            + (f'<offset>{doff}</offset>' if doff else '')
+                            + f'<sound dynamics="{SOUND_DYN[mark]}"/>'
+                            '</direction>\n')
                 if with_harmony and clef != 'percussion' and (
                         label in chord_parts or any(
                             t[1].lower().startswith('solo') for t in
