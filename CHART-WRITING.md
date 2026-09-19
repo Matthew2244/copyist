@@ -87,15 +87,22 @@ All of these ride on a `from demo` line, after commas:
   `scoop bar 12 beat 3.5` put the slide where you bent it.
 - **Dynamics** — `dyn mp`, `dyn f at bar 9`, `dyn sfz at bar 8 beat 4+`.
   Marks land under the note, including on off-beats and tuplet spots.
-- **Say it your way.** The parser speaks bandstand: `falloff` or
-  `fall off` mean `fall`; `housetop`, `rooftop` and `daht` mean
-  `marcato`; `slide` means `scoop`; `eighth notes` means `eighths`;
-  `eighth note triplets` and `sixteenth note triplets` work spelled out;
-  `swung sixteenths` is the sextuplet family; and dynamics accept the
-  long words — `dyn sforzando`, `dyn fortissimo`, `dyn mezzo piano`.
-  The full jazz bend set is here: `scoop` (slide in from below), `plop`
-  (drop in from above), `doit` (rip up off the end), `fall` (drop off
-  the end).
+- **Say it your way — whatever music raised you.** The same mark has a
+  different name in every tradition, and the parser meets them all:
+  jazz says `daht` or `housetop`, classical says `marcato` — same
+  housetop on the page. `falloff`, `fall off` and `fall` are one word;
+  `slide` is a `scoop`; `ten.` is `tenuto`; note values spell out
+  (`eighth notes`, `sixteenth note triplets`); dynamics take the long
+  words (`dyn sforzando`, `dyn mezzo piano`) or the marks. Every-note
+  articulations cover the traditions: `marcato` (short and fat),
+  `staccato`, `tenuto` (full value), `accent`. The bends: `scoop` (in
+  from below), `plop` (in from above), `doit` (up off the end), `fall`
+  (down off the end). `cresc` and `dim` — or `crescendo`,
+  `diminuendo`, `decrescendo` — print where you put them. And the rule
+  that keeps every tradition welcome: any word the parser does not
+  know still reaches the page verbatim through `text "..."` — gospel's
+  "push it", a string section's "sul tasto", anything. No one's
+  language is blocked.
 - **Words on the page** — `text "harmon mute - stem out" at bar 9`,
   `mute cup`, `open`. Say anything; it prints verbatim. One catch: keep
   commas out of quoted text (use a dash) — the comma is how instructions

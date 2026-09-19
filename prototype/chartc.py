@@ -64,6 +64,10 @@ SOUNDS = {
 PIECE_SYNONYMS = [
     (r'^fall ?off$', 'fall'),
     (r'^(housetop|rooftop|daht)$', 'marcato'),
+    (r'^(ten|ten\.)$', 'tenuto'),
+    (r'^(accents|accented)$', 'accent'),
+    (r'^crescendo\b', 'cresc'),
+    (r'^(diminuendo|decrescendo|decresc)\b', 'dim'),
     (r'^slide\b', 'scoop'),
     (r'^(swung|swing) sixteenths$', 'sixteenth triplets'),
     (r'^sixteenth note triplets$', 'sixteenth triplets'),
@@ -556,7 +560,7 @@ def compile_chart(chart_path, outdir):
             ms = chartdemo.render_range(item['res'], key[0] + foff, tr,
                                         item['fall'], findings,
                                         short=item['short'],
-                                        marcato=item['marcato'],
+                                        every=item['every'],
                                         doit=item['doit'],
                                         scoops=item['scoops'])
             for bar, xml in ms.items():
@@ -615,7 +619,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
                     part_label=l, findings=findings)
                 resolved[l].append({'res': res, 'fall': ref['fall'],
                                     'short': ref.get('short', False),
-                                    'marcato': ref.get('marcato', False),
+                                    'every': ref.get('every'),
                                     'doit': ref.get('doit', False),
                                     'scoops': ref.get('scoops', []),
                                     'plan': plan})
@@ -640,7 +644,7 @@ def build_plans(chart, band, groups, labels):
                 fail(f"{loc}: '{target}' is not a band part or group")
             anns, engraved, groove_words = [], None, None
             demo_refs, fall, quant, short = [], False, None, False
-            marcato, dyn_marks, scoops, doit = False, [], [], False
+            every_artic, dyn_marks, scoops, doit = None, [], [], False
             for piece in [normalize_piece(p.strip())
                           for p in instr.split(',')]:
                 m = re.match(r'as engraved bars (\d+)-(\d+)'
@@ -696,7 +700,20 @@ def build_plans(chart, band, groups, labels):
                     short = True
                     continue
                 if piece in ('marcato', 'short and fat'):
-                    marcato = True
+                    every_artic = 'strong-accent'
+                    continue
+                if piece == 'staccato':
+                    every_artic = 'staccato'
+                    continue
+                if piece == 'tenuto':
+                    every_artic = 'tenuto'
+                    continue
+                if piece == 'accent':
+                    every_artic = 'accent'
+                    continue
+                m = re.match(r'(cresc|dim)(?:\s+at bar (\d+))?$', piece)
+                if m:
+                    anns.append((int(m.group(2) or 1), m.group(1) + '.'))
                     continue
                 m = re.match(r'(scoop|plop) (first|last)$', piece)
                 if m:
@@ -760,7 +777,7 @@ def build_plans(chart, band, groups, labels):
                     plan['overlays'][l].append(dict(ref, fall=fall,
                                                     quant=quant,
                                                     short=short,
-                                                    marcato=marcato,
+                                                    every=every_artic,
                                                     doit=doit,
                                                     scoops=scoops))
                 plan['texts'][l].extend(anns)

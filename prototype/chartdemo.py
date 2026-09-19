@@ -361,7 +361,7 @@ def bend_indices(res, bends):
 
 
 def render_range(res, fifths_written, transpose_to_written, fall,
-                 findings=None, short=False, marcato=False, doit=False,
+                 findings=None, short=False, every=None, doit=False,
                  scoops=None):
     """Resolved timeline -> {abs_bar: MusicXML measure content}."""
     find = findings if findings is not None else Findings()
@@ -372,7 +372,6 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     table = spelling_table(fifths_written, find)
     last_artic = ('falloff' if fall else 'doit' if doit else
                   'staccato' if short else None)
-    every = 'strong-accent' if marcato else None    # the big-band daht
     bends = bend_indices(res, scoops)
 
     out = {b: [] for b in
