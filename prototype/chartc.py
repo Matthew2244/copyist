@@ -577,6 +577,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
                     sounding_range=rng, quant=ref.get('quant'),
                     derive_dyns=hdr.get('dynamics', '') not in
                     ('by hand', 'manual'),
+                    short=ref.get('short', False),
                     part_label=l, findings=findings)
                 resolved[l].append({'res': res, 'fall': ref['fall'],
                                     'short': ref.get('short', False),

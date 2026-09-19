@@ -102,7 +102,8 @@ def load_demo(path):
 
 def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   octave_shift=0, sounding_range=None, quant=None,
-                  derive_dyns=True, part_label="", findings=None):
+                  derive_dyns=True, short=False, part_label="",
+                  findings=None):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
     into a quantized timeline of sounding pitches starting at absolute
@@ -185,12 +186,20 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         if q_on >= n_units:
             continue
 
-        # the ending snaps to the grid of the beat it falls in, so a
-        # duration inside a tuplet beat is always whole subdivisions
+        # The ending snaps to the grid of the beat it falls in, so a
+        # duration inside a tuplet beat is always whole subdivisions —
+        # EXCEPT that a sustained note's release is a cutoff the section
+        # counts together: two-thirds of a beat or longer, ending in a
+        # binary beat, releases on the eighth grid.
         x = off * scale
         ob = int(x // DIV)
-        ostep = DIV / grids.get(ob, default_sub)
-        q_off = int(round(ob * DIV + round((x - ob * DIV) / ostep) * ostep))
+        osub = grids.get(ob, default_sub)
+        if x - q_on >= 16 and osub in (1, 2, 4, 8):
+            q_off = int(round(x / (DIV // 2))) * (DIV // 2)
+        else:
+            ostep = DIV / osub
+            q_off = int(round(ob * DIV + round((x - ob * DIV) / ostep)
+                              * ostep))
         onstep = int(DIV / sub)
         q_off = max(q_on + onstep, min(q_off, n_units))
         if quant == 'eighths' and (off - on) < beat:
@@ -251,6 +260,36 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         end = min(end, n_units)
         pitches = sorted({p for p, _, _ in events[q_on]})
         timeline.append((q_on, end, pitches))
+
+    # The same phrase gets the same cutoff. A repeated sustained note at
+    # the same bar position and pitch whose gates differed slightly in
+    # the demo unifies to one canonical release — preferring a duration
+    # that ends on the eighth grid, else the first pass.
+    echo = {}
+    for idx, (s, e, ps) in enumerate(timeline):
+        if e - s >= DIV:
+            echo.setdefault((s % BAR, tuple(ps)), []).append(idx)
+    for sig, idxs in echo.items():
+        if len(idxs) < 2:
+            continue
+        durs = [timeline[i][1] - timeline[i][0] for i in idxs]
+        if max(durs) == min(durs) or max(durs) - min(durs) > DIV:
+            continue
+        clean = [d for d in durs if d % (DIV // 2) == 0]
+        target = clean[0] if clean else durs[0]
+        for i in idxs:
+            s, e, ps = timeline[i]
+            nxt = timeline[i + 1][0] if i + 1 < len(timeline) else n_units
+            timeline[i] = (s, min(s + target, nxt, n_units), ps)
+        bars = sorted({at_bar + timeline[i][0] // BAR for i in idxs})
+        find.add(f"{part_label}: repeated phrase, one cutoff — bars "
+                 + ", ".join(str(b) for b in bars))
+
+    # `short` is the writer's word: the phrase's last note prints short,
+    # whatever the demo's gate held
+    if short and timeline:
+        s, e, ps = timeline[-1]
+        timeline[-1] = (s, min(e, s + DIV // 2), ps)
 
     grids_chart = {b: grids.get(b, default_sub)
                    for b in range((n_units // DIV) + 1)}
@@ -512,6 +551,13 @@ def _say_beat(pos):
 def _say_dur(ticks):
     if ticks in DUR_WORD:
         return DUR_WORD[ticks]
+    pieces = decompose(ticks, DIV)
+    if 1 < len(pieces) <= 3:
+        words = []
+        for _, name, dots in pieces:
+            words.append(("double-dotted " if dots == 2 else
+                          "dotted " if dots == 1 else "") + name)
+        return " tied to ".join(words)
     return f"about {ticks / DIV:.1f} beats"
 
 
