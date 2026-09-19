@@ -207,6 +207,9 @@ def main():
         label = next(l for l in labels if l.lower() == want)
         out.append(f"{title} — the {label} part. "
                    f"{len(plans)} sections, {total} bars.")
+        if int(hdr.get('countin', 0)):
+            out.append("Bar numbers here are your DAW's, count-in "
+                       "included. The printed page starts at one.")
         if chart['pickup']:
             pk = chart['pickup']
             t = "; ".join(f'"{x}"' for x in pk['texts'])

@@ -580,6 +580,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
                     derive_dyns=hdr.get('dynamics', '') not in
                     ('by hand', 'manual'),
                     short=ref.get('short', False),
+                    spoken_shift=int(hdr.get('countin', 0)),
                     part_label=l, findings=findings)
                 resolved[l].append({'res': res, 'fall': ref['fall'],
                                     'short': ref.get('short', False),

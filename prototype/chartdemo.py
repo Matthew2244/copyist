@@ -102,13 +102,17 @@ def load_demo(path):
 
 def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   octave_shift=0, sounding_range=None, quant=None,
-                  derive_dyns=True, short=False, part_label="",
-                  findings=None):
+                  derive_dyns=True, short=False, spoken_shift=0,
+                  part_label="", findings=None):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
     into a quantized timeline of sounding pitches starting at absolute
     chart bar `at_bar`. Shared by the page (render_range) and the prose
     (say_range), so the two cannot disagree.
+
+    `spoken_shift` is the count-in: everything SPOKEN (findings, the
+    read-aloud) adds it, so the writer hears their own DAW bar numbers.
+    The printed page keeps printed numbers — players count from one.
     """
     find = findings if findings is not None else Findings()
     src = demo.track(track_name)
@@ -222,7 +226,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             while folded > hi_r:
                 folded -= 12
             if folded != p:
-                find.add(f"{part_label}: bar {at_bar + q_on // BAR} note "
+                find.add(f"{part_label}: bar "
+                         f"{at_bar + spoken_shift + q_on // BAR} note "
                          f"moved {'up' if folded > p else 'down'} "
                          f"{abs(folded - p) // 12} octave(s) into range")
                 p = folded
@@ -243,11 +248,13 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             tgt = q_on - step
             if tgt >= 0 and tgt not in events:
                 events[tgt] = [(mv[0], min(mv[1], q_on), mv[2])]
-                find.add(f"{part_label}: bar {at_bar + q_on // BAR}: two "
+                find.add(f"{part_label}: bar "
+                         f"{at_bar + spoken_shift + q_on // BAR}: two "
                          "played notes landed on one slot — moved the "
                          "earlier one back a step")
             else:
-                find.add(f"{part_label}: bar {at_bar + q_on // BAR}: two "
+                find.add(f"{part_label}: bar "
+                         f"{at_bar + spoken_shift + q_on // BAR}: two "
                          "played notes landed on one slot with no room — "
                          "dropped the earlier one; proofread this bar")
 
@@ -288,7 +295,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             s, e, ps = timeline[i]
             nxt = timeline[i + 1][0] if i + 1 < len(timeline) else n_units
             timeline[i] = (s, min(s + target, nxt, n_units), ps)
-        bars = sorted({at_bar + timeline[i][0] // BAR for i in idxs})
+        bars = sorted({at_bar + spoken_shift + timeline[i][0] // BAR
+                       for i in idxs})
         find.add(f"{part_label}: repeated phrase, one cutoff — bars "
                  + ", ".join(str(b) for b in bars))
 
@@ -330,7 +338,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
 
     return {'timeline': timeline, 'grids': grids_chart,
             'n_units': n_units, 'at': at_bar,
-            'bars': (bar_lo, bar_hi), 'dyns': dyns}
+            'bars': (bar_lo, bar_hi), 'dyns': dyns,
+            'spoken_shift': spoken_shift}
 
 
 def scoop_indices(res, scoops):
@@ -573,7 +582,7 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
     """Resolved timeline -> {abs_bar: prose}, spoken at concert pitch."""
     find = findings if findings is not None else Findings()
     table = spelling_table(concert_fifths, find)
-    at_bar = res['at']
+    at_bar = res['at'] + res.get('spoken_shift', 0)
     scooped = scoop_indices(res, scoops)
     out = {}
     # group consecutive same-duration single notes into runs

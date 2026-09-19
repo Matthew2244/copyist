@@ -208,20 +208,44 @@ the conversion pipeline.
   per horn, slivers of daylight between legato notes close, and
   out-of-range notes fold by octaves into the part's range, each with a
   finding naming the bar.
-- **`eighths` / `sixteenths` / `triplets`** on the directive are the
-  writer's word beating the statistics: they restrict the per-beat grid.
-  "These bars are eighth notes" is authorship, not measurement, and the
-  format records it.
-- **`fall`** puts a falloff on the last note of that directive's material.
+- **`eighths` / `sixteenths` / `triplets` / `eighth triplets` /
+  `sixteenth triplets`** on the directive are the writer's word beating
+  the statistics: they restrict the per-beat grid ("triplets" is the
+  permissive swing family; the two named-triplet forms are strict, with
+  no binary escape hatch). "These bars are eighth notes" is authorship,
+  not measurement, and the format records it.
+- **Articulation is authorship too**: `fall` (falloff on the last note),
+  `short` (staccato on the last note, and its printed length caps at an
+  eighth — a note the writer calls short prints short whatever the demo's
+  gate held), `marcato` (the housetop on every note — "short and fat"),
+  and `scoop first` / `scoop last` / `scoop bar N beat B` (the jazz
+  scoop; place it by the demo's own pitch-bend data when in doubt).
+- **`dyn <mark> [at bar N] [beat B]`** prints a dynamic (pp..ff and sfz;
+  B accepts `4+` spellings or decimals for tuplet positions). With
+  **`dynamics: by hand`** in the header the pedal-derived marks switch
+  off entirely: once the writer dictates, only the writer speaks.
 - **`countin: N`** (header) drops the demo's count-in bars from the page:
   demo bar N+1 prints as bar 1, and every default placement shifts with
   it. Directives keep speaking the DAW's bar numbers — the numbers the
   writer is looking at.
-- **Dynamics come from the expression pedal.** CC 11 is read per figure:
-  each playing bar's median level maps to p/mp/mf/f/ff and a mark prints
-  wherever the level changes. The findings say what was derived, and the
-  read-aloud view speaks the marks, so the writer corrects them by ear
-  like everything else.
+- **Dynamics come from the expression pedal** unless dictated. CC 11 is
+  read per figure: each playing bar's median level maps to p/mp/mf/f/ff
+  and a mark prints wherever the level changes. The findings say what was
+  derived, and the read-aloud view speaks the marks, so the writer
+  corrects them by ear like everything else.
+- **Cutoffs are ensemble events.** A sustained note's release snaps to
+  the eighth grid (a beat nobody attacks in counts as binary), and a
+  repeated sustained note at the same bar position and pitch unifies to
+  one canonical release — the same phrase gets the same cutoff. A note
+  running legato into the next onset is a tie, not a cutoff.
+- **The build writes one extra document, "<title> — for listening"**:
+  identical except slash regions render as real rests, because major
+  renderers play slash noteheads. The proofing MP3 comes from it; every
+  printed page keeps its slashes.
+- **Everything spoken uses the writer's own bar numbers.** With
+  `countin:` set, findings and the read-aloud add the count-in back, so
+  the writer hears the numbers their DAW shows; only the printed page
+  counts from one.
 
 ### 3.5 Pickup
 
