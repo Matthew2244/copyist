@@ -59,6 +59,36 @@ SOUNDS = {
 }
 
 
+# How musicians actually say it: each instruction accepts the words of
+# the bandstand, normalized before parsing. Ordered longest-first.
+PIECE_SYNONYMS = [
+    (r'^fall ?off$', 'fall'),
+    (r'^(housetop|rooftop|daht)$', 'marcato'),
+    (r'^slide\b', 'scoop'),
+    (r'^(swung|swing) sixteenths$', 'sixteenth triplets'),
+    (r'^sixteenth note triplets$', 'sixteenth triplets'),
+    (r'^eighth note triplets$', 'eighth triplets'),
+    (r'^eighth notes$', 'eighths'),
+    (r'^sixteenth notes$', 'sixteenths'),
+    (r'^straight eighth notes$', 'eighths'),
+    (r'^straight sixteenth notes$', 'sixteenths'),
+]
+
+DYN_WORDS = [('sforzando', 'sfz'), ('fortissimo', 'ff'),
+             ('pianissimo', 'pp'), ('mezzo forte', 'mf'),
+             ('mezzo piano', 'mp'), ('forte piano', 'fp'),
+             ('forte', 'f'), ('piano', 'p')]
+
+
+def normalize_piece(piece):
+    for pat, repl in PIECE_SYNONYMS:
+        piece = re.sub(pat, repl, piece)
+    if piece.startswith('dyn '):
+        for word, mark in DYN_WORDS:
+            piece = re.sub(r'\b%s\b' % word, mark, piece)
+    return piece
+
+
 def parse_key(text):
     """'Eb minor' -> (fifths, mode)."""
     m = re.fullmatch(r'([A-Ga-g][b#]?)\s*(major|minor)?', text.strip())
@@ -527,6 +557,7 @@ def compile_chart(chart_path, outdir):
                                         item['fall'], findings,
                                         short=item['short'],
                                         marcato=item['marcato'],
+                                        doit=item['doit'],
                                         scoops=item['scoops'])
             for bar, xml in ms.items():
                 if bar in demo_measures[l]:
@@ -585,6 +616,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
                 resolved[l].append({'res': res, 'fall': ref['fall'],
                                     'short': ref.get('short', False),
                                     'marcato': ref.get('marcato', False),
+                                    'doit': ref.get('doit', False),
                                     'scoops': ref.get('scoops', []),
                                     'plan': plan})
     return resolved, horn_of, (fifths, mode)
@@ -608,8 +640,9 @@ def build_plans(chart, band, groups, labels):
                 fail(f"{loc}: '{target}' is not a band part or group")
             anns, engraved, groove_words = [], None, None
             demo_refs, fall, quant, short = [], False, None, False
-            marcato, dyn_marks, scoops = False, [], []
-            for piece in [p.strip() for p in instr.split(',')]:
+            marcato, dyn_marks, scoops, doit = False, [], [], False
+            for piece in [normalize_piece(p.strip())
+                          for p in instr.split(',')]:
                 m = re.match(r'as engraved bars (\d+)-(\d+)'
                              r'(?:\s+at bar (\d+))?$', piece)
                 if m:
@@ -665,15 +698,19 @@ def build_plans(chart, band, groups, labels):
                 if piece in ('marcato', 'short and fat'):
                     marcato = True
                     continue
-                m = re.match(r'scoop (first|last)$', piece)
+                m = re.match(r'(scoop|plop) (first|last)$', piece)
                 if m:
-                    scoops.append(m.group(1))
+                    scoops.append((m.group(1), m.group(2)))
                     continue
-                m = re.match(r'scoop bar (\d+) beat ([\d.]+)$', piece)
+                m = re.match(r'(scoop|plop) bar (\d+) beat ([\d.]+)$', piece)
                 if m:
-                    scoops.append((int(m.group(1)), float(m.group(2))))
+                    scoops.append((m.group(1),
+                                   (int(m.group(2)), float(m.group(3)))))
                     continue
-                m = re.match(r'dyn (pp|p|mp|mf|f|ff|sfz)'
+                if piece == 'doit':
+                    doit = True
+                    continue
+                m = re.match(r'dyn (pp|p|mp|mf|f|ff|sfz|fp)'
                              r'(?:\s+at bar (\d+))?'
                              r'(?:\s+beat (\S+))?$', piece)
                 if m:
@@ -724,6 +761,7 @@ def build_plans(chart, band, groups, labels):
                                                     quant=quant,
                                                     short=short,
                                                     marcato=marcato,
+                                                    doit=doit,
                                                     scoops=scoops))
                 plan['texts'][l].extend(anns)
                 plan['dyns'][l].extend(dyn_marks)
@@ -746,7 +784,7 @@ CLEF_XML = {'G': '<sign>G</sign><line>2</line>',
             'F': '<sign>F</sign><line>4</line>'}
 
 SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
-             'sfz': 112}
+             'sfz': 112, 'fp': 98}
 
 
 def _compile_rest(chart, band, groups, labels, plans, total,

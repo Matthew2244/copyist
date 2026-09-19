@@ -113,7 +113,7 @@ def part_section(plan, label, chord_parts, figures=None):
     for dbar, dbeat, mark in sorted(plan.get('dyns', {}).get(label, ())):
         word = {'pp': 'pianissimo', 'p': 'piano', 'mp': 'mezzo piano',
                 'mf': 'mezzo forte', 'f': 'forte', 'ff': 'fortissimo',
-                'sfz': 'sforzando'}[mark]
+                'sfz': 'sforzando', 'fp': 'forte-piano'}[mark]
         where = f"at bar {dbar}"
         if dbeat != 1.0:
             whole = int(dbeat)
@@ -130,6 +130,7 @@ def part_section(plan, label, chord_parts, figures=None):
             prose = chartdemo.say_range(item['res'], item['concert_fifths'],
                                         item['fall'],
                                         short=item.get('short', False),
+                                        doit=item.get('doit', False),
                                         scoops=item.get('scoops'))
             for bar in sorted(prose):
                 lines.append(f"Bar {bar}: {prose[bar]}")

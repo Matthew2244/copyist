@@ -218,8 +218,12 @@ the conversion pipeline.
   `short` (staccato on the last note, and its printed length caps at an
   eighth — a note the writer calls short prints short whatever the demo's
   gate held), `marcato` (the housetop on every note — "short and fat"),
-  and `scoop first` / `scoop last` / `scoop bar N beat B` (the jazz
-  scoop; place it by the demo's own pitch-bend data when in doubt).
+  and the jazz bend set — `scoop` (in from below), `plop` (in from
+  above), `doit` (up off the end), `fall` (down off the end) — placed
+  with `first` / `last` / `bar N beat B`; place by the demo's own
+  pitch-bend data when in doubt. Instructions accept bandstand synonyms
+  (falloff, housetop/daht, slide, spelled-out dynamics and note values),
+  normalized before parsing: the format meets each writer's habit.
 - **`dyn <mark> [at bar N] [beat B]`** prints a dynamic (pp..ff and sfz;
   B accepts `4+` spellings or decimals for tuplet positions). With
   **`dynamics: by hand`** in the header the pedal-derived marks switch
