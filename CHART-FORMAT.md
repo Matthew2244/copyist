@@ -175,6 +175,44 @@ three sources, in descending order of preference:
   XML come along automatically (Michael McElroy's *Tomorrow* carries 1,385
   syllables — the reference path is the realistic one).
 
+### 3.4.1 The demo door — `from demo` (first built for *Subway Psalm*)
+
+When a chart is composed from a played demo rather than encoded from an
+engraving, naming a figure per phrase gets heavy. `from demo` is the
+lighter door: the header names the demo once, each band member names its
+track, and a directive lifts any bar range of that part's own line through
+the conversion pipeline.
+
+    demo: horns.MID                        # header, next to source:
+
+    band:
+      tenor = tenor sax, demo "sx 3" octave -1
+      flute, demo "flute.MID"              # a .mid value is its own file
+
+    section E, 16 bars
+      tenor: from demo bars 58-60, from demo bars 64-65
+      bari: from demo bars 50-65, eighths
+      trumpet 1: from demo "tp 1 mute" bars 36-41
+
+- The demo and the chart share one bar grid, so `from demo bars N` lands on
+  chart bar N; `at bar N` (section-relative) moves it.
+- A quoted name right after `from demo` overrides the band default — how a
+  muted-passage track sits next to the open track for one player.
+- `octave -1` on the band line corrects a track recorded an octave off its
+  sounding pitch (voicing stacks expose this: a trombone above the
+  trumpets is a recording convention, not a voicing).
+- **The demo is ideas, not gospel.** Conversion measures the player's
+  systematic lay-back per phrase (median offset) and removes it — the
+  finding reports the milliseconds; the feel stays with the player. The
+  grid is chosen per beat (§7.2.1's tuplet chooser), one voice is enforced
+  per horn, slivers of daylight between legato notes close, and
+  out-of-range notes fold by octaves into the part's range, each with a
+  finding naming the bar.
+- **`eighths` / `triplets`** on the directive are the writer's word
+  beating the statistics: they restrict the per-beat grid. "These bars are
+  eighth notes" is authorship, not measurement, and the format records it.
+- **`fall`** puts a falloff on the last note of that directive's material.
+
 ### 3.5 Pickup
 
     pickup 3 beats: piano, figure pickup lick, text "(piano pickups)"

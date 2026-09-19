@@ -7,9 +7,18 @@ sections with labels/repeats, `as engraved` lifts (each part's own bars from
 the source engraving, exact), `groove` slash generation with chord symbols,
 tacet, solo/backgrounds/text annotations, and score + per-part emission.
 
+Second increment adds the demo door (CHART-FORMAT.md 3.4.1): a `demo:`
+header, per-band demo tracks with octave correction, `from demo bars A-B
+[at bar N]` directives with `eighths`/`triplets` quantization hints and
+`fall`, `mute <name>`/`open` technique text, extended chord qualities with
+degree emission, per-part attributes (key, clef, transposition) for charts
+with no source engraving, and a real metronome mark. Conversion itself
+lives in chartdemo.py.
+
 Deliberately not built yet (each one errors in a sentence rather than
-guessing): `from midi` figures, inline `notes:` figures, volta endings,
-`hits`, `mute`, `double`, `cue`, `build:`, `on pass`, meters other than 4/4.
+guessing): named `figure` blocks and inline `notes:` figures, volta
+endings, `hits`, `double`, `cue`, `build:`, `on pass`, meters other
+than 4/4.
 
 Usage: chartc.py <file.chart> [-o outdir]
 """
@@ -18,7 +27,40 @@ import re
 import sys
 import argparse
 
+import chartdemo
+
 BEATS = 4          # 4/4 only in this increment
+
+# Horn identity for demo-sourced parts: written transposition in semitones,
+# sounding range (a working player's, not the physical extreme), clef, and
+# how many fifths the written key signature moves. Ranges are sounding.
+HORNS = {
+    'flute':             (0,  (60, 96),  'G', 0),
+    'alto sax':          (9,  (49, 81),  'G', 3),
+    'tenor sax':         (14, (44, 76),  'G', 2),
+    'baritone sax':      (21, (37, 69),  'G', 3),
+    'trumpet':           (2,  (54, 88),  'G', 2),
+    'trombone':          (0,  (40, 72),  'F', 0),
+}
+
+KEY_FIFTHS = {'c': 0, 'g': 1, 'd': 2, 'a': 3, 'e': 4, 'b': 5, 'f#': 6,
+              'c#': 7, 'f': -1, 'bb': -2, 'eb': -3, 'ab': -4, 'db': -5,
+              'gb': -6, 'cb': -7}
+
+
+def parse_key(text):
+    """'Eb minor' -> (fifths, mode)."""
+    m = re.fullmatch(r'([A-Ga-g][b#]?)\s*(major|minor)?', text.strip())
+    if not m:
+        fail(f"cannot read key '{text}'")
+    root = m.group(1).lower()
+    mode = m.group(2) or 'major'
+    if root not in KEY_FIFTHS:
+        fail(f"cannot read key root '{m.group(1)}'")
+    fifths = KEY_FIFTHS[root] + (-3 if mode == 'minor' else 0)
+    if not -7 <= fifths <= 7:
+        fail(f"key '{text}' needs {fifths} fifths — respell it")
+    return fifths, mode
 XMLHEAD = ('<?xml version="1.0" encoding="UTF-8"?>\n'
            '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 '
            'Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">\n')
@@ -35,6 +77,11 @@ CHORD_KINDS = {
     'sus4': ('suspended-fourth', 'sus4'),
     '7sus4': ('suspended-fourth', '7sus4'),
     'aug': ('augmented', 'aug'),
+    'maj9': ('major-ninth', 'maj9'),
+    '7#9': ('dominant', '7#9', [(9, 1, 'add')]),
+    '7b9': ('dominant', '7b9', [(9, -1, 'add')]),
+    '7#9#11': ('dominant', '7#9#11', [(9, 1, 'add'), (11, 1, 'add')]),
+    '7#11': ('dominant', '7#11', [(11, 1, 'add')]),
 }
 
 STEP = set('ABCDEFG')
@@ -157,7 +204,8 @@ def parse_chart(path):
                 continue
             m = re.match(r'(\w+):\s*(.+)$', s)
             if m and m.group(1) in ('title', 'composer', 'arranger', 'key',
-                                    'meter', 'tempo', 'feel', 'source'):
+                                    'meter', 'tempo', 'feel', 'source',
+                                    'demo'):
                 chart['header'][m.group(1)] = m.group(2).strip().strip('"')
                 continue
             fail(f"{loc}: cannot read '{s}'")
@@ -166,13 +214,17 @@ def parse_chart(path):
         if mode == 'band':
             m = re.match(r'([\w ]+?)(?:\s*=\s*([\w ]+?))?'
                          r'(?:,\s*detail (\w[\w-]*))?'
-                         r'(?:,\s*tuning ([\w ]+))?\s*$', s)
+                         r'(?:,\s*tuning ([\w ]+))?'
+                         r'(?:,\s*demo "([^"]+)"(?:\s+octave (-?\d+))?)?\s*$',
+                         s)
             if not m:
                 fail(f"{loc}: cannot read band line '{s}'")
             chart['band'].append({'label': m.group(1).strip(),
                                   'instrument': (m.group(2) or m.group(1)).strip(),
                                   'detail': m.group(3),
-                                  'tuning': m.group(4)})
+                                  'tuning': m.group(4),
+                                  'demo': m.group(5),
+                                  'demo_octave': int(m.group(6) or 0)})
             continue
         if mode == 'output':
             continue        # defaults only in this increment
@@ -303,7 +355,9 @@ def rehearsal(mark):
 
 def harmony_xml(chord, beat, div):
     step, alter, qual, bass = chord
-    kind, ktext = CHORD_KINDS[qual]
+    entry = CHORD_KINDS[qual]
+    kind, ktext = entry[0], entry[1]
+    degrees = entry[2] if len(entry) > 2 else []
     off = (beat - 1.0) * div
     if abs(off - round(off)) > 1e-6:
         fail(f"chord offset at beat {beat} is not integral at divisions {div}")
@@ -316,6 +370,10 @@ def harmony_xml(chord, beat, div):
         ba = {'b': -1, '#': 1, '': 0}[bs.group(2)]
         out.append(f'        <bass><bass-step>{bs.group(1)}</bass-step>' +
                    (f'<bass-alter>{ba}</bass-alter>' if ba else '') + '</bass>')
+    for dval, dalt, dtyp in degrees:
+        out.append(f'        <degree><degree-value>{dval}</degree-value>'
+                   f'<degree-alter>{dalt}</degree-alter>'
+                   f'<degree-type>{dtyp}</degree-type></degree>')
     if round(off):
         out.append(f'        <offset>{int(round(off))}</offset>')
     out.append('      </harmony>')
@@ -442,8 +500,70 @@ def compile_chart(chart_path, outdir):
             for plan in plans for l in labels):
         fail("'as engraved' is used but the chart has no source: line "
              "naming an engraving")
+
+    # ---- the from-demo door
+    findings = chartdemo.Findings()
+    resolved, horn_of, key = resolve_demo(chart, plans, band, labels,
+                                          chart_path, findings)
+    demo_measures = {l: {} for l in labels}
+    for l in labels:
+        for item in resolved[l]:
+            tr, rng, _clef, foff = horn_of[l]
+            ms = chartdemo.render_range(item['res'], key[0] + foff, tr,
+                                        item['fall'], findings)
+            for bar, xml in ms.items():
+                if bar in demo_measures[l]:
+                    fail(f"'{l}' has two demo figures landing on bar {bar}")
+                demo_measures[l][bar] = xml
     return _compile_rest(chart, band, groups, labels, plans, total,
-                         source, src_of, chord_parts, hdr, chart_path, outdir)
+                         source, src_of, chord_parts, hdr, chart_path, outdir,
+                         demo_measures, horn_of, key, findings)
+
+
+def resolve_demo(chart, plans, band, labels, chart_path, findings):
+    """Resolve every from-demo overlay to a quantized timeline. Shared by
+    the compiler and the read-aloud view — one resolver, two renderings."""
+    hdr = chart['header']
+    horn_of = {}
+    demo_path = hdr.get('demo')
+    if demo_path and not os.path.isabs(demo_path):
+        demo_path = os.path.join(os.path.dirname(os.path.abspath(chart_path)),
+                                 demo_path)
+    chart_dir = os.path.dirname(os.path.abspath(chart_path))
+    fifths, mode = parse_key(hdr['key']) if hdr.get('key') else (0, 'major')
+    for b in band:
+        inst = b['instrument'].lower()
+        if inst in HORNS:
+            horn_of[b['label']] = HORNS[inst]
+    resolved = {l: [] for l in labels}
+    for plan in plans:
+        for l in labels:
+            for ref in plan['overlays'][l]:
+                b = next(x for x in band if x['label'] == l)
+                if l not in horn_of:
+                    fail(f"{ref['loc']}: '{l}' plays from the demo but its "
+                         f"instrument '{b['instrument']}' is not in the "
+                         "demo-part table")
+                tr, rng, _clef, foff = horn_of[l]
+                sel = ref['track'] or b['demo']
+                if sel and sel.lower().endswith(('.mid', '.midi')):
+                    dm = chartdemo.load_demo(sel if os.path.isabs(sel)
+                                             else os.path.join(chart_dir, sel))
+                    track = None
+                else:
+                    if not demo_path:
+                        fail(f"{ref['loc']}: '{l}' uses from demo but the "
+                             "chart has no demo: line")
+                    dm = chartdemo.load_demo(demo_path)
+                    track = sel
+                res = chartdemo.resolve_range(
+                    dm, track, ref['lo'], ref['hi'], ref['at'],
+                    octave_shift=b['demo_octave'],
+                    sounding_range=rng, quant=ref.get('quant'),
+                    part_label=l, findings=findings)
+                resolved[l].append({'res': res, 'fall': ref['fall'],
+                                    'plan': plan})
+    return resolved, horn_of, (fifths, mode)
 
 
 def build_plans(chart, band, groups, labels):
@@ -455,18 +575,51 @@ def build_plans(chart, band, groups, labels):
     for sec in chart['sections']:
         plan = {'sec': sec, 'start': start,
                 'content': {l: ('default', None) for l in labels},
-                'texts': {l: [] for l in labels}}
+                'texts': {l: [] for l in labels},
+                'overlays': {l: [] for l in labels}}
         for target, instr, loc in sec['directives']:
             tgts = groups.get(target) or ([target] if target in labels else None)
             if tgts is None:
                 fail(f"{loc}: '{target}' is not a band part or group")
             anns, engraved, groove_words = [], None, None
+            demo_refs, fall, quant = [], False, None
             for piece in [p.strip() for p in instr.split(',')]:
                 m = re.match(r'as engraved bars (\d+)-(\d+)'
                              r'(?:\s+at bar (\d+))?$', piece)
                 if m:
                     engraved = (int(m.group(1)), int(m.group(2)),
                                 int(m.group(3) or 1))
+                    continue
+                m = re.match(r'from demo(?:\s+"([^"]+)")?'
+                             r'\s+bars (\d+)(?:-(\d+))?'
+                             r'(?:\s+at bar (\d+))?$', piece)
+                if m:
+                    lo = int(m.group(2))
+                    hi = int(m.group(3) or lo)
+                    if hi < lo:
+                        fail(f"{loc}: demo bars {lo}-{hi} run backwards")
+                    # default placement: the demo and the chart share one
+                    # grid, so demo bar N lands on chart bar N unless an
+                    # explicit `at bar` moves it
+                    at = (start + int(m.group(4)) - 1) if m.group(4) else lo
+                    demo_refs.append({'track': m.group(1), 'lo': lo,
+                                      'hi': hi, 'at': at, 'loc': loc})
+                    continue
+                m = re.match(r'mute (\w+)$', piece)
+                if m:
+                    anns.append((1, f'{m.group(1)} mute'))
+                    continue
+                if piece == 'open':
+                    anns.append((1, 'open'))
+                    continue
+                if piece == 'fall':
+                    fall = True
+                    continue
+                if piece in ('eighths', 'straight eighths'):
+                    quant = 'eighths'
+                    continue
+                if piece == 'triplets':
+                    quant = 'triplets'
                     continue
                 m = re.match(r'groove(?:\s+"([^"]*)")?$', piece)
                 if m:
@@ -500,6 +653,9 @@ def build_plans(chart, band, groups, labels):
                     plan['content'][l] = ('engraved', engraved)
                 elif groove_words is not None:
                     plan['content'][l] = ('groove', groove_words)
+                for ref in demo_refs:
+                    plan['overlays'][l].append(dict(ref, fall=fall,
+                                                    quant=quant))
                 plan['texts'][l].extend(anns)
         for bar, kind, text in sec['events']:
             for l in labels:
@@ -509,19 +665,55 @@ def build_plans(chart, band, groups, labels):
     return plans, start - 1
 
 
+TRANSPOSE_XML = {
+    2:  ('-1', '-2', None),      # Bb trumpet
+    9:  ('-5', '-9', None),      # Eb alto
+    14: ('-1', '-2', '-1'),      # Bb tenor, octave down
+    21: ('-5', '-9', '-1'),      # Eb baritone, octave down
+}
+
+CLEF_XML = {'G': '<sign>G</sign><line>2</line>',
+            'F': '<sign>F</sign><line>4</line>'}
+
+
 def _compile_rest(chart, band, groups, labels, plans, total,
-                  source, src_of, chord_parts, hdr, chart_path, outdir):
+                  source, src_of, chord_parts, hdr, chart_path, outdir,
+                  demo_measures=None, horn_of=None, key=(0, 'major'),
+                  findings=None):
+    demo_measures = demo_measures or {l: {} for l in labels}
+    horn_of = horn_of or {}
+
     # ---- emit one part's measures
     def part_measures(label, with_directions, with_harmony):
         b = next(x for x in band if x['label'] == label)
         default_groove = label in groups['rhythm']
         sp = source[src_of[label]] if source else None
-        div = sp['div'] if sp else 8
+        horn = horn_of.get(label)
+        div = sp['div'] if sp else chartdemo.DIV
         staves = sp['staves'] if sp else 1
-        clef = sp['clef'] if sp else 'G'
-        fifths = sp['fifths'] if sp else 0
+        clef = sp['clef'] if sp else (horn[2] if horn else 'G')
+        fifths = sp['fifths'] if sp else (key[0] + horn[3] if horn else key[0])
         governing = [None]      # printed-chord state, carried across bars
         out = []
+
+        def attributes():
+            tr = ''
+            if horn and horn[0] in TRANSPOSE_XML:
+                d, c, o = TRANSPOSE_XML[horn[0]]
+                tr = (f'<transpose><diatonic>{d}</diatonic>'
+                      f'<chromatic>{c}</chromatic>'
+                      + (f'<octave-change>{o}</octave-change>' if o else '')
+                      + '</transpose>')
+            return ('      <attributes>\n'
+                    f'        <divisions>{div}</divisions>\n'
+                    f'        <key><fifths>{fifths}</fifths>'
+                    f'<mode>{key[1]}</mode></key>\n'
+                    '        <time><beats>4</beats>'
+                    '<beat-type>4</beat-type></time>\n'
+                    f'        <clef>{CLEF_XML[clef if clef in CLEF_XML else "G"]}'
+                    '</clef>\n'
+                    + (f'        {tr}\n' if tr else '')
+                    + '      </attributes>\n')
 
         pk = chart['pickup']
         if pk:
@@ -536,6 +728,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             out.append(f'    <measure implicit="yes" number="0">\n{content}'
                        '    </measure>\n')
 
+        need_attrs = source is None
         for plan in plans:
             sec = plan['sec']
             kind, arg = plan['content'][label]
@@ -545,6 +738,21 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             for off in range(sec['bars']):
                 absbar = plan['start'] + off
                 pieces = []
+                if need_attrs:
+                    pieces.append(attributes())
+                    need_attrs = False
+                if with_directions and absbar == 1 and not chart['pickup']:
+                    if hdr.get('feel'):
+                        pieces.append(direction(hdr['feel'].capitalize()))
+                    if hdr.get('tempo'):
+                        pieces.append(
+                            '      <direction placement="above">'
+                            '<direction-type><metronome>'
+                            '<beat-unit>quarter</beat-unit>'
+                            f'<per-minute>{hdr["tempo"]}</per-minute>'
+                            '</metronome></direction-type>'
+                            f'<sound tempo="{hdr["tempo"]}"/>'
+                            '</direction>\n')
                 if with_directions and off == 0:
                     mark = sec['name']
                     if re.fullmatch(r'[A-Z]|\d+', mark):
@@ -561,7 +769,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             pieces.append(direction(text, 'above'))
                 if with_harmony and clef != 'percussion' and (
                         label in chord_parts or any(
-                            t[1].startswith('solos') for t in
+                            t[1].lower().startswith('solo') for t in
                             plan['texts'][label])):
                     for beat, chord in sec['content'][off]:
                         if chord is None:
@@ -569,7 +777,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         if chord != governing[0] or off == 0:
                             pieces.append(harmony_xml(chord, beat, div))
                         governing[0] = chord
-                if kind == 'engraved':
+                if absbar in demo_measures[label]:
+                    pieces.append(demo_measures[label][absbar])
+                elif kind == 'engraved':
                     lo, hi, at = arg
                     idx = absbar - (plan['start'] + at - 1)
                     srcbar = lo + idx
@@ -639,6 +849,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             f.write(document([l], directions_on=lambda _: True,
                              harmony_on=lambda _: True))
         written.append(p)
+    if findings and findings.lines:
+        seen = set()
+        for line in findings.lines:
+            if line not in seen:
+                print("finding:", line)
+                seen.add(line)
     print(f"chartc: wrote {len(written)} files, {total} bars, "
           f"{len(chart['sections'])} sections.")
     return written

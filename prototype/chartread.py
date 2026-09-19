@@ -23,6 +23,7 @@ import argparse
 import sys
 
 import chartc
+import chartdemo
 
 ACC = {-1: ' flat', 0: '', 1: ' sharp'}
 QUAL = {
@@ -32,6 +33,9 @@ QUAL = {
     'dim': ' diminished', 'dim7': ' diminished seven',
     'm7b5': ' minor seven flat five', 'sus4': ' sus four',
     '7sus4': ' seven sus four', 'aug': ' augmented',
+    'maj9': ' major nine', '7#9': ' seven sharp nine',
+    '7b9': ' seven flat nine', '7#11': ' seven sharp eleven',
+    '7#9#11': ' seven sharp nine sharp eleven',
 }
 
 
@@ -92,7 +96,7 @@ def section_heading(sec):
     return ", ".join(bits) + "."
 
 
-def part_section(plan, label, chord_parts):
+def part_section(plan, label, chord_parts, figures=None):
     """One section of one player's part, as sentences."""
     sec = plan['sec']
     kind, arg = plan['content'][label]
@@ -102,10 +106,23 @@ def part_section(plan, label, chord_parts):
     lines = [section_heading(sec)]
     texts = sorted(plan['texts'][label])
     shows_chords = (label in chord_parts or any(
-        t[1].startswith('solos') for t in texts)) and \
+        t[1].lower().startswith('solo') for t in texts)) and \
         label not in plan.get('percussion', ())
 
-    if kind == 'engraved':
+    if figures:
+        for item in figures:
+            lo, hi = item['res']['bars']
+            lines.append(f"Your line, bars {lo} to {hi}, spoken at "
+                         "concert pitch:")
+            prose = chartdemo.say_range(item['res'], item['concert_fifths'],
+                                        item['fall'])
+            for bar in sorted(prose):
+                lines.append(f"Bar {bar}: {prose[bar]}")
+        rest = sec['bars'] - sum(i['res']['n_units'] // chartdemo.BAR
+                                 for i in figures)
+        if rest > 0:
+            lines.append(f"The other {rest} bars of the section: rest.")
+    elif kind == 'engraved':
         lo, hi, at = arg
         span = hi - lo + 1
         where = "all bars" if at == 1 and span == sec['bars'] else \
@@ -128,7 +145,7 @@ def part_section(plan, label, chord_parts):
     for bar, text in texts:
         lines.append(f'At bar {bar}: "{text}".'
                      if bar > 1 else f'Marked: "{text}".')
-    return " ".join(lines)
+    return ("\n".join(lines) if figures else " ".join(lines))
 
 
 def main():
@@ -144,6 +161,12 @@ def main():
     groups = chartc.resolve_groups(band)
     labels = [b['label'] for b in band]
     plans, total = chartc.build_plans(chart, band, groups, labels)
+    findings = chartdemo.Findings()
+    resolved, horn_of, key = chartc.resolve_demo(chart, plans, band, labels,
+                                                 a.chart, findings)
+    for l in labels:
+        for item in resolved[l]:
+            item['concert_fifths'] = key[0]
     chord_parts = {l for l in labels
                    if l in groups['rhythm'] and
                    'drum' not in next(b for b in band
@@ -174,15 +197,19 @@ def main():
         for plan in plans:
             if a.section and plan['sec']['name'].lower() != a.section.lower():
                 continue
-            out.append(part_section(plan, label, chord_parts))
+            figures = [i for i in resolved[label] if i['plan'] is plan]
+            out.append(part_section(plan, label, chord_parts, figures))
     else:
         bits = [title]
         if hdr.get('composer'):
             bits.append("by " + hdr['composer'])
         if hdr.get('key'):
             k = hdr['key']
-            bits.append("in " + k[0] + (' flat' if 'b' in k[1:] else
-                                        ' sharp' if '#' in k[1:] else ''))
+            spoken = k[0] + (' flat' if k[1:2] == 'b' else
+                             ' sharp' if k[1:2] == '#' else '')
+            if 'minor' in k.lower():
+                spoken += ' minor'
+            bits.append("in " + spoken)
         if hdr.get('feel'):
             bits.append(hdr['feel'])
         out.append(", ".join(bits) +
