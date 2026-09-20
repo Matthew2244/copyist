@@ -132,6 +132,8 @@ HORNS = {
     'mark tree':         _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
     'percussion':        _inst(0,  (0, 127),  'percussion', 0, (0, 127),
                                poly=True),
+    # hand bells are pitched — a whole choir of them
+    'hand bells':        _inst(0,  (48, 96),  'G', 0, (48, 96), poly=True),
     # voices — nobody left out
     'voice':             _inst(0,  (48, 84),  'G', 0, (50, 79)),
     'soprano':           _inst(0,  (60, 84),  'G', 0, (60, 81)),
@@ -218,6 +220,7 @@ SOUNDS = {
     'sleigh bells':   ('Sleigh Bells', 'metal.bells.sleigh-bells', 1),
     'mark tree':      ('Mark Tree', 'metal.bells.mark-tree', 1),
     'percussion':     ('Percussion', 'drum.group', 1),
+    'hand bells':     ('Hand Bells', 'metal.hi-bell', 15),
     'voice':          ('Voice', 'voice.vocals', 54),
     'soprano':        ('Soprano', 'voice.soprano', 53),
     'mezzo':          ('Mezzo-soprano', 'voice.mezzo-soprano', 53),
@@ -257,6 +260,52 @@ DYN_WORDS = [('sforzando', 'sfz'), ('fortissimo', 'ff'),
              ('forte', 'f'), ('piano', 'p')]
 
 
+# The bell cabinet, the world section and the effects rack: every one
+# an unpitched percussion chair (clef, channel 10, grooves/kicks/words),
+# added in one sweep so the aux table never has to ask permission.
+_MORE_PERC = {
+    'cha-cha bell':  ('Cha-cha Bell', 'metal.cowbell'),
+    'mambo bell':    ('Mambo Bell', 'metal.cowbell'),
+    'bongo bell':    ('Bongo Bell', 'metal.cowbell'),
+    'almglocken':    ('Almglocken', 'metal.almglocken'),
+    'bell tree':     ('Bell Tree', 'metal.bells.bell-tree'),
+    'finger cymbals': ('Finger Cymbals', 'metal.cymbal.finger'),
+    'bell plate':    ('Bell Plate', 'metal.bells.bell-plate'),
+    'vibraslap':     ('Vibraslap', 'rattle.vibraslap'),
+    'flexatone':     ('Flexatone', 'metal.flexatone'),
+    'ratchet':       ('Ratchet', 'rattle.ratchet'),
+    'whip':          ('Whip', 'wood.slapstick'),
+    'anvil':         ('Anvil', 'metal.anvil'),
+    'brake drum':    ('Brake Drum', 'metal.brake-drums'),
+    'thunder sheet': ('Thunder Sheet', 'metal.thundersheet'),
+    'rainstick':     ('Rainstick', 'rattle.rainstick'),
+    'ocean drum':    ('Ocean Drum', 'drum.ocean-drum'),
+    'log drum':      ('Log Drum', 'drum.log-drum'),
+    'sandpaper blocks': ('Sandpaper Blocks', 'wood.sand-block'),
+    'washboard':     ('Washboard', 'wood.washboard'),
+    'spoons':        ('Spoons', 'wood.spoons'),
+    'doumbek':       ('Doumbek', 'drum.doumbek'),
+    'frame drum':    ('Frame Drum', 'drum.frame-drum'),
+    'riq':           ('Riq', 'drum.riq'),
+    'pandeiro':      ('Pandeiro', 'drum.pandeiro'),
+    'surdo':         ('Surdo', 'drum.surdo'),
+    'tamborim':      ('Tamborim', 'drum.tamborim'),
+    'cuica':         ('Cuica', 'drum.cuica'),
+    'tabla':         ('Tabla', 'drum.tabla'),
+    'udu':           ('Udu', 'drum.udu'),
+    'bata':          ('Bata', 'drum.bata'),
+    'shekere':       ('Shekere', 'rattle.shekere'),
+    'caxixi':        ('Caxixi', 'rattle.caxixi'),
+    'repinique':     ('Repinique', 'drum.repinique'),
+    'bodhran':       ('Bodhran', 'drum.bodhran'),
+    'taiko':         ('Taiko', 'drum.taiko'),
+}
+for _n, (_disp, _sid) in _MORE_PERC.items():
+    HORNS[_n] = _inst(0, (0, 127), 'percussion', 0, (0, 127),
+                      poly=_n in ('tabla', 'bata', 'taiko', 'surdo'))
+    SOUNDS[_n] = (_disp, _sid, 1)
+
+
 # What players call their instruments — normalized before lookup, the
 # same courtesy the directive words get.
 INSTRUMENT_ALIASES = {
@@ -286,6 +335,14 @@ INSTRUMENT_ALIASES = {
     'wood block': 'woodblock',
     'perc': 'percussion', 'aux': 'percussion',
     'aux percussion': 'percussion', 'hand percussion': 'percussion',
+    'bells': 'glockenspiel',       # concert-band speak
+    'orchestra bells': 'glockenspiel',
+    'handbells': 'hand bells',
+    'campana': 'bongo bell', 'timbale bell': 'mambo bell',
+    'chacha bell': 'cha-cha bell', 'cha cha bell': 'cha-cha bell',
+    'darbuka': 'doumbek', 'dumbek': 'doumbek',
+    'slapstick': 'whip', 'wind machine': 'thunder sheet',
+    'clackers': 'ratchet',
 }
 
 
