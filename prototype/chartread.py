@@ -20,6 +20,7 @@ Usage:
   chartread.py <file.chart> --part piano --section A
 """
 import argparse
+import os
 import sys
 
 import chartc
@@ -209,6 +210,13 @@ def part_section(plan, label, chord_parts, figures=None):
     else:
         lines.append(f"Tacet — {sec['bars']} bars rest.")
 
+    for ref in plan.get('lifts', {}).get(label, ()):
+        span = ref['hi'] - ref['lo'] + 1
+        at = ref['at'] - plan['start'] + 1
+        lines.append(f"Figure at bar {at}, {span} bars — written bars "
+                     f"{ref['lo']} to {ref['hi']} of '{ref['part']}', "
+                     "lifted exactly from "
+                     f"{os.path.basename(ref['file'])}.")
     if shows_chords:
         lines.append(say_changes(sec))
     for bar, text in texts:

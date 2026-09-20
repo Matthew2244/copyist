@@ -553,8 +553,9 @@ def seconds_before(chart, printed_bar):
 
 def parse_chart(path):
     chart = {'header': {}, 'band': [], 'chords': {}, 'sections': [],
-             'groups': {}, 'pickup': None}
+             'groups': {}, 'figures': {}, 'pickup': None}
     cur = None          # current section
+    cur_fig = None      # current figure block
     mode = None         # 'band' or None
     for lineno, line in enumerate(open(path, encoding='utf-8'), 1):
         s = line.strip()
@@ -581,10 +582,19 @@ def parse_chart(path):
                 chart['groups'][m.group(1).strip()] = \
                     [x.strip() for x in m.group(2).split(',')]
                 continue
-            m = re.match(r'figure ', s)
+            m = re.match(r'figure ([\w ]+?),\s*(\d+) (bars?|beats?):\s*$', s)
             if m:
-                fail(f"{loc}: named figures are not built yet — "
-                     "use 'as engraved' or wait for the next increment")
+                if m.group(3).startswith('beat'):
+                    fail(f"{loc}: beat-length figures ride on inline "
+                         "notes:, which is not built yet — declare bars")
+                mode = 'figure'
+                chart['figures'][m.group(1).strip()] = cur_fig = {
+                    'bars': int(m.group(2)), 'kind': None, 'loc': loc,
+                    'used': False}
+                continue
+            if re.match(r'figure ', s):
+                fail(f"{loc}: a figure is 'figure <name>, <N> bars:' "
+                     "with its source on the next, indented line")
             m = re.match(r'pickup (\d+) beats((?:,\s*as engraved)?)'
                          r'(?::\s*(.*))?$', s)
             if m:
@@ -634,6 +644,35 @@ def parse_chart(path):
             continue
         if mode == 'output':
             continue        # defaults only in this increment
+        if mode == 'figure':
+            if cur_fig['kind']:
+                fail(f"{loc}: one source per figure — this one already "
+                     f"has its {cur_fig['kind']}")
+            m = re.match(r'from midi "([^"]+)"'
+                         r'(?:,\s*track "([^"]+)")?'
+                         r',\s*bars (\d+)-(\d+)$', s)
+            if m:
+                lo, hi = int(m.group(3)), int(m.group(4))
+                if hi - lo + 1 != cur_fig['bars']:
+                    fail(f"{loc}: the figure declares {cur_fig['bars']} "
+                         f"bars but references {hi - lo + 1}")
+                cur_fig.update(kind='midi', file=m.group(1),
+                               track=m.group(2), lo=lo, hi=hi, loc=loc)
+                continue
+            m = re.match(r'from xml "([^"]+)",\s*part "([^"]+)"'
+                         r',\s*bars (\d+)-(\d+)$', s)
+            if m:
+                lo, hi = int(m.group(3)), int(m.group(4))
+                if hi - lo + 1 != cur_fig['bars']:
+                    fail(f"{loc}: the figure declares {cur_fig['bars']} "
+                         f"bars but references {hi - lo + 1}")
+                cur_fig.update(kind='xml', file=m.group(1),
+                               part=m.group(2), lo=lo, hi=hi, loc=loc)
+                continue
+            if s.startswith('notes:'):
+                fail(f"{loc}: inline notes: figures are not built yet — "
+                     "reference a MIDI or MusicXML source")
+            fail(f"{loc}: cannot read figure source '{s}'")
         if cur is None:
             fail(f"{loc}: indented line outside any section: '{s}'")
 
@@ -680,6 +719,10 @@ def parse_chart(path):
                                       loc))
             continue
         fail(f"{loc}: cannot read '{s}' in section {cur['name']}")
+
+    for name, fig in chart['figures'].items():
+        if not fig['kind']:
+            fail(f"figure '{name}' has no source line")
 
     ci = chart['header'].get('countin', '0')
     if not str(ci).isdigit():
@@ -1109,6 +1152,53 @@ def compile_chart(chart_path, outdir):
                 if bar in demo_measures[l]:
                     fail(f"'{l}' has two demo figures landing on bar {bar}")
                 demo_measures[l][bar] = xml
+    # ---- figure lifts from MusicXML: written bars placed verbatim by
+    # name. A lifted bar brings its source's divisions with it; the bar
+    # after the figure restates the part's own — both of this pipeline's
+    # readers track divisions per measure.
+    div_marks = {l: {} for l in labels}
+    lift_cache = {}
+    for plan in plans:
+        for l in labels:
+            for ref in plan['lifts'][l]:
+                f = ref['file'] if os.path.isabs(ref['file']) else \
+                    os.path.join(os.path.dirname(
+                        os.path.abspath(chart_path)), ref['file'])
+                if f not in lift_cache:
+                    if not os.path.exists(f):
+                        fail(f"{ref['loc']}: figure source "
+                             f"'{ref['file']}' not found next to the "
+                             "chart")
+                    lift_cache[f] = load_source(f)
+                srcdoc = lift_cache[f]
+                want = ref['part'].strip().lower()
+                pname = next((k for k in srcdoc
+                              if k.strip().lower() == want), None)
+                if pname is None:
+                    fail(f"{ref['loc']}: '{ref['part']}' is not a part "
+                         f"of {os.path.basename(f)} — parts: "
+                         + ", ".join(sorted(srcdoc)))
+                sp = srcdoc[pname]
+                perc = (horn_of.get(l) or {}).get('clef') == 'percussion'
+                for i in range(ref['hi'] - ref['lo'] + 1):
+                    srcbar = ref['lo'] + i
+                    if str(srcbar) not in sp['measures']:
+                        fail(f"{ref['loc']}: {os.path.basename(f)} part "
+                             f"'{pname}' has no bar {srcbar}")
+                    absbar = ref['at'] + i
+                    if absbar in demo_measures[l]:
+                        fail(f"'{l}' has two figures landing on bar "
+                             f"{absbar}")
+                    demo_measures[l][absbar] = strip_lifted(
+                        sp['measures'][str(srcbar)], perc)
+                    div_marks[l][absbar] = sp['div']
+                div_marks[l].setdefault(
+                    ref['at'] + ref['hi'] - ref['lo'] + 1, None)
+
+    for name, fig in chart['figures'].items():
+        if not fig['used']:
+            findings.add(f"figure '{name}' is defined and never used")
+
     # ---- the range report: where each part peaks, in written pitch —
     # what an arranger checks before any page reaches a player
     shift = int(hdr.get('countin', 0))
@@ -1141,7 +1231,8 @@ def compile_chart(chart_path, outdir):
                      f"lowest {wname(lo[0])} at bar {lo[1]}{edge}")
     return _compile_rest(chart, band, groups, labels, plans, total,
                          source, src_of, chord_parts, hdr, chart_path, outdir,
-                         demo_measures, horn_of, key, findings, meter)
+                         demo_measures, horn_of, key, findings, meter,
+                         div_marks)
 
 
 def resolve_demo(chart, plans, band, labels, chart_path, findings,
@@ -1191,7 +1282,12 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                 h = horn_of[l]
                 tr, rng, foff = h['transpose'], h['fold'], h['foff']
                 sel = ref['track'] or b['demo']
-                if sel and sel.lower().endswith(('.mid', '.midi')):
+                if ref.get('file'):
+                    f = ref['file'] if os.path.isabs(ref['file']) \
+                        else os.path.join(chart_dir, ref['file'])
+                    dm = chartdemo.load_demo(f)
+                    track = ref['track']
+                elif sel and sel.lower().endswith(('.mid', '.midi')):
                     dm = chartdemo.load_demo(sel if os.path.isabs(sel)
                                              else os.path.join(chart_dir, sel))
                     track = None
@@ -1288,7 +1384,8 @@ def build_plans(chart, band, groups, labels):
                 'content': {l: ('default', None) for l in labels},
                 'texts': {l: [] for l in labels},
                 'dyns': {l: [] for l in labels},
-                'overlays': {l: [] for l in labels}}
+                'overlays': {l: [] for l in labels},
+                'lifts': {l: [] for l in labels}}
         for target, instr, loc in sec['directives']:
             tgts = groups.get(target) or ([target] if target in labels else None)
             if tgts is None:
@@ -1296,6 +1393,7 @@ def build_plans(chart, band, groups, labels):
             anns, engraved, groove_words = [], None, None
             demo_refs, fall, quant, short = [], False, None, False
             legato, ghost = False, False
+            fig_lifts = []
             every_artic, dyn_marks, scoops, doit = None, [], [], False
             hits_map = {}
             # split on commas OUTSIDE quotes — groove "shuffle, ride
@@ -1314,6 +1412,26 @@ def build_plans(chart, band, groups, labels):
                 else:
                     pieces_merged.append(p)
             for piece in pieces_merged:
+                m = re.match(r'figure ([\w ]+?)(?:\s+at bar (\d+))?$',
+                             piece)
+                if m and m.group(1).strip() in chart['figures']:
+                    fig = chart['figures'][m.group(1).strip()]
+                    fig['used'] = True
+                    at = start + int(m.group(2) or 1) - 1
+                    if fig['kind'] == 'midi':
+                        demo_refs.append({'track': fig['track'],
+                                          'file': fig['file'],
+                                          'lo': fig['lo'], 'hi': fig['hi'],
+                                          'at': at, 'loc': loc})
+                    else:
+                        fig_lifts.append({'file': fig['file'],
+                                          'part': fig['part'],
+                                          'lo': fig['lo'], 'hi': fig['hi'],
+                                          'at': at, 'loc': loc})
+                    continue
+                if m and piece.startswith('figure '):
+                    fail(f"{loc}: figure '{m.group(1).strip()}' is not "
+                         "defined")
                 m = re.match(r'as engraved bars (\d+)-(\d+)'
                              r'(?:\s+at bar (\d+))?$', piece)
                 if m:
@@ -1472,6 +1590,7 @@ def build_plans(chart, band, groups, labels):
                                                     every=every_artic,
                                                     doit=doit,
                                                     scoops=scoops))
+                plan['lifts'][l].extend(fig_lifts)
                 plan['texts'][l].extend(anns)
                 plan['dyns'][l].extend(dyn_marks)
         for bar, kind, text in sec['events']:
@@ -1514,8 +1633,9 @@ SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
 def _compile_rest(chart, band, groups, labels, plans, total,
                   source, src_of, chord_parts, hdr, chart_path, outdir,
                   demo_measures=None, horn_of=None, key=(0, 'major'),
-                  findings=None, meter=(4, 4)):
+                  findings=None, meter=(4, 4), div_marks=None):
     demo_measures = demo_measures or {l: {} for l in labels}
+    div_marks = div_marks or {}
     horn_of = horn_of or {}
     meters = chart.get('meters') or [(1, meter)]
     m_num, m_den = meter_at(meters, 1)
@@ -1584,6 +1704,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         need_attrs = source is None
         was_groove = False
         was_swing = False
+        cur_div = div
+        marks = div_marks.get(label, {})
         for plan in plans:
             sec = plan['sec']
             kind, arg = plan['content'][label]
@@ -1594,6 +1716,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 absbar = plan['start'] + off
                 bmeter = meter_at(meters, absbar)
                 pieces = []
+                if absbar in marks:
+                    want_div = marks[absbar] or div
+                    if want_div != cur_div:
+                        pieces.append('      <attributes><divisions>'
+                                      f'{want_div}</divisions>'
+                                      '</attributes>\n')
+                        cur_div = want_div
                 if need_attrs:
                     pieces.append(attributes())
                     need_attrs = False

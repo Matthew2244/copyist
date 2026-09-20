@@ -17,7 +17,15 @@ where a player must look up, the demo door locates figures by the demo
 file's own time signatures (a figure may not cross a change — the error
 says where to split), the listen trim walks the meter and tempo maps
 bar by bar, and a compound↔simple change with no new tempo is a
-finding. Volta endings compile as of 2026-09-20 (`ending N, M bars:
+finding. Named figures compile as of 2026-09-20: `figure <name>, N
+bars:` sourced `from midi` (the demo pipeline, written for whichever
+part places it, riding the same quant and phrasing words) or `from xml`
+(written bars lifted verbatim, the source's divisions carried per
+measure and the part's own restated after); placed with `figure <name>
+[at bar N]`, unused definitions are a finding, and every mistake —
+undefined name, wrong length, missing part, beat-length figures (which
+wait on inline `notes:`) — is one sentence. Volta endings compile as of
+2026-09-20 (`ending N, M bars:
 chords: ...` inside a repeated section — brackets, repeats and the
 final discontinue land where a player looks, and the read-aloud speaks
 "8 bars a pass, with 2 endings... First ending: ..."). Phrasing is the
@@ -34,8 +42,7 @@ demo print on the grand staff — hands split by the engine's physics
 model (DESIGN.md §8), with a note a hand is still holding anchoring the
 split — and a note that keeps ringing under later movement (a guitar's
 low string, a pedal tone) prints as its own voice instead of being cut
-at the next onset, with a finding naming the bars. Still ahead: named
-figures, inline `notes:`,
+at the next onset, with a finding naming the bars. Still ahead: inline `notes:`,
 `double`/`cue`/`build:`/`on pass`/`as demo`, and detail levels.
 **Read DESIGN.md first.** This document extends it: where DESIGN.md turns a
 performance into a chart, this format lets a chart be *written* directly — as

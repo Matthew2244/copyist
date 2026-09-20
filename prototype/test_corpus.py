@@ -895,6 +895,104 @@ def check_voltas():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_figures():
+    """
+    CHART-FORMAT.md 3.4 — named figures: defined once, placed by name.
+    A from-midi figure rides the demo pipeline with the part's own
+    transposition; a from-xml figure lifts written bars verbatim and
+    carries its source's divisions per measure, restating the part's own
+    after. Unused definitions are a finding; every mistake is a sentence.
+    """
+    import re
+    import chartc
+    import smf
+    from chart import verify_measures
+    tmp = tempfile.mkdtemp()
+
+    div = 480
+    notes = [(i * div, i * div + 400, 60 + i, 90) for i in range(8)]
+    smf.write(os.path.join(tmp, "d.mid"), notes, div, 100)
+    open(os.path.join(tmp, "lick.musicxml"), "w").write(
+        '<?xml version="1.0"?>\n<score-partwise version="3.1">\n'
+        '  <part-list>\n    <score-part id="P1">'
+        '<part-name>Lick</part-name></score-part>\n  </part-list>\n'
+        '  <part id="P1">\n    <measure number="1">\n'
+        '      <attributes><divisions>8</divisions>'
+        '<key><fifths>0</fifths></key>'
+        '<time><beats>4</beats><beat-type>4</beat-type></time>'
+        '<clef><sign>G</sign><line>2</line></clef></attributes>\n'
+        '      <note><pitch><step>C</step><octave>5</octave></pitch>'
+        '<duration>16</duration><voice>1</voice><type>half</type></note>\n'
+        '      <note><pitch><step>G</step><octave>5</octave></pitch>'
+        '<duration>16</duration><voice>1</voice><type>half</type></note>\n'
+        '    </measure>\n  </part>\n</score-partwise>\n')
+
+    HEAD = ('title: F\nkey: C\nmeter: 4/4\ntempo: 100\n\n'
+            'band:\n  trumpet\n  flute\n  piano\n\n'
+            'figure lift, 1 bars:\n'
+            '  from xml "lick.musicxml", part "Lick", bars 1-1\n'
+            'figure line, 2 bars:\n'
+            '  from midi "d.mid", bars 1-2\n'
+            'figure spare, 2 bars:\n'
+            '  from midi "d.mid", bars 1-2\n\n')
+    p = os.path.join(tmp, "f.chart")
+    open(p, "w").write(HEAD +
+        'section A, 4 bars\n  chords: C, F, G, C\n'
+        '  trumpet: figure line\n  flute: figure lift at bar 3\n'
+        '  piano: groove\n')
+    out = os.path.join(tmp, "fb")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        files = chartc.compile_chart(p, out)
+    log = buf.getvalue()
+    check("figure chart: measures sum through the divisions change",
+          not verify_measures(files))
+    xml = open(os.path.join(out, "F — flute.musicxml")).read()
+    bars = dict(re.findall(r'<measure [^>]*number="(\d+)"[^>]*>(.*?)'
+                           r'</measure>', xml, re.S))
+    check("the lifted bar carries its source divisions",
+          '<divisions>8</divisions>' in bars['3']
+          and '<step>C</step>' in bars['3'])
+    check("the bar after the figure restates the part's own divisions",
+          '<divisions>24</divisions>' in bars['4'])
+    xml = open(os.path.join(out, "F — trumpet.musicxml")).read()
+    check("a midi figure lands written for its part",
+          '<step>D</step>' in xml)          # concert C, trumpet up a tone
+    check("an unplaced figure is a finding",
+          "'spare' is defined and never used" in log)
+
+    for name, text, want in (
+        ("r1", HEAD + "section A, 4 bars\n  chords: C, F, G, C\n"
+         "  trumpet: figure nothing\n  piano: groove\n",
+         "is not defined"),
+        ("r2", 'title: X\nkey: C\nmeter: 4/4\ntempo: 100\n\n'
+         'band:\n  piano\n\nfigure short, 3 bars:\n'
+         '  from midi "d.mid", bars 1-2\n\n'
+         'section A, 2 bars\n  chords: C, F\n  piano: groove\n',
+         "declares 3 bars but references 2"),
+        ("r3", 'title: X\nkey: C\nmeter: 4/4\ntempo: 100\n\n'
+         'band:\n  piano\n\nfigure quick, 3 beats:\n'
+         '  from midi "d.mid", bars 1-1\n\n'
+         'section A, 2 bars\n  chords: C, F\n  piano: groove\n',
+         "inline"),
+        ("r4", HEAD.replace('part "Lick"', 'part "Nobody"') +
+         "section A, 4 bars\n  chords: C, F, G, C\n"
+         "  flute: figure lift\n  piano: groove\n",
+         "is not a part of"),
+    ):
+        pp = os.path.join(tmp, name + ".chart")
+        open(pp, "w").write(text)
+        try:
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(pp, os.path.join(tmp, "x"))
+            got = ""
+        except SystemExit as e:
+            got = str(e)
+        check(f"refused with '{want}'", want in got, f"got: {got}")
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -958,6 +1056,7 @@ if __name__ == "__main__":
     check_phrasing_charts()
     check_audio()
     check_voltas()
+    check_figures()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

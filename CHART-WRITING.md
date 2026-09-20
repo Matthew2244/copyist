@@ -90,6 +90,21 @@ convention, not a voicing.
       tenor: solo
       all: groove "greasy - stay out of the way"
 
+- **A lick you'll use more than once gets a name.** Define it up top,
+  place it anywhere by name:
+
+      figure turnaround kick, 2 bars:
+        from midi "greenline-trumpet.mid", bars 12-13
+
+      section B, 12 bars, label "Solos", open
+        trumpet: figure turnaround kick at bar 11, straight, marcato
+
+  `from midi` runs your playing through the same door as any demo line
+  — it comes out written for whichever part plays it, and the grid and
+  phrasing words ride along. `from xml` lifts written bars exactly from
+  an engraving ("play this exact"), articulations and all — lift into a
+  like instrument, since the notes come over as written. Define a
+  figure and never place it, and the findings will tell you.
 - **First and second endings** live inside a repeated section: the
   declared length is one pass, the way you'd say it on the stand —
 
