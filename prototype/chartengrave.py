@@ -762,8 +762,11 @@ def measure_width(meas):
                                for x in notes) else 0))
     # the optical floor: every onset's ink plus the gap, end to end
     opt = sum(l + r + INK_GAP for l, r in ink_needs(meas).values())
+    # chord symbols need their letters' room too — two changes in an
+    # empty bar must not print on top of each other
+    cw = sum(6.2 * len(s) + 8 for _, s in meas['chords'])
     return max(w + max(per.values(), default=0), w + opt + 2 * SP,
-               12 * SP)
+               w + cw, 12 * SP)
 
 
 def engrave(xml_path, pdf_path):
@@ -796,6 +799,7 @@ def engrave(xml_path, pdf_path):
         seq.append(meas)
 
     avail = PAGE_W - 2 * MARGIN
+    carry = {}
     systems, cur, cur_w = [], [], 0.0
     for meas in seq:
         w = measure_width(meas)
@@ -850,7 +854,8 @@ def engrave(xml_path, pdf_path):
             stretch = min(stretch, 1.15)   # the last system never gapes
         for mi, (meas, w) in enumerate(system):
             x = draw_measure(pdf, meas, x, tops, w * stretch,
-                             first_in_system=(mi == 0))
+                             first_in_system=(mi == 0), carry=carry)
+        drain_ties(pdf, carry, PAGE_W - MARGIN - 0.5 * SP)
         y = tops[-1] - STAFF - SYS_GAP
     pdf.save(pdf_path)
     return True, None
@@ -902,6 +907,7 @@ def engrave_score(xml, pids, names, pdf_path):
     y = H - M - TITLE_H / scale - SYS_HEAD
 
     lead_guess = 12 * SP
+    carries = [dict() for _ in parts]
     avail = W - 2 * M - lead_guess
     systems, cur, cur_w = [], [], 0.0
     for j in range(nmeas):
@@ -950,10 +956,14 @@ def engrave_score(xml, pids, names, pdf_path):
             stretch = min(stretch, 1.15)
         for mi, j in enumerate(cols):
             w = widths[j] * stretch
-            for (pname, measures, staves), tops in zip(parts, part_tops):
+            for pi, ((pname, measures, staves), tops) in enumerate(
+                    zip(parts, part_tops)):
                 draw_measure(pdf, measures[j], x, tops, w,
-                             first_in_system=(mi == 0))
+                             first_in_system=(mi == 0),
+                             carry=carries[pi])
             x += w
+        for c in carries:
+            drain_ties(pdf, c, W - M - 0.5 * SP)
         y = part_tops[-1][-1] - STAFF - SYS_HEAD - 2 * SP
     pdf.save(pdf_path)
     return True, None
@@ -995,7 +1005,8 @@ def draw_brace(pdf, x, top, bottom_y):
                   (x - 1.9 * SP, b))], w=1.8)
 
 
-def draw_measure(pdf, meas, x0, tops, width, first_in_system=False):
+def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
+                 carry=None):
     state = meas['state']
     div = state['div']
     top = tops[0]
@@ -1107,8 +1118,12 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False):
                 return v0 + (pos - p0) / (p1 - p0) * (v1 - v0) + extra
         return marks[-1][1] + extra
 
+    last_cx = None
     for pos, sym in meas['chords']:
-        draw_chord_symbol(pdf, xat(pos), top + 1.5 * SP, sym)
+        cxs = xat(pos)
+        if last_cx is not None:      # two changes never print on top
+            cxs = max(cxs, last_cx + 7)
+        last_cx = draw_chord_symbol(pdf, cxs, top + 1.5 * SP, sym)
     DYN_GLYPH = {'p': 'dynP', 'f': 'dynF', 'mf': 'dynMF',
                  'mp': 'dynMP', 'pp': 'dynPP', 'ff': 'dynFF',
                  'sfz': 'dynSFZ', 'fp': 'dynFP'}
@@ -1126,13 +1141,16 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False):
     voices_of = {}
     for staff, voice in streams:
         voices_of.setdefault(staff, set()).add(voice)
+    if carry is None:
+        carry = {}
     for (staff, voice), evs in streams.items():
         stop = tops[min(staff, len(tops)) - 1]
         two = len(voices_of[staff]) > 1
         forced = (voice == min(voices_of[staff])) if two else None
         clef = state['clefs'].get(staff, 'G')
         draw_stream(pdf, evs, stop, clef, beat_len, xat, x0, width,
-                    forced, bottom_y)
+                    forced, bottom_y,
+                    carry.setdefault((staff, voice), []))
 
     draw_barline(pdf, meas, x0, tops, width)
     draw_ending(pdf, meas, x0, top, width)
@@ -1141,11 +1159,13 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False):
 
 
 def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
-                forced, bottom_y):
-    """One voice on one staff: heads, stems, beams, ties, words."""
+                forced, bottom_y, opens=None):
+    """One voice on one staff: heads, stems, beams, ties, words.
+    `opens` carries unclosed ties and slurs between measures, so an
+    arc across a barline is one true curve, not a hint."""
     mid = top - STAFF / 2
     pend_beam = []
-    slur_open = []
+    slur_open = opens if opens is not None else []
     drawn = []
     # notes that will beam together share one stem direction, decided
     # by the whole group — a lone dissenter would get its stem drawn
@@ -1254,6 +1274,10 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                 sx, sy, sup = slur_open.pop()
                 ey = (max(ys) if sup else min(ys))
                 arc = 2.2 * SP * (1 if sup else -1)
+                if sx is None:      # broken at the system turn: the
+                    sx = max(x0 + 0.8 * SP, cx - 5 * SP)
+                    sy = ey         # incoming half, flat to the note
+                    arc = 1.8 * SP * (1 if sup else -1)
                 draw_arc(pdf, sx, sy + 0.27 * arc, cx,
                          ey + 0.27 * arc, arc)
         if n0.tie_start or n0.slur_start:
@@ -1276,11 +1300,21 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                      str(n0.tmod), size=8, font='HO', center=True)
             drawn.append(pos // beat_len)
     flush_beam(pdf, pend_beam)
-    while slur_open:
-        sx, sy, sup = slur_open.pop()
-        arc = 2 * SP * (1 if sup else -1)
-        draw_arc(pdf, sx, sy + 0.2 * arc, x0 + width - 0.5 * SP,
-                 sy + 0.2 * arc, arc)
+
+
+def drain_ties(pdf, carry, edge):
+    """A system ends: every open tie draws its outgoing half to the
+    right edge and becomes a resume marker for the next system's
+    incoming half."""
+    for key, opens in carry.items():
+        fresh = []
+        for sx, sy, sup in opens:
+            if sx is None:
+                continue            # never landed; let it go quietly
+            arc = 1.8 * SP * (1 if sup else -1)
+            draw_arc(pdf, sx, sy + 0.3 * arc, edge, sy + 0.3 * arc, arc)
+            fresh.append((None, None, sup))
+        carry[key] = fresh
 
 
 def _dot(pdf, x, y):
@@ -1335,7 +1369,7 @@ def draw_chord_symbol(pdf, x, y, sym):
     m = re.match(r'([A-G])([b#]?)([^/]*)(?:/([A-G])([b#]?))?$', sym)
     if not m:
         pdf.text(x, y, sym, size=10.5, font='HB')
-        return
+        return x + 0.58 * 10.5 * len(sym)
     size = 10.5
 
     def piece(px, letter, acc, rest=''):
@@ -1353,6 +1387,7 @@ def draw_chord_symbol(pdf, x, y, sym):
     if m.group(4):
         pdf.text(px, y, "/", size=size, font='HB')
         px = piece(px + 0.5 * size, m.group(4), m.group(5))
+    return px
 
 
 def draw_arc(pdf, sx, sy, ex, ey, arc):
