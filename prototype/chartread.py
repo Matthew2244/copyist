@@ -162,8 +162,12 @@ def part_section(plan, label, chord_parts, figures=None):
                      'accent': 'accented'}
             extra = (f" Every note {words[item['every']]}."
                      if item.get('every') else "")
-            lines.append(f"Your line, bars {lo} to {hi}, spoken at "
-                         f"concert pitch:{extra}")
+            span = item['res']['bars'][1]
+            lines.append(
+                (f"Your written figure, {span} bar(s), spoken at "
+                 f"concert pitch:{extra}") if item.get('inline') else
+                (f"Your line, bars {lo} to {hi}, spoken at "
+                 f"concert pitch:{extra}"))
             prose = chartdemo.say_range(item['res'], item['concert_fifths'],
                                         item['fall'],
                                         short=item.get('short', False),
@@ -175,7 +179,10 @@ def part_section(plan, label, chord_parts, figures=None):
             i['res']['n_units'] // i['res'].get('bar_ticks', chartdemo.BAR)
             for i in figures)
         if rest > 0:
-            lines.append(f"The other {rest} bars of the section: rest.")
+            what = ("slashes with the changes" if kind == 'groove'
+                    and shows_chords else
+                    "slashes" if kind == 'groove' else "rest")
+            lines.append(f"The other {rest} bars of the section: {what}.")
     elif kind == 'engraved':
         lo, hi, at = arg
         span = hi - lo + 1

@@ -23,8 +23,7 @@ part places it, riding the same quant and phrasing words) or `from xml`
 (written bars lifted verbatim, the source's divisions carried per
 measure and the part's own restated after); placed with `figure <name>
 [at bar N]`, unused definitions are a finding, and every mistake —
-undefined name, wrong length, missing part, beat-length figures (which
-wait on inline `notes:`) — is one sentence. Volta endings compile as of
+undefined name, wrong length, missing part — is one sentence. Inline `notes:` figures compile too (same day): the 3.4 grammar — pitch-name durations w h q e s with dots, ties with +, rest, triplet( ... ) — shaped internally as a resolved demo range, so the page, the prose and the player need nothing new, and the legato and articulation words ride along; notes that do not fill the declared bars refuse with both counts. Beat-length figures are still ahead. Volta endings compile as of
 2026-09-20 (`ending N, M bars:
 chords: ...` inside a repeated section — brackets, repeats and the
 final discontinue land where a player looks, and the read-aloud speaks
@@ -42,7 +41,7 @@ demo print on the grand staff — hands split by the engine's physics
 model (DESIGN.md §8), with a note a hand is still holding anchoring the
 split — and a note that keeps ringing under later movement (a guitar's
 low string, a pedal tone) prints as its own voice instead of being cut
-at the next onset, with a finding naming the bars. Still ahead: inline `notes:`,
+at the next onset, with a finding naming the bars. Still ahead:
 `double`/`cue`/`build:`/`on pass`/`as demo`, and detail levels.
 **Read DESIGN.md first.** This document extends it: where DESIGN.md turns a
 performance into a chart, this format lets a chart be *written* directly — as

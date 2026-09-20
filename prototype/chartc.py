@@ -505,6 +505,73 @@ def parse_bars(text, where):
     return bars
 
 
+NOTE_DUR = {'w': 96, 'h': 48, 'q': 24, 'e': 12, 's': 6}
+
+
+def parse_notes(text, loc):
+    """The inline escape hatch (CHART-FORMAT.md 3.4): 'rest e, C5 e,
+    A4 q+e, triplet( F4 e, A4 e, C5 e )' -> (items, grids, ticks).
+    items are (ticks, concert_midi_or_None); grids mark triplet beats so
+    the page names them in tuplet language. Deliberately minimal —
+    anything long or intricate comes in by reference."""
+    def dur_of(tok, scale_num=1, scale_den=1):
+        total = 0
+        for piece in tok.split('+'):
+            m = re.fullmatch(r'([whqes])(\.?)', piece)
+            if not m:
+                fail(f"{loc}: cannot read duration '{tok}' — "
+                     "w h q e s, with . for dotted and + for tied")
+            t = NOTE_DUR[m.group(1)]
+            if m.group(2):
+                t = t * 3 // 2
+            total += t * scale_num // scale_den
+        return total
+
+    def one(tok, sn=1, sd=1):
+        m = re.fullmatch(r'rest ([whqes.+]+)', tok)
+        if m:
+            return (dur_of(m.group(1), sn, sd), None)
+        m = re.fullmatch(r'([A-Ga-g])([b#]?)(-?\d)\s+([whqes.+]+)', tok)
+        if not m:
+            fail(f"{loc}: cannot read note '{tok}' — like Bb4 q, "
+                 "rest e, or C5 q+e")
+        base = {'c': 0, 'd': 2, 'e': 4, 'f': 5, 'g': 7,
+                'a': 9, 'b': 11}[m.group(1).lower()]
+        alt = {'b': -1, '#': 1, '': 0}[m.group(2)]
+        midi = base + alt + (int(m.group(3)) + 1) * 12
+        return (dur_of(m.group(4), sn, sd), midi)
+
+    items, grids, pos = [], {}, 0
+    for tok in re.split(r',(?![^(]*\))', text):
+        tok = tok.strip()
+        if not tok:
+            fail(f"{loc}: empty item in notes:")
+        m = re.fullmatch(r'triplet\(\s*(.*?)\s*\)', tok)
+        if m:
+            if pos % 24:
+                fail(f"{loc}: a triplet group must start on the beat")
+            inner = [t.strip() for t in m.group(1).split(',')]
+            letters = {re.sub(r'[^whqes]', '', t)[-1:] for t in inner}
+            if letters - {'e', 's'} or len(letters) != 1:
+                fail(f"{loc}: a triplet group holds eighths or "
+                     "sixteenths, one kind per group")
+            sub = 3 if letters == {'e'} else 6
+            start = pos
+            for t in inner:
+                ticks, midi = one(t, 2, 3)
+                items.append((ticks, midi))
+                pos += ticks
+            if (pos - start) % 24:
+                fail(f"{loc}: a triplet group must fill whole beats")
+            for b in range(start // 24, pos // 24):
+                grids[b] = sub
+            continue
+        ticks, midi = one(tok)
+        items.append((ticks, midi))
+        pos += ticks
+    return items, grids, pos
+
+
 def meter_at(meters, bar):
     """The (num, den) governing a printed bar, from the chart's meter map
     — a sorted list of (first_bar, (num, den))."""
@@ -669,9 +736,12 @@ def parse_chart(path):
                 cur_fig.update(kind='xml', file=m.group(1),
                                part=m.group(2), lo=lo, hi=hi, loc=loc)
                 continue
-            if s.startswith('notes:'):
-                fail(f"{loc}: inline notes: figures are not built yet — "
-                     "reference a MIDI or MusicXML source")
+            m = re.match(r'notes:\s*(.+)$', s)
+            if m:
+                items, grids, ticks = parse_notes(m.group(1), loc)
+                cur_fig.update(kind='inline', items=items, grids=grids,
+                               ticks=ticks, loc=loc)
+                continue
             fail(f"{loc}: cannot read figure source '{s}'")
         if cur is None:
             fail(f"{loc}: indented line outside any section: '{s}'")
@@ -1281,6 +1351,33 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                          "demo-part table")
                 h = horn_of[l]
                 tr, rng, foff = h['transpose'], h['fold'], h['foff']
+                if ref.get('inline'):
+                    meters_map = chart.get('meters') or [(1, meter)]
+                    fig_lo = max(1, ref['at'])
+                    fig_hi = ref['at'] + (ref['hi'] - ref['lo'])
+                    fig_meter = meter_at(meters_map, fig_lo)
+                    for pb in range(fig_lo, fig_hi + 1):
+                        if meter_at(meters_map, pb) != fig_meter:
+                            fail(f"{ref['loc']}: '{l}' has a figure "
+                                 "crossing the meter change at printed "
+                                 f"bar {pb} — split it there")
+                    res, rawmap = chartdemo.inline_res(
+                        dict(ref, short=ref.get('short', False)),
+                        fig_meter, int(hdr.get('countin', 0)))
+                    if ref.get('legato'):
+                        res['slurs'] = chartdemo._slur_runs(
+                            res['timeline'], rawmap)
+                    if ref.get('ghost'):
+                        findings.add(f"{l}: an inline figure carries no "
+                                     "velocities, so ghosts must be "
+                                     "played in — none written")
+                    resolved[l].append({'res': res, 'fall': ref['fall'],
+                                        'short': ref.get('short', False),
+                                        'every': ref.get('every'),
+                                        'doit': ref.get('doit', False),
+                                        'scoops': ref.get('scoops', []),
+                                        'inline': True, 'plan': plan})
+                    continue
                 sel = ref['track'] or b['demo']
                 if ref.get('file'):
                     f = ref['file'] if os.path.isabs(ref['file']) \
@@ -1422,6 +1519,13 @@ def build_plans(chart, band, groups, labels):
                         demo_refs.append({'track': fig['track'],
                                           'file': fig['file'],
                                           'lo': fig['lo'], 'hi': fig['hi'],
+                                          'at': at, 'loc': loc})
+                    elif fig['kind'] == 'inline':
+                        demo_refs.append({'track': None, 'file': None,
+                                          'inline': fig['items'],
+                                          'grids': fig['grids'],
+                                          'ticks': fig['ticks'],
+                                          'lo': 1, 'hi': fig['bars'],
                                           'at': at, 'loc': loc})
                     else:
                         fig_lifts.append({'file': fig['file'],

@@ -251,6 +251,38 @@ def _pedals(evts, n_units):
     return [(s, e, sorted(ps)) for s, e, ps in pedals]
 
 
+def inline_res(ref, meter, spoken_shift):
+    """A hand-written figure (CHART-FORMAT.md 3.4 notes:), shaped exactly
+    like a resolved demo range so the page, the prose and the player need
+    nothing new. Notes are concert pitch, like everything spoken."""
+    m_num, m_den = meter
+    bar_ticks = DIV * 4 * m_num // m_den
+    pulse_div = DIV * 4 // m_den
+    bars = ref['hi']
+    n_units = bars * bar_ticks
+    if ref['ticks'] != n_units:
+        raise SystemExit(
+            f"chartc: {ref['loc']}: the figure's notes fill "
+            f"{ref['ticks'] / DIV:g} beats but {bars} bar(s) of "
+            f"{m_num}/{m_den} hold {n_units / DIV:g}")
+    timeline, pos = [], 0
+    for ticks, midi in ref['inline']:
+        if midi is not None:
+            timeline.append((pos, pos + ticks, [midi]))
+        pos += ticks
+    if ref.get('short') and timeline:
+        s, e, ps = timeline[-1]
+        timeline[-1] = (s, min(e, s + DIV // 2), ps)
+    grids = {b: 4 for b in range(n_units // DIV + 1)}
+    grids.update(ref.get('grids') or {})
+    raw = {s: (s, e, 90) for s, e, _ in timeline}
+    return ({'timeline': timeline, 'grids': grids, 'n_units': n_units,
+             'at': ref['at'], 'bars': (1, bars), 'dyns': [],
+             'slurs': [], 'ghosts': set(), 'staves': None,
+             'spoken_shift': spoken_shift,
+             'bar_ticks': bar_ticks, 'pulse_div': pulse_div}, raw)
+
+
 def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   octave_shift=0, sounding_range=None, quant=None,
                   derive_dyns=True, short=False, spoken_shift=0,

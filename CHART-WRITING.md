@@ -103,7 +103,16 @@ convention, not a voicing.
   — it comes out written for whichever part plays it, and the grid and
   phrasing words ride along. `from xml` lifts written bars exactly from
   an engraving ("play this exact"), articulations and all — lift into a
-  like instrument, since the notes come over as written. Define a
+  like instrument, since the notes come over as written. And for a short
+  lick you'd rather just SAY, `notes:` writes it in words — concert
+  pitch, like everything spoken:
+
+      figure bass break, 1 bars:
+        notes: rest q, triplet( F2 e, A2 e, C3 e ), Eb3 q, E3 q
+
+  Durations are w h q e s, a dot for dotted, + for tied, `rest <dur>`,
+  and `triplet( ... )` for the triplet figures. The notes must fill the
+  declared bars exactly, or the build tells you both counts. Define a
   figure and never place it, and the findings will tell you.
 - **First and second endings** live inside a repeated section: the
   declared length is one pass, the way you'd say it on the stand —

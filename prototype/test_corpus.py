@@ -933,12 +933,16 @@ def check_figures():
             '  from xml "lick.musicxml", part "Lick", bars 1-1\n'
             'figure line, 2 bars:\n'
             '  from midi "d.mid", bars 1-2\n'
+            'figure inline lick, 1 bars:\n'
+            '  notes: rest e, C5 e, A4 q, triplet( F4 e, A4 e, C5 e ), '
+            'F4 q\n'
             'figure spare, 2 bars:\n'
             '  from midi "d.mid", bars 1-2\n\n')
     p = os.path.join(tmp, "f.chart")
     open(p, "w").write(HEAD +
         'section A, 4 bars\n  chords: C, F, G, C\n'
-        '  trumpet: figure line\n  flute: figure lift at bar 3\n'
+        '  trumpet: figure line, figure inline lick at bar 4, legato\n'
+        '  flute: figure lift at bar 3\n'
         '  piano: groove\n')
     out = os.path.join(tmp, "fb")
     buf = io.StringIO()
@@ -960,6 +964,11 @@ def check_figures():
           '<step>D</step>' in xml)          # concert C, trumpet up a tone
     check("an unplaced figure is a finding",
           "'spare' is defined and never used" in log)
+    bars = dict(re.findall(r'<measure [^>]*number="(\d+)"[^>]*>(.*?)'
+                           r'</measure>', xml, re.S))
+    check("an inline figure prints with tuplet math and the slur asked",
+          '<actual-notes>3</actual-notes>' in bars['4']
+          and 'slur number="1" type="start"' in bars['4'])
 
     for name, text, want in (
         ("r1", HEAD + "section A, 4 bars\n  chords: C, F, G, C\n"
@@ -975,6 +984,17 @@ def check_figures():
          '  from midi "d.mid", bars 1-1\n\n'
          'section A, 2 bars\n  chords: C, F\n  piano: groove\n',
          "inline"),
+        ("r5", 'title: X\nkey: C\nmeter: 4/4\ntempo: 100\n\n'
+         'band:\n  trumpet\n  piano\n\nfigure lick, 1 bars:\n'
+         '  notes: C5 q, D5 q, E5 q\n\n'
+         'section A, 2 bars\n  chords: C, F\n'
+         '  trumpet: figure lick\n  piano: groove\n',
+         "fill 3 beats but 1 bar(s) of 4/4 hold 4"),
+        ("r6", 'title: X\nkey: C\nmeter: 4/4\ntempo: 100\n\n'
+         'band:\n  piano\n\nfigure lick, 1 bars:\n'
+         '  notes: C5 q, triplet( D5 e, E5 q, F5 e )\n\n'
+         'section A, 2 bars\n  chords: C, F\n  piano: groove\n',
+         "one kind per group"),
         ("r4", HEAD.replace('part "Lick"', 'part "Nobody"') +
          "section A, 4 bars\n  chords: C, F, G, C\n"
          "  flute: figure lift\n  piano: groove\n",
