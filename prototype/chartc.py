@@ -1181,6 +1181,8 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     octave_shift=b['demo_octave'],
                     sounding_range=rng, quant=ref.get('quant'),
                     poly=h['poly'],
+                    legato=ref.get('legato', False),
+                    ghost=ref.get('ghost', False),
                     derive_dyns=hdr.get('dynamics', '') not in
                     ('by hand', 'manual'),
                     short=ref.get('short', False),
@@ -1254,10 +1256,14 @@ def build_plans(chart, band, groups, labels):
                 fail(f"{loc}: '{target}' is not a band part or group")
             anns, engraved, groove_words = [], None, None
             demo_refs, fall, quant, short = [], False, None, False
+            legato, ghost = False, False
             every_artic, dyn_marks, scoops, doit = None, [], [], False
             hits_map = {}
+            # split on commas OUTSIDE quotes — groove "shuffle, ride
+            # heavy" is one piece, and the old error blamed the writer
             raw_pieces = [normalize_piece(p.strip())
-                          for p in instr.split(',')]
+                          for p in re.split(
+                              r',(?=(?:[^"]*"[^"]*")*[^"]*$)', instr)]
             # 'hits on 1, 2+, 4' — the beat list is itself commas, so
             # bare beat tokens re-attach to a preceding hits piece
             pieces_merged = []
@@ -1312,6 +1318,11 @@ def build_plans(chart, band, groups, labels):
                 if piece in ('eighths', 'straight eighths'):
                     quant = 'eighths'
                     continue
+                if piece in ('straight', 'straight time'):
+                    # onsets on the eighth grid, durations as played —
+                    # how a shuffle or swing line is notated
+                    quant = 'grid8'
+                    continue
                 if piece == 'quarters':
                     quant = 'quarters'
                     continue
@@ -1329,6 +1340,12 @@ def build_plans(chart, band, groups, labels):
                     continue
                 if piece == 'short':
                     short = True
+                    continue
+                if piece in ('legato', 'slurred'):
+                    legato = True
+                    continue
+                if piece in ('ghosts', 'ghost notes', 'ghosted'):
+                    ghost = True
                     continue
                 if piece in ('marcato', 'short and fat'):
                     every_artic = 'strong-accent'
@@ -1411,6 +1428,8 @@ def build_plans(chart, band, groups, labels):
                     plan['overlays'][l].append(dict(ref, fall=fall,
                                                     quant=quant,
                                                     short=short,
+                                                    legato=legato,
+                                                    ghost=ghost,
                                                     every=every_artic,
                                                     doit=doit,
                                                     scoops=scoops))
@@ -1525,6 +1544,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
 
         need_attrs = source is None
         was_groove = False
+        was_swing = False
         for plan in plans:
             sec = plan['sec']
             kind, arg = plan['content'][label]
@@ -1558,6 +1578,33 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     pieces.append('      <direction>'
                                   '<sound dynamics="80"/></direction>\n')
                     was_groove = False
+                if listen and off == 0:
+                    feel_now = (sec['feel'] or hdr.get('feel')
+                                or '').lower()
+                    # swing playback, measured 2026-09-20: MuseScore's
+                    # MusicXML importer computes its swing ratio as
+                    # second/first x 100 (backwards from the spec), so
+                    # 3:2 here lands its offbeats at 0.658 — triplet
+                    # feel. Only the listening document carries this;
+                    # the page says "Swing" in words, and no other
+                    # importer ever sees the inverted encoding.
+                    want = (not (bmeter[1] == 8 and bmeter[0] % 3 == 0)
+                            and any(w in feel_now
+                                    for w in ('swing', 'shuffle')))
+                    if want != was_swing:
+                        # a bare <direction><sound> is dropped by the
+                        # importer — the swing must ride a (hidden)
+                        # words element, measured 2026-09-20
+                        pieces.append(
+                            '      <direction><direction-type>'
+                            '<words print-object="no">'
+                            + ('Swing' if want else 'Straight')
+                            + '</words></direction-type><sound><swing>'
+                            + ('<first>3</first><second>2</second>'
+                               '<swing-type>eighth</swing-type>'
+                               if want else '<straight/>')
+                            + '</swing></sound></direction>\n')
+                        was_swing = want
                 if with_directions and absbar == 1 and not chart['pickup']:
                     if hdr.get('feel'):
                         pieces.append(direction(hdr['feel'].capitalize()))

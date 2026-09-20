@@ -159,7 +159,7 @@ def _mono_tl(events, n_units):
     close = DIV // 4
     timeline = []                          # (start, end, [pitches])
     for i, q_on in enumerate(onsets):
-        end = max(e for _, e, _ in events[q_on])
+        end = max(e for _, e, *_ in events[q_on])
         nxt = onsets[i + 1] if i + 1 < len(onsets) else None
         if nxt is not None:
             if end > nxt:
@@ -168,9 +168,50 @@ def _mono_tl(events, n_units):
                 end = nxt                  # close a sliver of daylight
         end = max(end, q_on + 1)
         end = min(end, n_units)
-        pitches = sorted({p for p, _, _ in events[q_on]})
+        pitches = sorted({p for p, *_ in events[q_on]})
         timeline.append((q_on, end, pitches))
     return timeline
+
+
+def _slur_runs(tl, raw):
+    """Maximal legato runs in one voice — each note held into the next
+    (gate past 90% of its slot, DESIGN.md 7.3) — as (first, last) index
+    pairs. A repeated single pitch breaks the run: legato onto the same
+    note reads as a tie, which is not what was played. Runs follow the
+    PLAYING: where the writer breathed, the slur breaks."""
+    def legato(a, b):
+        if a[1] != b[0]:                   # a rest breaks any phrase
+            return False
+        ra, rb = raw.get(a[0]), raw.get(b[0])
+        if not ra or not rb:
+            return False
+        slot = rb[0] - ra[0]
+        return slot > 0 and (ra[1] - ra[0]) / slot > 0.90
+    runs, i = [], 0
+    while i < len(tl):
+        j = i
+        while (j + 1 < len(tl) and legato(tl[j], tl[j + 1])
+               and not (len(tl[j][2]) == 1
+                        and tl[j][2] == tl[j + 1][2])):
+            j += 1
+        if j > i:
+            runs.append((i, j))
+        i = j + 1
+    return runs
+
+
+def _ghosts(tl, raw):
+    """Indices of notes played well under their neighbours — ghost
+    notes, printed in parentheses. Same relative-velocity judgment as
+    the accent pass, mirrored."""
+    import articulation
+    vels = [raw.get(s, (0, 0, 64))[2] for s, _, _ in tl]
+    out = set()
+    for i in range(len(tl)):
+        mean, sd = articulation.local_stats(vels, i)
+        if sd and sd > 1e-6 and (vels[i] - mean) / sd <= articulation.GHOST_Z:
+            out.add(i)
+    return out
 
 
 def _pedals(evts, n_units):
@@ -184,13 +225,13 @@ def _pedals(evts, n_units):
     pedals = []                            # [start, end, [pitches]]
     for q_on in onsets:
         for item in list(evts.get(q_on, ())):
-            p, off, _raw = item
+            p, off = item[0], item[1]
             off = min(off, n_units)
             crossed = [o for o in onsets
                        if q_on < o <= off - DIV // 2]
             if not crossed:
                 continue
-            others = [pp for o in crossed for (pp, _, _) in evts[o]]
+            others = [pp for o in crossed for (pp, *_) in evts[o]]
             if not others or not (all(pp > p for pp in others)
                                   or all(pp < p for pp in others)):
                 continue
@@ -214,8 +255,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   octave_shift=0, sounding_range=None, quant=None,
                   derive_dyns=True, short=False, spoken_shift=0,
                   poly=False, grand=False, reach=17, comfortable=14,
-                  meter=(4, 4), window=None, part_label="",
-                  findings=None):
+                  legato=False, ghost=False, meter=(4, 4), window=None,
+                  part_label="", findings=None):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
     into a quantized timeline of sounding pitches starting at absolute
@@ -245,7 +286,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     # generous slack swallows the previous figure's last note and makes a
     # phantom collision at beat 1 (the trombone climb taught this).
     slack = beat // 8
-    picked = [(n.on, n.off or n.on, n.pitch) for n in src
+    picked = [(n.on, n.off or n.on, n.pitch, n.vel) for n in src
               if lo_t - slack <= n.on < hi_t]
     if not picked:
         raise SystemExit(
@@ -257,11 +298,11 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     # grid manufactures a phantom lag that pushes the notes exactly
     # between the tuplet grids (the bari climb taught this).
     gmod = {'quarters': beat, 'eighths': beat / 2, 'triplets': beat / 6,
-            'triplet8': beat / 3, 'triplet16': beat / 6,
+            'triplet8': beat / 3, 'triplet16': beat / 6, 'grid8': beat / 2,
             'sixteenths': beat / 4}.get(quant, beat / 4)
     half = gmod / 2
     offs = sorted((on % gmod) if (on % gmod) < half
-                  else (on % gmod) - gmod for on, _, _ in picked)
+                  else (on % gmod) - gmod for on, _, _, _ in picked)
     lag = offs[len(offs) // 2]
     if abs(lag) > beat * 0.04:
         ms = abs(lag) * 60000 / (87 * beat)
@@ -271,14 +312,18 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                  "intended rhythm")
     else:
         lag = 0
-    moved = [(on - lag - lo_t, off - lag - lo_t, p) for on, off, p in picked]
+    moved = [(on - lag - lo_t, off - lag - lo_t, p, v)
+             for on, off, p, v in picked]
 
     # ---- per-beat grid, then snap. A `quant` hint from the writer beats
     # any statistics: "eighths" means these bars are eighth notes, full stop.
     allow = ALLOW
     if quant == 'quarters':
         allow = {k: v for k, v in tuplets.CANDIDATES.items() if k in (1,)}
-    elif quant == 'eighths':
+    elif quant in ('eighths', 'grid8'):
+        # grid8 is `straight`: onsets land on the eighth grid, but the
+        # durations stay as played — a shuffle notated straight, not a
+        # line OF eighth notes
         allow = {k: v for k, v in tuplets.CANDIDATES.items() if k in (1, 2)}
     elif quant == 'triplets':
         allow = {k: v for k, v in tuplets.CANDIDATES.items()
@@ -294,7 +339,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     elif quant == 'sixteenths':
         allow = {k: v for k, v in tuplets.CANDIDATES.items()
                  if k in (1, 2, 4)}
-    grids = tuplets.choose(sorted(max(0, on) for on, _, _ in moved),
+    grids = tuplets.choose(sorted(max(0, on) for on, _, _, _ in moved),
                            beat, allow)
     tupl = tuplets.summarize({b: s for b, s in grids.items()
                               if tuplets.CANDIDATES[s][2] !=
@@ -305,11 +350,12 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
 
     n_units = (bar_hi - bar_lo + 1) * bar_ticks
     scale = DIV / beat                     # demo ticks -> chart ticks
-    default_sub = {'quarters': 1, 'eighths': 2, 'triplet8': 3,
+    default_sub = {'quarters': 1, 'eighths': 2, 'grid8': 2, 'triplet8': 3,
                    'triplet16': 6}.get(quant, 4)
 
-    events = {}                            # chart-tick onset -> [(pitch, off)]
-    for on, off, p in moved:
+    events = {}          # chart-tick onset -> [(pitch, q_off, raw_on,
+                         #                        raw_off, velocity)]
+    for on, off, p, v in moved:
         on = max(0, on)
         b = int(on // beat)
         sub = grids.get(b, default_sub)
@@ -355,7 +401,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                          f"note moved {'up' if folded > p else 'down'} "
                          f"{abs(folded - p) // 12} octave(s) into range")
                 p = folded
-        events.setdefault(q_on, []).append((p, q_off, on))
+        events.setdefault(q_on, []).append((p, q_off, on, off, v))
 
     # A horn is one voice: when several played notes land on one slot,
     # the latest-played keeps it and earlier ones step back one free
@@ -372,7 +418,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             step = DIV // grids.get(q_on // DIV, default_sub)
             tgt = q_on - step
             if tgt >= 0 and tgt not in events:
-                events[tgt] = [(mv[0], min(mv[1], q_on), mv[2])]
+                events[tgt] = [(mv[0], min(mv[1], q_on)) + tuple(mv[2:])]
                 find.add(f"{part_label}: bar "
                          f"{at_bar + spoken_shift + q_on // bar_ticks}: "
                          "two played notes landed on one slot — moved "
@@ -383,6 +429,12 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                          "two played notes landed on one slot with no "
                          "room — dropped the earlier one; proofread "
                          "this bar")
+
+    # what the fingers actually did, keyed by quantized onset — the slur
+    # and ghost passes read this after the page's rhythm is settled
+    raw = {q: (min(t[2] for t in lst), max(t[3] for t in lst),
+               max(t[4] for t in lst))
+           for q, lst in events.items()}
 
     # ---- monophonic cleanup and legato gap-closing
     timeline = _mono_tl(events, n_units)
@@ -438,13 +490,13 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                       else 1.0)
                 prev_on = q_on
                 lh, rh = hands.assign(
-                    sorted({p for p, _, _ in lst}
+                    sorted({p for p, *_ in lst}
                            | {p for _, p in holding}), bar_no, dt)
                 for staff, members in ((1, rh), (2, lh)):
                     sel = [t for t in lst if t[0] in members]
                     if sel:
                         staff_events[staff][q_on] = sel
-                        holding += [(e, p) for p, e, _ in sel]
+                        holding += [(e, p) for p, e, *_ in sel]
         split = False
         staves_out = []
         for staff in sorted(staff_events):
@@ -471,6 +523,43 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                 find.add(f"{part_label}: held notes keep ringing under "
                          "the line and print as their own voice — bars "
                          + ", ".join(str(b) for b in pbars))
+
+    # ---- phrasing, only on the writer's word: `legato` reads the
+    # played gates into slurs, `ghosts` reads the velocities into
+    # parenthesized noteheads. Never unasked — a finished chart's pages
+    # are the writer's, and phrase-end softness is not a ghost note.
+    slurs = _slur_runs(timeline, raw) if legato else []
+    ghosts = _ghosts(timeline, raw) if ghost else set()
+    if staves_out:
+        for st in staves_out:
+            st['slurs'] = [_slur_runs(v, raw)
+                           if legato and vi == 0 else []
+                           for vi, v in enumerate(st['voices'])]
+            st['ghosts'] = [_ghosts(v, raw) if ghost and vi == 0
+                            else set()
+                            for vi, v in enumerate(st['voices'])]
+        n_sl = sum(len(r) for st in staves_out for r in st['slurs'])
+        gh = sorted({at_bar + spoken_shift + v[i][0] // bar_ticks
+                     for st in staves_out
+                     for gs, v in zip(st['ghosts'], st['voices'])
+                     for i in gs})
+    else:
+        n_sl = len(slurs)
+        gh = sorted({at_bar + spoken_shift + timeline[i][0] // bar_ticks
+                     for i in ghosts})
+    if legato:
+        find.add(f"{part_label}: bars {bar_lo}-{bar_hi}: "
+                 + (f"{n_sl} slurred phrase(s) from the played legato"
+                    if n_sl else
+                    "legato asked, but the playing is detached — "
+                    "no slurs written; hold the notes into each other "
+                    "and re-export"))
+    if ghost:
+        find.add(f"{part_label}: "
+                 + ("ghost notes in parentheses — bars "
+                    + ", ".join(str(b) for b in gh) if gh else
+                    "ghosts asked, but no note sits far enough under "
+                    "its neighbours — none written"))
 
     grids_chart = {b: grids.get(b, default_sub)
                    for b in range((n_units // DIV) + 1)}
@@ -505,6 +594,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     return {'timeline': timeline, 'grids': grids_chart,
             'n_units': n_units, 'at': at_bar,
             'bars': (bar_lo, bar_hi), 'dyns': dyns,
+            'slurs': slurs, 'ghosts': ghosts,
             'spoken_shift': spoken_shift, 'staves': staves_out,
             'bar_ticks': bar_ticks, 'pulse_div': pulse_div}
 
@@ -562,6 +652,9 @@ def render_range(res, fifths_written, transpose_to_written, fall,
 
     out = {b: [] for b in
            range(at_bar, at_bar + (n_units // bar_ticks))}
+    slur_a = {i for i, _ in res.get('slurs', ())}
+    slur_b = {j for _, j in res.get('slurs', ())}
+    ghosts = res.get('ghosts') or set()
     pos = 0
     for ti, (start, end, pitches) in enumerate(timeline):
         if start > pos:
@@ -570,7 +663,8 @@ def render_range(res, fifths_written, transpose_to_written, fall,
         is_last = ti == len(timeline) - 1
         _emit(out, at_bar, start, end, pitches, table, grids_chart,
               (last_artic if is_last else None) or every,
-              transpose_to_written, bend=bends.get(ti), bar=bar_ticks)
+              transpose_to_written, bend=bends.get(ti), bar=bar_ticks,
+              slur=(ti in slur_a, ti in slur_b), ghost=ti in ghosts)
         pos = end
     if pos < n_units:
         _emit(out, at_bar, pos, n_units, None, table, grids_chart,
@@ -606,6 +700,12 @@ def _render_voices(res, table, transpose, every, last_artic):
         base = 1 if st['staff'] == 1 else 5
         for vi, tl in enumerate(st['voices'] or [[]]):
             voice_no = base + vi
+            runs = (st.get('slurs') or [[]] * (vi + 1))[vi] \
+                if vi < len(st.get('slurs', ())) else []
+            slur_a = {i for i, _ in runs}
+            slur_b = {j for _, j in runs}
+            gset = (st.get('ghosts') or [set()] * (vi + 1))[vi] \
+                if vi < len(st.get('ghosts', ())) else set()
             outd = {b: [] for b in range(at_bar, at_bar + nbars)}
             if vi == 0:
                 pos = 0
@@ -619,7 +719,9 @@ def _render_voices(res, table, transpose, every, last_artic):
                           ((last_artic if is_last and st['staff'] == 1
                             else None) or every),
                           transpose, bar=bar_ticks,
-                          voice=voice_no, staff=staff_no)
+                          voice=voice_no, staff=staff_no,
+                          slur=(ti in slur_a, ti in slur_b),
+                          ghost=ti in gset)
                     pos = e
                 if pos < n_units:
                     _emit(outd, at_bar, pos, n_units, None, table, grids,
@@ -724,7 +826,8 @@ def _name(ticks, sub):
 
 
 def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
-          bend=None, bar=BAR, voice=1, staff=0):
+          bend=None, bar=BAR, voice=1, staff=0, slur=(False, False),
+          ghost=False):
     staff_xml = f'        <staff>{staff}</staff>\n' if staff else ''
     pieces = _pieces(start, end, grids, bar)
     for pi, (a, b) in enumerate(pieces):
@@ -777,6 +880,10 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                         f'        <accidental>{ACC_NAME[alter]}</accidental>')
                 if mod:
                     lines.append(_mod_xml(mod).rstrip())
+                if ghost:
+                    # a ghost note prints in parentheses
+                    lines.append('        <notehead parentheses="yes">'
+                                 'normal</notehead>')
                 if staff:
                     lines.append(f'        <staff>{staff}</staff>')
                 notations = []
@@ -784,6 +891,10 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                     notations.append('<tied type="stop"/>')
                 if not plast:
                     notations.append('<tied type="start"/>')
+                if slur[0] and pfirst and ni == 0:
+                    notations.append('<slur number="1" type="start"/>')
+                if slur[1] and plast and ni == 0:
+                    notations.append('<slur number="1" type="stop"/>')
                 arts = []
                 if bend and pfirst and ni == len(pitches) - 1:
                     arts.append(f'<{bend}/>')
@@ -847,10 +958,13 @@ def _say_dur(ticks):
 
 
 def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
-            fall=False, doit=False, short=False):
+            fall=False, doit=False, short=False, slurs=(), ghosts=()):
     """One voice's timeline -> {abs_bar: [clauses]} — the run-grouping
     prose, shared by the flat path and each voice of a polyphonic part."""
     out = {}
+    slur_a = {a for a, _ in slurs}
+    slur_end = {a: b for a, b in slurs}
+    ghosts = set(ghosts)
     i = 0
     while i < len(tl):
         start, end, pitches = tl[i]
@@ -862,7 +976,9 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
                and tl[j + 1][0] // bar_ticks
                == start // bar_ticks                        # same bar
                and len(tl[j + 1][2]) == 1 and len(pitches) == 1
-               and j not in bends and (j + 1) not in bends):
+               and j not in bends and (j + 1) not in bends
+               and (j + 1) not in slur_a
+               and ((j + 1) in ghosts) == (i in ghosts)):
             j += 1
         bar = at_bar + start // bar_ticks
         clauses = out.setdefault(bar, [])
@@ -878,6 +994,14 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
             if end // bar_ticks > start // bar_ticks and end % bar_ticks:
                 held = f", held into bar {at_bar + end // bar_ticks}"
             clauses.append(f"{where}: {_say_dur(end - start)} {what}{held}")
+        if i in ghosts:
+            clauses[-1] += ", ghosted"
+        if i in slur_a:
+            k = slur_end[i]
+            eb = at_bar + tl[k][0] // bar_ticks
+            place = _say_beat(tl[k][0], bar_ticks, pulse)
+            clauses[-1] += (f", slurred to {place}" if eb == bar
+                            else f", slurred to bar {eb}")
         if i == j and i in bends:
             clauses[-1] += (", scooped" if bends[i] == 'scoop'
                             else ", plopped into")
@@ -915,10 +1039,15 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
                 label = (hand + (', held underneath' if vi else '')
                          if two else ('held underneath' if vi else ''))
                 first = st['staff'] == 1 and vi == 0
+                runs = st.get('slurs', [[]])[vi] \
+                    if vi < len(st.get('slurs', ())) else []
+                gset = st.get('ghosts', [set()])[vi] \
+                    if vi < len(st.get('ghosts', ())) else set()
                 ordered.append((label, _say_tl(
                     tl, table, at_bar, bar_ticks, pulse,
                     bends if first else {},
-                    fall and first, doit and first, short and first)))
+                    fall and first, doit and first, short and first,
+                    slurs=runs, ghosts=gset)))
         out = {}
         for label, by_bar in ordered:
             for bar, clauses in by_bar.items():
@@ -935,7 +1064,9 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
         return {b: ". ".join(segs) + "." for b, segs in out.items()}
 
     out = _say_tl(res['timeline'], table, at_bar, bar_ticks, pulse,
-                  bends, fall, doit, short)
+                  bends, fall, doit, short,
+                  slurs=res.get('slurs', ()),
+                  ghosts=res.get('ghosts', ()))
     DYN_WORD = {'p': 'piano', 'mp': 'mezzo piano', 'mf': 'mezzo forte',
                 'f': 'forte', 'ff': 'fortissimo'}
     for t, k in res.get('dyns', []):

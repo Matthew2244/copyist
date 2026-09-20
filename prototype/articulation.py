@@ -23,6 +23,10 @@ import math
 ACCENT_Z = 1.5
 MARCATO_Z = 2.5
 
+# The mirror image: a note played this far UNDER its neighbours is a
+# ghost note, printed in parentheses (funk bass, snare ghosts).
+GHOST_Z = -1.5
+
 # A note has to be nearly fully held AND unemphatic to read as tenuto.
 TENUTO_GATE = 0.95
 TENUTO_Z = 0.25

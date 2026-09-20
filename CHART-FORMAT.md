@@ -17,7 +17,15 @@ where a player must look up, the demo door locates figures by the demo
 file's own time signatures (a figure may not cross a change — the error
 says where to split), the listen trim walks the meter and tempo maps
 bar by bar, and a compound↔simple change with no new tempo is a
-finding. Keyboard-family parts (piano, organ, harp, celesta) from a
+finding. Phrasing is the writer's word (2026-09-20): `legato` reads
+the played gates into slurs that break where the writer breathed,
+`ghosts` reads velocities into parenthesized noteheads, `straight`
+puts onsets on the eighth grid while durations stay as played (a
+shuffle notated straight — `eighths` still means a line OF eighth
+notes), and a swing or shuffle `feel:` makes the LISTENING document
+genuinely swing in playback while the pages stay convention. Asking
+for phrasing the playing does not support is a finding, never a
+silent no-op. Keyboard-family parts (piano, organ, harp, celesta) from a
 demo print on the grand staff — hands split by the engine's physics
 model (DESIGN.md §8), with a note a hand is still holding anchoring the
 split — and a note that keeps ringing under later movement (a guitar's

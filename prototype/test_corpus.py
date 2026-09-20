@@ -573,6 +573,120 @@ def check_poly_charts():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_phrasing_charts():
+    """
+    Phrasing is the writer's word, never unasked: `legato` reads the
+    played gates into slurs, `ghosts` reads velocities into parenthesized
+    noteheads, `straight` puts onsets on the eighth grid while durations
+    stay as played. Swing feel makes the LISTENING document actually
+    swing (via the measured MuseScore <sound><swing> encoding, riding a
+    hidden words element); pages never carry the element. Asking for
+    phrasing that the playing does not support is a finding, not a
+    silent no-op.
+    """
+    import re
+    import chartc
+    import smf
+    from chart import verify_measures
+    tmp = tempfile.mkdtemp()
+
+    div = 480
+    # a legato phrase, a breath, a detached repeat; last two notes are
+    # the same pitch — a slur onto a repeated note reads as a tie
+    ten = [(0, 468, 65, 86), (480, 948, 68, 84), (960, 1420, 70, 88),
+           (1920, 2200, 72, 85), (2400, 2870, 72, 85),
+           (2880, 3200, 70, 84)]
+    smf.write(os.path.join(tmp, "t.mid"), ten, div, 116)
+    # a walking bass with one very soft pickup
+    bs = [(0, 400, 41, 90), (480, 880, 45, 92), (960, 1060, 45, 34),
+          (1440, 1840, 48, 88), (1920, 2320, 45, 90), (2400, 2800, 41, 88),
+          (2880, 3280, 48, 91), (3360, 3760, 45, 89)]
+    smf.write(os.path.join(tmp, "b.mid"), bs, div, 116)
+
+    def build(name, text):
+        p = os.path.join(tmp, name)
+        open(p, "w").write(text)
+        out = os.path.join(tmp, name + ".build")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            files = chartc.compile_chart(p, out)
+        return out, buf.getvalue(), files
+
+    HEAD = ('title: G\nkey: F\nmeter: 4/4\ntempo: 116\nfeel: shuffle\n\n'
+            'band:\n  tenor = tenor sax, demo "t.mid"\n'
+            '  bass = electric bass, demo "b.mid"\n  drums\n\n')
+    out, log, files = build(
+        "ph.chart", HEAD +
+        'section A, 2 bars\n  chords: F7, Bb7\n'
+        '  tenor: from demo bars 1-2, legato, straight\n'
+        '  bass: from demo bars 1-2, ghosts, straight\n  drums: groove\n'
+        'section B, 2 bars, label "no swing"\n  feel: straight ballad\n'
+        '  chords: F7, Bb7\n  drums: groove\n')
+    check("phrasing chart: measures sum", not verify_measures(files))
+
+    xml = open(os.path.join(out, "G — tenor.musicxml")).read()
+    starts = xml.count('<slur number="1" type="start"/>')
+    stops = xml.count('<slur number="1" type="stop"/>')
+    check("legato slurs the played phrases, breaths and repeats break",
+          starts == 2 and stops == 2, f"{starts} starts, {stops} stops")
+    check("straight keeps a played quarter a quarter under the hint",
+          "<type>quarter</type>" in xml)
+    check("the slur run is spoken",
+          "slurred phrase(s) from the played legato" in log)
+
+    xml = open(os.path.join(out, "G — bass.musicxml")).read()
+    check("a ghost prints in parentheses",
+          xml.count('parentheses="yes"') == 1)
+    check("the ghost bars are named", "ghost notes in parentheses" in log)
+
+    listen = open(os.path.join(out, "G — for listening.musicxml")).read()
+    check("the listening document swings, on a hidden words element",
+          '<words print-object="no">Swing</words>' in listen
+          and '<first>3</first><second>2</second>' in listen)
+    check("a straight section turns the swing off",
+          "<straight/>" in listen)
+    score = open(os.path.join(out, "G — score.musicxml")).read()
+    check("the page never carries the swing element",
+          "<swing>" not in score and "<swing>" not in xml)
+
+    # opt-in: without the words, no slurs, no ghosts, no findings
+    out, log, files = build(
+        "plain.chart", HEAD +
+        'section A, 2 bars\n  chords: F7, Bb7\n'
+        '  tenor: from demo bars 1-2\n'
+        '  bass: from demo bars 1-2\n  drums: groove\n')
+    xml = open(os.path.join(out, "G — tenor.musicxml")).read()
+    bxml = open(os.path.join(out, "G — bass.musicxml")).read()
+    check("phrasing never happens unasked",
+          "<slur" not in xml and "parentheses" not in bxml
+          and "slurred" not in log and "ghost" not in log)
+
+    # asked with nothing to find: a finding, never a silent no-op
+    stac = [(0, 120, 65, 86), (480, 600, 68, 86), (960, 1080, 70, 86),
+            (1440, 1560, 72, 86)]
+    smf.write(os.path.join(tmp, "s.mid"), stac, div, 116)
+    out, log, files = build(
+        "dry.chart", 'title: D\nkey: F\nmeter: 4/4\ntempo: 116\n\n'
+        'band:\n  tenor = tenor sax, demo "s.mid"\n  drums\n\n'
+        'section A, 1 bars\n  chords: F7\n'
+        '  tenor: from demo bars 1-1, legato, ghosts\n  drums: groove\n')
+    check("legato asked on detached playing says so",
+          "legato asked, but the playing is detached" in log, log[:200])
+    check("ghosts asked with none found says so",
+          "ghosts asked, but no note" in log)
+
+    # a comma inside quoted directive text is text, not a separator
+    out, log, files = build(
+        "comma.chart", 'title: C\nkey: F\nmeter: 4/4\ntempo: 116\n\n'
+        'band:\n  drums\n\nsection A, 1 bars\n  chords: F7\n'
+        '  drums: groove "shuffle, ride heavy"\n')
+    check("a comma inside quoted groove words parses",
+          'shuffle, ride heavy' in
+          open(os.path.join(out, "C — drums.musicxml")).read())
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -633,6 +747,7 @@ if __name__ == "__main__":
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()
+    check_phrasing_charts()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
