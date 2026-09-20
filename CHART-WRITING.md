@@ -109,6 +109,19 @@ All of these ride on a `from demo` line, after commas:
   commas out of quoted text (use a dash) — the comma is how instructions
   are separated.
 
+## Starting from nothing
+
+    python3 prototype/chart.py "Uptown Local.chart" new --demo horns.mid
+
+The interview reads your demo first, then asks one question at a time —
+title, key, tempo (offered from the file itself), count-in (detected
+when bar one is empty) — and walks the tracks: each one announced with
+its name, note count and range, you name the instrument, and if the
+track sits an octave off that instrument's real register it says so and
+proposes the correction. The chart it writes opens with an activity
+map — who plays which bars — so carving sections is reading, not
+detective work.
+
 ## The loop that replaces a copyist
 
     python3 prototype/chart.py "Uptown Local.chart"
@@ -130,6 +143,12 @@ of rest is one measure with a 16 over it, never sixteen empty bars. The
 conductor score keeps every bar visible. A multirest breaks wherever a
 player needs to see something — a rehearsal letter, a dynamic, a text —
 and may close at a double bar.
+
+Every build ends with a range report — each part's written peak and
+low with their bars, flagged when a peak sits near the top of the horn.
+And when only your ears matter: `listen` skips the pages, `--from-bar
+78` cuts an MP3 starting right where you want to proof, and `--solo
+"bari,trombone"` isolates just those parts.
 
 The build also prints findings — every place it moved a note into range,
 unified a repeated phrase's cutoff, or noticed your timing sitting loose

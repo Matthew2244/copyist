@@ -571,6 +571,28 @@ def compile_chart(chart_path, outdir):
                 if bar in demo_measures[l]:
                     fail(f"'{l}' has two demo figures landing on bar {bar}")
                 demo_measures[l][bar] = xml
+    # ---- the range report: where each part peaks, in written pitch —
+    # what an arranger checks before any page reaches a player
+    shift = int(hdr.get('countin', 0))
+    for l in labels:
+        notes = [(p, item['res']['at'] + s // chartdemo.BAR + shift)
+                 for item in resolved[l]
+                 for s, e, ps in item['res']['timeline'] for p in ps]
+        if not notes or l not in horn_of:
+            continue
+        tr, rng, _c, _f = horn_of[l]
+        hi = max(notes)
+        lo = min(notes)
+        table = chartdemo.spelling_table(key[0] + horn_of[l][3],
+                                         chartdemo.Findings())
+        def wname(p):
+            s_, a_, o_ = chartdemo.convert.spell(p + tr, table)
+            return f"{s_}{'b' if a_ == -1 else '#' if a_ == 1 else ''}{o_}"
+        edge = ""
+        if hi[0] >= rng[1] - 2:
+            edge = " — near the top of the horn"
+        findings.add(f"{l}: written peak {wname(hi[0])} at bar {hi[1]}, "
+                     f"lowest {wname(lo[0])} at bar {lo[1]}{edge}")
     return _compile_rest(chart, band, groups, labels, plans, total,
                          source, src_of, chord_parts, hdr, chart_path, outdir,
                          demo_measures, horn_of, key, findings)

@@ -181,10 +181,13 @@ def main():
         description="Compile a chart and make everything a writer needs.")
     ap.add_argument('chart', help="the .chart file")
     ap.add_argument('command', nargs='?', default='build',
-                    choices=['build', 'check', 'read', 'parts', 'diff'],
+                    choices=['build', 'check', 'read', 'parts', 'diff',
+                             'listen', 'new'],
                     help="build (default): everything; check: compile "
                          "only; read: speak the chart; parts: list the "
-                         "band; diff: what changed since the last build")
+                         "band; diff: what changed since the last build; "
+                         "listen: just the MP3; new: interview a starter "
+                         "chart into existence")
     ap.add_argument('--part', help='with read: one part, e.g. "trumpet 1"')
     ap.add_argument('--outdir', help="where the built files go "
                                      "(default: build, beside the chart)")
@@ -195,7 +198,18 @@ def main():
     ap.add_argument('--solo',
                     help='also bounce an isolated listen of just these '
                          'parts, e.g. --solo "bari,trombone"')
+    ap.add_argument('--from-bar', type=int, dest='from_bar',
+                    help="also cut a listen MP3 starting at this bar "
+                         "(your DAW's numbering) — no waiting through "
+                         "the whole tune to proof the ending")
+    ap.add_argument('--demo', help="with new: the demo MIDI to scaffold "
+                                   "the chart around")
     args = ap.parse_args()
+
+    if args.command == 'new':
+        import chartnew
+        chartnew.interview(args.chart, args.demo)
+        return
 
     path = args.chart
     if not os.path.exists(path):
@@ -232,8 +246,21 @@ def main():
                 say(s)
         return
 
+    do_reads = args.command != 'listen'
+
+    # remember which chart text produced the previous build, so a source
+    # diff is always possible
+    built_from = os.path.join(title_dir, "built from.chart")
+    os.makedirs(title_dir, exist_ok=True)
+    import shutil
+    if os.path.exists(built_from):
+        os.makedirs(prev_dir, exist_ok=True)
+        shutil.copy2(built_from,
+                     os.path.join(prev_dir, "previous built from.chart"))
+
     # ---- check / build: compile first, loudly, then prove the arithmetic
     written = chartc.compile_chart(path, title_dir)
+    shutil.copy2(path, built_from)
     bad = verify_measures(written)
     if bad:
         for b in bad[:10]:
@@ -249,14 +276,14 @@ def main():
     # snapshot the outgoing read-alouds so the new build has something
     # to answer "what changed?" against
     os.makedirs(prev_dir, exist_ok=True)
-    for label in labels:
-        cur = os.path.join(base_dir,
-                           f"{title} — {label} part, read aloud.txt")
-        if os.path.exists(cur):
-            import shutil
-            shutil.copy2(cur, prev_dir)
+    if do_reads:
+        for label in labels:
+            cur = os.path.join(base_dir,
+                               f"{title} — {label} part, read aloud.txt")
+            if os.path.exists(cur):
+                shutil.copy2(cur, prev_dir)
 
-    for label in labels + [None]:
+    for label in (labels + [None] if do_reads else []):
         argv = [path] + (['--part', label] if label else [])
         name = (f"{title} — {label} part, read aloud.txt" if label
                 else f"{title} — form, read aloud.txt")
@@ -268,10 +295,13 @@ def main():
         finally:
             sys.stdout.close()
             sys.stdout = old_stdout
-    say(f"Read-alouds written for all {len(labels)} parts and the form.")
+    if do_reads:
+        say(f"Read-alouds written for all {len(labels)} parts and the "
+            "form.")
 
     # ---- the blast radius: what did this build change?
-    sentences, had = diff_readalouds(prev_dir, base_dir, title, labels)
+    sentences, had = ((diff_readalouds(prev_dir, base_dir, title, labels))
+                      if do_reads else ([], False))
     if had:
         if not sentences:
             say("Nothing changed since the last build.")
@@ -299,14 +329,14 @@ def main():
         if '— for listening' in src:
             listen_src = src
             continue
-        if args.no_pages:
+        if args.no_pages or args.command == 'listen':
             continue
         dst = src[:-len('.musicxml')] + '.pdf'
         if render(mscore, src, dst):
             pages += 1
         else:
             failed.append(os.path.basename(src))
-    if not args.no_pages:
+    if not args.no_pages and args.command != 'listen':
         say(f"{pages} pages rendered." if not failed else
             f"{pages} pages rendered; MuseScore refused "
             + ", ".join(failed) + " — run check and read that part back.")
@@ -321,6 +351,29 @@ def main():
         else:
             say("MuseScore refused the listen file, twice. The pages "
                 "stand; the MP3 does not.")
+
+        # a trimmed listen: proof the ending without the commute
+        if args.from_bar and os.path.exists(mp3):
+            from shutil import which
+            if which('ffmpeg') is None:
+                say("No ffmpeg here, so no trimmed listen — brew install "
+                    "ffmpeg gets it.")
+            else:
+                countin = int(chart['header'].get('countin', 0))
+                tempo = float(chart['header'].get('tempo', 120))
+                printed = max(1, args.from_bar - countin)
+                seconds = max(0.0, (printed - 1) * 4 * 60.0 / tempo)
+                cut = os.path.join(
+                    title_dir, f"{title} — listen from bar "
+                               f"{args.from_bar}.mp3")
+                subprocess.run(['ffmpeg', '-y', '-hide_banner',
+                                '-ss', f'{seconds:.2f}', '-i', mp3, cut],
+                               capture_output=True)
+                if os.path.exists(cut):
+                    say(f"Trimmed listen ready, starting at bar "
+                        f"{args.from_bar}.")
+                else:
+                    say("ffmpeg refused the trim; the full MP3 stands.")
 
     if args.solo and listen_src:
         wanted = [w for w in args.solo.split(',') if w.strip()]
