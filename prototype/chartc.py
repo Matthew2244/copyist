@@ -31,16 +31,23 @@ import chartdemo
 
 BEATS = 4          # 4/4 only in this increment
 
-# Horn identity for demo-sourced parts: written transposition in semitones,
-# sounding range (a working player's, not the physical extreme), clef, and
-# how many fifths the written key signature moves. Ranges are sounding.
+# Horn identity for demo-sourced parts: written transposition in
+# semitones, FOLD range, clef, key-signature offset, COMFORTABLE range.
+# All ranges are sounding pitch. The philosophy, from the composer:
+# floors are hardware (a note below the horn folds up), ceilings are
+# chops (a lead player screams to written double C and beyond, so the
+# fold ceiling sits at the documented extremes and high notes get
+# FLAGGED, never destroyed). Checked against the arranging literature:
+# lead trumpet books run to written C7; trombone pedal Bb1 is common in
+# commercial scoring; every modern bari has the low A (sounding C2);
+# sax altissimo starts above written F#.
 HORNS = {
-    'flute':             (0,  (60, 96),  'G', 0),
-    'alto sax':          (9,  (49, 81),  'G', 3),
-    'tenor sax':         (14, (44, 76),  'G', 2),
-    'baritone sax':      (21, (37, 69),  'G', 3),
-    'trumpet':           (2,  (54, 88),  'G', 2),
-    'trombone':          (0,  (40, 72),  'F', 0),
+    'flute':             (0,  (59, 98), 'G', 0, (60, 96)),
+    'alto sax':          (9,  (49, 88), 'G', 3, (49, 80)),
+    'tenor sax':         (14, (44, 86), 'G', 2, (44, 76)),
+    'baritone sax':      (21, (36, 78), 'G', 3, (37, 68)),
+    'trumpet':           (2,  (54, 98), 'G', 2, (54, 82)),
+    'trombone':          (0,  (34, 82), 'F', 0, (40, 70)),
 }
 
 KEY_FIFTHS = {'c': 0, 'g': 1, 'd': 2, 'a': 3, 'e': 4, 'b': 5, 'f#': 6,
@@ -560,7 +567,7 @@ def compile_chart(chart_path, outdir):
     demo_measures = {l: {} for l in labels}
     for l in labels:
         for item in resolved[l]:
-            tr, rng, _clef, foff = horn_of[l]
+            tr, rng, _clef, foff, _comf = horn_of[l]
             ms = chartdemo.render_range(item['res'], key[0] + foff, tr,
                                         item['fall'], findings,
                                         short=item['short'],
@@ -580,7 +587,7 @@ def compile_chart(chart_path, outdir):
                  for s, e, ps in item['res']['timeline'] for p in ps]
         if not notes or l not in horn_of:
             continue
-        tr, rng, _c, _f = horn_of[l]
+        tr, rng, _c, _f, comf = horn_of[l]
         hi = max(notes)
         lo = min(notes)
         table = chartdemo.spelling_table(key[0] + horn_of[l][3],
@@ -589,8 +596,15 @@ def compile_chart(chart_path, outdir):
             s_, a_, o_ = chartdemo.convert.spell(p + tr, table)
             return f"{s_}{'b' if a_ == -1 else '#' if a_ == 1 else ''}{o_}"
         edge = ""
-        if hi[0] >= rng[1] - 2:
-            edge = " — near the top of the horn"
+        if hi[0] > comf[1]:
+            edge = (" — lead territory; know whose chops are on the "
+                    "chair")
+        elif hi[0] >= comf[1] - 2:
+            edge = " — right at the top of the comfortable range"
+        if lo[0] < comf[0]:
+            edge += (" — and the low end sits in pedal territory"
+                     if l == 'trombone' or 'trombone' in l
+                     else " — and the low end is below the standard horn")
         findings.add(f"{l}: written peak {wname(hi[0])} at bar {hi[1]}, "
                      f"lowest {wname(lo[0])} at bar {lo[1]}{edge}")
     return _compile_rest(chart, band, groups, labels, plans, total,
@@ -622,7 +636,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
                     fail(f"{ref['loc']}: '{l}' plays from the demo but its "
                          f"instrument '{b['instrument']}' is not in the "
                          "demo-part table")
-                tr, rng, _clef, foff = horn_of[l]
+                tr, rng, _clef, foff, _comf = horn_of[l]
                 sel = ref['track'] or b['demo']
                 if sel and sel.lower().endswith(('.mid', '.midi')):
                     dm = chartdemo.load_demo(sel if os.path.isabs(sel)

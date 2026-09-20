@@ -145,7 +145,12 @@ player needs to see something — a rehearsal letter, a dynamic, a text —
 and may close at a double bar.
 
 Every build ends with a range report — each part's written peak and
-low with their bars, flagged when a peak sits near the top of the horn.
+low with their bars. The philosophy: floors are hardware, ceilings are
+chops. A note below the horn folds up an octave; a high note is NEVER
+destroyed, because a lead trumpet runs to written double C and beyond —
+instead the report flags it: "lead territory; know whose chops are on
+the chair." Trombone lows below the staff get named as pedal territory.
+The ranges come from the arranging literature, not guesses.
 And when only your ears matter: `listen` skips the pages, `--from-bar
 78` cuts an MP3 starting right where you want to proof, and `--solo
 "bari,trombone"` isolates just those parts.
