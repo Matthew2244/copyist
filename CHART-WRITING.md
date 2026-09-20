@@ -23,19 +23,6 @@ The worked example below is an invented tune called *Uptown Local*.
 
 - `demo:` names the MIDI file you played the horn lines into. The chart
   pulls real notes from it — your playing is the documentation.
-- **Phrasing is yours to ask for, in your own words.** Add `legato`
-  to a from-demo line and the slurs follow your playing — where you
-  breathed, the slur breaks. Add `ghosts` and the notes you played way
-  under the others print in parentheses, the way a funk bass part
-  should. Add `straight` when you played swung but the page should
-  show straight eighths — onsets snap to the eighth grid and the note
-  lengths stay yours (`eighths` is different: it means the line IS
-  eighth notes, and will shorten longer values to say so). None of
-  this happens unasked, and if you ask for phrasing your take doesn't
-  support, the findings say so instead of guessing. And when your
-  `feel:` says swing or shuffle, the listen MP3 actually swings —
-  the pages keep the straight-eighth convention with the feel marked
-  in words, the way players expect.
 - **Piano, organ and harp come out on the grand staff.** Play the part
   in with both hands and the build separates them by what a pair of
   hands can physically reach — a bass note you're still holding keeps
@@ -126,6 +113,19 @@ All of these ride on a `from demo` line, after commas:
 - **Grid words** — `eighths`, `sixteenths`, `triplets`, `eighth
   triplets`, `sixteenth triplets`. Your word beats the math: if you say
   the bars are eighth notes, the page prints eighth notes.
+- **Phrasing is yours to ask for, in your own words.** Add `legato`
+  to a from-demo line and the slurs follow your playing — where you
+  breathed, the slur breaks. Add `ghosts` and the notes you played way
+  under the others print in parentheses, the way a funk bass part
+  should. Add `straight` when you played swung but the page should
+  show straight eighths — onsets snap to the eighth grid and the note
+  lengths stay yours (`eighths` is different: it means the line IS
+  eighth notes, and will shorten longer values to say so). None of
+  this happens unasked, and if you ask for phrasing your take doesn't
+  support, the findings say so instead of guessing. And when your
+  `feel:` says swing or shuffle, the listen MP3 actually swings —
+  the pages keep the straight-eighth convention with the feel marked
+  in words, the way players expect.
 - **Articulation words** — `marcato` is short-but-fat on every note (the
   big-band daht). `short` makes the phrase's last note print short.
   `fall` drops off the last note. `scoop first`, `scoop last`, or
