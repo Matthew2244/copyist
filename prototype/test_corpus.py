@@ -642,7 +642,7 @@ def check_phrasing_charts():
     listen = open(os.path.join(out, "G — for listening.musicxml")).read()
     check("the listening document swings, on a hidden words element",
           '<words print-object="no">Swing</words>' in listen
-          and '<first>3</first><second>2</second>' in listen)
+          and '<first>2</first><second>1</second>' in listen)
     check("a straight section turns the swing off",
           "<straight/>" in listen)
     score = open(os.path.join(out, "G — score.musicxml")).read()
@@ -683,6 +683,123 @@ def check_phrasing_charts():
     check("a comma inside quoted groove words parses",
           'shuffle, ride heavy' in
           open(os.path.join(out, "C — drums.musicxml")).read())
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_audio():
+    """
+    Copyist's own ears: the listening document synthesized without
+    MuseScore. The parser reads only what our emitter writes, so these
+    hold the two ends of that contract together — and the schedule must
+    agree with chartc.seconds_before, two independent walks of the same
+    meter and tempo maps.
+    """
+    import cmath
+    import wave as wavemod
+    import chartaudio
+    import chartc
+    import smf
+    tmp = tempfile.mkdtemp()
+
+    div = 480
+    # one bar: concert A4 half tied into bar 2, then A5 quarter
+    notes = [(0, 1920 * 2 - 40, 69, 90), (1920 * 2, 1920 * 2 + 440, 81, 90)]
+    smf.write(os.path.join(tmp, "a.mid"), notes, div, 120)
+    open(os.path.join(tmp, "a.chart"), "w").write(
+        "title: A\nkey: C\nmeter: 4/4\ntempo: 120\n\nband:\n"
+        '  flute, demo "a.mid"\n  drums\n\n'
+        "section A, 3 bars\n  chords: C, C, C\n"
+        "  flute: from demo bars 1-3\n  drums: groove\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "a.chart"),
+                             os.path.join(tmp, "ab"))
+    listen = os.path.join(tmp, "ab", "A — for listening.musicxml")
+    plan = chartaudio.parse_score(listen)
+    fl = next(p for p in plan['parts'] if p['name'] == 'flute')
+    check("a tie across the barline is one event",
+          len(fl['events']) == 2 and abs(fl['events'][0][1] - 8.0) < 1e-9,
+          f"got {fl['events']}")
+    check("groove parts are silent in the listen",
+          not next(p for p in plan['parts']
+                   if p['name'] == 'drums')['events'])
+
+    wav = os.path.join(tmp, "a.wav")
+    secs, n_parts, n_notes = chartaudio.render(listen, wav)
+    # the tied note spans bars 1-2 (8 quarters), the last quarter ends
+    # at 4.5s, and the render adds its 1.5s tail
+    check("the render ends after the last release plus the tail",
+          abs(secs - 6.0) < 0.6, f"got {secs}")
+    # the held A4 must actually BE 440 Hz: a small DFT over one second
+    with wavemod.open(wav) as w:
+        raw = w.readframes(int(1.0 * chartaudio.SR))
+    import struct as st
+    mono = [st.unpack_from('<h', raw, 4 * i)[0]
+            for i in range(int(0.8 * chartaudio.SR))]
+    off = int(0.2 * chartaudio.SR)
+    mono = mono[off:]
+    n = len(mono)
+    best = max(range(400, 481, 5),
+               key=lambda f: abs(sum(
+                   m * cmath.exp(-2j * cmath.pi * f * i / chartaudio.SR)
+                   for i, m in enumerate(mono[:8000]))))
+    check(f"the held concert A renders at 440 Hz (peak at {best})",
+          435 <= best <= 445)
+
+    # swing warps the schedule; a repeat doubles it
+    notes = [(0, 420, 60, 90), (480, 660, 62, 90), (720, 900, 64, 90),
+             (960, 1880, 65, 90)]
+    smf.write(os.path.join(tmp, "s.mid"), notes, div, 120)
+    open(os.path.join(tmp, "s.chart"), "w").write(
+        "title: S\nkey: C\nmeter: 4/4\ntempo: 120\nfeel: shuffle\n\n"
+        'band:\n  flute, demo "s.mid"\n  drums\n\n'
+        "section A, 1 bars, repeat 2x\n  chords: C\n"
+        "  flute: from demo bars 1-1, straight\n  drums: groove\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "s.chart"),
+                             os.path.join(tmp, "sb"))
+    plan = chartaudio.parse_score(
+        os.path.join(tmp, "sb", "S — for listening.musicxml"))
+    fl = next(p for p in plan['parts'] if p['name'] == 'flute')
+    check("a repeated section plays twice", len(fl['events']) == 8,
+          f"got {len(fl['events'])}")
+    sched = chartaudio._seconds(plan)[0]
+    beat = 0.5
+    fr = sorted({round((a % beat) / beat, 2) for a, _, _, _ in sched
+                 if (a % beat) / beat > 0.1})
+    check("the swung offbeat plays at two-thirds", fr == [0.67],
+          f"got {fr}")
+
+    # two independent walks of the meter and tempo maps must agree
+    open(os.path.join(tmp, "m.chart"), "w").write(
+        "title: M\nkey: C\nmeter: 4/4\ntempo: 96\n\nband:\n  piano\n\n"
+        "section A, 6 bars\n  at bar 3: meter 6/8\n  at bar 3: tempo 64\n"
+        "  at bar 5: meter 4/4\n  at bar 5: tempo 88\n  chords: C x6\n"
+        "  piano: groove\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "m.chart"),
+                             os.path.join(tmp, "mb"))
+    chart = chartc.parse_chart(os.path.join(tmp, "m.chart"))
+    plan = chartaudio.parse_score(
+        os.path.join(tmp, "mb", "M — for listening.musicxml"))
+    # bar starts in quarters, walked from the parsed document
+    tempos = plan['tempos']
+    q_starts = [0.0, 4.0, 8.0, 11.0, 14.0, 18.0]
+
+    def sec_of(q):
+        ts = tempos if tempos and tempos[0][0] == 0 else \
+            [(0.0, 96.0)] + tempos
+        s, pq, bpm = 0.0, 0.0, ts[0][1]
+        for at, t in ts:
+            if at >= q:
+                break
+            s += (at - pq) * 60.0 / bpm
+            pq, bpm = at, t
+        return s + (q - pq) * 60.0 / bpm
+    bad = [b for b, q in enumerate(q_starts, 1)
+           if abs(sec_of(q) - chartc.seconds_before(chart, b)) > 1e-6]
+    check("chartaudio and seconds_before walk the maps identically",
+          not bad, f"bars {bad}")
 
     shutil.rmtree(tmp, ignore_errors=True)
 
@@ -748,6 +865,7 @@ if __name__ == "__main__":
     check_meter_charts()
     check_poly_charts()
     check_phrasing_charts()
+    check_audio()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

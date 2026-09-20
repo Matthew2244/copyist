@@ -1,6 +1,6 @@
 # The Copyist chart format
 
-**Status:** living specification. Designed 2026-08-30 against the measured
+**Status:** living specification. **The listening audio is Copyist's own as of 2026-09-20** — no MuseScore in the check-listen-read loop; MuseScore remains only for PDF pages, and retiring that too is the stated direction. Designed 2026-08-30 against the measured
 corpus; substantially implemented as of 2026-09-20 (the compiler, the demo
 door §3.4.1, the bars grammar with groups, the working chord-quality set,
 hits, articulations, dynamics, engraved page output, and the read-aloud
@@ -43,8 +43,11 @@ text — and compiled into the same MusicXML the engine already emits.
 
 A chart is a plain text file (`.chart`, UTF-8) that a blind composer can read
 and write with a screen reader, kept in git, and compiled deterministically
-into a conductor score and per-instrument parts (MusicXML, rendered to PDF by
-MuseScore's command line — verified working headless).
+into a conductor score and per-instrument parts (MusicXML). The listening
+audio is Copyist's own — chartaudio synthesizes the listening document
+directly, no external renderer — and PDF pages come from MuseScore's
+command line for now (verified working headless; a Copyist engraver is
+the stated direction, 2026-09-20).
 
 The format was designed against a measured corpus, not guessed: eleven real
 scores from the author's book (eight big-band charts engraved by Jeremy Hegg,
@@ -414,9 +417,12 @@ New: the chart parser and the section/part resolver. Reused as-is: the
 instrument database and transposition (§10), chord symbol emission (§12.1),
 slash regions (§12.2), detail levels and reduction (§11), the MusicXML
 writer, findings (§15), and — for `from midi` — the entire conversion
-pipeline including its verification. MuseScore CLI renders PDFs headless
-(verified 2026-08-30; note it may crash *after* writing a valid PDF — judge
-by the output file, not the exit code).
+pipeline including its verification. The listen file is synthesized by
+Copyist itself (prototype/chartaudio.py — stdlib wavetable synth, real
+swing, honest dynamics, sample-exact meter and tempo maps). MuseScore CLI
+still renders the PDFs headless (verified 2026-08-30; it may crash *after*
+writing a valid PDF — judge by the output file, not the exit code) until
+Copyist's own engraver exists.
 
 ## 7. The worked example
 

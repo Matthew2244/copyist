@@ -20,6 +20,7 @@ import re
 import subprocess
 import sys
 
+import chartaudio
 import chartc
 import chartdemo
 import chartread
@@ -166,6 +167,26 @@ def find_mscore():
             if which(c):
                 return c
     return None
+
+
+def render_listen(listen_src, mp3, say, only=None):
+    """Copyist synthesizes the listening document itself, then encodes.
+    True with the MP3 in place (or, without ffmpeg, the WAV and a
+    sentence)."""
+    wav = mp3[:-4] + ".wav"
+    try:
+        chartaudio.render(listen_src, wav, only=only)
+    except SystemExit:
+        raise
+    except Exception as e:
+        say(f"Copyist hit a wall rendering its own audio: {e}")
+        return False
+    if chartaudio.to_mp3(wav, mp3):
+        os.remove(wav)
+    else:
+        say("No ffmpeg here, so the listen stays a WAV — brew install "
+            "ffmpeg gets MP3s.")
+    return True
 
 
 def render(mscore, src, dst):
@@ -354,12 +375,13 @@ def main():
             say(f"{len(sentences)} changes since the last build — run "
                 "the diff command for the full list.")
 
-    # ---- pages and the listen file
+    # ---- pages and the listen file. The listen is Copyist's own —
+    # only the PDF pages still ask MuseScore (for now).
     mscore = find_mscore()
-    if mscore is None:
-        say("No MuseScore here, so no pages or listen file — it is free "
-            "at musescore.org, and everything else is done.")
-        return
+    if mscore is None and not (args.no_pages or args.command == 'listen'):
+        say("No MuseScore here, so no PDF pages — it is free at "
+            "musescore.org. The listen file is Copyist's own and comes "
+            "out regardless.")
 
     pages = 0
     failed = []
@@ -370,14 +392,14 @@ def main():
         if '— for listening' in src:
             listen_src = src
             continue
-        if args.no_pages or args.command == 'listen':
+        if args.no_pages or args.command == 'listen' or not mscore:
             continue
         dst = src[:-len('.musicxml')] + '.pdf'
         if render(mscore, src, dst):
             pages += 1
         else:
             failed.append(os.path.basename(src))
-    if not args.no_pages and args.command != 'listen':
+    if mscore and not args.no_pages and args.command != 'listen':
         say(f"{pages} pages rendered." if not failed else
             f"{pages} pages rendered; MuseScore refused "
             + ", ".join(failed) + " — run check and read that part back.")
@@ -385,13 +407,16 @@ def main():
     if not args.no_listen and listen_src:
         mp3 = os.path.join(title_dir,
                            f"{title} — chart as written (robot horns).mp3")
-        if render(mscore, listen_src, mp3):
-            say("The listen file is ready — robot horns playing exactly "
-                "what the pages say. Anywhere it sounds wrong, the page "
-                "is wrong.")
+        if render_listen(listen_src, mp3, say):
+            say("The listen file is ready — Copyist's own robot horns "
+                "playing exactly what the pages say. Anywhere it sounds "
+                "wrong, the page is wrong.")
+        elif mscore and render(mscore, listen_src, mp3):
+            say("Copyist's own render failed (report that), so MuseScore "
+                "played this one — the old robot horns.")
         else:
-            say("MuseScore refused the listen file, twice. The pages "
-                "stand; the MP3 does not.")
+            say("No listen MP3 this time — Copyist's render failed and "
+                "MuseScore is not here to cover it. Report this.")
 
         # a trimmed listen: proof the ending without the commute
         if args.from_bar and os.path.exists(mp3):
@@ -423,19 +448,15 @@ def main():
                     say("ffmpeg refused the trim; the full MP3 stands.")
 
     if args.solo and listen_src:
-        wanted = [w for w in args.solo.split(',') if w.strip()]
-        sub = os.path.join(title_dir, "solo-listen.musicxml")
-        if subset_listen(listen_src, wanted, sub) is None:
+        wanted = [w.strip() for w in args.solo.split(',') if w.strip()]
+        nice = " + ".join(wanted)
+        mp3 = os.path.join(title_dir, f"{title} — listen, {nice}.mp3")
+        try:
+            if render_listen(listen_src, mp3, say, only=wanted):
+                say(f"Isolated listen ready: {nice}, alone.")
+        except SystemExit:
             say(f'No parts matched --solo "{args.solo}" — '
                 "try the parts command for the exact names.")
-        else:
-            nice = " + ".join(w.strip() for w in wanted)
-            mp3 = os.path.join(title_dir, f"{title} — listen, {nice}.mp3")
-            if render(mscore, sub, mp3):
-                say(f"Isolated listen ready: {nice}, alone.")
-            else:
-                say("MuseScore refused the isolated listen, twice.")
-            os.remove(sub)
 
     say("Done. Proof it by ear before a single player sees it.")
 

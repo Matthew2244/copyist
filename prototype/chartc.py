@@ -1571,12 +1571,18 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 # dynamics="0" note attribute alone is ignored by
                 # MuseScore's importer — measured, not assumed)
                 if off == 0 and kind == 'groove' and not was_groove:
-                    pieces.append('      <direction>'
-                                  '<sound dynamics="0"/></direction>\n')
+                    # not in the listening document: its groove bars are
+                    # real rests already, and a part playing demo bars in
+                    # a groove section must not have its notes muted —
+                    # chartaudio honors dynamics, unlike MuseScore
+                    if not listen:
+                        pieces.append('      <direction>'
+                                      '<sound dynamics="0"/></direction>\n')
                     was_groove = True
                 elif off == 0 and kind != 'groove' and was_groove:
-                    pieces.append('      <direction>'
-                                  '<sound dynamics="80"/></direction>\n')
+                    if not listen:
+                        pieces.append('      <direction>'
+                                      '<sound dynamics="80"/></direction>\n')
                     was_groove = False
                 if listen and off == 0:
                     feel_now = (sec['feel'] or hdr.get('feel')
@@ -1592,15 +1598,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             and any(w in feel_now
                                     for w in ('swing', 'shuffle')))
                     if want != was_swing:
-                        # a bare <direction><sound> is dropped by the
-                        # importer — the swing must ride a (hidden)
-                        # words element, measured 2026-09-20
+                        # spec-correct MusicXML (first:second = 2:1 is
+                        # triplet swing): only chartaudio plays this
+                        # document now, and it reads the spec. The
+                        # hidden words keep the direction valid.
                         pieces.append(
                             '      <direction><direction-type>'
                             '<words print-object="no">'
                             + ('Swing' if want else 'Straight')
                             + '</words></direction-type><sound><swing>'
-                            + ('<first>3</first><second>2</second>'
+                            + ('<first>2</first><second>1</second>'
                                '<swing-type>eighth</swing-type>'
                                if want else '<straight/>')
                             + '</swing></sound></direction>\n')

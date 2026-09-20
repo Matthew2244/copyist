@@ -210,9 +210,12 @@ A chart is one small text file, so collaboration is whatever you already
 use for text: a shared folder, email, or a git repository. Two writers
 can work on different sections and merge; the history of a chart is the
 history of decisions, in plain words anyone's screen reader can read.
-The demo MIDI travels beside the chart, and anyone with the repo and
-MuseScore gets byte-identical pages from the same source — the chart is
-the truth, the PDFs are just today's printout.
+The demo MIDI travels beside the chart, and anyone with the repo gets
+byte-identical results from the same source — the chart is the truth,
+the PDFs are just today's printout. The listen MP3 needs no other
+software at all: Copyist plays its own pages, with real swing, honest
+dynamics, and each part seated in its own spot in the stereo field.
+Only the PDF step still asks MuseScore.
 
 ## House rules the tools live by
 
