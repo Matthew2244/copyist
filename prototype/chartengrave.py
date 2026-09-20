@@ -36,7 +36,7 @@ STEPS = {'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6}
 # middle C for each clef
 CLEF_C4 = {'G': -2, 'F': 10, 'C': 4, 'percussion': -2}
 
-DUR_HEADS = {'whole': 'open', 'half': 'open'}
+DUR_HEADS = {'whole': 'whole', 'half': 'half'}
 FLAGS = {'eighth': 1, '16th': 2, '32nd': 3, '64th': 4}
 TYPE_ORDER = ['whole', 'half', 'quarter', 'eighth', '16th', '32nd', '64th']
 
@@ -44,6 +44,134 @@ TYPE_ORDER = ['whole', 'half', 'quarter', 'eighth', '16th', '32nd', '64th']
 def step_pos(step, octave, clef):
     """Vertical position in half-spaces above the bottom line."""
     return CLEF_C4.get(clef, -2) + (octave - 4) * 7 + STEPS[step]
+
+
+# ------------------------------------------------------------ the font
+
+# SMuFL names -> codepoints. One em is four staff spaces, glyphs are
+# registered to their staff lines — the font was designed for exactly
+# this use.
+SMUFL = {
+    'gClef': 0xE050, 'fClef': 0xE062, 'percClef': 0xE069,
+    'flat': 0xE260, 'natural': 0xE261, 'sharp': 0xE262,
+    'wholeHead': 0xE0A2, 'halfHead': 0xE0A3, 'blackHead': 0xE0A4,
+    'restW': 0xE4E3, 'restH': 0xE4E4, 'restQ': 0xE4E5,
+    'rest8': 0xE4E6, 'rest16': 0xE4E7, 'rest32': 0xE4E8,
+    'flag8U': 0xE240, 'flag8D': 0xE241,
+    'flag16U': 0xE242, 'flag16D': 0xE243,
+    'flag32U': 0xE244, 'flag32D': 0xE245,
+    'brace': 0xE000, 'dot': 0xE1E7,
+    'marcato': 0xE4AC, 'accent': 0xE4A0, 'stacc': 0xE4A2,
+    'tenuto': 0xE4A4,
+    'dynP': 0xE520, 'dynF': 0xE522, 'dynMP': 0xE52C, 'dynMF': 0xE52D,
+    'dynPP': 0xE52B, 'dynFF': 0xE52F, 'dynSFZ': 0xE539, 'dynFP': 0xE534,
+}
+for _d in range(10):
+    SMUFL[f'ts{_d}'] = 0xE080 + _d
+
+import struct
+
+
+class MusicFont:
+    """A SMuFL OpenType font, whole-file embedded: cmap for glyph ids,
+    hmtx for widths, the em taken from head."""
+
+    def __init__(self, path):
+        self.data = open(path, 'rb').read()
+        n = struct.unpack('>H', self.data[4:6])[0]
+        self.tables = {}
+        for i in range(n):
+            off = 12 + 16 * i
+            tag = self.data[off:off + 4].decode('latin-1')
+            toff, tlen = struct.unpack('>II', self.data[off + 8:off + 16])
+            self.tables[tag] = (toff, tlen)
+        h = self.tables['head'][0]
+        self.upem = struct.unpack('>H', self.data[h + 18:h + 20])[0]
+        self.cmap = self._cmap()
+        self.adv = self._hmtx()
+        self.gids = {name: self.cmap.get(cp)
+                     for name, cp in SMUFL.items()}
+
+    def _cmap(self):
+        data = self.data
+        off, _ = self.tables['cmap']
+        n = struct.unpack('>H', data[off + 2:off + 4])[0]
+        best = None
+        for i in range(n):
+            pid, eid, sub = struct.unpack(
+                '>HHI', data[off + 4 + 8 * i:off + 12 + 8 * i])
+            fmt = struct.unpack('>H', data[off + sub:off + sub + 2])[0]
+            if fmt in (4, 12):
+                best = (fmt, off + sub)
+                if fmt == 12:
+                    break
+        cmap = {}
+        fmt, s = best
+        if fmt == 12:
+            ngroups = struct.unpack('>I', data[s + 12:s + 16])[0]
+            for g in range(ngroups):
+                a, b, gid = struct.unpack(
+                    '>III', data[s + 16 + 12 * g:s + 28 + 12 * g])
+                for cp in range(a, b + 1):
+                    cmap[cp] = gid + (cp - a)
+        else:
+            segx2 = struct.unpack('>H', data[s + 6:s + 8])[0]
+            segs = segx2 // 2
+            ends = struct.unpack(f'>{segs}H', data[s + 14:s + 14 + segx2])
+            starts = struct.unpack(
+                f'>{segs}H', data[s + 16 + segx2:s + 16 + 2 * segx2])
+            deltas = struct.unpack(
+                f'>{segs}h', data[s + 16 + 2 * segx2:s + 16 + 3 * segx2])
+            rpos = s + 16 + 3 * segx2
+            rngs = struct.unpack(f'>{segs}H', data[rpos:rpos + segx2])
+            for i in range(segs):
+                for cp in range(starts[i], min(ends[i], 0xFFFF) + 1):
+                    if rngs[i] == 0:
+                        gid = (cp + deltas[i]) & 0xFFFF
+                    else:
+                        ga = rpos + 2 * i + rngs[i] + 2 * (cp - starts[i])
+                        gid = struct.unpack('>H', data[ga:ga + 2])[0]
+                        if gid:
+                            gid = (gid + deltas[i]) & 0xFFFF
+                    if gid:
+                        cmap[cp] = gid
+        return cmap
+
+    def _hmtx(self):
+        hh = self.tables['hhea'][0]
+        nm = struct.unpack('>H', self.data[hh + 34:hh + 36])[0]
+        off = self.tables['hmtx'][0]
+        return [struct.unpack('>H', self.data[off + 4 * i:off + 4 * i + 2])[0]
+                for i in range(nm)]
+
+    def width(self, name, size):
+        gid = self.gids.get(name)
+        if gid is None:
+            return 0
+        adv = self.adv[gid] if gid < len(self.adv) else self.adv[-1]
+        return adv * size / self.upem
+
+
+_FONT_CACHE = {}
+
+
+def music_font():
+    """Leland, from the repo first, else the MuseScore bundle; None
+    means the hand-drawn glyphs carry the page."""
+    if 'leland' in _FONT_CACHE:
+        return _FONT_CACHE['leland']
+    here = os.path.dirname(os.path.abspath(__file__))
+    for p in (os.path.join(here, '..', 'fonts', 'Leland.otf'),
+              '/Applications/MuseScore 4.app/Contents/Resources/fonts/'
+              'Leland.otf'):
+        if os.path.exists(p):
+            try:
+                _FONT_CACHE['leland'] = MusicFont(p)
+            except Exception:
+                _FONT_CACHE['leland'] = None
+            return _FONT_CACHE['leland']
+    _FONT_CACHE['leland'] = None
+    return None
 
 
 # ------------------------------------------------------------ pdf bones
@@ -56,10 +184,23 @@ class Pdf:
              'HO': 'Helvetica-Oblique', 'TI': 'Times-Italic',
              'TB': 'Times-Bold', 'TBI': 'Times-BoldItalic'}
 
-    def __init__(self, scale=1.0):
+    def __init__(self, scale=1.0, music=None):
         self.pages = []
         self.buf = []
         self.scale = scale
+        self.music = music
+
+    def glyph(self, x, y, name, size):
+        """One SMuFL glyph at its registration point. True if drawn."""
+        gid = self.music.gids.get(name) if self.music else None
+        if gid is None:
+            return False
+        self._w(f"BT /FM {size:.2f} Tf {x:.2f} {y:.2f} Td "
+                f"<{gid:04X}> Tj ET")
+        return True
+
+    def gw(self, name, size):
+        return self.music.width(name, size) if self.music else 0
 
     def new_page(self):
         if self.buf:
@@ -110,9 +251,29 @@ class Pdf:
         for tag, name in self.FONTS.items():
             font_ids[tag] = add(f"<< /Type /Font /Subtype /Type1 "
                                 f"/BaseFont /{name} >>")
+        music_ref = ""
+        if self.music:
+            fdata = zlib.compress(self.music.data)
+            ff = add(f"<< /Length {len(fdata)} /Filter /FlateDecode "
+                     "/Subtype /OpenType >>\nstream\n"
+                     + fdata.decode('latin-1') + "\nendstream")
+            fd = add("<< /Type /FontDescriptor /FontName /Leland "
+                     "/Flags 4 /FontBBox [-200 -1200 2000 1500] "
+                     "/ItalicAngle 0 /Ascent 1000 /Descent -300 "
+                     "/CapHeight 800 /StemV 50 "
+                     f"/FontFile3 {ff} 0 R >>")
+            cid = add("<< /Type /Font /Subtype /CIDFontType0 "
+                      "/BaseFont /Leland /CIDSystemInfo "
+                      "<< /Registry (Adobe) /Ordering (Identity) "
+                      "/Supplement 0 >> "
+                      f"/FontDescriptor {fd} 0 R /DW 0 >>")
+            f0 = add("<< /Type /Font /Subtype /Type0 /BaseFont /Leland "
+                     "/Encoding /Identity-H "
+                     f"/DescendantFonts [{cid} 0 R] >>")
+            music_ref = f" /FM {f0} 0 R"
         res = ("<< /Font << "
                + " ".join(f"/F{t} {i} 0 R" for t, i in font_ids.items())
-               + " >> >>")
+               + music_ref + " >> >>")
         page_ids = []
         kids_id = len(objs) + 2 * len(self.pages) + 1
         for content in self.pages:
@@ -154,9 +315,25 @@ class Pdf:
 
 
 def notehead(pdf, x, y, kind='black', scale=1.0, parens=False):
-    """An oval head, slightly tilted; open for halves and wholes,
-    a parallelogram for slashes."""
+    """An oval head — Leland's when the font is here, our bezier when
+    not; a parallelogram for slashes either way."""
     rx, ry = 1.28 * SP * scale, 0.92 * SP * scale
+    if kind != 'slash' and pdf.music:
+        name = {'black': 'blackHead', 'half': 'halfHead',
+                'whole': 'wholeHead'}.get(kind, 'blackHead')
+        size = 4 * SP * scale
+        hw = pdf.gw(name, size)
+        if pdf.glyph(x - hw / 2, y, name, size):
+            if parens:
+                for sx, side in ((x - hw / 2 - 2.4, 1),
+                                 (x + hw / 2 + 2.4, -1)):
+                    pdf.bez([(sx + side * 1.2, y + 1.7 * SP),
+                             ((sx - side * 0.8, y + 0.8 * SP),
+                              (sx - side * 0.8, y - 0.8 * SP),
+                              (sx + side * 1.2, y - 1.7 * SP))], w=0.9)
+            return
+    if kind in ('open', 'half', 'whole'):
+        kind = 'open'
     if kind == 'slash':
         s = SP * scale
         pdf.poly([(x - 0.9 * s, y - s), (x + 0.35 * s, y + s),
@@ -182,6 +359,10 @@ def notehead(pdf, x, y, kind='black', scale=1.0, parens=False):
 
 
 def draw_flag(pdf, x, y, up, n):
+    if pdf.music:
+        name = {1: 'flag8', 2: 'flag16', 3: 'flag32'}.get(min(n, 3))
+        if name and pdf.glyph(x, y, name + ('U' if up else 'D'), 4 * SP):
+            return
     for i in range(n):
         dy = -i * 2.4 * (1 if up else -1)
         y0 = y + dy
@@ -197,6 +378,13 @@ def draw_flag(pdf, x, y, up, n):
 
 def draw_clef(pdf, x, top, clef):
     mid = top - STAFF / 2
+    if pdf.music:
+        name, yy = {'G': ('gClef', top - 3 * SP),
+                    'F': ('fClef', top - SP),
+                    'percussion': ('percClef', mid)}.get(
+            clef, ('gClef', top - 3 * SP)) if clef != 'C' else (None, 0)
+        if name and pdf.glyph(x - SP, yy, name, 4 * SP):
+            return
     if clef == 'G':
         g = top - 3 * SP            # the G line
         s = SP
@@ -251,6 +439,11 @@ def draw_clef(pdf, x, top, clef):
 
 def draw_accidental(pdf, x, y, alter, scale=1.0):
     s = SP * scale
+    if pdf.music:
+        name = {1: 'sharp', -1: 'flat', 0: 'natural'}[alter]
+        size = 4 * SP * scale
+        if pdf.glyph(x - pdf.gw(name, size) * 0.6, y, name, size):
+            return
     if alter == 1:              # sharp
         for dx in (-0.45 * s, 0.45 * s):
             pdf.line(x + dx, y - 1.5 * s, x + dx, y + 1.5 * s, w=0.9)
@@ -272,6 +465,15 @@ def draw_accidental(pdf, x, y, alter, scale=1.0):
 
 def draw_rest(pdf, x, top, rtype):
     mid = top - STAFF / 2
+    if pdf.music:
+        name, yy = {'whole': ('restW', top - SP),
+                    'measure': ('restW', top - SP),
+                    'half': ('restH', top - 2 * SP),
+                    'quarter': ('restQ', mid), 'eighth': ('rest8', mid),
+                    '16th': ('rest16', mid), '32nd': ('rest32', mid),
+                    '64th': ('rest32', mid)}.get(rtype, ('restQ', mid))
+        if pdf.glyph(x - pdf.gw(name, 4 * SP) / 2, yy, name, 4 * SP):
+            return
     if rtype in ('whole', 'measure'):
         pdf.poly([(x - 1.4 * SP, top - SP), (x + 1.4 * SP, top - SP),
                   (x + 1.4 * SP, top - 1.55 * SP),
@@ -538,7 +740,7 @@ def engrave(xml_path, pdf_path):
     title = re.search(r'<work-title>([^<]*)</work-title>', xml)
     composer = re.search(r'<creator type="composer">([^<]*)</creator>', xml)
 
-    pdf = Pdf()
+    pdf = Pdf(music=music_font())
     top_y = PAGE_H - MARGIN - TITLE_H
     first_page = True
 
@@ -647,7 +849,7 @@ def engrave_score(xml, pids, names, pdf_path):
     want = 2 if len(parts) > 3 else 3
     scale = max(0.38, min(0.75,
                 (PAGE_H - 2 * MARGIN - TITLE_H) / (want * per_sys)))
-    pdf = Pdf(scale=scale)
+    pdf = Pdf(scale=scale, music=music_font())
     W, H, M = PAGE_W / scale, PAGE_H / scale, MARGIN / scale
 
     pdf.text(W / 2, H - M - 14 / scale,
@@ -767,10 +969,19 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False):
     if 'time' in meas['show']:
         n, d = meas['show']['time']
         for stop in tops:
-            pdf.text(x, stop - 1.9 * SP, str(n), size=2.6 * SP,
-                     font='TB', center=True)
-            pdf.text(x, stop - 3.9 * SP, str(d), size=2.6 * SP,
-                     font='TB', center=True)
+            if pdf.music:
+                for val, yy in ((n, stop - SP), (d, stop - 3 * SP)):
+                    digits = str(val)
+                    tw = sum(pdf.gw(f'ts{c}', 4 * SP) for c in digits)
+                    dx = x - tw / 2
+                    for c in digits:
+                        pdf.glyph(dx, yy, f'ts{c}', 4 * SP)
+                        dx += pdf.gw(f'ts{c}', 4 * SP)
+            else:
+                pdf.text(x, stop - 1.9 * SP, str(n), size=2.6 * SP,
+                         font='TB', center=True)
+                pdf.text(x, stop - 3.9 * SP, str(d), size=2.6 * SP,
+                         font='TB', center=True)
         x += 3.4 * SP
 
     tx = x0 + 2
@@ -799,6 +1010,7 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False):
         tx = max(wx, tx) + 8.5 * 0.55 * len(words) + 6
 
     if (meas.get('left') or {}).get('repeat') == 'forward':
+        meas['_repx'] = max(x0, x - 1.2 * SP)
         x += 2.4 * SP
     if meas['multi']:
         for stop in tops:
@@ -820,8 +1032,15 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False):
 
     for pos, sym in meas['chords']:
         draw_chord_symbol(pdf, xat(pos), top + 1.5 * SP, sym)
+    DYN_GLYPH = {'p': 'dynP', 'f': 'dynF', 'mf': 'dynMF',
+                 'mp': 'dynMP', 'pp': 'dynPP', 'ff': 'dynFF',
+                 'sfz': 'dynSFZ', 'fp': 'dynFP'}
     for pos, mark in meas['dyn']:
-        pdf.text(xat(pos), bottom_y - 2.6 * SP, mark, size=11, font='TBI')
+        g = DYN_GLYPH.get(mark)
+        if not (g and pdf.glyph(xat(pos), bottom_y - 2.6 * SP, g,
+                                4 * SP)):
+            pdf.text(xat(pos), bottom_y - 2.6 * SP, mark, size=11,
+                     font='TBI')
 
     beat_len = div * 4 // state['time'][1]
     streams = {}
@@ -933,7 +1152,10 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                 ay = max(top + 0.6 * SP, max(ys) + 1.8 * SP)
             else:
                 ay = (min(ys) - 2.2 * SP) if up else (max(ys) + 1.6 * SP)
-            draw_artic(pdf, cx, ay, n0.artic)
+            acx = cx
+            if n0.artic in ('scoop', 'plop') and any(n.alter for n in notes):
+                acx -= 1.9 * SP        # start left of the accidental
+            draw_artic(pdf, acx, ay, n0.artic)
         if n0.tie_stop or n0.slur_stop:
             if slur_open:
                 sx, sy, sup = slur_open.pop()
@@ -983,6 +1205,12 @@ def draw_measure_number(pdf, meas, x0, top):
 
 
 def draw_artic(pdf, x, y, artic):
+    if pdf.music:
+        name = {'staccato': 'stacc', 'accent': 'accent',
+                'strong-accent': 'marcato', 'tenuto': 'tenuto'}.get(artic)
+        if name and pdf.glyph(x - pdf.gw(name, 4 * SP) / 2, y, name,
+                              4 * SP):
+            return
     if artic == 'staccato':
         pdf.text(x - 1, y, ".", size=12, font='HB')
     elif artic == 'accent':
@@ -1098,11 +1326,12 @@ def draw_barline(pdf, meas, x0, tops, width):
                 _dot(pdf, xr - 7.5, stop - dy)
     left = meas.get('left') or {}
     if left.get('repeat') == 'forward':
-        pdf.line(x0 + 1, top, x0 + 1, bottom_y, w=2.6)
-        pdf.line(x0 + 4.5, top, x0 + 4.5, bottom_y, w=0.9)
+        rx = meas.get('_repx', x0)     # past any clef/key/time block
+        pdf.line(rx + 1, top, rx + 1, bottom_y, w=2.6)
+        pdf.line(rx + 4.5, top, rx + 4.5, bottom_y, w=0.9)
         for stop in tops:
             for dy in (1.5 * SP, 2.5 * SP):
-                _dot(pdf, x0 + 8, stop - dy)
+                _dot(pdf, rx + 8, stop - dy)
 
 
 def draw_ending(pdf, meas, x0, top, width):

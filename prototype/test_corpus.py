@@ -1378,6 +1378,19 @@ def check_engraver():
     ok, why = chartengrave.engrave(bad, os.path.join(tmp, "x.pdf"))
     check("grace notes still decline in a sentence",
           not ok and "grace" in why, f"{ok} {why}")
+
+    # the music font: Leland loads, knows its glyphs, and is embedded
+    m = chartengrave.music_font()
+    check("Leland loads with the glyphs the pages need",
+          m is not None and all(
+              n in m.gids for n in ('gClef', 'fClef', 'sharp', 'flat',
+                                    'blackHead', 'restQ', 'flag8U',
+                                    'ts4', 'dynF', 'marcato')),
+          "font missing" if m is None else "glyph gap")
+    raw = open(pdf, "rb").read()
+    check("the part PDF embeds the font (Type0 + FontFile3)",
+          b"/FM" in raw and b"/FontFile3" in raw
+          and b"/Identity-H" in raw, "no embedded font in t.pdf")
     shutil.rmtree(tmp, ignore_errors=True)
 
 
