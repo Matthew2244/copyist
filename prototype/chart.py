@@ -169,13 +169,17 @@ def find_mscore():
     return None
 
 
-def render_listen(listen_src, mp3, say, only=None):
+def render_listen(listen_src, mp3, say, only=None, count_in=None,
+                  lead=None):
     """Copyist synthesizes the listening document itself, then encodes.
     True with the MP3 in place (or, without ffmpeg, the WAV and a
     sentence)."""
     wav = mp3[:-4] + ".wav"
     try:
-        chartaudio.render(listen_src, wav, only=only)
+        _, _, _, lead_s = chartaudio.render(listen_src, wav, only=only,
+                                            count_in=count_in)
+        if lead is not None:
+            lead[0] = lead_s
     except SystemExit:
         raise
     except Exception as e:
@@ -310,6 +314,16 @@ def main():
         list_instruments(" ".join(sys.argv[2:]).strip().lower())
         return
 
+    if len(sys.argv) == 1:
+        say("Copyist chart — a song from played demo to proofread "
+            "parts, by ear.")
+        say("Start with a chart file: 'chart my-tune.chart' builds "
+            "everything; add 'check' to just prove it, 'read' to hear "
+            "a part, 'parts' for the band, 'new --demo take.mid' to "
+            "start one from your playing.")
+        say("The writer's guide is CHART-WRITING.md, next to the code "
+            "and in your Copyist Charts folder.")
+        return
     ap = argparse.ArgumentParser(
         description="Compile a chart and make everything a writer needs.")
     ap.add_argument('chart', help="the .chart file")
@@ -332,6 +346,10 @@ def main():
     ap.add_argument('--solo',
                     help='also bounce an isolated listen of just these '
                          'parts, e.g. --solo "bari,trombone"')
+    ap.add_argument('--count-in', type=int, nargs='?', const=1,
+                    dest='count_in', metavar='BARS',
+                    help="start the listen MP3 with this many bars of "
+                         "click (default 1) — play along like a session")
     ap.add_argument('--from-bar', type=int, dest='from_bar',
                     help="also cut a listen MP3 starting at this bar "
                          "(your DAW's numbering) — no waiting through "
@@ -356,9 +374,12 @@ def main():
         bits = []
         for b in chart['band']:
             inst = chartc.canonical_instrument(b['instrument'])
-            bits.append(b['label'] if b['label'].lower() == inst
-                        else f"{b['label']} ({inst})")
-        say(f"{len(bits)} parts: " + ", ".join(bits) + ".")
+            name = (b['label'] if b['label'].lower() == inst
+                    else f"{b['label']} ({inst})")
+            if b.get('demo'):
+                name += ", on the demo"
+            bits.append(name)
+        say(f"The band — {len(bits)} chairs: " + "; ".join(bits) + ".")
         return
 
     if args.command == 'read':
@@ -411,6 +432,13 @@ def main():
     if args.command == 'check':
         say("The chart compiles and every measure adds up. Nothing "
             "rendered — that was a check.")
+        stale = [f for f in glob.glob(
+                     os.path.join(base_dir, f"{title} — *read aloud.txt"))
+                 if os.path.getmtime(f) < os.path.getmtime(path)]
+        if stale:
+            say("Heads up: the saved read-alouds are older than this "
+                "chart — 'read' speaks the current version, and a "
+                "build refreshes the files.")
         return
 
     # ---- read-alouds, next to the chart where the writer lives.
@@ -464,6 +492,8 @@ def main():
 
     look_style = (write_style(chart['header']['look'], title_dir)
                   if chart['header'].get('look') else None)
+    if mscore and not args.no_pages and args.command != 'listen':
+        say("Rendering the pages — MuseScore takes its moment.")
     pages = 0
     failed = []
     listen_src = None
@@ -488,10 +518,14 @@ def main():
     if not args.no_listen and listen_src:
         mp3 = os.path.join(title_dir,
                            f"{title} — chart as written (robot horns).mp3")
-        if render_listen(listen_src, mp3, say):
+        lead = [0.0]
+        if render_listen(listen_src, mp3, say,
+                         count_in=args.count_in, lead=lead):
             say("The listen file is ready — Copyist's own robot horns "
-                "playing exactly what the pages say. Anywhere it sounds "
-                "wrong, the page is wrong.")
+                "playing exactly what the pages say"
+                + (f", after {args.count_in} bar(s) of count-in"
+                   if args.count_in else "")
+                + ". Anywhere it sounds wrong, the page is wrong.")
         elif mscore and render(mscore, listen_src, mp3):
             say("Copyist's own render failed (report that), so MuseScore "
                 "played this one — the old robot horns.")
@@ -512,6 +546,8 @@ def main():
                 # and by construction it matches the rendered audio
                 seconds = chartaudio.first_bar_seconds(listen_src,
                                                        printed)
+                if seconds is not None:
+                    seconds += lead[0]
                 if seconds is None:
                     say(f"The pages have no bar {printed}, so no trim — "
                         "the full MP3 stands.")
@@ -540,6 +576,18 @@ def main():
                 "try the parts command for the exact names.")
 
     say("Done. Proof it by ear before a single player sees it.")
+    marker = os.path.expanduser("~/.config/copyist/welcomed")
+    if args.command == 'build' and not os.path.exists(marker):
+        try:
+            os.makedirs(os.path.dirname(marker), exist_ok=True)
+            open(marker, "w").write("hello\n")
+            say("And since that was your first full build: 'read' "
+                "speaks any part any time, the findings file next to "
+                "the pages keeps everything I noticed, and every "
+                "rebuild tells you exactly what changed. Welcome to "
+                "the copy desk.")
+        except OSError:
+            pass
 
 
 if __name__ == '__main__':

@@ -1288,6 +1288,53 @@ def compile_chart(chart_path, outdir):
         if not fig['used']:
             findings.add(f"figure '{name}' is defined and never used")
 
+    # ---- every part's fate per section (CHART-FORMAT.md 3.6): an
+    # accidental twelve-bar rest is read back before it is printed
+    for l in labels:
+        fates, sounded = [], False
+        for plan in plans:
+            sec = plan['sec']
+            kind, arg = plan['content'][l]
+            if kind == 'default':
+                kind = 'groove' if l in groups['rhythm'] else 'tacet'
+            items = [i for i in resolved[l] if i['plan'] is plan]
+            played = [i for i in items if not i.get('cue')]
+            cued = [i for i in items if i.get('cue')]
+            solo = any(isinstance(t[1], str)
+                       and t[1].lower().startswith('solo')
+                       for t in plan['texts'][l])
+            if played:
+                srcs = sorted({i['src_label'] for i in played
+                               if i.get('src_label')})
+                if srcs:
+                    what = "doubles the " + " and ".join(srcs)
+                elif any(i['res'].get('detail') == 'rhythmic-slashes'
+                         for i in played):
+                    what = "your rhythm on slashes"
+                else:
+                    what = "your line"
+            elif plan['lifts'][l]:
+                what = "written figures"
+            elif solo:
+                what = "solo"
+            elif kind == 'engraved':
+                what = "the engraving"
+            elif kind == 'hits':
+                what = "kicks"
+            elif kind == 'groove':
+                what = "slashes"
+            else:
+                what = "rest"
+            if what != "rest":
+                sounded = True
+            elif cued:
+                what = "rest, with a cue to watch"
+            fates.append(f"{sec['label'] or sec['name']}: {what}")
+        findings.add(f"{l} — " + "; ".join(fates))
+        if not sounded:
+            findings.add(f"{l} NEVER PLAYS A BAR IN THIS CHART — "
+                         "meant, or a missing line?")
+
     # ---- the range report: where each part peaks, in written pitch —
     # what an arranger checks before any page reaches a player
     shift = int(hdr.get('countin', 0))

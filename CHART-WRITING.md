@@ -314,6 +314,19 @@ software at all: Copyist plays its own pages, with real swing, honest
 dynamics, and each part seated in its own spot in the stereo field.
 Only the PDF step still asks MuseScore.
 
+## The build has your back
+
+Every build's findings open with each part's fate, section by section —
+"trumpet — Head: your line; Solos: your line; Head out: doubles the
+tenor" — so an accidental twelve-bar rest in the lead alto is read back
+in text before it is ever printed, and a part that never plays a single
+bar gets called out loudly in case that wasn't the plan. If your saved
+read-alouds are older than the chart, check says so instead of letting
+you proofread yesterday. And `--count-in` puts a bar of click in front
+of the listen MP3 — high tick on one — so you can play along like it's
+a session; add a number for more bars. The from-bar trim still lands on
+the music, past the click.
+
 ## House rules the tools live by
 
 - Ears first: every output exists in a spoken or listenable form.

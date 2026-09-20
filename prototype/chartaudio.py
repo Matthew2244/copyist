@@ -100,6 +100,7 @@ def parse_score(path, only=None):
         if only is not None and m['name'].lower().strip() not in only:
             continue
         div, tnum, tden = 24, 4, 4
+        meter0 = None
         transpose = 0
         dyn_state = 80.0
         q0 = 0.0                        # quarters at the measure's start
@@ -116,6 +117,8 @@ def parse_score(path, only=None):
                            r'<beat-type>(\d+)</beat-type>', meas)
             if ts:
                 tnum, tden = int(ts.group(1)), int(ts.group(2))
+                if meter0 is None:
+                    meter0 = (tnum, tden)
             tr = re.search(r'<transpose>.*?</transpose>', meas, re.S)
             if tr:
                 ch = re.search(r'<chromatic>(-?\d+)</chromatic>', tr.group(0))
@@ -208,9 +211,11 @@ def parse_score(path, only=None):
             q0 += (top if num == '0' else barlen) / div
         parts.append({'name': m['name'], 'program': m['program'],
                       'percussion': m['percussion'], 'events': events,
-                      'bars': bars, 'length_q': q0})
+                      'bars': bars, 'meter0': meter0 or (4, 4),
+                      'length_q': q0})
     return {'parts': parts,
             'bars': parts[0]['bars'] if parts else {},
+            'meter0': parts[0]['meter0'] if parts else (4, 4),
             'tempos': sorted(tempos.items()),
             'swings': sorted(swings.items())}
 
@@ -373,20 +378,35 @@ def _add_click(L, R, t0, gain, panl, panr, seed=1234):
         R[i0 + i] += s * panr
 
 
-def render(listen_path, wav_path, only=None, tail=1.5):
+def render(listen_path, wav_path, only=None, tail=1.5, count_in=None):
     """The listening document -> a stereo WAV. `only` filters part
-    names (lowercased). Returns (seconds, n_parts, n_notes)."""
+    names (lowercased); `count_in` prepends that many bars of click,
+    high tick on one, like a session. Returns (seconds, n_parts,
+    n_notes, lead_seconds)."""
     plan = parse_score(listen_path,
                        only={o.lower().strip() for o in only}
                        if only else None)
     if not plan['parts']:
         raise SystemExit("chartaudio: no parts matched")
     scheduled = _seconds(plan)
+    lead = 0.0
+    if count_in:
+        n0, d0 = plan['meter0']
+        qbpm = plan['tempos'][0][1] if plan['tempos'] else 120.0
+        pulse = (4.0 / d0) * 60.0 / qbpm
+        lead = n0 * count_in * pulse
+        scheduled = [[(a + lead, d, m, g) for a, d, m, g in ev]
+                     for ev in scheduled]
     end = max((a + d for ev in scheduled for a, d, _, _ in ev),
               default=0.0) + tail
     frames = int(end * SR)
     L = array('f', [0.0]) * frames
     R = array('f', [0.0]) * frames
+
+    if count_in:
+        for c in range(n0 * count_in):
+            _add_tick(L, R, c * pulse,
+                      1568.0 if c % n0 == 0 else 1047.0, 0.5)
 
     n_parts = len(plan['parts'])
     notes = 0
@@ -419,7 +439,18 @@ def render(listen_path, wav_path, only=None, tail=1.5):
             frames_i[2 * i] = int(max(-1, min(1, L[i] * scale)) * 32767)
             frames_i[2 * i + 1] = int(max(-1, min(1, R[i] * scale)) * 32767)
         w.writeframes(frames_i.tobytes())
-    return end, n_parts, notes
+    return end, n_parts, notes, lead
+
+
+def _add_tick(L, R, t0, freq, gain):
+    """One click of the count-in: a short sine with a hard decay."""
+    n = min(int(SR * 0.05), len(L) - int(t0 * SR))
+    i0 = int(t0 * SR)
+    w = 2 * math.pi * freq / SR
+    for i in range(n):
+        s = math.sin(w * i) * (1 - i / n) ** 2 * gain
+        L[i0 + i] += s
+        R[i0 + i] += s
 
 
 def to_mp3(wav_path, mp3_path):

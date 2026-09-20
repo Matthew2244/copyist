@@ -725,7 +725,7 @@ def check_audio():
                    if p['name'] == 'drums')['events'])
 
     wav = os.path.join(tmp, "a.wav")
-    secs, n_parts, n_notes = chartaudio.render(listen, wav)
+    secs, n_parts, n_notes, _ = chartaudio.render(listen, wav)
     # the tied note spans bars 1-2 (8 quarters), the last quarter ends
     # at 4.5s, and the render adds its 1.5s tail
     check("the render ends after the last release plus the tail",
@@ -1263,6 +1263,49 @@ def check_detail_and_look():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_user_chair():
+    """
+    The safety nets and the session feel: every part's fate per section
+    is a finding (the spec's day-one promise — an accidental chart-long
+    rest is read back, loudly), and the count-in prepends real clicks
+    that shift the whole schedule.
+    """
+    import chartaudio
+    import chartc
+    import smf
+    tmp = tempfile.mkdtemp()
+    div = 480
+    notes = [(i * div, i * div + 400, 60 + i, 90) for i in range(4)]
+    smf.write(os.path.join(tmp, "d.mid"), notes, div, 120)
+    open(os.path.join(tmp, "f.chart"), "w").write(
+        'title: U\nkey: C\nmeter: 4/4\ntempo: 120\ndemo: d.mid\n\n'
+        'band:\n  flute\n  horn = french horn\n  piano\n\n'
+        'section A, 2 bars, label "Top"\n  chords: C, F\n'
+        '  flute: from demo bars 1-1\n  piano: groove\n'
+        'section B, 2 bars\n  chords: G, C\n  piano: groove\n')
+    out = os.path.join(tmp, "b")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(os.path.join(tmp, "f.chart"), out)
+    log = buf.getvalue()
+    check("every part's fate is a finding",
+          "flute — Top: your line; B: rest" in log
+          and "piano — Top: slashes; B: slashes" in log, log[:300])
+    check("a part that never plays is called out loudly",
+          "horn NEVER PLAYS A BAR IN THIS CHART" in log)
+
+    listen = os.path.join(out, "U — for listening.musicxml")
+    plain = chartaudio.render(listen, os.path.join(tmp, "a.wav"))
+    counted = chartaudio.render(listen, os.path.join(tmp, "c.wav"),
+                                count_in=2)
+    check("the count-in shifts the schedule by its own bars",
+          abs(counted[3] - 4.0) < 1e-9
+          and abs(counted[0] - plain[0] - 4.0) < 1e-6,
+          f"lead {counted[3]}, ends {plain[0]} vs {counted[0]}")
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -1330,6 +1373,7 @@ if __name__ == "__main__":
     check_lyrics()
     check_directive_family()
     check_detail_and_look()
+    check_user_chair()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

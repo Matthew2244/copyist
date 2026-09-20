@@ -771,7 +771,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         n_sl = len(slurs)
         gh = sorted({at_bar + spoken_shift + timeline[i][0] // bar_ticks
                      for i in ghosts})
-    if legato:
+    if legato and len(timeline) >= 2:
         find.add(f"{part_label}: bars {bar_lo}-{bar_hi}: "
                  + (f"{n_sl} slurred phrase(s) from the played legato"
                     if n_sl else
