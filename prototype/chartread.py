@@ -152,6 +152,18 @@ def part_section(plan, label, chord_parts, figures=None):
             lines.append(f"Bars 1 to {at - 1}: rest.")
         if at - 1 + span < sec['bars']:
             lines.append(f"Bars {at + span} to {sec['bars']}: rest.")
+    elif kind == 'hits':
+        hmap, gw = arg
+        bits = []
+        if None in hmap:
+            bits.append("every bar kicks on "
+                        + " and ".join(say_beat(b) for b in hmap[None]))
+        for bar in sorted(k for k in hmap if k is not None):
+            bits.append(f"bar {bar} kicks on "
+                        + " and ".join(say_beat(b) for b in hmap[bar]))
+        g = f' "{gw}"' if gw else ""
+        lines.append(f"Kicks{g} — {'; '.join(bits)}; slashes everywhere "
+                     "else.")
     elif kind == 'groove':
         g = f'Groove, "{arg}"' if arg else "Groove"
         what = "slashes with the changes" if shows_chords else "slashes"

@@ -76,7 +76,27 @@ HORNS = {
     'piano':             _inst(0,  (21, 108), 'G', 0, (21, 108), poly=True),
     'vibraphone':        _inst(0,  (53, 89),  'G', 0, (53, 89), poly=True),
     'organ':             _inst(0,  (24, 96),  'G', 0, (24, 96), poly=True),
+    # orchestral doubles and colors
+    'english horn':      _inst(7,  (52, 81),  'G', 1, (52, 79)),
+    'alto flute':        _inst(5,  (55, 91),  'G', 1, (55, 88)),
+    'eb clarinet':       _inst(-3, (55, 96),  'G', -1, (55, 91)),
+    'cornet':            _inst(2,  (54, 94),  'G', 2, (54, 82)),
+    'euphonium':         _inst(0,  (34, 70),  'F', 0, (40, 67)),
+    'harp':              _inst(0,  (24, 103), 'G', 0, (24, 103), poly=True),
+    'celesta':           _inst(-12, (60, 108), 'G', 0, (60, 108), poly=True),
+    'marimba':           _inst(0,  (45, 96),  'G', 0, (45, 96), poly=True),
+    'xylophone':         _inst(-12, (65, 108), 'G', 0, (65, 108), poly=True),
+    'glockenspiel':      _inst(-24, (79, 108), 'G', 0, (79, 108), poly=True),
+    'timpani':           _inst(0,  (38, 60),  'F', 0, (41, 55)),
+    'banjo':             _inst(0,  (48, 88),  'G', 0, (50, 81)),
+    'mandolin':          _inst(0,  (55, 88),  'G', 0, (55, 84)),
+    'accordion':         _inst(0,  (41, 96),  'G', 0, (41, 96), poly=True),
+    'harmonica':         _inst(0,  (48, 84),  'G', 0, (48, 84)),
+    # drums: groove, hits and words — from-demo kit notation is future
+    'drums':             _inst(0,  (0, 127),  'percussion', 0, (0, 127),
+                               poly=True),
     # voices — nobody left out
+    'voice':             _inst(0,  (48, 84),  'G', 0, (50, 79)),
     'soprano':           _inst(0,  (60, 84),  'G', 0, (60, 81)),
     'mezzo':             _inst(0,  (57, 81),  'G', 0, (57, 79)),
     'alto voice':        _inst(0,  (53, 77),  'G', 0, (55, 74)),
@@ -117,6 +137,23 @@ SOUNDS = {
     'piano':          ('Piano', 'keyboard.piano', 1),
     'vibraphone':     ('Vibraphone', 'pitched-percussion.vibraphone', 12),
     'organ':          ('Organ', 'keyboard.organ', 17),
+    'english horn':   ('English Horn', 'wind.reed.english-horn', 70),
+    'alto flute':     ('Alto Flute', 'wind.flutes.flute.alto', 74),
+    'eb clarinet':    ('Eb Clarinet', 'wind.reed.clarinet.eflat', 72),
+    'cornet':         ('Cornet', 'brass.cornet', 57),
+    'euphonium':      ('Euphonium', 'brass.euphonium', 58),
+    'harp':           ('Harp', 'pluck.harp', 47),
+    'celesta':        ('Celesta', 'keyboard.celesta', 9),
+    'marimba':        ('Marimba', 'pitched-percussion.marimba', 13),
+    'xylophone':      ('Xylophone', 'pitched-percussion.xylophone', 14),
+    'glockenspiel':   ('Glockenspiel', 'pitched-percussion.glockenspiel', 10),
+    'timpani':        ('Timpani', 'drum.timpani', 48),
+    'banjo':          ('Banjo', 'pluck.banjo', 106),
+    'mandolin':       ('Mandolin', 'pluck.mandolin', 25),
+    'accordion':      ('Accordion', 'keyboard.accordion', 22),
+    'harmonica':      ('Harmonica', 'wind.reed.harmonica', 23),
+    'drums':          ('Drum Set', 'drum.group.set', 1),
+    'voice':          ('Voice', 'voice.vocals', 54),
     'soprano':        ('Soprano', 'voice.soprano', 53),
     'mezzo':          ('Mezzo-soprano', 'voice.mezzo-soprano', 53),
     'alto voice':     ('Alto', 'voice.alto', 53),
@@ -153,6 +190,33 @@ DYN_WORDS = [('sforzando', 'sfz'), ('fortissimo', 'ff'),
              ('pianissimo', 'pp'), ('mezzo forte', 'mf'),
              ('mezzo piano', 'mp'), ('forte piano', 'fp'),
              ('forte', 'f'), ('piano', 'p')]
+
+
+# What players call their instruments — normalized before lookup, the
+# same courtesy the directive words get.
+INSTRUMENT_ALIASES = {
+    'bari sax': 'baritone sax', 'bari': 'baritone sax',
+    'sop sax': 'soprano sax',
+    'horn': 'french horn', 'f horn': 'french horn',
+    'horn in f': 'french horn',
+    'bone': 'trombone', 't-bone': 'trombone',
+    'flugel': 'flugelhorn', 'picc': 'piccolo',
+    'upright bass': 'double bass', 'string bass': 'double bass',
+    'acoustic bass': 'double bass', 'contrabass': 'double bass',
+    'bass': 'electric bass', 'bass guitar': 'electric bass',
+    'keys': 'piano', 'keyboard': 'piano', 'rhodes': 'piano',
+    'hammond': 'organ', 'b3': 'organ',
+    'vibes': 'vibraphone', 'fiddle': 'violin',
+    'violoncello': 'cello',
+    'drum set': 'drums', 'drum kit': 'drums', 'kit': 'drums',
+    'vocals': 'voice', 'vocal': 'voice', 'lead vocal': 'voice',
+    'singer': 'voice',
+}
+
+
+def canonical_instrument(name):
+    n = name.strip().lower()
+    return INSTRUMENT_ALIASES.get(n, n)
 
 
 def normalize_piece(piece):
@@ -551,6 +615,41 @@ def slash_bar(div, clef, staves, fifths):
     return "\n".join(out) + "\n"
 
 
+def hits_bar(pattern, div, clef, staves, fifths):
+    """Rhythmic kicks: slash noteheads WITH stems at the named beats,
+    rests around them — 'hits on 1, 2+, 4' as the spec always promised.
+    Each hit rings to the next hit or the bar line."""
+    import convert as _c
+    step, octv = SLASH_PITCH.get(clef, ('B', 4))
+    alter = key_alter(step, fifths)
+    positions = sorted({int(round((b - 1) * div)) for b in pattern})
+    out = []
+    if positions and positions[0] > 0:
+        for ln in _c.emit_rest(positions[0], div, 1, 1):
+            out.append(ln)
+    for i, pos in enumerate(positions):
+        end = positions[i + 1] if i + 1 < len(positions) else div * BEATS
+        for plen, ptype, dots in _c.decompose(end - pos, div):
+            if clef == 'percussion':
+                pitch = ('        <unpitched><display-step>%s'
+                         '</display-step><display-octave>%d'
+                         '</display-octave></unpitched>' % (step, octv))
+            else:
+                pitch = ('        <pitch><step>%s</step>%s'
+                         '<octave>%d</octave></pitch>'
+                         % (step,
+                            f'<alter>{alter}</alter>' if alter else '',
+                            octv))
+            out += ['      <note>', pitch,
+                    f'        <duration>{plen}</duration>',
+                    '        <voice>1</voice>',
+                    f'        <type>{ptype}</type>']
+            out += ['        <dot/>'] * dots
+            out.append('        <notehead>slash</notehead>')
+            out.append('      </note>')
+    return "\n".join(out) + "\n"
+
+
 def rest_bar(div, staves):
     out = []
     for staff in range(1, staves + 1):
@@ -571,14 +670,24 @@ def rest_bar(div, staves):
 
 def resolve_groups(band):
     labels = [b['label'] for b in band]
-    inst = {b['label']: b['instrument'].lower() for b in band}
+    inst = {b['label']: canonical_instrument(b['instrument'])
+            for b in band}
     g = {'all': labels[:],
          'saxes': [l for l in labels if 'sax' in inst[l]],
-         'trumpets': [l for l in labels if 'trumpet' in inst[l]],
+         'trumpets': [l for l in labels
+                      if inst[l] in ('trumpet', 'cornet', 'flugelhorn')],
          'trombones': [l for l in labels if 'trombone' in inst[l]],
+         'voices': [l for l in labels
+                    if inst[l] in ('voice', 'soprano', 'mezzo',
+                                   'alto voice', 'tenor voice',
+                                   'baritone voice', 'bass voice')],
+         'strings': [l for l in labels
+                     if inst[l] in ('violin', 'viola', 'cello',
+                                    'double bass', 'harp')],
          'rhythm': [l for l in labels if inst[l] in
-                    ('guitar', 'piano', 'bass', 'acoustic bass',
-                     'electric bass', 'drums', 'drum set', 'organ')]}
+                    ('guitar', 'piano', 'electric bass', 'double bass',
+                     'drums', 'organ', 'vibraphone', 'banjo',
+                     'accordion')]}
     g['horns'] = [l for l in labels
                   if l in g['saxes'] or l in g['trumpets'] or
                   l in g['trombones']]
@@ -686,7 +795,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
     chart_dir = os.path.dirname(os.path.abspath(chart_path))
     fifths, mode = parse_key(hdr['key']) if hdr.get('key') else (0, 'major')
     for b in band:
-        inst = b['instrument'].lower()
+        inst = canonical_instrument(b['instrument'])
         if inst in HORNS:
             horn_of[b['label']] = HORNS[inst]
     resolved = {l: [] for l in labels}
@@ -749,8 +858,20 @@ def build_plans(chart, band, groups, labels):
             anns, engraved, groove_words = [], None, None
             demo_refs, fall, quant, short = [], False, None, False
             every_artic, dyn_marks, scoops, doit = None, [], [], False
-            for piece in [normalize_piece(p.strip())
-                          for p in instr.split(',')]:
+            hits_map = {}
+            raw_pieces = [normalize_piece(p.strip())
+                          for p in instr.split(',')]
+            # 'hits on 1, 2+, 4' — the beat list is itself commas, so
+            # bare beat tokens re-attach to a preceding hits piece
+            pieces_merged = []
+            for p in raw_pieces:
+                if (pieces_merged
+                        and pieces_merged[-1].startswith('hits')
+                        and re.fullmatch(r'[\d.+]+|and-of-\d+', p)):
+                    pieces_merged[-1] += ' ' + p
+                else:
+                    pieces_merged.append(p)
+            for piece in pieces_merged:
                 m = re.match(r'as engraved bars (\d+)-(\d+)'
                              r'(?:\s+at bar (\d+))?$', piece)
                 if m:
@@ -774,6 +895,12 @@ def build_plans(chart, band, groups, labels):
                         else lo - shift
                     demo_refs.append({'track': m.group(1), 'lo': lo,
                                       'hi': hi, 'at': at, 'loc': loc})
+                    continue
+                m = re.match(r'hits(?: bar (\d+))? on (.+)$', piece)
+                if m:
+                    beats = [parse_beat(t) for t in m.group(2).split()]
+                    hits_map[int(m.group(1)) if m.group(1) else None] = \
+                        beats
                     continue
                 m = re.match(r'mute (\w+)$', piece)
                 if m:
@@ -878,6 +1005,9 @@ def build_plans(chart, band, groups, labels):
                     plan['content'][l] = ('tacet', None)
                 elif engraved:
                     plan['content'][l] = ('engraved', engraved)
+                elif hits_map:
+                    plan['content'][l] = ('hits',
+                                          (hits_map, groove_words or ''))
                 elif groove_words is not None:
                     plan['content'][l] = ('groove', groove_words)
                 for ref in demo_refs:
@@ -905,12 +1035,16 @@ TRANSPOSE_XML = {
                                  # tenor voice)
     14:  ('-1', '-2', '-1'),     # Bb tenor, octave down
     21:  ('-5', '-9', '-1'),     # Eb baritone, octave down
-    -12: ('0', '0', '1'),        # piccolo
+    5:   ('-3', '-5', None),     # alto flute in G
+    -3:  ('2', '3', None),       # Eb clarinet
+    -12: ('0', '0', '1'),        # piccolo, xylophone, celesta
+    -24: ('0', '0', '2'),        # glockenspiel
 }
 
 CLEF_XML = {'G': '<sign>G</sign><line>2</line>',
             'F': '<sign>F</sign><line>4</line>',
-            'C': '<sign>C</sign><line>3</line>'}
+            'C': '<sign>C</sign><line>3</line>',
+            'percussion': '<sign>percussion</sign><line>2</line>'}
 
 SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
              'sfz': 112, 'fp': 98}
@@ -946,15 +1080,18 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                       f'<chromatic>{c}</chromatic>'
                       + (f'<octave-change>{o}</octave-change>' if o else '')
                       + '</transpose>')
+            keyxml = ('' if clef == 'percussion' else
+                      f'        <key><fifths>{fifths}</fifths>'
+                      f'<mode>{key[1]}</mode></key>\n')
             return ('      <attributes>\n'
                     f'        <divisions>{div}</divisions>\n'
-                    f'        <key><fifths>{fifths}</fifths>'
-                    f'<mode>{key[1]}</mode></key>\n'
+                    + keyxml +
                     '        <time><beats>4</beats>'
                     '<beat-type>4</beat-type></time>\n'
                     f'        <clef>{CLEF_XML[clef if clef in CLEF_XML else "G"]}'
                     '</clef>\n'
-                    + (f'        {tr}\n' if tr else '')
+                    + ('' if clef == 'percussion' else
+                       (f'        {tr}\n' if tr else ''))
                     + '      </attributes>\n')
 
         pk = chart['pickup']
@@ -1018,6 +1155,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         pieces.append(direction(sec['feel']))
                     if kind == 'groove' and arg:
                         pieces.append(direction(arg))
+                    if kind == 'hits' and arg[1]:
+                        pieces.append(direction(arg[1]))
                 if with_directions:
                     for tbar, text in sorted(plan['texts'][label]):
                         if tbar == off + 1:
@@ -1055,6 +1194,17 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                                    clef == 'percussion'))
                     else:
                         pieces.append(rest_bar(div, staves))
+                elif kind == 'hits':
+                    hmap, _gw = arg
+                    pattern = hmap.get(off + 1, hmap.get(None))
+                    if listen:
+                        pieces.append(rest_bar(div, staves))
+                    elif pattern:
+                        pieces.append(hits_bar(pattern, div, clef,
+                                               staves, fifths))
+                    else:
+                        pieces.append(slash_bar(div, clef, staves,
+                                                fifths))
                 elif kind == 'groove':
                     # MuseScore's importer plays slash noteheads no matter
                     # what (dynamics="0", cue, sound directions and
@@ -1137,14 +1287,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         L.append('  <part-list>\n')
         for i, l in enumerate(part_labels, 1):
             name = src_of.get(l, l)
-            inst = next(x for x in band
-                        if x['label'] == l)['instrument'].lower()
+            inst = canonical_instrument(next(
+                x for x in band if x['label'] == l)['instrument'])
             sound = SOUNDS.get(inst)
             L.append(f'    <score-part id="P{i}">'
                      f'<part-name>{name}</part-name>')
             if sound:
                 iname, sid, prog = sound
-                chan = i if i < 10 else i + 1      # never channel 10
+                # channel 10 is percussion's — drums take it, no one
+                # else touches it
+                chan = 10 if inst == 'drums' else (i if i < 10 else i + 1)
                 L.append(f'<score-instrument id="P{i}-I1">'
                          f'<instrument-name>{iname}</instrument-name>'
                          f'<instrument-sound>{sid}</instrument-sound>'
