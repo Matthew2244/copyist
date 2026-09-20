@@ -1306,6 +1306,49 @@ def check_user_chair():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_engraver():
+    """
+    Stage two of the MuseScore exit: Copyist draws its own single-staff
+    pages — a real PDF from pure stdlib — and declines, in a sentence,
+    what still belongs to MuseScore (grand staves, the score page).
+    """
+    import chartc
+    import chartengrave
+    import smf
+    tmp = tempfile.mkdtemp()
+    div = 480
+    notes = [(i * div, i * div + 440, 65 + i, 88) for i in range(8)]
+    smf.write(os.path.join(tmp, "d.mid"), notes, div, 116)
+    open(os.path.join(tmp, "e.chart"), "w").write(
+        'title: E\nkey: F\nmeter: 4/4\ntempo: 116\nfeel: shuffle\n'
+        'demo: d.mid\n\nband:\n  tenor = tenor sax\n  piano\n\n'
+        'section A, 2 bars, repeat 2x\n  chords: F7\n'
+        '  ending 1, 1 bars: chords: C7\n'
+        '  ending 2, 1 bars: chords: F7\n'
+        '  tenor: from demo bars 1-2, legato\n  piano: groove\n')
+    out = os.path.join(tmp, "b")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "e.chart"), out)
+    pdf = os.path.join(tmp, "t.pdf")
+    ok, why = chartengrave.engrave(
+        os.path.join(out, "E — tenor.musicxml"), pdf)
+    head = open(pdf, "rb").read(5)
+    check("the engraver draws a real single-part PDF",
+          ok and head == b"%PDF-" and os.path.getsize(pdf) > 2500,
+          f"{ok} {why} {os.path.getsize(pdf) if ok else 0}")
+    ok, why = chartengrave.engrave(
+        os.path.join(out, "E — piano.musicxml"),
+        os.path.join(tmp, "p.pdf"))
+    check("a grand staff declines in a sentence",
+          not ok and "grand staff" in why, f"{ok} {why}")
+    ok, why = chartengrave.engrave(
+        os.path.join(out, "E — score.musicxml"),
+        os.path.join(tmp, "s.pdf"))
+    check("the score page declines in a sentence",
+          not ok and "score" in why, f"{ok} {why}")
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -1374,6 +1417,7 @@ if __name__ == "__main__":
     check_directive_family()
     check_detail_and_look()
     check_user_chair()
+    check_engraver()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

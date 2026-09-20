@@ -177,7 +177,12 @@ And the chart says how its pages look:
     look: jazz, measure numbers
 
 `jazz` (or `handwritten`) is the big-band face; `engraved` is the
-clean classical one. Add `landscape`, `staff 2.0` for bigger print —
+clean classical one. (As of tonight Copyist draws every single-staff
+part page itself — MuseScore only steps in for the conductor score and
+grand-staff parts, and the build says when it borrowed. The look:
+presets apply to the borrowed pages; Copyist's own pages have one clean
+face for now, and every font and margin becomes a chart setting as the
+engraver grows.) Add `landscape`, `staff 2.0` for bigger print —
 easier for low-vision readers — and `measure numbers` for a number on
 every bar. One line, every page and part agrees.
 

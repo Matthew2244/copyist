@@ -22,6 +22,7 @@ import sys
 
 import chartaudio
 import chartc
+import chartengrave
 import chartdemo
 import chartread
 
@@ -495,6 +496,7 @@ def main():
     if mscore and not args.no_pages and args.command != 'listen':
         say("Rendering the pages — MuseScore takes its moment.")
     pages = 0
+    borrowed = []
     failed = []
     listen_src = None
     for src in written:
@@ -503,17 +505,35 @@ def main():
         if '— for listening' in src:
             listen_src = src
             continue
-        if args.no_pages or args.command == 'listen' or not mscore:
+        if args.no_pages or args.command == 'listen':
             continue
         dst = src[:-len('.musicxml')] + '.pdf'
-        if render(mscore, src, dst, style=look_style):
-            pages += 1
+        why = None
+        if '— score' not in src:
+            try:
+                ok, why = chartengrave.engrave(src, dst)
+            except Exception as e:
+                ok, why = False, f"engraver error: {e} (report that)"
+            if ok:
+                pages += 1
+                continue
         else:
-            failed.append(os.path.basename(src))
-    if mscore and not args.no_pages and args.command != 'listen':
-        say(f"{pages} pages rendered." if not failed else
-            f"{pages} pages rendered; MuseScore refused "
-            + ", ".join(failed) + " — run check and read that part back.")
+            why = "the full score page (next on the engraving bench)"
+        if mscore and render(mscore, src, dst, style=look_style):
+            pages += 1
+            borrowed.append((os.path.basename(src)
+                             .replace('.musicxml', ''), why))
+        else:
+            failed.append(os.path.basename(src) + f" ({why})"
+                          if why else os.path.basename(src))
+    if not args.no_pages and args.command != 'listen':
+        say(f"{pages} pages — Copyist drew "
+            f"{pages - len(borrowed) - len(failed)} itself" +
+            (f"; MuseScore covered "
+             + ", ".join(f"{n} — {w}" for n, w in borrowed)
+             if borrowed else "") + ".")
+        if failed:
+            say("No page for " + ", ".join(failed) + ".")
 
     if not args.no_listen and listen_src:
         mp3 = os.path.join(title_dir,

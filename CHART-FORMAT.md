@@ -1,6 +1,6 @@
 # The Copyist chart format
 
-**Status:** living specification. **The listening audio is Copyist's own as of 2026-09-20** — no MuseScore in the check-listen-read loop; MuseScore remains only for PDF pages, and retiring that too is the stated direction. Designed 2026-08-30 against the measured
+**Status:** living specification. **The listening audio is Copyist's own as of 2026-09-20**, and as of the same night SO ARE THE PART PAGES: prototype/chartengrave.py draws every single-staff part as a PDF from pure stdlib — staves, clefs, keys, meters, beams, ties, slurs, tuplets, articulations, ghosts, slashes, kicks, cues, lyrics with melisma lines, chord symbols, dynamics, texts, rehearsal boxes, repeats, voltas, multirests with counts. MuseScore remains only for the conductor score page and grand-staff parts, each borrowed with a sentence saying so; retiring those is the engraving bench's next work. Designed 2026-08-30 against the measured
 corpus; substantially implemented as of 2026-09-20 (the compiler, the demo
 door §3.4.1, the bars grammar with groups, the working chord-quality set,
 hits, articulations, dynamics, engraved page output, and the read-aloud
