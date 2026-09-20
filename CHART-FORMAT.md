@@ -55,8 +55,18 @@ line for the target's own transposition, `cue <part>` prints it
 cue-size with its "(<part> cue)" label and Copyist's own player never
 sounds it (MuseScore always did), `build:` fans "+who" entrance cues to
 every part, `on pass N:` tags its words "(Nx only)", and `as demo` is
-symbols-level slashes wearing the words. Still ahead: detail levels
-(`simplified` and `rhythmic-slashes`), and per-pass NOTES for `on pass`.
+symbols-level slashes wearing the words. Detail levels complete the
+same day: `simplified` (a from-demo word or band-line default) smooths
+the played line to the eighth and absorbs ornament noise, saying what
+it absorbed; `rhythmic slashes` prints the line's rhythm on slash
+noteheads with the chords above — silent in playback like every slash,
+and its range report stays quiet since the page shows no pitches
+(`slashes` and `symbols` on a band line redirect to `groove` and
+`as demo`, which already print those levels). And the `look:` header
+dresses the pages — jazz/handwritten (MuseJazz) or engraved, plus
+landscape, `staff <size>` for larger print, and `measure numbers` —
+validated at check, applied at render, absorbed by the engraver when it
+comes. Still ahead: per-pass NOTES for `on pass`.
 **Read DESIGN.md first.** This document extends it: where DESIGN.md turns a
 performance into a chart, this format lets a chart be *written* directly — as
 text — and compiled into the same MusicXML the engine already emits.

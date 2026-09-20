@@ -161,6 +161,26 @@ convention, not a voicing.
   fate per section, so an accidental eight-bar rest in the lead alto is
   heard in text before it is ever printed.
 
+## How much to write, and how the pages dress
+
+    tenor: from demo bars 2-13, simplified
+    guitar: from demo bars 2-5, rhythmic slashes
+
+`simplified` keeps your line but smooths it — ornaments and flicks are
+absorbed, the rhythm lands on the eighth, and the findings say exactly
+what was let go. `rhythmic slashes` is the comping level: your played
+RHYTHM prints on slash noteheads with the changes above, and the
+voicings stay yours on the night.
+
+And the chart says how its pages look:
+
+    look: jazz, measure numbers
+
+`jazz` (or `handwritten`) is the big-band face; `engraved` is the
+clean classical one. Add `landscape`, `staff 2.0` for bigger print —
+easier for low-vision readers — and `measure numbers` for a number on
+every bar. One line, every page and part agrees.
+
 ## Borrowing lines — double, cue, and the build
 
     section C, 12 bars, label "Head out"

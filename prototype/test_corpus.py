@@ -1197,6 +1197,72 @@ def check_directive_family():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_detail_and_look():
+    """
+    DESIGN.md 11's last two levels through the chart door — `simplified`
+    smooths a played line to the eighth and absorbs ornament noise;
+    `rhythmic slashes` prints the rhythm on slash noteheads, chords
+    above, silent in playback like every slash. And the look: header
+    dresses the pages (validated in check; applied at render via -S).
+    """
+    import re
+    import chartaudio
+    import chartc
+    import smf
+    from chart import verify_measures, parse_look, write_style
+    tmp = tempfile.mkdtemp()
+    div = 480
+    notes = [(0, 460, 65, 88), (480, 40, 66, 70), (520, 420, 67, 88),
+             (960, 940, 70, 90), (1920, 460, 72, 88), (2400, 50, 71, 70),
+             (2450, 45, 72, 72), (2500, 380, 70, 86), (2880, 940, 67, 88)]
+    smf.write(os.path.join(tmp, "o.mid"), notes, div, 100)
+    open(os.path.join(tmp, "d.chart"), "w").write(
+        'title: D\nkey: F\nmeter: 4/4\ntempo: 100\ndemo: o.mid\n\n'
+        'band:\n  tenor = tenor sax\n  guitar\n  piano\n\n'
+        'section A, 2 bars\n  chords: F7, Bb7\n'
+        '  tenor: from demo bars 1-2, simplified\n'
+        '  guitar: from demo bars 1-2, rhythmic slashes\n'
+        '  piano: groove\n')
+    out = os.path.join(tmp, "b")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        files = chartc.compile_chart(os.path.join(tmp, "d.chart"), out)
+    check("detail levels: measures sum", not verify_measures(files))
+    ten = open(os.path.join(out, "D — tenor.musicxml")).read()
+    gtr = open(os.path.join(out, "D — guitar.musicxml")).read()
+    check("simplified absorbs ornaments and says so",
+          '<type>32nd' not in ten
+          and "ornament(s) absorbed" in buf.getvalue())
+    check("rhythmic slashes print slash noteheads, no accidentals",
+          gtr.count('<notehead>slash</notehead>') >= 6
+          and '<accidental>' not in gtr)
+    plan = chartaudio.parse_score(
+        os.path.join(out, "D — for listening.musicxml"))
+    g = next(p for p in plan['parts'] if p['name'] == 'guitar')
+    check("a slash rhythm never sounds", not g['events'])
+    check("the range report skips a part that prints no pitches",
+          "guitar: written peak" not in buf.getvalue())
+
+    o = parse_look("jazz, landscape, staff 2.0, measure numbers")
+    check("look: parses its whole vocabulary",
+          o == {'preset': 'jazz', 'landscape': True, 'staff': 2.0,
+                'numbers': True}, f"got {o}")
+    p = write_style("jazz, measure numbers", tmp)
+    mss = open(p).read()
+    check("the style file carries the jazz face and the numbers",
+          '<musicalSymbolFont>MuseJazz</musicalSymbolFont>' in mss
+          and '<measureNumberInterval>1</measureNumberInterval>' in mss)
+    try:
+        parse_look("disco")
+        got = ""
+    except SystemExit as e:
+        got = str(e)
+    check("an unknown look refuses with the vocabulary",
+          "jazz, handwritten and engraved" in got, f"got: {got}")
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -1263,6 +1329,7 @@ if __name__ == "__main__":
     check_figures()
     check_lyrics()
     check_directive_family()
+    check_detail_and_look()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

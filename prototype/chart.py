@@ -189,14 +189,91 @@ def render_listen(listen_src, mp3, say, only=None):
     return True
 
 
-def render(mscore, src, dst):
+FACES = ('titleFontFace', 'subTitleFontFace', 'composerFontFace',
+         'lyricistFontFace', 'partNameFontFace', 'instrumentNameFontFace',
+         'tempoFontFace', 'rehearsalMarkFontFace', 'measureNumberFontFace',
+         'staffTextFontFace', 'systemTextFontFace', 'lyricsOddFontFace',
+         'lyricsEvenFontFace', 'chordSymbolAFontFace', 'dynamicsFontFace',
+         'expressionFontFace', 'metronomeFontFace')
+
+LOOKS = {
+    'jazz': ('MuseJazz', 'MuseJazz Text', 'MuseJazz Text'),
+    'handwritten': ('MuseJazz', 'MuseJazz Text', 'MuseJazz Text'),
+    'engraved': ('Leland', 'Leland Text', 'Edwin'),
+}
+
+
+def parse_look(text):
+    """The look: header — how the pages dress. A preset (jazz,
+    handwritten, engraved) plus adjustments: landscape, staff <size>,
+    measure numbers. Validated here so `check` refuses nonsense."""
+    opts = {'preset': None, 'landscape': False, 'staff': None,
+            'numbers': False}
+    for piece in (p.strip() for p in text.split(',')):
+        if piece in LOOKS:
+            opts['preset'] = piece
+        elif piece == 'landscape':
+            opts['landscape'] = True
+        elif piece == 'measure numbers':
+            opts['numbers'] = True
+        else:
+            m = re.match(r'staff ([\d.]+)$', piece)
+            if m and 1.0 <= float(m.group(1)) <= 3.0:
+                opts['staff'] = float(m.group(1))
+            elif m:
+                sys.exit("chart: look: staff size is in millimetres of "
+                         "spatium, 1.0 to 3.0 — 1.75 is the usual, "
+                         "bigger is easier to read")
+            else:
+                sys.exit(f"chart: look: cannot read '{piece}' — the "
+                         "looks are jazz, handwritten and engraved, "
+                         "plus landscape, staff <size>, and "
+                         "measure numbers")
+    return opts
+
+
+def write_style(look_text, outdir):
+    """look: -> a MuseScore style file applied at render (-S). One more
+    thing the future engraver absorbs; until then the pages can at
+    least dress the way the chart says."""
+    o = parse_look(look_text)
+    lines = []
+    if o['preset']:
+        sym, mtext, face = LOOKS[o['preset']]
+        lines += [f'<musicalSymbolFont>{sym}</musicalSymbolFont>',
+                  f'<musicalTextFont>{mtext}</musicalTextFont>']
+        lines += [f'<{f}>{face}</{f}>' for f in FACES]
+    if o['staff']:
+        lines.append(f'<Spatium>{o["staff"]:g}</Spatium>')
+    if o['landscape']:
+        lines += ['<pageWidth>11</pageWidth>',
+                  '<pageHeight>8.5</pageHeight>',
+                  '<pagePrintableWidth>10.2</pagePrintableWidth>']
+    if o['numbers']:
+        lines += ['<showMeasureNumber>1</showMeasureNumber>',
+                  '<showMeasureNumberOne>0</showMeasureNumberOne>',
+                  '<measureNumberInterval>1</measureNumberInterval>',
+                  '<measureNumberSystem>0</measureNumberSystem>']
+    if not lines:
+        return None
+    path = os.path.join(outdir, 'look.mss')
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<museScore version="4.40">\n  <Style>\n    '
+                + '\n    '.join(lines) + '\n  </Style>\n</museScore>\n')
+    return path
+
+
+def render(mscore, src, dst, style=None):
     """Render src to dst, judging by the output file. One retry — the
     MuseScore CLI is crashy in ways that do not repeat."""
     for _ in range(2):
         if os.path.exists(dst):
             os.remove(dst)
-        subprocess.run([mscore, src, "-o", dst],
-                       capture_output=True, timeout=300)
+        cmd = [mscore, src, "-o", dst]
+        if style:
+            cmd += ["-S", style]
+        subprocess.run(cmd, capture_output=True, timeout=300)
         if os.path.exists(dst):
             return True
     return False
@@ -329,6 +406,8 @@ def main():
             say("broken measure: " + b)
         sys.exit(f"chart: {len(bad)} measure(s) do not add up — that is a "
                  "converter bug, not your chart. Report the lines above.")
+    if chart['header'].get('look'):
+        parse_look(chart['header']['look'])   # refuse nonsense in check
     if args.command == 'check':
         say("The chart compiles and every measure adds up. Nothing "
             "rendered — that was a check.")
@@ -383,6 +462,8 @@ def main():
             "musescore.org. The listen file is Copyist's own and comes "
             "out regardless.")
 
+    look_style = (write_style(chart['header']['look'], title_dir)
+                  if chart['header'].get('look') else None)
     pages = 0
     failed = []
     listen_src = None
@@ -395,7 +476,7 @@ def main():
         if args.no_pages or args.command == 'listen' or not mscore:
             continue
         dst = src[:-len('.musicxml')] + '.pdf'
-        if render(mscore, src, dst):
+        if render(mscore, src, dst, style=look_style):
             pages += 1
         else:
             failed.append(os.path.basename(src))

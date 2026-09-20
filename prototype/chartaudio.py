@@ -175,8 +175,9 @@ def parse_score(path, only=None):
                     last_on[voice] = pos
                     pos += dur
                     top = max(top, pos)
-                if '<rest' in t or '<cue/>' in t:
-                    continue           # a cue prints; it never sounds
+                if '<rest' in t or '<cue/>' in t \
+                        or '<notehead>slash</notehead>' in t:
+                    continue    # cues and slashes print; they never sound
                 nd = re.search(r'dynamics="([\d.]+)"', t)
                 gain = (float(nd.group(1)) if nd else dyn_state) / 100.0
                 if gain <= 0:

@@ -215,6 +215,35 @@ def _ghosts(tl, raw):
     return out
 
 
+def _simplify(tl, raw, n_units):
+    """DESIGN.md 11 'simplified': the phrase survives, the ornament
+    noise goes. A note shorter than a sixteenth is absorbed, onsets
+    land on the eighth grid, ends re-truncate at the next onset.
+    Returns (timeline, raw, ornaments_dropped)."""
+    E = DIV // 2
+    dropped, kept = 0, []
+    for s, e, ps in tl:
+        if e - s < DIV // 4:
+            dropped += 1
+            continue
+        vel = raw.get(s, (s, e, 84))[2]
+        kept.append([s, e, ps, vel])
+    out = []
+    for s, e, ps, vel in kept:
+        ns = int(round(s / E)) * E
+        ne = max(int(round(e / E)) * E, ns + E)
+        if out and out[-1][0] == ns:
+            out[-1][2] = sorted(set(out[-1][2] + ps))
+            out[-1][1] = max(out[-1][1], ne)
+            continue
+        out.append([ns, min(ne, n_units), ps, vel])
+    for i in range(len(out) - 1):
+        out[i][1] = min(out[i][1], out[i + 1][0])
+    tl2 = [(s, e, ps) for s, e, ps, _ in out if e > s]
+    raw2 = {s: (s, e, v) for (s, e, ps, v), t in zip(out, tl2)}
+    return tl2, raw2, dropped
+
+
 def _pedals(evts, n_units):
     """Pull pedal tones out of one staff's events: a note that keeps
     ringing under (or over) later movement becomes its own voice instead
@@ -441,8 +470,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   octave_shift=0, sounding_range=None, quant=None,
                   derive_dyns=True, short=False, spoken_shift=0,
                   poly=False, grand=False, reach=17, comfortable=14,
-                  legato=False, ghost=False, meter=(4, 4), window=None,
-                  part_label="", findings=None):
+                  legato=False, ghost=False, detail=None, meter=(4, 4),
+                  window=None, part_label="", findings=None):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
     into a quantized timeline of sounding pitches starting at absolute
@@ -625,6 +654,12 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     # ---- monophonic cleanup and legato gap-closing
     timeline = _mono_tl(events, n_units)
 
+    if detail == 'simplified':
+        timeline, raw, dropped = _simplify(timeline, raw, n_units)
+        find.add(f"{part_label}: bars {bar_lo}-{bar_hi} simplified — "
+                 + (f"{dropped} ornament(s) absorbed, " if dropped else "")
+                 + "the rhythm smoothed to the eighth")
+
     # The same phrase gets the same cutoff. A repeated sustained note at
     # the same bar position and pitch whose gates differed slightly in
     # the demo unifies to one canonical release — preferring a duration
@@ -661,7 +696,10 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     # answer; when anything genuinely polyphonic is found, the page and
     # the prose read the voices instead.
     staves_out = None
-    if poly:
+    if poly and detail in ('simplified', 'rhythmic-slashes'):
+        find.add(f"{part_label}: detail {detail} prints one line — "
+                 "hands and held voices fold into it")
+    elif poly:
         staff_events = {1: {k: list(v) for k, v in events.items()}}
         if grand:
             hands = convert.Hands(reach, comfortable, find)
@@ -749,6 +787,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
 
     grids_chart = {b: grids.get(b, default_sub)
                    for b in range((n_units // DIV) + 1)}
+    if detail == 'simplified':
+        grids_chart = {b: 2 for b in range((n_units // DIV) + 1)}
 
     # ---- dynamics from the expression pedal (CC 11): one mark per level
     # change, judged by each bar's median, printed only on bars that play
@@ -780,7 +820,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     return {'timeline': timeline, 'grids': grids_chart,
             'n_units': n_units, 'at': at_bar,
             'bars': (bar_lo, bar_hi), 'dyns': dyns,
-            'slurs': slurs, 'ghosts': ghosts,
+            'slurs': slurs, 'ghosts': ghosts, 'detail': detail,
             'spoken_shift': spoken_shift, 'staves': staves_out,
             'bar_ticks': bar_ticks, 'pulse_div': pulse_div}
 
@@ -820,6 +860,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     bends = bend_indices(res, scoops)
 
     bar_ticks = res.get('bar_ticks', BAR)
+    slash = res.get('detail') == 'rhythmic-slashes'
     SOUND_DYN = {'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123}
 
     if res.get('staves'):
@@ -852,7 +893,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
               (last_artic if is_last else None) or every,
               transpose_to_written, bend=bends.get(ti), bar=bar_ticks,
               slur=(ti in slur_a, ti in slur_b), ghost=ti in ghosts,
-              lyric=lyr[ti] if lyr else None, cue=cue)
+              lyric=lyr[ti] if lyr else None, cue=cue, slash=slash)
         pos = end
     if pos < n_units:
         _emit(out, at_bar, pos, n_units, None, table, grids_chart,
@@ -1015,7 +1056,7 @@ def _name(ticks, sub):
 
 def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
           bend=None, bar=BAR, voice=1, staff=0, slur=(False, False),
-          ghost=False, lyric=None, cue=False):
+          ghost=False, lyric=None, cue=False, slash=False):
     staff_xml = f'        <staff>{staff}</staff>\n' if staff else ''
     pieces = _pieces(start, end, grids, bar)
     for pi, (a, b) in enumerate(pieces):
@@ -1046,8 +1087,12 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                                 + '      </note>\n')
                 continue
             for ni, p in enumerate(pitches):
+                if slash and ni:
+                    continue           # a slash speaks for the voicing
                 w = p + transpose
                 step, alter, octave = convert.spell(w, table)
+                if slash:
+                    step, alter, octave = 'B', 0, 4
                 lines = ['      <note>']
                 if cue:
                     # printed small, never sounded — and our own player
@@ -1067,9 +1112,11 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                 lines.append(f'        <voice>{voice}</voice>')
                 lines.append(f'        <type>{ptype}</type>')
                 lines += ['        <dot/>'] * dots
-                if alter:
+                if alter and not slash:
                     lines.append(
                         f'        <accidental>{ACC_NAME[alter]}</accidental>')
+                if slash:
+                    lines.append('        <notehead>slash</notehead>')
                 if mod:
                     lines.append(_mod_xml(mod).rstrip())
                 if ghost:
@@ -1130,6 +1177,8 @@ DUR_WORD = {96: 'whole note', 84: 'double-dotted half', 72: 'dotted half',
 
 
 def _say_pitch(p, table):
+    if p == 'slash':
+        return "slash"
     step, alter, octave = convert.spell(p, table)
     return f"{step}{ACC_WORD[alter]} {octave}"
 
@@ -1232,6 +1281,11 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
     bar_ticks = res.get('bar_ticks', BAR)
     pulse = res.get('pulse_div', DIV)
     bends = bend_indices(res, scoops)
+
+    if res.get('detail') == 'rhythmic-slashes':
+        res = dict(res, timeline=[(s, e, ['slash'])
+                                  for s, e, _ in res['timeline']],
+                   staves=None, lyrics=None)
 
     if res.get('staves'):
         # polyphonic prose: each voice speaks, labelled, in page order

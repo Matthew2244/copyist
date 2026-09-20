@@ -688,7 +688,7 @@ def parse_chart(path):
             m = re.match(r'(\w+):\s*(.+)$', s)
             if m and m.group(1) in ('title', 'composer', 'arranger', 'key',
                                     'meter', 'tempo', 'feel', 'source',
-                                    'demo', 'countin', 'dynamics'):
+                                    'demo', 'countin', 'dynamics', 'look'):
                 chart['header'][m.group(1)] = m.group(2).strip().strip('"')
                 continue
             fail(f"{loc}: cannot read '{s}'")
@@ -1294,6 +1294,7 @@ def compile_chart(chart_path, outdir):
     for l in labels:
         notes = [(p, item['res']['at'] + s // chartdemo.BAR + shift)
                  for item in resolved[l] if not item.get('cue')
+                 and item['res'].get('detail') != 'rhythmic-slashes'
                  for s, e, ps in item['res']['timeline'] for p in ps]
         if not notes or l not in horn_of:
             continue
@@ -1428,9 +1429,24 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                 window = demo_window(dm, ref, fig_meter, meters_map,
                                      int(hdr.get('countin', 0)), l,
                                      findings)
+                detail = ref.get('detail') or b.get('detail')
+                if detail == 'full':
+                    detail = None
+                if detail in ('slashes', 'symbols'):
+                    fail(f"{ref['loc']}: detail '{detail}' is what "
+                         "'groove' and 'as demo' already print — use "
+                         "those on the section line")
+                if detail not in (None, 'simplified', 'rhythmic-slashes'):
+                    fail(f"{ref['loc']}: detail levels here are full, "
+                         f"simplified and rhythmic-slashes, not "
+                         f"'{detail}'")
+                if detail == 'rhythmic-slashes' and (ref.get('lyrics')
+                                                     or ref.get('fig_lyrics')):
+                    fail(f"{ref['loc']}: lyrics need pitches — a "
+                         "slash rhythm carries none")
                 res = chartdemo.resolve_range(
                     dm, track, ref['lo'], ref['hi'], ref['at'],
-                    meter=fig_meter, window=window,
+                    meter=fig_meter, window=window, detail=detail,
                     grand=h.get('grand', False),
                     octave_shift=b['demo_octave'],
                     sounding_range=rng, quant=ref.get('quant'),
@@ -1540,7 +1556,7 @@ def build_plans(chart, band, groups, labels):
             demo_refs, fall, quant, short = [], False, None, False
             legato, ghost = False, False
             fig_lifts, lyrics_text = [], None
-            doubles, cues = None, None
+            doubles, cues, detail_word = None, None, None
             every_artic, dyn_marks, scoops, doit = None, [], [], False
             hits_map = {}
             # split on commas OUTSIDE quotes — groove "shuffle, ride
@@ -1717,6 +1733,10 @@ def build_plans(chart, band, groups, labels):
                 if piece == 'as demo':
                     groove_words = 'as demo'
                     continue
+                if piece in ('simplified', 'rhythmic slashes',
+                             'rhythmic-slashes', 'full'):
+                    detail_word = piece.replace(' ', '-')
+                    continue
                 m = re.match(r'double ([\w ]+)$', piece)
                 if m:
                     doubles = m.group(1).strip()
@@ -1789,6 +1809,7 @@ def build_plans(chart, band, groups, labels):
                                                     legato=legato,
                                                     ghost=ghost,
                                                     lyrics=lyrics_text,
+                                                    detail=detail_word,
                                                     every=every_artic,
                                                     doit=doit,
                                                     scoops=scoops))
