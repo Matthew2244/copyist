@@ -156,6 +156,13 @@ def part_section(plan, label, chord_parts, figures=None):
         lines.append(f"Dynamic: {word} {where}.")
     if figures:
         for item in figures:
+            if item.get('cue'):
+                lines.append(f"The {item['src_label']}'s line prints "
+                             "small here as a cue — not yours to play.")
+                continue
+            if item.get('src_label'):
+                lines.append(f"You double the {item['src_label']} — "
+                             "the same line, written for you.")
             lo, hi = item['res']['bars']
             words = {'strong-accent': 'marcato — short and fat',
                      'staccato': 'staccato', 'tenuto': 'tenuto — full value',

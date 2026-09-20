@@ -49,8 +49,14 @@ demo print on the grand staff — hands split by the engine's physics
 model (DESIGN.md §8), with a note a hand is still holding anchoring the
 split — and a note that keeps ringing under later movement (a guitar's
 low string, a pedal tone) prints as its own voice instead of being cut
-at the next onset, with a finding naming the bars. Still ahead:
-`double`/`cue`/`build:`/`on pass`/`as demo`, and detail levels.
+at the next onset, with a finding naming the bars. The directive family
+lands the same day: `double <part>` re-renders another part's resolved
+line for the target's own transposition, `cue <part>` prints it
+cue-size with its "(<part> cue)" label and Copyist's own player never
+sounds it (MuseScore always did), `build:` fans "+who" entrance cues to
+every part, `on pass N:` tags its words "(Nx only)", and `as demo` is
+symbols-level slashes wearing the words. Still ahead: detail levels
+(`simplified` and `rhythmic-slashes`), and per-pass NOTES for `on pass`.
 **Read DESIGN.md first.** This document extends it: where DESIGN.md turns a
 performance into a chart, this format lets a chart be *written* directly — as
 text — and compiled into the same MusicXML the engine already emits.

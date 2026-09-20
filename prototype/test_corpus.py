@@ -1117,6 +1117,86 @@ def check_lyrics():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_directive_family():
+    """
+    CHART-FORMAT.md 3.6, the last of the directive table: `double` joins
+    another part's resolved line re-rendered for the TARGET's
+    transposition; `cue` prints it small, labelled, and never played —
+    honored by Copyist's own player, which MuseScore never did; `build:`
+    fans "+who" entrance cues to every part; `on pass N:` tags its words;
+    `as demo` is symbols-level slashes wearing the words.
+    """
+    import re
+    import chartaudio
+    import chartc
+    import smf
+    from chart import verify_measures
+    tmp = tempfile.mkdtemp()
+    div = 480
+    notes = [(i * div, i * div + 400, 60 + i, 90) for i in range(8)]
+    smf.write(os.path.join(tmp, "d.mid"), notes, div, 100)
+    open(os.path.join(tmp, "f.chart"), "w").write(
+        'title: D\nkey: C\nmeter: 4/4\ntempo: 100\n'
+        'demo: d.mid\n\nband:\n  trumpet\n  alto = alto sax\n'
+        '  flute\n  piano\n\n'
+        'section A, 4 bars, repeat 2x\n  chords: C, F, G, C\n'
+        '  trumpet: from demo bars 1-2, on pass 2: mute cup\n'
+        '  alto: double trumpet\n  flute: cue trumpet\n'
+        '  piano: as demo\n  build: add alto at 3\n')
+    out = os.path.join(tmp, "b")
+    with redirect_stdout(io.StringIO()):
+        files = chartc.compile_chart(os.path.join(tmp, "f.chart"), out)
+    check("directive family: measures sum", not verify_measures(files))
+    alto = open(os.path.join(out, "D — alto.musicxml")).read()
+    flute = open(os.path.join(out, "D — flute.musicxml")).read()
+    tpt = open(os.path.join(out, "D — trumpet.musicxml")).read()
+    piano = open(os.path.join(out, "D — piano.musicxml")).read()
+    check("a double re-renders for the target's transposition",
+          '<step>A</step>' in alto and '<cue/>' not in alto)
+    check("a cue prints small, labelled, and unplayed",
+          flute.count('<cue/>') > 0 and '(trumpet cue)' in flute
+          and '<tie ' not in flute)
+    plan = chartaudio.parse_score(
+        os.path.join(out, "D — for listening.musicxml"))
+    fl = next(p for p in plan['parts'] if p['name'] == 'flute')
+    al = next(p for p in plan['parts'] if p['name'] == 'alto')
+    check("the player skips the cue and plays the double",
+          not fl['events'] and al['events'])
+    check("on pass tags its words", 'cup mute (2x only)' in tpt)
+    check("as demo wears the words over slashes", 'as demo' in piano)
+    check("build fans entrance cues to the band",
+          all('+alto' in x for x in (alto, flute, tpt, piano)))
+
+    for name, text, want in (
+        ("r1", 'title: X\nkey: C\nmeter: 4/4\ntempo: 100\n\n'
+         'band:\n  piano\n  flute\n\n'
+         'section A, 2 bars\n  chords: C, F\n'
+         '  flute: double piano\n  piano: groove\n',
+         "has no played or figured line"),
+        ("r2", 'title: X\nkey: C\nmeter: 4/4\ntempo: 100\n\n'
+         'band:\n  piano\n  flute\n\n'
+         'section A, 2 bars\n  chords: C, F\n'
+         '  flute: on pass 2: mute cup\n  piano: groove\n',
+         "only means something in a repeated section"),
+        ("r3", 'title: X\nkey: C\nmeter: 4/4\ntempo: 100\n\n'
+         'band:\n  piano\n\n'
+         'section A, 2 bars\n  chords: C, F\n  piano: groove\n'
+         '  build: add nobody at 1\n',
+         "not a band part or group"),
+    ):
+        pp = os.path.join(tmp, name + ".chart")
+        open(pp, "w").write(text)
+        try:
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(pp, os.path.join(tmp, "x"))
+            got = ""
+        except SystemExit as e:
+            got = str(e)
+        check(f"refused with '{want}'", want in got, f"got: {got}")
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -1182,6 +1262,7 @@ if __name__ == "__main__":
     check_voltas()
     check_figures()
     check_lyrics()
+    check_directive_family()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

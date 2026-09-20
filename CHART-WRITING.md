@@ -161,6 +161,23 @@ convention, not a voicing.
   fate per section, so an accidental eight-bar rest in the lead alto is
   heard in text before it is ever printed.
 
+## Borrowing lines — double, cue, and the build
+
+    section C, 12 bars, label "Head out"
+      trumpet: double tenor
+
+    section B, 12 bars, label "Solos", open
+      singer: cue trumpet
+      build: add trumpet at 11
+
+`double` puts another part's line on this part's page, rewritten for
+THIS player's key and clef — the classic unison out-head is one line of
+chart. `cue` prints another part's line small, labelled "(trumpet
+cue)", never played and never counted in your range — it's there so you
+can find your entrance. `build: add trumpet at 11` prints "+trumpet" in
+every part at that bar, the montuno entrance cue. And `on pass 2: mute
+cup` tags its instruction "(2x only)" inside a repeated section.
+
 ## Saying how it goes — the words you'd use on the bandstand
 
 All of these ride on a `from demo` line, after commas:

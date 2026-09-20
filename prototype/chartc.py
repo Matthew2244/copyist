@@ -777,6 +777,17 @@ def parse_chart(path):
                                        f"section {cur['name']} ending "
                                        f"{m.group(1)}")})
             continue
+        m = re.match(r'build:\s*(.+)$', s)
+        if m:
+            for item in m.group(1).split(','):
+                item = item.strip()
+                mm = re.match(r'add ([\w ]+?) at (\d+)$', item)
+                if not mm:
+                    fail(f"{loc}: build items read 'add <who> at <bar>', "
+                         f"not '{item}'")
+                cur['events'].append((int(mm.group(2)), 'build',
+                                      mm.group(1).strip()))
+            continue
         m = re.match(r'at bar (\d+):\s*text "([^"]*)"$', s)
         if m:
             cur['events'].append((int(m.group(1)), 'text', m.group(2)))
@@ -1224,7 +1235,8 @@ def compile_chart(chart_path, outdir):
                                         short=item['short'],
                                         every=item['every'],
                                         doit=item['doit'],
-                                        scoops=item['scoops'])
+                                        scoops=item['scoops'],
+                                        cue=item.get('cue', False))
             for bar, xml in ms.items():
                 if bar in demo_measures[l]:
                     fail(f"'{l}' has two demo figures landing on bar {bar}")
@@ -1281,7 +1293,7 @@ def compile_chart(chart_path, outdir):
     shift = int(hdr.get('countin', 0))
     for l in labels:
         notes = [(p, item['res']['at'] + s // chartdemo.BAR + shift)
-                 for item in resolved[l]
+                 for item in resolved[l] if not item.get('cue')
                  for s, e, ps in item['res']['timeline'] for p in ps]
         if not notes or l not in horn_of:
             continue
@@ -1439,6 +1451,29 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                     'doit': ref.get('doit', False),
                                     'scoops': ref.get('scoops', []),
                                     'plan': plan})
+    # ---- double and cue: another part's resolved line joins this one.
+    # It re-renders with the TARGET's transposition and key, so a
+    # doubled line is written for the player who now plays it; a cue
+    # prints small and is never played.
+    for plan in plans:
+        for kind_map, is_cue in ((plan['doubles'], False),
+                                 (plan['cues'], True)):
+            for target, (srcl, loc) in kind_map.items():
+                word = "cue" if is_cue else "double"
+                if srcl not in labels:
+                    fail(f"{loc}: '{srcl}' is not a band part to {word}")
+                items = [i for i in resolved[srcl] if i['plan'] is plan]
+                if not items:
+                    fail(f"{loc}: nothing to {word} — '{srcl}' has no "
+                         "played or figured line in this section")
+                first = min(i['res']['at'] for i in items)
+                if is_cue:
+                    plan['texts'][target].append(
+                        (first - plan['start'] + 1, f"({srcl} cue)"))
+                for i in items:
+                    resolved[target].append(dict(i, cue=is_cue,
+                                                 src_label=srcl))
+
     return resolved, horn_of, (fifths, mode)
 
 
@@ -1495,7 +1530,8 @@ def build_plans(chart, band, groups, labels):
                 'texts': {l: [] for l in labels},
                 'dyns': {l: [] for l in labels},
                 'overlays': {l: [] for l in labels},
-                'lifts': {l: [] for l in labels}}
+                'lifts': {l: [] for l in labels},
+                'doubles': {}, 'cues': {}}
         for target, instr, loc in sec['directives']:
             tgts = groups.get(target) or ([target] if target in labels else None)
             if tgts is None:
@@ -1504,6 +1540,7 @@ def build_plans(chart, band, groups, labels):
             demo_refs, fall, quant, short = [], False, None, False
             legato, ghost = False, False
             fig_lifts, lyrics_text = [], None
+            doubles, cues = None, None
             every_artic, dyn_marks, scoops, doit = None, [], [], False
             hits_map = {}
             # split on commas OUTSIDE quotes — groove "shuffle, ride
@@ -1677,6 +1714,43 @@ def build_plans(chart, band, groups, labels):
                 if m:
                     anns.append((int(m.group(2) or 1), m.group(1)))
                     continue
+                if piece == 'as demo':
+                    groove_words = 'as demo'
+                    continue
+                m = re.match(r'double ([\w ]+)$', piece)
+                if m:
+                    doubles = m.group(1).strip()
+                    continue
+                m = re.match(r'cue ([\w ]+)$', piece)
+                if m:
+                    cues = m.group(1).strip()
+                    continue
+                m = re.match(r'on pass (\d+):\s*(.+)$', piece)
+                if m:
+                    if not sec['repeat']:
+                        fail(f"{loc}: 'on pass' only means something in "
+                             "a repeated section")
+                    if int(m.group(1)) > max(sec['repeat'], 1):
+                        fail(f"{loc}: 'on pass {m.group(1)}' in a section "
+                             f"played {sec['repeat']} times")
+                    tag = f"({m.group(1)}x only)"
+                    inner = normalize_piece(m.group(2).strip())
+                    mm = re.match(r'text "([^"]*)"(?:\s+at bar (\d+))?$',
+                                  inner)
+                    if mm:
+                        anns.append((int(mm.group(2) or 1),
+                                     f'{mm.group(1)} {tag}'))
+                        continue
+                    mm = re.match(r'mute (\w+)$', inner)
+                    if mm:
+                        anns.append((1, f'{mm.group(1)} mute {tag}'))
+                        continue
+                    if inner == 'open':
+                        anns.append((1, f'open {tag}'))
+                        continue
+                    fail(f"{loc}: on pass carries words and mutes for "
+                         "now — per-pass notes print once with a "
+                         f"'{tag}' text")
                 if piece == 'tacet':
                     engraved = 'tacet'
                     continue
@@ -1695,6 +1769,10 @@ def build_plans(chart, band, groups, labels):
                     continue
                 fail(f"{loc}: instruction '{piece}' is not built yet")
             for l in tgts:
+                if doubles:
+                    plan['doubles'][l] = (doubles, loc)
+                if cues:
+                    plan['cues'][l] = (cues, loc)
                 if engraved == 'tacet':
                     plan['content'][l] = ('tacet', None)
                 elif engraved:
@@ -1721,9 +1799,15 @@ def build_plans(chart, band, groups, labels):
             if kind == 'meter':
                 continue    # the page shows a time signature, not words —
                             # emission reads the meter map directly
+            if kind == 'build' and text not in groups \
+                    and text not in labels:
+                fail(f"section {sec['name']}: build adds '{text}', which "
+                     "is not a band part or group")
             for l in labels:
                 if kind == 'tempo':
                     plan['texts'][l].append((bar, ('tempo', text)))
+                elif kind == 'build':
+                    plan['texts'][l].append((bar, f"+{text}"))
                 else:
                     plan['texts'][l].append((bar, text))
         plans.append(plan)

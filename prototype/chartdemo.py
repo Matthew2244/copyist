@@ -807,7 +807,7 @@ def bend_indices(res, bends):
 
 def render_range(res, fifths_written, transpose_to_written, fall,
                  findings=None, short=False, every=None, doit=False,
-                 scoops=None):
+                 scoops=None, cue=False):
     """Resolved timeline -> {abs_bar: MusicXML measure content}."""
     find = findings if findings is not None else Findings()
     at_bar = res['at']
@@ -852,7 +852,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
               (last_artic if is_last else None) or every,
               transpose_to_written, bend=bends.get(ti), bar=bar_ticks,
               slur=(ti in slur_a, ti in slur_b), ghost=ti in ghosts,
-              lyric=lyr[ti] if lyr else None)
+              lyric=lyr[ti] if lyr else None, cue=cue)
         pos = end
     if pos < n_units:
         _emit(out, at_bar, pos, n_units, None, table, grids_chart,
@@ -1015,7 +1015,7 @@ def _name(ticks, sub):
 
 def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
           bend=None, bar=BAR, voice=1, staff=0, slur=(False, False),
-          ghost=False, lyric=None):
+          ghost=False, lyric=None, cue=False):
     staff_xml = f'        <staff>{staff}</staff>\n' if staff else ''
     pieces = _pieces(start, end, grids, bar)
     for pi, (a, b) in enumerate(pieces):
@@ -1049,6 +1049,10 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                 w = p + transpose
                 step, alter, octave = convert.spell(w, table)
                 lines = ['      <note>']
+                if cue:
+                    # printed small, never sounded — and our own player
+                    # honors that, which MuseScore never did
+                    lines.append('        <cue/>')
                 if ni:
                     lines.append('        <chord/>')
                 lines.append('        <pitch>'
@@ -1056,9 +1060,9 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                              + (f'<alter>{alter}</alter>' if alter else '')
                              + f'<octave>{octave}</octave></pitch>')
                 lines.append(f'        <duration>{plen}</duration>')
-                if not pfirst:
+                if not pfirst and not cue:
                     lines.append('        <tie type="stop"/>')
-                if not plast:
+                if not plast and not cue:
                     lines.append('        <tie type="start"/>')
                 lines.append(f'        <voice>{voice}</voice>')
                 lines.append(f'        <type>{ptype}</type>')
