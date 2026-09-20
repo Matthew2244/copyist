@@ -50,9 +50,10 @@ def sniff_octave(pitches, rng):
     return 0
 
 
-def spans(notes, division):
+def spans(notes, division, meter=(4, 4)):
     """Bar spans of activity, in the demo's own bar numbers."""
-    bars = sorted({int(n.on // (division * 4)) + 1 for n in notes})
+    bar_ticks = division * 4 * meter[0] // meter[1]
+    bars = sorted({int(n.on // bar_ticks) + 1 for n in notes})
     runs = []
     for b in bars:
         if runs and b - runs[-1][1] <= 1:
@@ -86,13 +87,20 @@ def interview(out_path, demo_path):
     tempo_default = ""
     if ex["tempos"]:
         tempo_default = str(round(60_000_000 / ex["tempos"][0][1]))
-    first_bar = min(int(n.on // (dm.division * 4)) + 1
-                    for ns in dm.tracks.values() for n in ns)
-    countin_default = "1" if first_bar > 1 else "0"
+    ts_default = "4/4"
+    if ex["timesigs"]:
+        _, tn, td = ex["timesigs"][0]
+        ts_default = f"{tn}/{td}"
 
     title = ask("Title", os.path.splitext(os.path.basename(out_path))[0])
     composer = ask("Composer", "")
     key = ask("Key, like Eb minor or F", "C")
+    meter_txt = ask("Meter, like 4/4 or 3/4 or 6/8", ts_default)
+    meter = chartc.parse_meter(meter_txt)
+    bar_ticks = dm.division * 4 * meter[0] // meter[1]
+    first_bar = min(int(n.on // bar_ticks) + 1
+                    for ns in dm.tracks.values() for n in ns)
+    countin_default = "1" if first_bar > 1 else "0"
     tempo = ask("Tempo", tempo_default)
     countin = ask("Count-in bars in the demo", countin_default)
     dyn = ask("Dynamics: pedal reads your CC 11, by hand means you "
@@ -131,7 +139,7 @@ def interview(out_path, demo_path):
     if not band:
         sys.exit("chart: no parts named, no chart written.")
 
-    total = max(int(n.on // (dm.division * 4)) + 1
+    total = max(int(n.on // bar_ticks) + 1
                 for ns in dm.tracks.values() for n in ns) - int(countin or 0)
 
     lines = [f"# {title} — started by the chart interview. The activity",
@@ -141,13 +149,14 @@ def interview(out_path, demo_path):
              ""]
     for label, inst, tname, shift in band:
         notes, _ = notes_by_label[label]
-        lines.append(f"# {label} plays demo bars {spans(notes, dm.division)}")
+        lines.append(f"# {label} plays demo bars "
+                     f"{spans(notes, dm.division, meter)}")
     lines += ["",
               f"title: {title}"]
     if composer:
         lines.append(f"composer: {composer}")
     lines += [f"key: {key}",
-              "meter: 4/4",
+              f"meter: {meter[0]}/{meter[1]}",
               f"tempo: {tempo}" if tempo else "# tempo: none stated",
               f"demo: {os.path.relpath(demo_path, os.path.dirname(os.path.abspath(out_path)))}"]
     if int(countin or 0):
@@ -168,7 +177,7 @@ def interview(out_path, demo_path):
     for label, inst, tname, shift in band[:1]:
         notes, _ = notes_by_label[label]
         lines.append(f"#   {label}: from demo bars "
-                     f"{spans(notes, dm.division).split(',')[0].strip()}")
+                     f"{spans(notes, dm.division, meter).split(',')[0].strip()}")
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write("\n".join(lines) + "\n")
     say(f"Wrote {out_path}: {len(band)} part(s), one {total}-bar section "

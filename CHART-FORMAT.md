@@ -7,7 +7,10 @@ hits, articulations, dynamics, engraved page output, and the read-aloud
 contract of §4). Meters: any
 N over 1, 2, 4, 8 or 16 compiles (waltzes, 6/8, 5/4 — verified), with
 `at bar N: tempo X` mid-chart tempo changes; a compound meter counts in
-its denominator pulses for now, and per-bar meter changes (`at bar N:
+its denominator pulses, prints its `tempo:` as a dotted-quarter
+metronome mark, and plays back at the matching speed; the `new`
+interview asks the meter (defaulting to the demo's own time signature)
+and counts bars with it. Per-bar meter changes (`at bar N:
 meter`) are still ahead — along with named figures, inline `notes:`,
 voltas, `double`/`cue`/`build:`/`on pass`/`as demo`, and detail levels.
 **Read DESIGN.md first.** This document extends it: where DESIGN.md turns a

@@ -1366,13 +1366,19 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         # verbatim (Lush Life says "Slow, freely")
                         pieces.append(direction(hdr['tempo']))
                     elif hdr.get('tempo'):
+                        # a compound meter's tempo is a dotted-quarter
+                        # figure — that is how a 6/8 player reads it
+                        compound = m_den == 8 and m_num % 3 == 0
+                        dot = '<beat-unit-dot/>' if compound else ''
+                        sound = (float(hdr['tempo']) * 1.5 if compound
+                                 else float(hdr['tempo']))
                         pieces.append(
                             '      <direction placement="above">'
                             '<direction-type><metronome>'
-                            '<beat-unit>quarter</beat-unit>'
+                            f'<beat-unit>quarter</beat-unit>{dot}'
                             f'<per-minute>{hdr["tempo"]}</per-minute>'
                             '</metronome></direction-type>'
-                            f'<sound tempo="{hdr["tempo"]}"/>'
+                            f'<sound tempo="{sound:g}"/>'
                             '</direction>\n')
                 if with_directions and off == 0:
                     mark = sec['name']
