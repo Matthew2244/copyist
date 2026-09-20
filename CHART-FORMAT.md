@@ -1,7 +1,11 @@
 # The Copyist chart format
 
-**Status:** draft specification, 2026-08-30. Nothing here is implemented yet;
-this is the design the chart compiler will be built against.
+**Status:** living specification. Designed 2026-08-30 against the measured
+corpus; substantially implemented as of 2026-09-20 (the compiler, the demo
+door §3.4.1, the bars grammar with groups, the working chord-quality set,
+hits, articulations, dynamics, engraved page output, and the read-aloud
+contract of §4). Still ahead: named figures, inline `notes:`, voltas,
+`double`/`cue`/`build:`/`on pass`, and meters beyond 4/4.
 **Read DESIGN.md first.** This document extends it: where DESIGN.md turns a
 performance into a chart, this format lets a chart be *written* directly — as
 text — and compiled into the same MusicXML the engine already emits.
