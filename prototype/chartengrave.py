@@ -705,6 +705,44 @@ KEY_SHARPS = [8, 5, 9, 6, 3, 7, 4]      # F C G D A E B, treble positions
 KEY_FLATS = [4, 7, 3, 6, 2, 5, 1]
 
 
+INK_GAP = 0.65 * SP     # air an engraver leaves between one onset's
+                        # ink and the next, beyond the rhythm's share
+
+
+def ink_needs(meas):
+    """pos -> (left, right): how far each onset's ink actually reaches
+    either side of its center — accidental columns, offset seconds,
+    dots, flags, scoops. Optical spacing keeps neighbours at least
+    this far apart, whatever the rhythm says."""
+    needs = {}
+    for pos, notes, staff, voice in meas['events']:
+        n0 = notes[0]
+        s = 0.68 if n0.cue else 1.0
+        if n0.rest:
+            l, r = 1.5 * SP, 1.5 * SP
+        else:
+            l = r = 1.35 * SP * s
+            naccs = sum(1 for n in notes if n.alter)
+            if naccs:
+                l = max(l, (2.1 + 1.7 * (naccs - 1) + 1.7) * SP)
+            # seconds flip a head across the stem; count them the way
+            # draw_stream will (intervals only, so any clef serves)
+            ps = sorted(step_pos(n.step, n.octave, 'G') for n in notes)
+            if any(b - a == 1 for a, b in zip(ps, ps[1:])):
+                r += 2.15 * SP * s
+            if FLAGS.get(n0.ntype, 0):
+                r = max(r, 2.5 * SP * s)
+        if n0.dots:
+            r = max(r, (1.9 + 0.7 * n0.dots) * SP)
+        if n0.artic in ('scoop', 'plop'):
+            l += 3.6 * SP
+        elif n0.artic in ('falloff', 'doit'):
+            r = max(r, 3.8 * SP)
+        pl, pr = needs.get(pos, (0.0, 0.0))
+        needs[pos] = (max(pl, l), max(pr, r))
+    return needs
+
+
 def measure_width(meas):
     w = 3.2 * SP
     if meas['multi']:
@@ -722,7 +760,10 @@ def measure_width(meas):
             2.4 * SP + 1.15 * SP * (max(n.dur, 2) ** 0.5)
             + (1.6 * SP if any(x.alter and not x.rest
                                for x in notes) else 0))
-    return max(w + max(per.values(), default=0), 12 * SP)
+    # the optical floor: every onset's ink plus the gap, end to end
+    opt = sum(l + r + INK_GAP for l, r in ink_needs(meas).values())
+    return max(w + max(per.values(), default=0), w + opt + 2 * SP,
+               12 * SP)
 
 
 def engrave(xml_path, pdf_path):
@@ -1027,8 +1068,44 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False):
     span = max(x0 + width - x - 2.2 * SP, 4 * SP)
     total = max(meas['len'], 1)
 
+    # optical spacing: onsets take their rhythm's share of the bar,
+    # but never sit closer than their ink allows
+    needs = ink_needs(meas)
+    pts = sorted(needs)
+    x_lo = x + 1.2 * SP
+    x_hi = x_lo + span - 2.4 * SP
+    marks = [(0, x_lo)]
+    if pts:
+        xs, prev = [], None
+        for p in pts:
+            ideal = x_lo + (p / total) * (span - 2.4 * SP)
+            xi = max(ideal, x + needs[p][0] + 0.3 * SP)
+            if prev is not None:
+                xi = max(xi, xs[-1] + needs[prev][1]
+                         + needs[p][0] + INK_GAP)
+            xs.append(xi)
+            prev = p
+        limit = x + span - 1.2 * SP
+        over = xs[-1] + needs[pts[-1]][1] - limit
+        if over > 0 and xs[-1] > xs[0]:      # squeeze, best effort
+            t = max((limit - needs[pts[-1]][1] - xs[0])
+                    / (xs[-1] - xs[0]), 0.5)
+            xs = [xs[0] + (xi - xs[0]) * t for xi in xs]
+        marks = [(0, min(x_lo, xs[0]))] if pts[0] > 0 else []
+        marks += list(zip(pts, xs))
+        end = max(x_hi, xs[-1] + 0.5 * SP)
+    else:
+        end = x_hi
+    if marks[-1][0] < total:
+        marks.append((total, end))
+
     def xat(pos, extra=0.0):
-        return x + 1.2 * SP + (pos / total) * (span - 2.4 * SP) + extra
+        for (p0, v0), (p1, v1) in zip(marks, marks[1:]):
+            if pos <= p1:
+                if pos <= p0:
+                    return v0 + extra
+                return v0 + (pos - p0) / (p1 - p0) * (v1 - v0) + extra
+        return marks[-1][1] + extra
 
     for pos, sym in meas['chords']:
         draw_chord_symbol(pdf, xat(pos), top + 1.5 * SP, sym)
@@ -1070,6 +1147,17 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
     pend_beam = []
     slur_open = []
     drawn = []
+    # notes that will beam together share one stem direction, decided
+    # by the whole group — a lone dissenter would get its stem drawn
+    # from the wrong side of the beam, a pole through the staff
+    beat_ps = {}
+    for pos, notes in events:
+        n0 = notes[0]
+        if n0.rest or not FLAGS.get(n0.ntype, 0):
+            continue
+        beat_ps.setdefault(pos // beat_len, []).extend(
+            step_pos(n.step, n.octave, clef) for n in notes)
+    beat_dir = {b: (sum(ps) / len(ps)) < 4 for b, ps in beat_ps.items()}
     for ei, (pos, notes) in enumerate(events):
         n0 = notes[0]
         cx = xat(pos)
@@ -1088,7 +1176,12 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
         scale = 0.68 if n0.cue else 1.0
         ps = [step_pos(n.step, n.octave, clef) for n in notes]
         ys = [top - STAFF + p * SP / 2 for p in ps]
-        up = forced if forced is not None else (sum(ps) / len(ps)) < 4
+        if forced is not None:
+            up = forced
+        elif FLAGS.get(n0.ntype, 0) and pos // beat_len in beat_dir:
+            up = beat_dir[pos // beat_len]
+        else:
+            up = (sum(ps) / len(ps)) < 4
         for p, yy in zip(ps, ys):
             if p < -1:
                 for lp in range(-2, p - 1, -2):
