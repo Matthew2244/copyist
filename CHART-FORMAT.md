@@ -23,7 +23,11 @@ part places it, riding the same quant and phrasing words) or `from xml`
 (written bars lifted verbatim, the source's divisions carried per
 measure and the part's own restated after); placed with `figure <name>
 [at bar N]`, unused definitions are a finding, and every mistake —
-undefined name, wrong length, missing part — is one sentence. Inline `notes:` figures compile too (same day): the 3.4 grammar — pitch-name durations w h q e s with dots, ties with +, rest, triplet( ... ) — shaped internally as a resolved demo range, so the page, the prose and the player need nothing new, and the legato and articulation words ride along; notes that do not fill the declared bars refuse with both counts. Beat-length figures are still ahead. Volta endings compile as of
+undefined name, wrong length, missing part — is one sentence. Inline `notes:` figures compile too (same day): the 3.4 grammar — pitch-name durations w h q e s with dots, ties with +, rest, triplet( ... ) — shaped internally as a resolved demo range, so the page, the prose and the player need nothing new, and the legato and articulation words ride along; notes that do not fill the declared bars refuse with both counts. Beat-length figures are still ahead, and lyrics sing as of the
+same day: a `lyrics:` line after a figure's source, or a
+`lyrics "..."` piece on any from-demo line — hyphens split syllables,
+underscores hold a melisma, one syllable per sung note or the refusal
+carries both counts. Volta endings compile as of
 2026-09-20 (`ending N, M bars:
 chords: ...` inside a repeated section — brackets, repeats and the
 final discontinue land where a player looks, and the read-aloud speaks

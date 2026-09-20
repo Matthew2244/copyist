@@ -251,6 +251,53 @@ def _pedals(evts, n_units):
     return [(s, e, sorted(ps)) for s, e, ps in pedals]
 
 
+def parse_lyrics(text):
+    """CHART-FORMAT.md 3.4: syllables split with hyphens, melisma held
+    with underscores — 'To-mor-row, to-mor-row_' -> aligned tokens, one
+    per sung note, None meaning the previous syllable keeps sounding."""
+    toks = []
+    for word in text.split():
+        tail = 0
+        while word.endswith('_'):
+            word = word[:-1]
+            tail += 1
+        if word:
+            sylls = word.split('-')
+            real = [s for s in sylls if s]
+            for i, s in enumerate(real):
+                syllabic = ('single' if len(real) == 1 else
+                            'begin' if i == 0 else
+                            'end' if i == len(real) - 1 else 'middle')
+                toks.append([syllabic, s, False])
+        for _ in range(tail):
+            toks.append(None)
+    return toks
+
+
+def attach_lyrics(res, text, part_label, loc):
+    """Align the writer's words to the resolved notes, one syllable per
+    note, or refuse with both counts — words silently misaligned to
+    notes are the one failure a singer cannot proofread past."""
+    if not text:
+        return
+    if res.get('staves'):
+        raise SystemExit(
+            f"chartc: {loc}: lyrics need one singing line — this figure "
+            "came out polyphonic")
+    toks = parse_lyrics(text)
+    n = len(res['timeline'])
+    if len(toks) != n:
+        raise SystemExit(
+            f"chartc: {loc}: '{part_label}' sings {n} note(s) here but "
+            f"the lyrics carry {len(toks)} syllable(s) — count "
+            "melisma holds as underscores")
+    for i, t in enumerate(toks):
+        if t is None and i and toks[i - 1] is not None:
+            toks[i - 1][2] = True        # the syllable keeps sounding
+    res['lyrics'] = toks
+    res['lyrics_text'] = text
+
+
 def inline_res(ref, meter, spoken_shift):
     """A hand-written figure (CHART-FORMAT.md 3.4 notes:), shaped exactly
     like a resolved demo range so the page, the prose and the player need
@@ -687,6 +734,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     slur_a = {i for i, _ in res.get('slurs', ())}
     slur_b = {j for _, j in res.get('slurs', ())}
     ghosts = res.get('ghosts') or set()
+    lyr = res.get('lyrics')
     pos = 0
     for ti, (start, end, pitches) in enumerate(timeline):
         if start > pos:
@@ -696,7 +744,8 @@ def render_range(res, fifths_written, transpose_to_written, fall,
         _emit(out, at_bar, start, end, pitches, table, grids_chart,
               (last_artic if is_last else None) or every,
               transpose_to_written, bend=bends.get(ti), bar=bar_ticks,
-              slur=(ti in slur_a, ti in slur_b), ghost=ti in ghosts)
+              slur=(ti in slur_a, ti in slur_b), ghost=ti in ghosts,
+              lyric=lyr[ti] if lyr else None)
         pos = end
     if pos < n_units:
         _emit(out, at_bar, pos, n_units, None, table, grids_chart,
@@ -859,7 +908,7 @@ def _name(ticks, sub):
 
 def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
           bend=None, bar=BAR, voice=1, staff=0, slur=(False, False),
-          ghost=False):
+          ghost=False, lyric=None):
     staff_xml = f'        <staff>{staff}</staff>\n' if staff else ''
     pieces = _pieces(start, end, grids, bar)
     for pi, (a, b) in enumerate(pieces):
@@ -938,6 +987,13 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                 if notations:
                     lines.append('        <notations>' + ''.join(notations)
                                  + '</notations>')
+                if lyric and pfirst and ni == 0:
+                    syl, txt, ext = lyric
+                    lines.append('        <lyric>'
+                                 f'<syllabic>{syl}</syllabic>'
+                                 f'<text>{txt}</text>'
+                                 + ('<extend/>' if ext else '')
+                                 + '</lyric>')
                 lines.append('      </note>')
                 out[bar_no].append("\n".join(lines) + "\n")
 

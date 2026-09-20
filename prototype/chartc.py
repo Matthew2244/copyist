@@ -712,6 +712,13 @@ def parse_chart(path):
         if mode == 'output':
             continue        # defaults only in this increment
         if mode == 'figure':
+            m = re.match(r'lyrics:\s*(.+)$', s)
+            if m:
+                if not cur_fig['kind']:
+                    fail(f"{loc}: lyrics: follows the figure's source "
+                         "line")
+                cur_fig['lyrics'] = m.group(1).strip()
+                continue
             if cur_fig['kind']:
                 fail(f"{loc}: one source per figure — this one already "
                      f"has its {cur_fig['kind']}")
@@ -1371,6 +1378,9 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                         findings.add(f"{l}: an inline figure carries no "
                                      "velocities, so ghosts must be "
                                      "played in — none written")
+                    chartdemo.attach_lyrics(
+                        res, ref.get('lyrics') or ref.get('fig_lyrics'),
+                        l, ref['loc'])
                     resolved[l].append({'res': res, 'fall': ref['fall'],
                                         'short': ref.get('short', False),
                                         'every': ref.get('every'),
@@ -1420,6 +1430,9 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     short=ref.get('short', False),
                     spoken_shift=int(hdr.get('countin', 0)),
                     part_label=l, findings=findings)
+                chartdemo.attach_lyrics(
+                    res, ref.get('lyrics') or ref.get('fig_lyrics'),
+                    l, ref['loc'])
                 resolved[l].append({'res': res, 'fall': ref['fall'],
                                     'short': ref.get('short', False),
                                     'every': ref.get('every'),
@@ -1490,7 +1503,7 @@ def build_plans(chart, band, groups, labels):
             anns, engraved, groove_words = [], None, None
             demo_refs, fall, quant, short = [], False, None, False
             legato, ghost = False, False
-            fig_lifts = []
+            fig_lifts, lyrics_text = [], None
             every_artic, dyn_marks, scoops, doit = None, [], [], False
             hits_map = {}
             # split on commas OUTSIDE quotes — groove "shuffle, ride
@@ -1519,12 +1532,14 @@ def build_plans(chart, band, groups, labels):
                         demo_refs.append({'track': fig['track'],
                                           'file': fig['file'],
                                           'lo': fig['lo'], 'hi': fig['hi'],
+                                          'fig_lyrics': fig.get('lyrics'),
                                           'at': at, 'loc': loc})
                     elif fig['kind'] == 'inline':
                         demo_refs.append({'track': None, 'file': None,
                                           'inline': fig['items'],
                                           'grids': fig['grids'],
                                           'ticks': fig['ticks'],
+                                          'fig_lyrics': fig.get('lyrics'),
                                           'lo': 1, 'hi': fig['bars'],
                                           'at': at, 'loc': loc})
                     else:
@@ -1654,6 +1669,10 @@ def build_plans(chart, band, groups, labels):
                 if m:
                     groove_words = m.group(1) or ''
                     continue
+                m = re.match(r'lyrics "([^"]*)"$', piece)
+                if m:
+                    lyrics_text = m.group(1)
+                    continue
                 m = re.match(r'text "([^"]*)"(?:\s+at bar (\d+))?$', piece)
                 if m:
                     anns.append((int(m.group(2) or 1), m.group(1)))
@@ -1691,6 +1710,7 @@ def build_plans(chart, band, groups, labels):
                                                     short=short,
                                                     legato=legato,
                                                     ghost=ghost,
+                                                    lyrics=lyrics_text,
                                                     every=every_artic,
                                                     doit=doit,
                                                     scoops=scoops))

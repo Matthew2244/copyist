@@ -114,6 +114,18 @@ convention, not a voicing.
   and `triplet( ... )` for the triplet figures. The notes must fill the
   declared bars exactly, or the build tells you both counts. Define a
   figure and never place it, and the findings will tell you.
+- **Singers get their words the same way.** A `lyrics:` line after a
+  figure's source, or `lyrics "..."` riding a from-demo line:
+
+      singer: from demo bars 2-13, straight, legato, lyrics "Green-line
+      roll-ing home now win-dows shine all night rat-tle on steel song
+      car-ry me up-town far down the line take me home home"
+
+  Hyphens split a word into syllables, an underscore holds a syllable
+  over the next note (a melisma), and the count must match the sung
+  notes exactly — if it doesn't, the build says how many notes you sing
+  and how many syllables you gave it, and you adjust like tuning a
+  drum. Words riding in a from-xml figure come along automatically.
 - **First and second endings** live inside a repeated section: the
   declared length is one pass, the way you'd say it on the stand —
 

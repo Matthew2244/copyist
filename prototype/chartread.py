@@ -168,6 +168,8 @@ def part_section(plan, label, chord_parts, figures=None):
                  f"concert pitch:{extra}") if item.get('inline') else
                 (f"Your line, bars {lo} to {hi}, spoken at "
                  f"concert pitch:{extra}"))
+            if item['res'].get('lyrics_text'):
+                lines.append(f"Words: {item['res']['lyrics_text']}")
             prose = chartdemo.say_range(item['res'], item['concert_fifths'],
                                         item['fall'],
                                         short=item.get('short', False),

@@ -1013,6 +1013,65 @@ def check_figures():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_lyrics():
+    """
+    CHART-FORMAT.md 3.4 lyrics: hyphens split syllables, underscores hold
+    a melisma, and the alignment is one syllable per sung note or a
+    refusal carrying both counts — misaligned words are the one failure
+    a singer cannot proofread past.
+    """
+    import re
+    import chartc
+    import chartdemo
+    from chart import verify_measures
+    tmp = tempfile.mkdtemp()
+
+    toks = chartdemo.parse_lyrics("To-mor-row, to-mor-row_ _")
+    check("hyphens, punctuation and melisma parse",
+          [t[:2] if t else None for t in toks] ==
+          [['begin', 'To'], ['middle', 'mor'], ['end', 'row,'],
+           ['begin', 'to'], ['middle', 'mor'], ['end', 'row'],
+           None, None], f"got {toks}")
+
+    HEAD = ('title: L\nkey: C\nmeter: 4/4\ntempo: 90\n\n'
+            'band:\n  singer = voice\n  piano\n\n'
+            'figure hook, 1 bars:\n'
+            '  notes: C5 q, D5 q, E5 q, G5 q\n'
+            '  lyrics: Morn-ing train_\n\n')
+    p = os.path.join(tmp, "l.chart")
+    open(p, "w").write(HEAD +
+        'section A, 2 bars\n  chords: C, G7\n'
+        '  singer: figure hook\n  piano: groove\n')
+    out = os.path.join(tmp, "lb")
+    with redirect_stdout(io.StringIO()):
+        files = chartc.compile_chart(p, out)
+    check("a sung figure sums", not verify_measures(files))
+    xml = open(os.path.join(out, "L — singer.musicxml")).read()
+    lyr = re.findall(r'<lyric>(.*?)</lyric>', xml, re.S)
+    check("syllabics and the melisma extend land on the page",
+          len(lyr) == 3
+          and '<syllabic>begin</syllabic><text>Morn</text>' in lyr[0]
+          and '<syllabic>end</syllabic><text>ing</text>' in lyr[1]
+          and '<text>train</text><extend/>' in lyr[2], f"got {lyr}")
+
+    open(os.path.join(tmp, "bad.chart"), "w").write(HEAD.replace(
+        "Morn-ing train_", "Morn-ing train") +
+        'section A, 2 bars\n  chords: C, G7\n'
+        '  singer: figure hook\n  piano: groove\n')
+    try:
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(os.path.join(tmp, "bad.chart"),
+                                 os.path.join(tmp, "x"))
+        got = ""
+    except SystemExit as e:
+        got = str(e)
+    check("a syllable count that misses refuses with both counts",
+          "sings 4 note(s)" in got and "3 syllable(s)" in got,
+          f"got: {got}")
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -1077,6 +1136,7 @@ if __name__ == "__main__":
     check_audio()
     check_voltas()
     check_figures()
+    check_lyrics()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
