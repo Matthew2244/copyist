@@ -5,7 +5,8 @@ corpus; substantially implemented as of 2026-09-20 (the compiler, the demo
 door §3.4.1, the bars grammar with groups, the working chord-quality set,
 hits, articulations, dynamics, engraved page output, and the read-aloud
 contract of §4). Still ahead: named figures, inline `notes:`, voltas,
-`double`/`cue`/`build:`/`on pass`, and meters beyond 4/4.
+`double`/`cue`/`build:`/`on pass`/`as demo`, detail levels, and meters
+beyond 4/4.
 **Read DESIGN.md first.** This document extends it: where DESIGN.md turns a
 performance into a chart, this format lets a chart be *written* directly — as
 text — and compiled into the same MusicXML the engine already emits.

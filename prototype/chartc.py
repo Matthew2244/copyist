@@ -361,8 +361,10 @@ def normalize_piece(piece):
 
 
 def parse_key(text):
-    """'Eb minor' -> (fifths, mode)."""
-    m = re.fullmatch(r'([A-Ga-g][b#]?)\s*(major|minor)?', text.strip())
+    """'Eb minor' -> (fifths, mode); 'e flat minor' works too."""
+    text = (text.strip().lower().replace(' flat', 'b')
+            .replace(' sharp', '#'))
+    m = re.fullmatch(r'([A-Ga-g][b#]?)\s*(major|minor)?', text)
     if not m:
         fail(f"cannot read key '{text}'")
     root = m.group(1).lower()
@@ -492,7 +494,7 @@ def parse_bars(text, where):
 
 def parse_chart(path):
     chart = {'header': {}, 'band': [], 'chords': {}, 'sections': [],
-             'pickup': None}
+             'groups': {}, 'pickup': None}
     cur = None          # current section
     mode = None         # 'band' or None
     for lineno, line in enumerate(open(path, encoding='utf-8'), 1):
@@ -514,6 +516,11 @@ def parse_chart(path):
             if m:
                 chart['chords'][m.group(1).strip()] = parse_bars(
                     m.group(2), f"chords {m.group(1)}")
+                continue
+            m = re.match(r'group ([\w ]+?):\s*(.+)$', s)
+            if m:
+                chart['groups'][m.group(1).strip()] = \
+                    [x.strip() for x in m.group(2).split(',')]
                 continue
             m = re.match(r'figure ', s)
             if m:
@@ -595,6 +602,10 @@ def parse_chart(path):
                                       loc))
             continue
         fail(f"{loc}: cannot read '{s}' in section {cur['name']}")
+
+    ci = chart['header'].get('countin', '0')
+    if not str(ci).isdigit():
+        fail(f"countin must be a number of bars, not '{ci}'")
 
     # resolve `use chords`
     for sec in chart['sections']:
@@ -826,7 +837,7 @@ def rest_bar(div, staves):
 
 # ------------------------------------------------------------ compile
 
-def resolve_groups(band):
+def resolve_groups(band, custom=None):
     labels = [b['label'] for b in band]
     inst = {b['label']: canonical_instrument(b['instrument'])
             for b in band}
@@ -850,6 +861,11 @@ def resolve_groups(band):
                   if l in g['saxes'] or l in g['trumpets'] or
                   l in g['trombones']]
     g['band'] = labels[:]
+    for name, members in (custom or {}).items():
+        for x in members:
+            if x not in labels:
+                fail(f"group {name} names '{x}', which is not in the band")
+        g[name] = members
     return g
 
 
@@ -868,7 +884,7 @@ def compile_chart(chart_path, outdir):
         fail(f"source score '{hdr['source']}' not found next to the chart")
 
     band = chart['band']
-    groups = resolve_groups(band)
+    groups = resolve_groups(band, chart.get('groups'))
     labels = [b['label'] for b in band]
     src_of = {}
     if source:
@@ -955,7 +971,26 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
     for b in band:
         inst = canonical_instrument(b['instrument'])
         if inst in HORNS:
-            horn_of[b['label']] = HORNS[inst]
+            h = HORNS[inst]
+            if b.get('tuning'):
+                pitches = []
+                for tok in b['tuning'].split():
+                    m2 = re.fullmatch(r'([A-Ga-g])([b#]?)(-?\d)', tok)
+                    if not m2:
+                        fail(f"cannot read tuning note '{tok}' for "
+                             f"'{b['label']}'")
+                    base = {'c': 0, 'd': 2, 'e': 4, 'f': 5, 'g': 7,
+                            'a': 9, 'b': 11}[m2.group(1).lower()]
+                    alt = {'b': -1, '#': 1, '': 0}[m2.group(2)]
+                    pitches.append(base + alt
+                                   + (int(m2.group(3)) + 1) * 12)
+                lo = min(pitches)
+                lo_name = b['tuning'].split()[pitches.index(lo)]
+                h = dict(h, fold=(lo, h['fold'][1]),
+                         comf=(lo, h['comf'][1]))
+                findings.add(f"{b['label']}: tuning honored — the floor "
+                             f"is now {lo_name}")
+            horn_of[b['label']] = h
     resolved = {l: [] for l in labels}
     for plan in plans:
         for l in labels:
@@ -1294,7 +1329,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 if with_directions and absbar == 1 and not chart['pickup']:
                     if hdr.get('feel'):
                         pieces.append(direction(hdr['feel'].capitalize()))
-                    if hdr.get('tempo'):
+                    if hdr.get('tempo') and not re.fullmatch(
+                            r'[\d.]+', str(hdr['tempo'])):
+                        # tempo words are performance language, printed
+                        # verbatim (Lush Life says "Slow, freely")
+                        pieces.append(direction(hdr['tempo']))
+                    elif hdr.get('tempo'):
                         pieces.append(
                             '      <direction placement="above">'
                             '<direction-type><metronome>'

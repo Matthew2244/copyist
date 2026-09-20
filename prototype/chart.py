@@ -396,7 +396,14 @@ def main():
                     "ffmpeg gets it.")
             else:
                 countin = int(chart['header'].get('countin', 0))
-                tempo = float(chart['header'].get('tempo', 120))
+                try:
+                    tempo = float(chart['header'].get('tempo', 120))
+                except ValueError:
+                    say("The tempo is words, not a number, so I cannot "
+                        "place the trim — the full MP3 stands.")
+                    tempo = None
+                if tempo is None:
+                    return
                 printed = max(1, args.from_bar - countin)
                 seconds = max(0.0, (printed - 1) * 4 * 60.0 / tempo)
                 cut = os.path.join(

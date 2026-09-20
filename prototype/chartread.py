@@ -198,7 +198,7 @@ def main():
     chart = chartc.parse_chart(a.chart)
     hdr = chart['header']
     band = chart['band']
-    groups = chartc.resolve_groups(band)
+    groups = chartc.resolve_groups(band, chart.get('groups'))
     labels = [b['label'] for b in band]
     plans, total = chartc.build_plans(chart, band, groups, labels)
     findings = chartdemo.Findings()
