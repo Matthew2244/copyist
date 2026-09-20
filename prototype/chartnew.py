@@ -99,9 +99,10 @@ def interview(out_path, demo_path):
               "dictate", "pedal")
 
     band, notes_by_label = [], {}
-    known = ", ".join(sorted(chartc.HORNS))
-    say(f"Now the band. Instruments I can convert: {known}. "
-        "Leave one blank to skip that track.")
+    say(f"Now the band — {len(chartc.HORNS)} instruments from piccolo "
+        "to bass voice to congas, and nicknames work (kit, vibes, "
+        "upright bass, bone). Name each track's instrument, or leave "
+        "one blank to skip that track.")
     for ti, name, notes in tracks:
         pitches = [n.pitch for n in notes]
         info = (f'Track "{name}": {len(notes)} notes, '

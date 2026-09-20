@@ -92,8 +92,45 @@ HORNS = {
     'mandolin':          _inst(0,  (55, 88),  'G', 0, (55, 84)),
     'accordion':         _inst(0,  (41, 96),  'G', 0, (41, 96), poly=True),
     'harmonica':         _inst(0,  (48, 84),  'G', 0, (48, 84)),
-    # drums: groove, hits and words — from-demo kit notation is future
+    # pitched percussion colors
+    'chimes':            _inst(0,   (60, 77),  'G', 0, (60, 77)),
+    'crotales':          _inst(-24, (84, 108), 'G', 0, (84, 108)),
+    'steel pan':         _inst(0,   (57, 89),  'G', 0, (57, 89), poly=True),
+    # drums, hand percussion and the aux cabinet: percussion clef, no
+    # key, grooves, kicks and words — notation from a played demo is
+    # future work for the whole unpitched family
     'drums':             _inst(0,  (0, 127),  'percussion', 0, (0, 127),
+                               poly=True),
+    'congas':            _inst(0,  (0, 127),  'percussion', 0, (0, 127),
+                               poly=True),
+    'bongos':            _inst(0,  (0, 127),  'percussion', 0, (0, 127),
+                               poly=True),
+    'timbales':          _inst(0,  (0, 127),  'percussion', 0, (0, 127),
+                               poly=True),
+    'cowbell':           _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'claves':            _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'shaker':            _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'maracas':           _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'tambourine':        _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'guiro':             _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'cabasa':            _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'triangle':          _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'woodblock':         _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'temple blocks':     _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'castanets':         _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'agogo':             _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'djembe':            _inst(0,  (0, 127),  'percussion', 0, (0, 127),
+                               poly=True),
+    'cajon':             _inst(0,  (0, 127),  'percussion', 0, (0, 127),
+                               poly=True),
+    'snare drum':        _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'bass drum':         _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'suspended cymbal':  _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'crash cymbal':      _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'tam-tam':           _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'sleigh bells':      _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'mark tree':         _inst(0,  (0, 127),  'percussion', 0, (0, 127)),
+    'percussion':        _inst(0,  (0, 127),  'percussion', 0, (0, 127),
                                poly=True),
     # voices — nobody left out
     'voice':             _inst(0,  (48, 84),  'G', 0, (50, 79)),
@@ -152,7 +189,35 @@ SOUNDS = {
     'mandolin':       ('Mandolin', 'pluck.mandolin', 25),
     'accordion':      ('Accordion', 'keyboard.accordion', 22),
     'harmonica':      ('Harmonica', 'wind.reed.harmonica', 23),
+    'chimes':         ('Chimes', 'pitched-percussion.tubular-bells', 15),
+    'crotales':       ('Crotales', 'pitched-percussion.crotales', 10),
+    'steel pan':      ('Steel Pan', 'pitched-percussion.steel-drums', 115),
     'drums':          ('Drum Set', 'drum.group.set', 1),
+    'congas':         ('Congas', 'drum.conga', 1),
+    'bongos':         ('Bongos', 'drum.bongo', 1),
+    'timbales':       ('Timbales', 'drum.timbale', 1),
+    'cowbell':        ('Cowbell', 'metal.cowbell', 1),
+    'claves':         ('Claves', 'wood.claves', 1),
+    'shaker':         ('Shaker', 'rattle.shaker', 1),
+    'maracas':        ('Maracas', 'rattle.maraca', 1),
+    'tambourine':     ('Tambourine', 'drum.tambourine', 1),
+    'guiro':          ('Guiro', 'wood.guiro', 1),
+    'cabasa':         ('Cabasa', 'rattle.cabasa', 1),
+    'triangle':       ('Triangle', 'metal.triangle', 1),
+    'woodblock':      ('Woodblock', 'wood.wood-block', 1),
+    'temple blocks':  ('Temple Blocks', 'wood.temple-block', 1),
+    'castanets':      ('Castanets', 'wood.castanets', 1),
+    'agogo':          ('Agogo', 'metal.bells.agogo', 1),
+    'djembe':         ('Djembe', 'drum.djembe', 1),
+    'cajon':          ('Cajon', 'drum.cajon', 1),
+    'snare drum':     ('Snare Drum', 'drum.snare-drum', 1),
+    'bass drum':      ('Bass Drum', 'drum.bass-drum', 1),
+    'suspended cymbal': ('Suspended Cymbal', 'metal.cymbal.suspended', 1),
+    'crash cymbal':   ('Crash Cymbal', 'metal.cymbal.crash', 1),
+    'tam-tam':        ('Tam-tam', 'metal.tamtam', 1),
+    'sleigh bells':   ('Sleigh Bells', 'metal.bells.sleigh-bells', 1),
+    'mark tree':      ('Mark Tree', 'metal.bells.mark-tree', 1),
+    'percussion':     ('Percussion', 'drum.group', 1),
     'voice':          ('Voice', 'voice.vocals', 54),
     'soprano':        ('Soprano', 'voice.soprano', 53),
     'mezzo':          ('Mezzo-soprano', 'voice.mezzo-soprano', 53),
@@ -211,6 +276,16 @@ INSTRUMENT_ALIASES = {
     'drum set': 'drums', 'drum kit': 'drums', 'kit': 'drums',
     'vocals': 'voice', 'vocal': 'voice', 'lead vocal': 'voice',
     'singer': 'voice',
+    'conga': 'congas', 'bongo': 'bongos', 'timbale': 'timbales',
+    'tubular bells': 'chimes', 'wind chimes': 'mark tree',
+    'steel drums': 'steel pan', 'steel drum': 'steel pan',
+    'pans': 'steel pan',
+    'gong': 'tam-tam', 'tamtam': 'tam-tam',
+    'sus cymbal': 'suspended cymbal', 'crash': 'crash cymbal',
+    'snare': 'snare drum', 'kick drum': 'bass drum',
+    'wood block': 'woodblock',
+    'perc': 'percussion', 'aux': 'percussion',
+    'aux percussion': 'percussion', 'hand percussion': 'percussion',
 }
 
 
@@ -1294,9 +1369,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                      f'<part-name>{name}</part-name>')
             if sound:
                 iname, sid, prog = sound
-                # channel 10 is percussion's — drums take it, no one
-                # else touches it
-                chan = 10 if inst == 'drums' else (i if i < 10 else i + 1)
+                # channel 10 is percussion's — every unpitched
+                # instrument takes it, no one else touches it
+                perc = HORNS.get(inst, {}).get('clef') == 'percussion'
+                chan = 10 if perc else (i if i < 10 else i + 1)
                 L.append(f'<score-instrument id="P{i}-I1">'
                          f'<instrument-name>{iname}</instrument-name>'
                          f'<instrument-sound>{sid}</instrument-sound>'
