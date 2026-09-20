@@ -44,7 +44,7 @@ the transposition, clef, range and playback sound), and which track of
 the demo holds that player's material. The instrument table covers the
 whole ensemble world — full woodwinds and brass, strings with their own
 clefs, rhythm section, mallets, and all five voice parts from soprano
-to bass, because singers are instruments too and nobody gets left out — plus a generic `voice` when a singer is just "the vocal." The drummer is in too: percussion clef, no key signature, grooves and kicks (kit notation from a demo is future work). And the band list speaks nicknames — `kit`, `vibes`, `upright bass`, `keys`, `rhodes`, `bone`, `bari`, `fiddle` — the same courtesy the bandstand words get.
+to bass, because singers are instruments too and nobody gets left out — plus a generic `voice` when a singer is just "the vocal." The drummer is in, and so is the whole percussion section — congas, bongos, timbales, cowbell, claves, shaker, tambourine, guiro, triangle, snare, bass drum, cymbals, tam-tam and more, plus a generic `percussion` chair for the aux table: percussion clef, no key signature, grooves, kicks and words (notation from a played demo is future work for the unpitched family). Chimes, crotales and steel pan are pitched and play real lines. And the band list speaks nicknames — `kit`, `vibes`, `upright bass`, `keys`, `rhodes`, `bone`, `bari`, `fiddle` — the same courtesy the bandstand words get.
 Polyphonic instruments (piano, guitar, vibes, organ) keep their chords. `octave -1` corrects a track that
 was recorded an octave above where it sounds — common, and easy to spot:
 if your trombone sits above your trumpets on paper, that's a recording
