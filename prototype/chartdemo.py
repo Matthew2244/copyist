@@ -103,7 +103,7 @@ def load_demo(path):
 def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   octave_shift=0, sounding_range=None, quant=None,
                   derive_dyns=True, short=False, spoken_shift=0,
-                  part_label="", findings=None):
+                  poly=False, part_label="", findings=None):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
     into a quantized timeline of sounding pitches starting at absolute
@@ -239,8 +239,9 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     # A horn is one voice: when several played notes land on one slot,
     # the latest-played keeps it and earlier ones step back one free
     # subdivision — a note that exists in the playing should survive
-    # quantization whenever there is room for it.
-    for q_on in sorted(events):
+    # quantization whenever there is room for it. A polyphonic
+    # instrument (piano, guitar, vibes) keeps its chords instead.
+    for q_on in sorted(events) if not poly else ():
         lst = events[q_on]
         if len(lst) <= 1:
             continue

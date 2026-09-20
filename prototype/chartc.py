@@ -41,13 +41,48 @@ BEATS = 4          # 4/4 only in this increment
 # lead trumpet books run to written C7; trombone pedal Bb1 is common in
 # commercial scoring; every modern bari has the low A (sounding C2);
 # sax altissimo starts above written F#.
+def _inst(transpose, fold, clef, foff, comf, poly=False):
+    return {'transpose': transpose, 'fold': fold, 'clef': clef,
+            'foff': foff, 'comf': comf, 'poly': poly}
+
+
 HORNS = {
-    'flute':             (0,  (59, 98), 'G', 0, (60, 96)),
-    'alto sax':          (9,  (49, 88), 'G', 3, (49, 80)),
-    'tenor sax':         (14, (44, 86), 'G', 2, (44, 76)),
-    'baritone sax':      (21, (36, 78), 'G', 3, (37, 68)),
-    'trumpet':           (2,  (54, 98), 'G', 2, (54, 82)),
-    'trombone':          (0,  (34, 82), 'F', 0, (40, 70)),
+    # woodwinds
+    'piccolo':           _inst(-12, (73, 108), 'G', 0, (74, 103)),
+    'flute':             _inst(0,  (59, 98),  'G', 0, (60, 96)),
+    'oboe':              _inst(0,  (58, 93),  'G', 0, (58, 89)),
+    'clarinet':          _inst(2,  (50, 96),  'G', 2, (50, 89)),
+    'bass clarinet':     _inst(14, (34, 82),  'G', 2, (37, 74)),
+    'bassoon':           _inst(0,  (34, 76),  'F', 0, (34, 72)),
+    'soprano sax':       _inst(2,  (56, 92),  'G', 2, (56, 84)),
+    'alto sax':          _inst(9,  (49, 88),  'G', 3, (49, 80)),
+    'tenor sax':         _inst(14, (44, 86),  'G', 2, (44, 76)),
+    'baritone sax':      _inst(21, (36, 78),  'G', 3, (37, 68)),
+    # brass
+    'trumpet':           _inst(2,  (54, 98),  'G', 2, (54, 82)),
+    'flugelhorn':        _inst(2,  (54, 91),  'G', 2, (54, 80)),
+    'french horn':       _inst(7,  (35, 77),  'G', 1, (41, 74)),
+    'trombone':          _inst(0,  (34, 82),  'F', 0, (40, 70)),
+    'bass trombone':     _inst(0,  (31, 74),  'F', 0, (34, 67)),
+    'tuba':              _inst(0,  (26, 65),  'F', 0, (29, 60)),
+    # strings
+    'violin':            _inst(0,  (55, 105), 'G', 0, (55, 96)),
+    'viola':             _inst(0,  (48, 88),  'C', 0, (48, 81)),
+    'cello':             _inst(0,  (36, 81),  'F', 0, (36, 69)),
+    'double bass':       _inst(12, (28, 60),  'F', 0, (28, 50)),
+    # rhythm
+    'guitar':            _inst(12, (40, 88),  'G', 0, (40, 76), poly=True),
+    'electric bass':     _inst(12, (23, 60),  'F', 0, (28, 55)),
+    'piano':             _inst(0,  (21, 108), 'G', 0, (21, 108), poly=True),
+    'vibraphone':        _inst(0,  (53, 89),  'G', 0, (53, 89), poly=True),
+    'organ':             _inst(0,  (24, 96),  'G', 0, (24, 96), poly=True),
+    # voices — nobody left out
+    'soprano':           _inst(0,  (60, 84),  'G', 0, (60, 81)),
+    'mezzo':             _inst(0,  (57, 81),  'G', 0, (57, 79)),
+    'alto voice':        _inst(0,  (53, 77),  'G', 0, (55, 74)),
+    'tenor voice':       _inst(12, (48, 72),  'G', 0, (48, 69)),
+    'baritone voice':    _inst(0,  (41, 67),  'F', 0, (43, 65)),
+    'bass voice':        _inst(0,  (40, 64),  'F', 0, (40, 62)),
 }
 
 KEY_FIFTHS = {'c': 0, 'g': 1, 'd': 2, 'a': 3, 'e': 4, 'b': 5, 'f#': 6,
@@ -57,12 +92,37 @@ KEY_FIFTHS = {'c': 0, 'g': 1, 'd': 2, 'a': 3, 'e': 4, 'b': 5, 'f#': 6,
 # MusicXML Standard Sound and 1-based GM program, so renderers play a
 # horn chart with horns rather than the default piano.
 SOUNDS = {
-    'flute':        ('Flute', 'wind.flutes.flute', 74),
-    'alto sax':     ('Alto Saxophone', 'wind.reed.saxophone.alto', 66),
-    'tenor sax':    ('Tenor Saxophone', 'wind.reed.saxophone.tenor', 67),
-    'baritone sax': ('Baritone Saxophone', 'wind.reed.saxophone.baritone', 68),
-    'trumpet':      ('Trumpet', 'brass.trumpet.bflat', 57),
-    'trombone':     ('Trombone', 'brass.trombone', 58),
+    'piccolo':        ('Piccolo', 'wind.flutes.flute.piccolo', 73),
+    'flute':          ('Flute', 'wind.flutes.flute', 74),
+    'oboe':           ('Oboe', 'wind.reed.oboe', 69),
+    'clarinet':       ('Clarinet', 'wind.reed.clarinet.bflat', 72),
+    'bass clarinet':  ('Bass Clarinet', 'wind.reed.clarinet.bass', 72),
+    'bassoon':        ('Bassoon', 'wind.reed.bassoon', 71),
+    'soprano sax':    ('Soprano Saxophone', 'wind.reed.saxophone.soprano', 65),
+    'alto sax':       ('Alto Saxophone', 'wind.reed.saxophone.alto', 66),
+    'tenor sax':      ('Tenor Saxophone', 'wind.reed.saxophone.tenor', 67),
+    'baritone sax':   ('Baritone Saxophone', 'wind.reed.saxophone.baritone', 68),
+    'trumpet':        ('Trumpet', 'brass.trumpet.bflat', 57),
+    'flugelhorn':     ('Flugelhorn', 'brass.flugelhorn', 57),
+    'french horn':    ('Horn in F', 'brass.french-horn', 61),
+    'trombone':       ('Trombone', 'brass.trombone', 58),
+    'bass trombone':  ('Bass Trombone', 'brass.trombone.bass', 58),
+    'tuba':           ('Tuba', 'brass.tuba', 59),
+    'violin':         ('Violin', 'strings.violin', 41),
+    'viola':          ('Viola', 'strings.viola', 42),
+    'cello':          ('Cello', 'strings.cello', 43),
+    'double bass':    ('Double Bass', 'strings.contrabass', 44),
+    'guitar':         ('Guitar', 'pluck.guitar.electric', 27),
+    'electric bass':  ('Electric Bass', 'pluck.bass.electric', 34),
+    'piano':          ('Piano', 'keyboard.piano', 1),
+    'vibraphone':     ('Vibraphone', 'pitched-percussion.vibraphone', 12),
+    'organ':          ('Organ', 'keyboard.organ', 17),
+    'soprano':        ('Soprano', 'voice.soprano', 53),
+    'mezzo':          ('Mezzo-soprano', 'voice.mezzo-soprano', 53),
+    'alto voice':     ('Alto', 'voice.alto', 53),
+    'tenor voice':    ('Tenor', 'voice.tenor', 54),
+    'baritone voice': ('Baritone', 'voice.baritone', 54),
+    'bass voice':     ('Bass', 'voice.bass', 54),
 }
 
 
@@ -567,7 +627,8 @@ def compile_chart(chart_path, outdir):
     demo_measures = {l: {} for l in labels}
     for l in labels:
         for item in resolved[l]:
-            tr, rng, _clef, foff, _comf = horn_of[l]
+            h = horn_of[l]
+            tr, foff = h['transpose'], h['foff']
             ms = chartdemo.render_range(item['res'], key[0] + foff, tr,
                                         item['fall'], findings,
                                         short=item['short'],
@@ -587,10 +648,11 @@ def compile_chart(chart_path, outdir):
                  for s, e, ps in item['res']['timeline'] for p in ps]
         if not notes or l not in horn_of:
             continue
-        tr, rng, _c, _f, comf = horn_of[l]
+        h = horn_of[l]
+        tr, comf = h['transpose'], h['comf']
         hi = max(notes)
         lo = min(notes)
-        table = chartdemo.spelling_table(key[0] + horn_of[l][3],
+        table = chartdemo.spelling_table(key[0] + h['foff'],
                                          chartdemo.Findings())
         def wname(p):
             s_, a_, o_ = chartdemo.convert.spell(p + tr, table)
@@ -636,7 +698,8 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
                     fail(f"{ref['loc']}: '{l}' plays from the demo but its "
                          f"instrument '{b['instrument']}' is not in the "
                          "demo-part table")
-                tr, rng, _clef, foff, _comf = horn_of[l]
+                h = horn_of[l]
+                tr, rng, foff = h['transpose'], h['fold'], h['foff']
                 sel = ref['track'] or b['demo']
                 if sel and sel.lower().endswith(('.mid', '.midi')):
                     dm = chartdemo.load_demo(sel if os.path.isabs(sel)
@@ -652,6 +715,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
                     dm, track, ref['lo'], ref['hi'], ref['at'],
                     octave_shift=b['demo_octave'],
                     sounding_range=rng, quant=ref.get('quant'),
+                    poly=h['poly'],
                     derive_dyns=hdr.get('dynamics', '') not in
                     ('by hand', 'manual'),
                     short=ref.get('short', False),
@@ -834,14 +898,19 @@ def build_plans(chart, band, groups, labels):
 
 
 TRANSPOSE_XML = {
-    2:  ('-1', '-2', None),      # Bb trumpet
-    9:  ('-5', '-9', None),      # Eb alto
-    14: ('-1', '-2', '-1'),      # Bb tenor, octave down
-    21: ('-5', '-9', '-1'),      # Eb baritone, octave down
+    2:   ('-1', '-2', None),     # Bb instruments
+    7:   ('-4', '-7', None),     # F horn
+    9:   ('-5', '-9', None),     # Eb alto
+    12:  ('0', '0', '-1'),       # octave instruments (guitar, basses,
+                                 # tenor voice)
+    14:  ('-1', '-2', '-1'),     # Bb tenor, octave down
+    21:  ('-5', '-9', '-1'),     # Eb baritone, octave down
+    -12: ('0', '0', '1'),        # piccolo
 }
 
 CLEF_XML = {'G': '<sign>G</sign><line>2</line>',
-            'F': '<sign>F</sign><line>4</line>'}
+            'F': '<sign>F</sign><line>4</line>',
+            'C': '<sign>C</sign><line>3</line>'}
 
 SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
              'sfz': 112, 'fp': 98}
@@ -863,15 +932,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         horn = horn_of.get(label)
         div = sp['div'] if sp else chartdemo.DIV
         staves = sp['staves'] if sp else 1
-        clef = sp['clef'] if sp else (horn[2] if horn else 'G')
-        fifths = sp['fifths'] if sp else (key[0] + horn[3] if horn else key[0])
+        clef = sp['clef'] if sp else (horn['clef'] if horn else 'G')
+        fifths = sp['fifths'] if sp else (key[0] + horn['foff'] if horn
+                                          else key[0])
         governing = [None]      # printed-chord state, carried across bars
         out = []
 
         def attributes():
             tr = ''
-            if horn and horn[0] in TRANSPOSE_XML:
-                d, c, o = TRANSPOSE_XML[horn[0]]
+            if horn and horn['transpose'] in TRANSPOSE_XML:
+                d, c, o = TRANSPOSE_XML[horn['transpose']]
                 tr = (f'<transpose><diatonic>{d}</diatonic>'
                       f'<chromatic>{c}</chromatic>'
                       + (f'<octave-change>{o}</octave-change>' if o else '')

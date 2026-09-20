@@ -114,7 +114,7 @@ def interview(out_path, demo_path):
             say(f"  {inst} is not in the demo-part table yet — skipping "
                 "this track; ask for the instrument to be added.")
             continue
-        shift = sniff_octave(pitches, chartc.HORNS[inst.lower()][1])
+        shift = sniff_octave(pitches, chartc.HORNS[inst.lower()]['fold'])
         if shift:
             keep = ask(f'  That track sits an octave '
                        f'{"high" if shift < 0 else "low"} for a '

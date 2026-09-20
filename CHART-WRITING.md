@@ -41,7 +41,11 @@ The worked example below is an invented tune called *Uptown Local*.
 
 Each line: a label you'll use in the chart, the instrument (which sets
 the transposition, clef, range and playback sound), and which track of
-the demo holds that player's material. `octave -1` corrects a track that
+the demo holds that player's material. The instrument table covers the
+whole ensemble world — full woodwinds and brass, strings with their own
+clefs, rhythm section, mallets, and all five voice parts from soprano
+to bass, because singers are instruments too and nobody gets left out.
+Polyphonic instruments (piano, guitar, vibes, organ) keep their chords. `octave -1` corrects a track that
 was recorded an octave above where it sounds — common, and easy to spot:
 if your trombone sits above your trumpets on paper, that's a recording
 convention, not a voicing.
