@@ -427,13 +427,13 @@ def main():
             else:
                 countin = int(chart['header'].get('countin', 0))
                 printed = max(1, args.from_bar - countin)
-                # a cumulative walk over the meter and tempo maps — one
-                # multiplication is only right until the first mid-chart
-                # change
-                seconds = chartc.seconds_before(chart, printed)
+                # the player's own walk: repeats and voltas included,
+                # and by construction it matches the rendered audio
+                seconds = chartaudio.first_bar_seconds(listen_src,
+                                                       printed)
                 if seconds is None:
-                    say("The tempo is words, not a number, so I cannot "
-                        "place the trim — the full MP3 stands.")
+                    say(f"The pages have no bar {printed}, so no trim — "
+                        "the full MP3 stands.")
                     return
                 cut = os.path.join(
                     title_dir, f"{title} — listen from bar "

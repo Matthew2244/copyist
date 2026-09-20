@@ -804,6 +804,97 @@ def check_audio():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_voltas():
+    """
+    CHART-FORMAT.md 3.6 — volta endings. The declared section length is
+    one pass (the body plus one ending), the page carries the body and
+    every ending with the right brackets and repeats, and Copyist's own
+    player takes ending K on pass K — including the trim math, which is
+    the player's walk, not printed-bar arithmetic.
+    """
+    import re
+    import chartaudio
+    import chartc
+    from chart import verify_measures
+    tmp = tempfile.mkdtemp()
+
+    HEAD = ("title: V\nkey: C\nmeter: 4/4\ntempo: 120\n\n"
+            "band:\n  piano\n  trumpet\n\n")
+    p = os.path.join(tmp, "v.chart")
+    open(p, "w").write(HEAD +
+        "section A, 4 bars, repeat 2x\n  chords: C, F\n"
+        "  ending 1, 2 bars: chords: G7, C\n"
+        "  ending 2, 2 bars: chords: G7 C@3, C\n"
+        "  piano: groove\n  trumpet: tacet\n"
+        "section B, 2 bars\n  chords: F, C\n  piano: groove\n")
+    out = os.path.join(tmp, "vb")
+    with redirect_stdout(io.StringIO()):
+        files = chartc.compile_chart(p, out)
+    check("volta chart: measures sum", not verify_measures(files))
+    xml = open(os.path.join(out, "V — piano.musicxml")).read()
+    marks = {num: re.findall(r'<ending [^/]*/>|<repeat [^/]*/>', m)
+             for num, m in re.findall(
+                 r'<measure [^>]*number="(\d+)"[^>]*>(.*?)</measure>',
+                 xml, re.S) if '<ending' in m or '<repeat' in m}
+    check("the page carries the brackets and repeats where a player looks",
+          marks == {'1': ['<repeat direction="forward"/>'],
+                    '3': ['<ending number="1" type="start"/>'],
+                    '4': ['<ending number="1" type="stop"/>',
+                          '<repeat direction="backward"/>'],
+                    '5': ['<ending number="2" type="start"/>'],
+                    '6': ['<ending number="2" type="discontinue"/>']},
+          f"got {marks}")
+
+    listen = os.path.join(out, "V — for listening.musicxml")
+    plan = chartaudio.parse_score(listen)
+    check("the player takes ending two on pass two",
+          plan['bars'] == {1: 0.0, 2: 4.0, 3: 8.0, 4: 12.0,
+                           5: 24.0, 6: 28.0, 7: 32.0, 8: 36.0},
+          f"got {plan['bars']}")
+    check("the trim math is the player's walk",
+          abs(chartaudio.first_bar_seconds(listen, 7) - 16.0) < 1e-9)
+
+    for name, text, want in (
+        ("r1", HEAD + "section A, 4 bars\n  chords: C, F\n"
+         "  ending 1, 2 bars: chords: G7, C\n  piano: groove\n",
+         "no repeat"),
+        ("r2", HEAD + "section A, 4 bars, repeat 3x\n  chords: C, F\n"
+         "  ending 1, 2 bars: chords: G7, C\n"
+         "  ending 2, 2 bars: chords: G7, C\n  piano: groove\n",
+         "numbered from 1"),
+        ("r3", HEAD + "section A, 4 bars, repeat 2x\n  chords: C, F\n"
+         "  ending 1, 2 bars: chords: G7, C\n"
+         "  ending 2, 1 bars: chords: C\n  piano: groove\n",
+         "same length"),
+        ("r4", HEAD + "section A, 4 bars, repeat 2x\n  chords: C, F, G\n"
+         "  ending 1, 2 bars: chords: G7, C\n"
+         "  ending 2, 2 bars: chords: G7, C\n  piano: groove\n",
+         "chords cover 3"),
+    ):
+        pp = os.path.join(tmp, name + ".chart")
+        open(pp, "w").write(text)
+        try:
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(pp, os.path.join(tmp, "x"))
+            got = ""
+        except SystemExit as e:
+            got = str(e)
+        check(f"refused with '{want}'", want in got, f"got: {got}")
+
+    import chartread
+    chart = chartc.parse_chart(p)
+    sec = chart['sections'][0]
+    heading = chartread.section_heading(sec)
+    changes = chartread.say_changes(sec)
+    check("the read speaks passes and endings",
+          "4 bars a pass, with 2 endings" in heading
+          and "First ending: G seven; C." in changes
+          and "Second ending:" in changes,
+          f"got: {heading} / {changes}")
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -866,6 +957,7 @@ if __name__ == "__main__":
     check_poly_charts()
     check_phrasing_charts()
     check_audio()
+    check_voltas()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

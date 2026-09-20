@@ -90,6 +90,19 @@ convention, not a voicing.
       tenor: solo
       all: groove "greasy - stay out of the way"
 
+- **First and second endings** live inside a repeated section: the
+  declared length is one pass, the way you'd say it on the stand —
+
+      section A, 12 bars, label "Head", repeat 2x
+        chords: F7, Bb7, F7, Cm7 F7, Bb7, Bdim7, F7, Am7 D7, Gm7, C7
+        ending 1, 2 bars: chords: F7 D7, Gm7 C7
+        ending 2, 2 bars: chords: F7, F7
+
+  The page gets the brackets and repeat dots where players look, the
+  read-back says "12 bars a pass, with 2 endings" and speaks each
+  ending's changes, and the listen MP3 takes the first ending, jumps
+  back, and takes the second — a trimmed listen lands where the band
+  actually reaches that bar, not where the printed number sits.
 - Chords split a bar evenly unless you place them: `Eb7@3` is "E flat
   seven on beat three", and off-beats take any spelling you'd use —
   `4+`, `4.5`, or `and-of-4`. The format meets your habit.

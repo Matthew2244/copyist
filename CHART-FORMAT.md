@@ -17,7 +17,11 @@ where a player must look up, the demo door locates figures by the demo
 file's own time signatures (a figure may not cross a change — the error
 says where to split), the listen trim walks the meter and tempo maps
 bar by bar, and a compound↔simple change with no new tempo is a
-finding. Phrasing is the writer's word (2026-09-20): `legato` reads
+finding. Volta endings compile as of 2026-09-20 (`ending N, M bars:
+chords: ...` inside a repeated section — brackets, repeats and the
+final discontinue land where a player looks, and the read-aloud speaks
+"8 bars a pass, with 2 endings... First ending: ..."). Phrasing is the
+writer's word (2026-09-20): `legato` reads
 the played gates into slurs that break where the writer breathed,
 `ghosts` reads velocities into parenthesized noteheads, `straight`
 puts onsets on the eighth grid while durations stay as played (a
@@ -31,7 +35,7 @@ model (DESIGN.md §8), with a note a hand is still holding anchoring the
 split — and a note that keeps ringing under later movement (a guitar's
 low string, a pedal tone) prints as its own voice instead of being cut
 at the next onset, with a finding naming the bars. Still ahead: named
-figures, inline `notes:`, voltas,
+figures, inline `notes:`,
 `double`/`cue`/`build:`/`on pass`/`as demo`, and detail levels.
 **Read DESIGN.md first.** This document extends it: where DESIGN.md turns a
 performance into a chart, this format lets a chart be *written* directly — as
@@ -311,8 +315,14 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
   as names). `label` adds the human title printed beside the mark.
 - **`repeat Nx`** prints repeat barlines around the section. **`open`**
   prints an open repeat ("solos (open)", "on cue" until cued off).
-- **Endings** (the volta brackets *Jeannine* uses 144 of): the section
-  length is the body; endings declare their own bars.
+- **Endings** (the volta brackets *Jeannine* uses 144 of): the declared
+  section length is ONE PASS — the body plus one ending — because that
+  is how a musician counts it ("letter B is 8 bars"). Endings declare
+  their own bars, must all be the same length, and must number 1 up to
+  the repeat count, one per pass. The printed page carries the body and
+  every ending; Copyist's own playback takes ending K on pass K, and a
+  from-bar trim lands where the PLAYER reaches that bar, repeats
+  included.
 
       section B, 8 bars, repeat 2x
         chords: F7, Bb7, F7, F7, Bb7, Bb7

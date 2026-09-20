@@ -72,6 +72,23 @@ def say_bar(bar):
     return f"{first}, then {rest}"
 
 
+def say_changes(sec):
+    """A section's changes, endings spoken as their own sentences."""
+    ends = sec.get('endings') or []
+    if not ends:
+        return "Changes: " + say_bars(sec['content'])
+    ORD = {1: 'First', 2: 'Second', 3: 'Third', 4: 'Fourth',
+           5: 'Fifth', 6: 'Sixth'}
+    body = sec['body']
+    bits = ["Changes: " + say_bars(sec['content'][:body])]
+    pos = body
+    for e in ends:
+        bits.append(f"{ORD.get(e['num'], str(e['num']))} ending: "
+                    + say_bars(sec['content'][pos:pos + e['bars']]))
+        pos += e['bars']
+    return " ".join(bits)
+
+
 def say_bars(bars):
     """A section's bars -> prose with runs of identical bars grouped."""
     out, i = [], 0
@@ -93,7 +110,12 @@ def section_heading(sec):
     bits = [h]
     if sec['label']:
         bits.append(f'"{sec["label"]}"')
-    bits.append(f"{sec['bars']} bars")
+    if sec.get('endings'):
+        per = sec['body'] + sec['endings'][0]['bars']
+        bits.append(f"{per} bars a pass, with "
+                    f"{len(sec['endings'])} endings")
+    else:
+        bits.append(f"{sec['bars']} bars")
     if sec['feel']:
         bits.append(sec['feel'])
     if sec['repeat']:
@@ -188,7 +210,7 @@ def part_section(plan, label, chord_parts, figures=None):
         lines.append(f"Tacet — {sec['bars']} bars rest.")
 
     if shows_chords:
-        lines.append("Changes: " + say_bars(sec['content']))
+        lines.append(say_changes(sec))
     for bar, text in texts:
         if isinstance(text, tuple) and text[0] == 'tempo':
             lines.append(f"At bar {bar}: tempo changes to {text[1]}.")
@@ -274,8 +296,7 @@ def main():
             if a.section and plan['sec']['name'].lower() != a.section.lower():
                 continue
             sec = plan['sec']
-            out.append(section_heading(sec) + " Changes: " +
-                       say_bars(sec['content']))
+            out.append(section_heading(sec) + " " + say_changes(sec))
 
     # One write. A screen reader restarts on every write, so the whole
     # answer lands at once.

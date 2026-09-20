@@ -40,20 +40,39 @@ def _measures(body):
 
 
 def _expand_repeats(ms):
-    """Linearize our own repeat barlines: forward opens a segment, a
-    backward with times=N plays the segment N times total."""
-    out, seg_start = [], 0
-    for num, m in ms:
-        if '<repeat direction="forward"' in m:
-            seg_start = len(out)
+    """Linearize repeats the way a player reads them. A plain backward
+    with times=N plays its segment N times total. Volta brackets take
+    one ending per pass: play the body plus ending K on pass K, jump
+    back at each ending's backward repeat, walk on out of the last."""
+    out = []
+    i, seg_start, seg_out, pass_no = 0, -1, 0, 1
+    while i < len(ms):
+        num, m = ms[i]
+        if '<repeat direction="forward"' in m and i != seg_start:
+            seg_start, seg_out, pass_no = i, len(out), 1
+        endm = re.search(r'<ending number="(\d+)" type="start"/>', m)
+        if endm and int(endm.group(1)) != pass_no:
+            k = int(endm.group(1))       # not this pass's bracket: skip it
+            while i < len(ms):
+                if re.search(r'<ending number="%d" '
+                             r'type="(?:stop|discontinue)"' % k, ms[i][1]):
+                    i += 1
+                    break
+                i += 1
+            continue
         out.append((num, m))
-        bk = re.search(r'<repeat direction="backward"\s*'
-                       r'times="(\d+)"', m)
+        bk = re.search(r'<repeat direction="backward"'
+                       r'(?:\s+times="(\d+)")?', m)
         if bk:
-            times = int(bk.group(1))
-            seg = out[seg_start:]
+            if '<ending' in m:
+                i = seg_start            # take the next ending this time
+                pass_no += 1
+                continue
+            times = int(bk.group(1) or 2)
+            seg = out[seg_out:]
             for _ in range(times - 1):
                 out.extend(seg)
+        i += 1
     return out
 
 
@@ -84,9 +103,12 @@ def parse_score(path, only=None):
         transpose = 0
         dyn_state = 80.0
         q0 = 0.0                        # quarters at the measure's start
+        bars = {}                       # printed bar -> q of FIRST play
         events = []
         carry = {}                      # (voice, midi) -> event index, for ties
         for num, meas in _expand_repeats(_measures(body)):
+            if num.isdigit():
+                bars.setdefault(int(num), q0)
             dv = re.search(r'<divisions>(\d+)</divisions>', meas)
             if dv:
                 div = int(dv.group(1))
@@ -185,8 +207,9 @@ def parse_score(path, only=None):
             q0 += (top if num == '0' else barlen) / div
         parts.append({'name': m['name'], 'program': m['program'],
                       'percussion': m['percussion'], 'events': events,
-                      'length_q': q0})
+                      'bars': bars, 'length_q': q0})
     return {'parts': parts,
+            'bars': parts[0]['bars'] if parts else {},
             'tempos': sorted(tempos.items()),
             'swings': sorted(swings.items())}
 
@@ -211,21 +234,35 @@ def _warp(q, swings):
     return math.floor(q) + f
 
 
+def _sec_of(q, tempos):
+    tempos = tempos or [(0.0, 120.0)]
+    if tempos[0][0] > 0:
+        tempos = [(0.0, tempos[0][1])] + tempos
+    s, prev_q, bpm = 0.0, 0.0, tempos[0][1]
+    for at, t in tempos:
+        if at >= q:
+            break
+        s += (at - prev_q) * 60.0 / bpm
+        prev_q, bpm = at, t
+    return s + (q - prev_q) * 60.0 / bpm
+
+
+def first_bar_seconds(path, printed_bar):
+    """Seconds into the rendered audio where printed bar N first plays —
+    repeats and voltas included, because this is the player's own walk.
+    None when the page has no such bar."""
+    plan = parse_score(path)
+    q = plan['bars'].get(printed_bar)
+    if q is None:
+        return None
+    return _sec_of(q, plan['tempos'])
+
+
 def _seconds(plan):
     """Quarter positions -> seconds through the tempo map, swing warp
     first. Returns per part: [(sec_on, sec_dur, midi, gain)]."""
-    tempos = plan['tempos'] or [(0.0, 120.0)]
-    if tempos[0][0] > 0:
-        tempos = [(0.0, tempos[0][1])] + tempos
-
     def sec_of(q):
-        s, prev_q, bpm = 0.0, 0.0, tempos[0][1]
-        for at, t in tempos:
-            if at >= q:
-                break
-            s += (at - prev_q) * 60.0 / bpm
-            prev_q, bpm = at, t
-        return s + (q - prev_q) * 60.0 / bpm
+        return _sec_of(q, plan['tempos'])
 
     out = []
     for part in plan['parts']:

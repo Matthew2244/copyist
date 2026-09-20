@@ -604,7 +604,8 @@ def parse_chart(path):
                 cur = {'name': m.group(1).strip(), 'bars': int(m.group(2)),
                        'label': m.group(3), 'repeat': int(m.group(4) or 0),
                        'open': bool(m.group(5)), 'content': None,
-                       'feel': None, 'directives': [], 'events': []}
+                       'feel': None, 'directives': [], 'events': [],
+                       'endings': []}
                 chart['sections'].append(cur)
                 continue
             m = re.match(r'(\w+):\s*(.+)$', s)
@@ -652,6 +653,14 @@ def parse_chart(path):
                 pass
             cur['use'] = (name, int(m.group(2) or 1))
             continue
+        m = re.match(r'ending (\d+),\s*(\d+) bars?:\s*chords:\s*(.+)$', s)
+        if m:
+            cur['endings'].append(
+                {'num': int(m.group(1)), 'bars': int(m.group(2)),
+                 'content': parse_bars(m.group(3),
+                                       f"section {cur['name']} ending "
+                                       f"{m.group(1)}")})
+            continue
         m = re.match(r'at bar (\d+):\s*text "([^"]*)"$', s)
         if m:
             cur['events'].append((int(m.group(1)), 'text', m.group(2)))
@@ -685,7 +694,37 @@ def parse_chart(path):
             sec['content'] = chart['chords'][name] * times
         if sec['content'] is None:
             fail(f"section {sec['name']} has no chords")
-        if len(sec['content']) != sec['bars']:
+        if sec['endings']:
+            # the declared length is one pass: the body plus one ending.
+            # the printed page carries the body and EVERY ending.
+            es = sorted(sec['endings'], key=lambda e: e['num'])
+            if not sec['repeat']:
+                fail(f"section {sec['name']} has endings but no repeat — "
+                     "say how many times it plays (repeat 2x)")
+            if [e['num'] for e in es] != list(range(1, sec['repeat'] + 1)):
+                fail(f"section {sec['name']} plays {sec['repeat']} times "
+                     "but its ending numbers are "
+                     + ", ".join(str(e['num']) for e in es)
+                     + " — one ending per pass, numbered from 1")
+            if len({e['bars'] for e in es}) != 1:
+                fail(f"section {sec['name']}: endings must all be the "
+                     "same length, so the declared bars mean one pass")
+            for e in es:
+                if len(e['content']) != e['bars']:
+                    fail(f"section {sec['name']} ending {e['num']} "
+                         f"declares {e['bars']} bars but its chords "
+                         f"cover {len(e['content'])}")
+            body = sec['bars'] - es[0]['bars']
+            if len(sec['content']) != body:
+                fail(f"section {sec['name']} declares {sec['bars']} bars "
+                     f"(a {body}-bar body plus one {es[0]['bars']}-bar "
+                     f"ending) but its chords cover {len(sec['content'])}")
+            sec['body'] = body
+            sec['endings'] = es
+            for e in es:
+                sec['content'] = sec['content'] + e['content']
+            sec['bars'] = len(sec['content'])
+        elif len(sec['content']) != sec['bars']:
             fail(f"section {sec['name']} declares {sec['bars']} bars but its "
                  f"chords cover {len(sec['content'])}")
 
@@ -1731,11 +1770,37 @@ def _compile_rest(chart, band, groups, labels, plans, total,
 
                 barline = ''
                 open_bl = ''
+                ends = sec.get('endings') or []
                 if sec['repeat'] and off == 0:
                     open_bl = ('      <barline location="left">'
                                '<bar-style>heavy-light</bar-style>'
                                '<repeat direction="forward"/></barline>\n')
-                if sec['repeat'] and off == sec['bars'] - 1:
+                if ends:
+                    # volta brackets: each ending but the last closes
+                    # with a backward repeat; the last discontinues and
+                    # carries the section's closing bar
+                    body = sec['body']
+                    elen = ends[0]['bars']
+                    k = (off - body) // elen + 1 if off >= body else 0
+                    if k >= 1 and (off - body) % elen == 0:
+                        open_bl += ('      <barline location="left">'
+                                    f'<ending number="{k}" type="start"/>'
+                                    '</barline>\n')
+                    if k >= 1 and (off - body) % elen == elen - 1:
+                        if k < len(ends):
+                            barline = ('      <barline location="right">'
+                                       f'<ending number="{k}" '
+                                       'type="stop"/>'
+                                       '<repeat direction="backward"/>'
+                                       '</barline>\n')
+                        else:
+                            style = ('light-heavy' if plan is plans[-1]
+                                     else 'light-light')
+                            barline = ('      <barline location="right">'
+                                       f'<bar-style>{style}</bar-style>'
+                                       f'<ending number="{k}" '
+                                       'type="discontinue"/></barline>\n')
+                elif sec['repeat'] and off == sec['bars'] - 1:
                     barline = ('      <barline location="right">'
                                '<bar-style>light-heavy</bar-style>'
                                f'<repeat direction="backward" '
