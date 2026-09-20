@@ -1026,12 +1026,18 @@ def check_lyrics():
     from chart import verify_measures
     tmp = tempfile.mkdtemp()
 
-    toks = chartdemo.parse_lyrics("To-mor-row, to-mor-row_ _")
+    phrases, autos = chartdemo.parse_lyrics("To-mor-row, to-mor-row_ _")
+    toks = phrases[0]
     check("hyphens, punctuation and melisma parse",
           [t[:2] if t else None for t in toks] ==
           [['begin', 'To'], ['middle', 'mor'], ['end', 'row,'],
            ['begin', 'to'], ['middle', 'mor'], ['end', 'row'],
-           None, None], f"got {toks}")
+           None, None] and not autos, f"got {toks}")
+    phrases, autos = chartdemo.parse_lyrics("windows shine / uptown")
+    check("unhyphenated words split themselves and say so",
+          [len(p) for p in phrases] == [3, 2]
+          and autos == ['win-dows', 'up-town'],
+          f"got {phrases} / {autos}")
 
     HEAD = ('title: L\nkey: C\nmeter: 4/4\ntempo: 90\n\n'
             'band:\n  singer = voice\n  piano\n\n'
@@ -1068,6 +1074,45 @@ def check_lyrics():
     check("a syllable count that misses refuses with both counts",
           "sings 4 note(s)" in got and "3 syllable(s)" in got,
           f"got: {got}")
+
+    # phrase-anchored words: the refusal names the phrase and its bar
+    open(os.path.join(tmp, "ph.chart"), "w").write(
+        'title: P\nkey: C\nmeter: 4/4\ntempo: 90\n\n'
+        'band:\n  singer = voice\n  piano\n\n'
+        'figure tune, 2 bars:\n'
+        '  notes: C5 q, D5 q, rest h, E5 q, G5 q, rest h\n'
+        '  lyrics: morning train / gone now\n\n'
+        'section A, 2 bars\n  chords: C, G7\n'
+        '  singer: figure tune\n  piano: groove\n')
+    try:
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(os.path.join(tmp, "ph.chart"),
+                                 os.path.join(tmp, "x"))
+        got = ""
+    except SystemExit as e:
+        got = str(e)
+    check("a phrase mismatch names the phrase and the bar",
+          "the phrase at bar 1 has 2 note(s)" in got
+          and "'mor-ning train'" in got, f"got: {got}")
+    open(os.path.join(tmp, "ph2.chart"), "w").write(
+        'title: P\nkey: C\nmeter: 4/4\ntempo: 90\n\n'
+        'band:\n  singer = voice\n  piano\n\n'
+        'figure tune, 2 bars:\n'
+        '  notes: C5 q, D5 q, rest h, E5 q, G5 q, rest h\n'
+        '  lyrics: sunrise / gone_\n\n'
+        'section A, 2 bars\n  chords: C, G7\n'
+        '  singer: figure tune\n  piano: groove\n')
+    out2 = os.path.join(tmp, "phb")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(os.path.join(tmp, "ph2.chart"), out2)
+    xml = open(os.path.join(out2, "P — singer.musicxml")).read()
+    check("phrase-anchored words land, melisma included",
+          "<text>gone</text><extend/>" in xml
+          and "<text>sun</text>" in xml, "xml missed")
+    check("auto-splits are reported for the writer's veto",
+          "I split these words myself — sun-rise" in buf.getvalue(),
+          f"log: {buf.getvalue()[:200]}")
 
     shutil.rmtree(tmp, ignore_errors=True)
 

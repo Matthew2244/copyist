@@ -18,6 +18,7 @@ The chart is not a transcription: pitch bends, CC data and micro-timing are
 deliberately discarded. What survives is the line.
 """
 import os
+import re
 
 import analyze
 import convert
@@ -251,46 +252,152 @@ def _pedals(evts, n_units):
     return [(s, e, sorted(ps)) for s, e, ps in pedals]
 
 
+DIGRAPHS = {'ch', 'sh', 'th', 'ph', 'wh', 'gh', 'ck', 'qu'}
+
+
+def syllabify(word):
+    """Split an unhyphenated word for singing — a heuristic, so the
+    writer's own hyphens always win and every auto-split is reported.
+    The syllable COUNT is what alignment lives on; the split point only
+    has to be singable."""
+    letters = [(i, c.lower()) for i, c in enumerate(word) if c.isalpha()]
+    if not letters:
+        return [word]
+    lows = ''.join(c for _, c in letters)
+    groups = [m.span() for m in re.finditer(r'[aeiouy]+', lows)]
+    if len(groups) > 1 and lows.endswith('e') \
+            and groups[-1] == (len(lows) - 1, len(lows)) \
+            and not lows.endswith('le'):
+        groups = groups[:-1]           # a final silent e does not sing
+    if len(groups) <= 1:
+        return [word]
+    cuts = []
+    for (_, a_e), (b_s, _) in zip(groups, groups[1:]):
+        if a_e >= b_s:                 # adjacent vowels: split between
+            cut = b_s
+        else:
+            cut = b_s - 1              # one consonant starts the syllable
+            if cut - 1 >= a_e and lows[cut - 1:cut + 1] in DIGRAPHS:
+                cut -= 1
+            cut = max(cut, a_e)
+        cuts.append(letters[cut][0])
+    out, prev = [], 0
+    for c in cuts:
+        out.append(word[prev:c])
+        prev = c
+    out.append(word[prev:])
+    return [s for s in out if s]
+
+
 def parse_lyrics(text):
-    """CHART-FORMAT.md 3.4: syllables split with hyphens, melisma held
-    with underscores — 'To-mor-row, to-mor-row_' -> aligned tokens, one
-    per sung note, None meaning the previous syllable keeps sounding."""
-    toks = []
-    for word in text.split():
-        tail = 0
-        while word.endswith('_'):
-            word = word[:-1]
-            tail += 1
-        if word:
-            sylls = word.split('-')
-            real = [s for s in sylls if s]
-            for i, s in enumerate(real):
-                syllabic = ('single' if len(real) == 1 else
-                            'begin' if i == 0 else
-                            'end' if i == len(real) - 1 else 'middle')
-                toks.append([syllabic, s, False])
-        for _ in range(tail):
-            toks.append(None)
-    return toks
+    """CHART-FORMAT.md 3.4: write the words the way you'd say them.
+    Hyphens split syllables (and always win); an unhyphenated word is
+    split by syllabify() and reported; underscores hold a melisma;
+    slashes group words into phrases that anchor to the melody's own.
+    Returns (phrases, autos): phrases as lists of aligned tokens, autos
+    as the words split automatically."""
+    phrases, autos = [], []
+    for group in text.split('/'):
+        toks = []
+        for word in group.split():
+            tail = 0
+            while word.endswith('_'):
+                word = word[:-1]
+                tail += 1
+            if word:
+                if '-' in word:
+                    real = [s for s in word.split('-') if s]
+                else:
+                    real = syllabify(word)
+                    if len(real) > 1:
+                        autos.append('-'.join(real))
+                for i, s in enumerate(real):
+                    syllabic = ('single' if len(real) == 1 else
+                                'begin' if i == 0 else
+                                'end' if i == len(real) - 1 else 'middle')
+                    toks.append([syllabic, s, False])
+            for _ in range(tail):
+                toks.append(None)
+        if toks:
+            phrases.append(toks)
+    return phrases, autos
 
 
-def attach_lyrics(res, text, part_label, loc):
-    """Align the writer's words to the resolved notes, one syllable per
-    note, or refuse with both counts — words silently misaligned to
-    notes are the one failure a singer cannot proofread past."""
+def attach_lyrics(res, text, part_label, loc, find=None):
+    """Align the writer's words to the resolved notes — by phrase when
+    the words carry slashes, one syllable per note either way, or refuse
+    NAMING THE PHRASE AND THE BAR. Words silently misaligned to notes
+    are the one failure a singer cannot proofread past."""
     if not text:
         return
     if res.get('staves'):
         raise SystemExit(
             f"chartc: {loc}: lyrics need one singing line — this figure "
             "came out polyphonic")
-    toks = parse_lyrics(text)
-    n = len(res['timeline'])
-    if len(toks) != n:
-        raise SystemExit(
-            f"chartc: {loc}: '{part_label}' sings {n} note(s) here but "
-            f"the lyrics carry {len(toks)} syllable(s) — count "
-            "melisma holds as underscores")
+    phrases, autos = parse_lyrics(text)
+    if autos and find is not None:
+        find.add(f"{part_label}: I split these words myself — "
+                 + ", ".join(autos) + " — hyphenate any I got wrong")
+    tl = res['timeline']
+    bt = res.get('bar_ticks', BAR)
+    base = res['at'] + res.get('spoken_shift', 0)
+
+    # the melody's own phrases: runs broken wherever a rest prints
+    mel, run = [], [0]
+    for i in range(1, len(tl)):
+        if tl[i][0] > tl[i - 1][1]:
+            mel.append(run)
+            run = []
+        run.append(i)
+    mel.append(run)
+
+    def bar_of(i):
+        return base + tl[i][0] // bt
+
+    if len(phrases) > 1:
+        if len(phrases) != len(mel):
+            shape = "; ".join(
+                f"bar {bar_of(r[0])}: {len(r)} note(s)" for r in mel)
+            raise SystemExit(
+                f"chartc: {loc}: '{part_label}' sings "
+                f"{len(mel)} phrase(s) but the words give "
+                f"{len(phrases)} — the melody's phrases are: {shape}")
+        def rejoin(ph):
+            out, word = [], []
+            for t in ph:
+                if t is None:
+                    if word:
+                        out.append("-".join(word))
+                        word = []
+                    out.append("_")
+                    continue
+                word.append(t[1])
+                if t[0] in ('single', 'end'):
+                    out.append("-".join(word))
+                    word = []
+            if word:
+                out.append("-".join(word))
+            return " ".join(out)
+        bad = []
+        for r, ph in zip(mel, phrases):
+            if len(ph) != len(r):
+                bad.append(f"the phrase at bar {bar_of(r[0])} has "
+                           f"{len(r)} note(s) but '{rejoin(ph)}' gives "
+                           f"{len(ph)} syllable(s)")
+        if bad:
+            raise SystemExit(
+                f"chartc: {loc}: '{part_label}': " + "; ".join(bad[:3])
+                + " — an underscore holds a syllable one more note")
+        toks = [t for ph in phrases for t in ph]
+    else:
+        toks = phrases[0] if phrases else []
+        if len(toks) != len(tl):
+            shape = ", ".join(str(len(r)) for r in mel)
+            raise SystemExit(
+                f"chartc: {loc}: '{part_label}' sings {len(tl)} note(s) "
+                f"here but the lyrics carry {len(toks)} syllable(s) — "
+                f"the melody phrases hold {shape}; slashes in the words "
+                "anchor them phrase by phrase")
     for i, t in enumerate(toks):
         if t is None and i and toks[i - 1] is not None:
             toks[i - 1][2] = True        # the syllable keeps sounding
@@ -1046,7 +1153,8 @@ def _say_dur(ticks):
 
 
 def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
-            fall=False, doit=False, short=False, slurs=(), ghosts=()):
+            fall=False, doit=False, short=False, slurs=(), ghosts=(),
+            lyrics=None):
     """One voice's timeline -> {abs_bar: [clauses]} — the run-grouping
     prose, shared by the flat path and each voice of a polyphonic part."""
     out = {}
@@ -1071,11 +1179,18 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
         bar = at_bar + start // bar_ticks
         clauses = out.setdefault(bar, [])
         where = _say_beat(start, bar_ticks, pulse)
+        def word(k):
+            if not lyrics or k >= len(lyrics):
+                return ""
+            t = lyrics[k]
+            return " (held)" if t is None else f" '{t[1]}'"
         if j > i:
-            names = ", ".join(_say_pitch(t[2][0], table) for t in tl[i:j + 1])
+            names = ", ".join(_say_pitch(t[2][0], table) + word(i + o)
+                              for o, t in enumerate(tl[i:j + 1]))
             clauses.append(f"from {where}, {_say_dur(dur)}s: {names}")
         else:
-            what = " and ".join(_say_pitch(p, table) for p in pitches)
+            what = (" and ".join(_say_pitch(p, table) for p in pitches)
+                    + word(i))
             if len(pitches) > 1:
                 what = "chord " + what
             held = ""
@@ -1154,7 +1269,8 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
     out = _say_tl(res['timeline'], table, at_bar, bar_ticks, pulse,
                   bends, fall, doit, short,
                   slurs=res.get('slurs', ()),
-                  ghosts=res.get('ghosts', ()))
+                  ghosts=res.get('ghosts', ()),
+                  lyrics=res.get('lyrics'))
     DYN_WORD = {'p': 'piano', 'mp': 'mezzo piano', 'mf': 'mezzo forte',
                 'f': 'forte', 'ff': 'fortissimo'}
     for t, k in res.get('dyns', []):

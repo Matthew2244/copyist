@@ -1380,7 +1380,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                      "played in — none written")
                     chartdemo.attach_lyrics(
                         res, ref.get('lyrics') or ref.get('fig_lyrics'),
-                        l, ref['loc'])
+                        l, ref['loc'], findings)
                     resolved[l].append({'res': res, 'fall': ref['fall'],
                                         'short': ref.get('short', False),
                                         'every': ref.get('every'),
@@ -1432,7 +1432,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     part_label=l, findings=findings)
                 chartdemo.attach_lyrics(
                     res, ref.get('lyrics') or ref.get('fig_lyrics'),
-                    l, ref['loc'])
+                    l, ref['loc'], findings)
                 resolved[l].append({'res': res, 'fall': ref['fall'],
                                     'short': ref.get('short', False),
                                     'every': ref.get('every'),

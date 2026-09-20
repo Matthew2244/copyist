@@ -114,18 +114,29 @@ convention, not a voicing.
   and `triplet( ... )` for the triplet figures. The notes must fill the
   declared bars exactly, or the build tells you both counts. Define a
   figure and never place it, and the findings will tell you.
-- **Singers get their words the same way.** A `lyrics:` line after a
-  figure's source, or `lyrics "..."` riding a from-demo line:
+- **Singers get their words the same way — and you write them the way
+  you'd say them.** A `lyrics:` line after a figure's source, or
+  `lyrics "..."` riding a from-demo line:
 
-      singer: from demo bars 2-13, straight, legato, lyrics "Green-line
-      roll-ing home now win-dows shine all night rat-tle on steel song
-      car-ry me up-town far down the line take me home home"
+      singer: from demo bars 2-13, straight, legato, lyrics "Greenline
+      rolling home / now / windows shine / all night / rattle on /
+      steel song / carry me / uptown / far / down the line /
+      take me home / home"
 
-  Hyphens split a word into syllables, an underscore holds a syllable
-  over the next note (a melisma), and the count must match the sung
-  notes exactly — if it doesn't, the build says how many notes you sing
-  and how many syllables you gave it, and you adjust like tuning a
-  drum. Words riding in a from-xml figure come along automatically.
+  No hyphen-counting: Copyist splits the words into syllables itself
+  and the findings name every split it made, so you can overrule any
+  it got wrong — your own hyphens always win. Slashes group the words
+  by PHRASE, and each group lands on one phrase of your melody (the
+  phrases are wherever your line breathes — where a rest prints). Get
+  a phrase wrong and the build names it: "the phrase at bar 4 has 3
+  notes but 'windows shine on' gives 4 syllables." Don't know the
+  shape? Put in anything ("la / la") and the refusal reads the whole
+  melody back: "bar 2: 5 notes; bar 3: 1 note; ..." — then you write
+  to it. An underscore holds a syllable over one more note (a
+  melisma), and the read-aloud sings every word on its note — "F 4
+  'Green', A flat 4 'line'" — so you hear exactly where each word
+  landed before a singer ever does. Words riding in a from-xml figure
+  come along automatically.
 - **First and second endings** live inside a repeated section: the
   declared length is one pass, the way you'd say it on the stand —
 
