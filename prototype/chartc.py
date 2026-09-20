@@ -51,9 +51,9 @@ def parse_meter(text):
 # lead trumpet books run to written C7; trombone pedal Bb1 is common in
 # commercial scoring; every modern bari has the low A (sounding C2);
 # sax altissimo starts above written F#.
-def _inst(transpose, fold, clef, foff, comf, poly=False):
+def _inst(transpose, fold, clef, foff, comf, poly=False, grand=False):
     return {'transpose': transpose, 'fold': fold, 'clef': clef,
-            'foff': foff, 'comf': comf, 'poly': poly}
+            'foff': foff, 'comf': comf, 'poly': poly, 'grand': grand}
 
 
 HORNS = {
@@ -83,17 +83,21 @@ HORNS = {
     # rhythm
     'guitar':            _inst(12, (40, 88),  'G', 0, (40, 76), poly=True),
     'electric bass':     _inst(12, (23, 60),  'F', 0, (28, 55)),
-    'piano':             _inst(0,  (21, 108), 'G', 0, (21, 108), poly=True),
+    'piano':             _inst(0,  (21, 108), 'G', 0, (21, 108), poly=True,
+                               grand=True),
     'vibraphone':        _inst(0,  (53, 89),  'G', 0, (53, 89), poly=True),
-    'organ':             _inst(0,  (24, 96),  'G', 0, (24, 96), poly=True),
+    'organ':             _inst(0,  (24, 96),  'G', 0, (24, 96), poly=True,
+                               grand=True),
     # orchestral doubles and colors
     'english horn':      _inst(7,  (52, 81),  'G', 1, (52, 79)),
     'alto flute':        _inst(5,  (55, 91),  'G', 1, (55, 88)),
     'eb clarinet':       _inst(-3, (55, 96),  'G', -1, (55, 91)),
     'cornet':            _inst(2,  (54, 94),  'G', 2, (54, 82)),
     'euphonium':         _inst(0,  (34, 70),  'F', 0, (40, 67)),
-    'harp':              _inst(0,  (24, 103), 'G', 0, (24, 103), poly=True),
-    'celesta':           _inst(-12, (60, 108), 'G', 0, (60, 108), poly=True),
+    'harp':              _inst(0,  (24, 103), 'G', 0, (24, 103), poly=True,
+                               grand=True),
+    'celesta':           _inst(-12, (60, 108), 'G', 0, (60, 108), poly=True,
+                               grand=True),
     'marimba':           _inst(0,  (45, 96),  'G', 0, (45, 96), poly=True),
     'xylophone':         _inst(-12, (65, 108), 'G', 0, (65, 108), poly=True),
     'glockenspiel':      _inst(-24, (79, 108), 'G', 0, (79, 108), poly=True),
@@ -922,7 +926,18 @@ def hits_bar(pattern, div, clef, staves, fifths, meter=(4, 4)):
                     f'        <type>{ptype}</type>']
             out += ['        <dot/>'] * dots
             out.append('        <notehead>slash</notehead>')
+            if staves > 1:
+                out.append('        <staff>1</staff>')
             out.append('      </note>')
+    if staves > 1:
+        bar = pulse * num
+        out += [f'      <backup><duration>{bar}</duration></backup>',
+                '      <note>',
+                '        <rest measure="yes"/>',
+                f'        <duration>{bar}</duration>',
+                '        <voice>2</voice>',
+                '        <staff>2</staff>',
+                '      </note>']
     return "\n".join(out) + "\n"
 
 
@@ -1162,6 +1177,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                 res = chartdemo.resolve_range(
                     dm, track, ref['lo'], ref['hi'], ref['at'],
                     meter=fig_meter, window=window,
+                    grand=h.get('grand', False),
                     octave_shift=b['demo_octave'],
                     sounding_range=rng, quant=ref.get('quant'),
                     poly=h['poly'],
@@ -1454,7 +1470,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         sp = source[src_of[label]] if source else None
         horn = horn_of.get(label)
         div = sp['div'] if sp else chartdemo.DIV
-        staves = sp['staves'] if sp else 1
+        grand = bool(horn and horn.get('grand')) and sp is None
+        staves = sp['staves'] if sp else (2 if grand else 1)
         clef = sp['clef'] if sp else (horn['clef'] if horn else 'G')
         fifths = sp['fifths'] if sp else (key[0] + horn['foff'] if horn
                                           else key[0])
@@ -1472,13 +1489,23 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             keyxml = ('' if clef == 'percussion' else
                       f'        <key><fifths>{fifths}</fifths>'
                       f'<mode>{key[1]}</mode></key>\n')
+            if grand:
+                # a keyboard-family part prints on the grand staff
+                clefxml = ('        <staves>2</staves>\n'
+                           f'        <clef number="1">{CLEF_XML["G"]}'
+                           '</clef>\n'
+                           f'        <clef number="2">{CLEF_XML["F"]}'
+                           '</clef>\n')
+            else:
+                clefxml = (f'        <clef>'
+                           f'{CLEF_XML[clef if clef in CLEF_XML else "G"]}'
+                           '</clef>\n')
             return ('      <attributes>\n'
                     f'        <divisions>{div}</divisions>\n'
                     + keyxml +
                     f'        <time><beats>{m_num}</beats>'
                     f'<beat-type>{m_den}</beat-type></time>\n'
-                    f'        <clef>{CLEF_XML[clef if clef in CLEF_XML else "G"]}'
-                    '</clef>\n'
+                    + clefxml
                     + ('' if clef == 'percussion' else
                        (f'        {tr}\n' if tr else ''))
                     + '      </attributes>\n')

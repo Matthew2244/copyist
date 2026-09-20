@@ -276,8 +276,14 @@ class Hands:
             lo = [p for p in pitches if p < 60]
             hi = [p for p in pitches if p >= 60]
             if not lo or not hi:
-                mid = n // 2 if n > 1 else 0
-                lo, hi = pitches[:mid], pitches[mid:]
+                if n == 1:
+                    # a lone opening note seeds the hand its register
+                    # says — a bass note is a left hand, not a "split"
+                    lo, hi = (pitches, []) if pitches[0] < 60 \
+                        else ([], pitches)
+                else:
+                    mid = n // 2
+                    lo, hi = pitches[:mid], pitches[mid:]
             self.lh = sum(lo) / len(lo) if lo else None
             self.rh = sum(hi) / len(hi) if hi else None
             self.certain += n

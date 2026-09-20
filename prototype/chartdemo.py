@@ -41,6 +41,11 @@ class Findings:
 
     def add(self, *args, **kw):
         text = ": ".join(str(a) for a in args if a)
+        # convert.py callers pass structured detail; keep what a reader
+        # needs (the where and the why), drop the machine fields
+        extra = [str(kw[k]) for k in ('location', 'why') if kw.get(k)]
+        if extra:
+            text += " (" + "; ".join(extra) + ")"
         self.lines.append(text)
 
 
@@ -147,10 +152,69 @@ def load_demo(path):
     return _DEMOS[path]
 
 
+def _mono_tl(events, n_units):
+    """One voice's cleanup: truncate at the voice's next onset, close
+    slivers of daylight, cap at the figure's end."""
+    onsets = sorted(events)
+    close = DIV // 4
+    timeline = []                          # (start, end, [pitches])
+    for i, q_on in enumerate(onsets):
+        end = max(e for _, e, _ in events[q_on])
+        nxt = onsets[i + 1] if i + 1 < len(onsets) else None
+        if nxt is not None:
+            if end > nxt:
+                end = nxt                  # one voice, one line
+            elif 0 < nxt - end <= close:
+                end = nxt                  # close a sliver of daylight
+        end = max(end, q_on + 1)
+        end = min(end, n_units)
+        pitches = sorted({p for p, _, _ in events[q_on]})
+        timeline.append((q_on, end, pitches))
+    return timeline
+
+
+def _pedals(evts, n_units):
+    """Pull pedal tones out of one staff's events: a note that keeps
+    ringing under (or over) later movement becomes its own voice instead
+    of being cut at the next onset. Mutates evts; returns the pedal
+    timeline. The pedal layer never overlaps itself — of a run of
+    let-ring notes, the first keeps ringing and the rest stay in the
+    line, which is a chart's honest reading of a wash of sustain."""
+    onsets = sorted(evts)
+    pedals = []                            # [start, end, [pitches]]
+    for q_on in onsets:
+        for item in list(evts.get(q_on, ())):
+            p, off, _raw = item
+            off = min(off, n_units)
+            crossed = [o for o in onsets
+                       if q_on < o <= off - DIV // 2]
+            if not crossed:
+                continue
+            others = [pp for o in crossed for (pp, _, _) in evts[o]]
+            if not others or not (all(pp > p for pp in others)
+                                  or all(pp < p for pp in others)):
+                continue
+            clash = [pe for pe in pedals
+                     if not (off <= pe[0] or q_on >= pe[1])]
+            if clash:
+                pe = clash[-1]
+                if len(clash) == 1 and pe[0] == q_on and pe[1] == off:
+                    pe[2].append(p)        # a held chord rings as one
+                else:
+                    continue
+            else:
+                pedals.append([q_on, off, [p]])
+            evts[q_on].remove(item)
+            if not evts[q_on]:
+                del evts[q_on]
+    return [(s, e, sorted(ps)) for s, e, ps in pedals]
+
+
 def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   octave_shift=0, sounding_range=None, quant=None,
                   derive_dyns=True, short=False, spoken_shift=0,
-                  poly=False, meter=(4, 4), window=None, part_label="",
+                  poly=False, grand=False, reach=17, comfortable=14,
+                  meter=(4, 4), window=None, part_label="",
                   findings=None):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
@@ -321,21 +385,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                          "this bar")
 
     # ---- monophonic cleanup and legato gap-closing
-    onsets = sorted(events)
-    close = DIV // 4
-    timeline = []                          # (start, end, [pitches])
-    for i, q_on in enumerate(onsets):
-        end = max(e for _, e, _ in events[q_on])
-        nxt = onsets[i + 1] if i + 1 < len(onsets) else None
-        if nxt is not None:
-            if end > nxt:
-                end = nxt                  # a horn is one voice
-            elif 0 < nxt - end <= close:
-                end = nxt                  # close a sliver of daylight
-        end = max(end, q_on + 1)
-        end = min(end, n_units)
-        pitches = sorted({p for p, _, _ in events[q_on]})
-        timeline.append((q_on, end, pitches))
+    timeline = _mono_tl(events, n_units)
 
     # The same phrase gets the same cutoff. A repeated sustained note at
     # the same bar position and pitch whose gates differed slightly in
@@ -367,6 +417,60 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     if short and timeline:
         s, e, ps = timeline[-1]
         timeline[-1] = (s, min(e, s + DIV // 2), ps)
+
+    # ---- polyphony: hands to staves, pedal tones to voices. The flat
+    # timeline above stays as the range report's and the fallback's one
+    # answer; when anything genuinely polyphonic is found, the page and
+    # the prose read the voices instead.
+    staves_out = None
+    if poly:
+        staff_events = {1: {k: list(v) for k, v in events.items()}}
+        if grand:
+            hands = convert.Hands(reach, comfortable, find)
+            staff_events = {1: {}, 2: {}}
+            prev_on = None
+            holding = []                   # (end, pitch) still sounding —
+            for q_on in sorted(events):    # a held note IS the hand's
+                lst = events[q_on]         # position, so it anchors the
+                holding = [(e, p) for e, p in holding if e > q_on]  # split
+                bar_no = at_bar + spoken_shift + q_on // bar_ticks
+                dt = ((q_on - prev_on) / DIV if prev_on is not None
+                      else 1.0)
+                prev_on = q_on
+                lh, rh = hands.assign(
+                    sorted({p for p, _, _ in lst}
+                           | {p for _, p in holding}), bar_no, dt)
+                for staff, members in ((1, rh), (2, lh)):
+                    sel = [t for t in lst if t[0] in members]
+                    if sel:
+                        staff_events[staff][q_on] = sel
+                        holding += [(e, p) for p, e, _ in sel]
+        split = False
+        staves_out = []
+        for staff in sorted(staff_events):
+            evts = staff_events[staff]
+            ped = _pedals(evts, n_units)
+            if ped:
+                split = True
+            voices = [_mono_tl(evts, n_units)]
+            if ped:
+                voices.append(ped)
+            staves_out.append({'staff': staff, 'voices': voices})
+        if not (split or grand):
+            staves_out = None              # nothing polyphonic: flat path
+        else:
+            if short and staves_out[0]['voices'][0]:
+                tl = staves_out[0]['voices'][0]
+                s, e, ps = tl[-1]
+                tl[-1] = (s, min(e, s + DIV // 2), ps)
+            pbars = sorted({at_bar + spoken_shift + s // bar_ticks
+                            for st in staves_out
+                            for v in st['voices'][1:]
+                            for s, _, _ in v})
+            if pbars:
+                find.add(f"{part_label}: held notes keep ringing under "
+                         "the line and print as their own voice — bars "
+                         + ", ".join(str(b) for b in pbars))
 
     grids_chart = {b: grids.get(b, default_sub)
                    for b in range((n_units // DIV) + 1)}
@@ -401,7 +505,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     return {'timeline': timeline, 'grids': grids_chart,
             'n_units': n_units, 'at': at_bar,
             'bars': (bar_lo, bar_hi), 'dyns': dyns,
-            'spoken_shift': spoken_shift,
+            'spoken_shift': spoken_shift, 'staves': staves_out,
             'bar_ticks': bar_ticks, 'pulse_div': pulse_div}
 
 
@@ -440,6 +544,22 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     bends = bend_indices(res, scoops)
 
     bar_ticks = res.get('bar_ticks', BAR)
+    SOUND_DYN = {'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123}
+
+    if res.get('staves'):
+        # genuinely polyphonic: hands and held layers, each its own voice
+        out = _render_voices(res, table, transpose_to_written, every,
+                             last_artic)
+        for t, k in res.get('dyns', []):
+            bar = at_bar + t // bar_ticks
+            if bar in out:
+                out[bar] = (
+                    '      <direction placement="below"><direction-type>'
+                    f'<dynamics><{k}/></dynamics></direction-type>'
+                    f'<sound dynamics="{SOUND_DYN[k]}"/></direction>\n'
+                    + out[bar])
+        return out
+
     out = {b: [] for b in
            range(at_bar, at_bar + (n_units // bar_ticks))}
     pos = 0
@@ -456,7 +576,6 @@ def render_range(res, fifths_written, transpose_to_written, fall,
         _emit(out, at_bar, pos, n_units, None, table, grids_chart,
               None, transpose_to_written, bar=bar_ticks)
 
-    SOUND_DYN = {'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123}
     for t, k in res.get('dyns', []):
         bar = at_bar + t // bar_ticks
         if bar in out:
@@ -467,6 +586,84 @@ def render_range(res, fifths_written, transpose_to_written, fall,
                 f'<sound dynamics="{SOUND_DYN[k]}"/></direction>\n')
 
     return {b: "".join(lines) for b, lines in out.items()}
+
+
+def _render_voices(res, table, transpose, every, last_artic):
+    """The polyphonic page: staff by staff, voice by voice, stitched per
+    measure with backups. The first voice of a staff owns every figure
+    bar (rests around its line); a held layer appears only in bars it
+    actually rings, filled barline to barline so the arithmetic holds."""
+    at_bar = res['at']
+    n_units = res['n_units']
+    bar_ticks = res['bar_ticks']
+    grids = res['grids']
+    staves = res['staves']
+    nbars = n_units // bar_ticks
+    two_staves = len(staves) > 1
+    chunks = []                            # ({bar: [str]}, covered_bars)
+    for st in staves:
+        staff_no = st['staff'] if two_staves else 0
+        base = 1 if st['staff'] == 1 else 5
+        for vi, tl in enumerate(st['voices'] or [[]]):
+            voice_no = base + vi
+            outd = {b: [] for b in range(at_bar, at_bar + nbars)}
+            if vi == 0:
+                pos = 0
+                for ti, (s, e, ps) in enumerate(tl):
+                    if s > pos:
+                        _emit(outd, at_bar, pos, s, None, table, grids,
+                              None, transpose, bar=bar_ticks,
+                              voice=voice_no, staff=staff_no)
+                    is_last = ti == len(tl) - 1
+                    _emit(outd, at_bar, s, e, ps, table, grids,
+                          ((last_artic if is_last and st['staff'] == 1
+                            else None) or every),
+                          transpose, bar=bar_ticks,
+                          voice=voice_no, staff=staff_no)
+                    pos = e
+                if pos < n_units:
+                    _emit(outd, at_bar, pos, n_units, None, table, grids,
+                          None, transpose, bar=bar_ticks,
+                          voice=voice_no, staff=staff_no)
+                covered = set(outd)
+            else:
+                covered = set()
+                for s, e, _ in tl:
+                    covered.update(range(at_bar + s // bar_ticks,
+                                         at_bar + (e - 1) // bar_ticks + 1))
+                regions = []
+                for b in sorted(covered):
+                    if regions and b == regions[-1][1]:
+                        regions[-1][1] = b + 1
+                    else:
+                        regions.append([b, b + 1])
+                idx = 0
+                for rb, re_ in regions:
+                    pos = (rb - at_bar) * bar_ticks
+                    r1 = (re_ - at_bar) * bar_ticks
+                    while idx < len(tl) and tl[idx][0] < r1:
+                        s, e, ps = tl[idx]
+                        if s > pos:
+                            _emit(outd, at_bar, pos, s, None, table,
+                                  grids, None, transpose, bar=bar_ticks,
+                                  voice=voice_no, staff=staff_no)
+                        _emit(outd, at_bar, s, e, ps, table, grids, None,
+                              transpose, bar=bar_ticks,
+                              voice=voice_no, staff=staff_no)
+                        pos = e
+                        idx += 1
+                    if pos < r1:
+                        _emit(outd, at_bar, pos, r1, None, table, grids,
+                              None, transpose, bar=bar_ticks,
+                              voice=voice_no, staff=staff_no)
+            chunks.append((outd, covered))
+    backup = f'      <backup><duration>{bar_ticks}</duration></backup>\n'
+    out = {}
+    for b in range(at_bar, at_bar + nbars):
+        parts = ["".join(c[0][b]) for c in chunks
+                 if b in c[1] and c[0].get(b)]
+        out[b] = backup.join(p for p in parts if p)
+    return out
 
 
 def _is_tuplet(grids, b):
@@ -527,7 +724,8 @@ def _name(ticks, sub):
 
 
 def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
-          bend=None, bar=BAR):
+          bend=None, bar=BAR, voice=1, staff=0):
+    staff_xml = f'        <staff>{staff}</staff>\n' if staff else ''
     pieces = _pieces(start, end, grids, bar)
     for pi, (a, b) in enumerate(pieces):
         bar_no = at_bar + a // bar
@@ -539,7 +737,8 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
             out[bar_no].append(
                 '      <note>\n        <rest measure="yes"/>\n'
                 f'        <duration>{bar}</duration>\n'
-                '        <voice>1</voice>\n      </note>\n')
+                f'        <voice>{voice}</voice>\n'
+                + staff_xml + '      </note>\n')
             continue
         parts = _name(b - a, sub)
         for qi, (plen, ptype, dots, mod) in enumerate(parts):
@@ -548,10 +747,11 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
             if pitches is None:
                 out[bar_no].append('      <note>\n        <rest/>\n'
                                 f'        <duration>{plen}</duration>\n'
-                                '        <voice>1</voice>\n'
+                                f'        <voice>{voice}</voice>\n'
                                 f'        <type>{ptype}</type>\n'
                                 + '        <dot/>\n' * dots
                                 + (_mod_xml(mod) if mod else '')
+                                + staff_xml
                                 + '      </note>\n')
                 continue
             for ni, p in enumerate(pitches):
@@ -569,7 +769,7 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                     lines.append('        <tie type="stop"/>')
                 if not plast:
                     lines.append('        <tie type="start"/>')
-                lines.append('        <voice>1</voice>')
+                lines.append(f'        <voice>{voice}</voice>')
                 lines.append(f'        <type>{ptype}</type>')
                 lines += ['        <dot/>'] * dots
                 if alter:
@@ -577,6 +777,8 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                         f'        <accidental>{ACC_NAME[alter]}</accidental>')
                 if mod:
                     lines.append(_mod_xml(mod).rstrip())
+                if staff:
+                    lines.append(f'        <staff>{staff}</staff>')
                 notations = []
                 if not pfirst:
                     notations.append('<tied type="stop"/>')
@@ -644,18 +846,11 @@ def _say_dur(ticks):
     return f"about {ticks / DIV:.1f} beats"
 
 
-def say_range(res, concert_fifths, fall=False, findings=None, short=False,
-              doit=False, scoops=None):
-    """Resolved timeline -> {abs_bar: prose}, spoken at concert pitch."""
-    find = findings if findings is not None else Findings()
-    table = spelling_table(concert_fifths, find)
-    at_bar = res['at'] + res.get('spoken_shift', 0)
-    bar_ticks = res.get('bar_ticks', BAR)
-    pulse = res.get('pulse_div', DIV)
-    bends = bend_indices(res, scoops)
+def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
+            fall=False, doit=False, short=False):
+    """One voice's timeline -> {abs_bar: [clauses]} — the run-grouping
+    prose, shared by the flat path and each voice of a polyphonic part."""
     out = {}
-    # group consecutive same-duration single notes into runs
-    tl = res['timeline']
     i = 0
     while i < len(tl):
         start, end, pitches = tl[i]
@@ -694,6 +889,53 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
             elif short:
                 clauses[-1] += ", short"
         i = j + 1
+    return out
+
+
+def say_range(res, concert_fifths, fall=False, findings=None, short=False,
+              doit=False, scoops=None):
+    """Resolved timeline -> {abs_bar: prose}, spoken at concert pitch."""
+    find = findings if findings is not None else Findings()
+    table = spelling_table(concert_fifths, find)
+    at_bar = res['at'] + res.get('spoken_shift', 0)
+    bar_ticks = res.get('bar_ticks', BAR)
+    pulse = res.get('pulse_div', DIV)
+    bends = bend_indices(res, scoops)
+
+    if res.get('staves'):
+        # polyphonic prose: each voice speaks, labelled, in page order
+        two = len(res['staves']) > 1
+        ordered = []
+        for st in res['staves']:
+            for vi, tl in enumerate(st['voices'] or [[]]):
+                if not tl:
+                    continue
+                hand = ('right hand' if st['staff'] == 1 else
+                        'left hand') if two else ''
+                label = (hand + (', held underneath' if vi else '')
+                         if two else ('held underneath' if vi else ''))
+                first = st['staff'] == 1 and vi == 0
+                ordered.append((label, _say_tl(
+                    tl, table, at_bar, bar_ticks, pulse,
+                    bends if first else {},
+                    fall and first, doit and first, short and first)))
+        out = {}
+        for label, by_bar in ordered:
+            for bar, clauses in by_bar.items():
+                body = "; ".join(clauses)
+                seg = (label[0].upper() + label[1:] + ": " + body
+                       if label else body)
+                out.setdefault(bar, []).append(seg)
+        DYN_WORD = {'p': 'piano', 'mp': 'mezzo piano',
+                    'mf': 'mezzo forte', 'f': 'forte', 'ff': 'fortissimo'}
+        for t, k in res.get('dyns', []):
+            bar = at_bar + t // bar_ticks
+            if bar in out:
+                out[bar].insert(0, DYN_WORD[k])
+        return {b: ". ".join(segs) + "." for b, segs in out.items()}
+
+    out = _say_tl(res['timeline'], table, at_bar, bar_ticks, pulse,
+                  bends, fall, doit, short)
     DYN_WORD = {'p': 'piano', 'mp': 'mezzo piano', 'mf': 'mezzo forte',
                 'f': 'forte', 'ff': 'fortissimo'}
     for t, k in res.get('dyns', []):

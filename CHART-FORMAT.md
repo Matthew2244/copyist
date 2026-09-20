@@ -17,7 +17,13 @@ where a player must look up, the demo door locates figures by the demo
 file's own time signatures (a figure may not cross a change — the error
 says where to split), the listen trim walks the meter and tempo maps
 bar by bar, and a compound↔simple change with no new tempo is a
-finding. Still ahead: named figures, inline `notes:`, voltas,
+finding. Keyboard-family parts (piano, organ, harp, celesta) from a
+demo print on the grand staff — hands split by the engine's physics
+model (DESIGN.md §8), with a note a hand is still holding anchoring the
+split — and a note that keeps ringing under later movement (a guitar's
+low string, a pedal tone) prints as its own voice instead of being cut
+at the next onset, with a finding naming the bars. Still ahead: named
+figures, inline `notes:`, voltas,
 `double`/`cue`/`build:`/`on pass`/`as demo`, and detail levels.
 **Read DESIGN.md first.** This document extends it: where DESIGN.md turns a
 performance into a chart, this format lets a chart be *written* directly — as

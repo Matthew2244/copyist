@@ -470,6 +470,109 @@ def check_meter_charts():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_poly_charts():
+    """
+    DESIGN.md 8 married to the chart door: a keyboard-family part from a
+    demo prints on the grand staff (hands split by physics), a note that
+    keeps ringing under later movement becomes its own voice instead of
+    being cut at the next onset, and the measure arithmetic survives the
+    backups. A poly figure with nothing genuinely polyphonic must keep
+    taking the old flat path.
+    """
+    import re
+    import chartc
+    import chartdemo
+    import smf
+    from chart import verify_measures
+    tmp = tempfile.mkdtemp()
+
+    div = 480
+    piano = []
+    for bar in range(2):
+        t0 = bar * 1920
+        piano.append((t0, t0 + 1900, 36 + bar * 5, 80))     # held LH root
+        for i, tri in enumerate(((60, 64, 67), (60, 64, 67),
+                                 (59, 62, 67), (60, 64, 67))):
+            for p in tri:
+                piano.append((t0 + i * 480, t0 + i * 480 + 430, p, 88))
+    smf.write(os.path.join(tmp, "p.mid"), piano, div, 90)
+    gtr = [(0, 1900, 40, 84)]                               # low E rings
+    for i, dy in enumerate(((64, 67), (64, 69), (64, 67))):
+        for p in dy:
+            gtr.append((480 + i * 480, 480 + i * 480 + 430, p, 82))
+    # bar 2: plain dyads, nothing held — must stay on the flat path
+    for i in range(4):
+        gtr.append((1920 + i * 480, 1920 + i * 480 + 430, 64, 82))
+        gtr.append((1920 + i * 480, 1920 + i * 480 + 430, 67, 82))
+    smf.write(os.path.join(tmp, "g.mid"), gtr, div, 90)
+
+    open(os.path.join(tmp, "poly.chart"), "w").write(
+        "title: P\nkey: C\nmeter: 4/4\ntempo: 90\n\nband:\n"
+        '  piano, demo "p.mid"\n  guitar, demo "g.mid"\n\n'
+        "section A, 2 bars\n  chords: C, F\n"
+        "  piano: from demo bars 1-2\n  guitar: from demo bars 1-2\n")
+    out = os.path.join(tmp, "build")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        files = chartc.compile_chart(os.path.join(tmp, "poly.chart"), out)
+    log = buf.getvalue()
+    check("poly chart: every measure sums through the backups",
+          not verify_measures(files))
+
+    xml = open(os.path.join(out, "P — piano.musicxml")).read()
+    check("piano part declares the grand staff",
+          "<staves>2</staves>" in xml and '<clef number="2"><sign>F' in xml)
+    bars = dict(re.findall(r'<measure [^>]*number="(\d+)"[^>]*>(.*?)'
+                           r'</measure>', xml, re.S))
+    lh = re.findall(r'<note>(?:(?!</note>).)*?<octave>2</octave>'
+                    r'(?:(?!</note>).)*?</note>', bars["1"], re.S)
+    check("the held left-hand root lives on staff 2, voice 5",
+          lh and all("<voice>5</voice>" in n and "<staff>2</staff>" in n
+                     for n in lh), f"got {len(lh)} notes")
+    check("hands split without inventing a held-voice finding for piano",
+          "keep ringing" not in "".join(
+              l for l in log.splitlines() if "piano" in l))
+
+    xml = open(os.path.join(out, "P — guitar.musicxml")).read()
+    bars = dict(re.findall(r'<measure [^>]*number="(\d+)"[^>]*>(.*?)'
+                           r'</measure>', xml, re.S))
+    check("the guitar's ringing low E is its own voice",
+          "<backup>" in bars["1"] and "<voice>2</voice>" in bars["1"])
+    check("a bar with nothing held stays one voice",
+          "<backup>" not in bars["2"])
+    check("the held voice announces itself in the findings",
+          "keep ringing" in log and "guitar" in log)
+
+    # the arpeggio degeneracy: a wash of let-ring must not empty the line
+    arp = [(i * 480, 1920, 48 + iv, 80)
+           for i, iv in enumerate((0, 4, 7, 12))]
+    smf.write(os.path.join(tmp, "a.mid"), arp, div, 90)
+    open(os.path.join(tmp, "arp.chart"), "w").write(
+        "title: R\nkey: C\nmeter: 4/4\ntempo: 90\n\nband:\n"
+        '  guitar, demo "a.mid"\n  piano\n\n'
+        "section A, 1 bars\n  chords: C\n"
+        "  guitar: from demo bars 1-1\n  piano: groove\n")
+    with redirect_stdout(io.StringIO()):
+        files = chartc.compile_chart(os.path.join(tmp, "arp.chart"),
+                                     os.path.join(tmp, "abuild"))
+    check("let-ring arpeggio: measures still sum", not verify_measures(files))
+    xml = open(os.path.join(tmp, "abuild", "R — guitar.musicxml")).read()
+    v1 = xml.count("<voice>1</voice>")
+    check("of a wash of sustain, the first note rings and the line survives",
+          xml.count("<voice>2</voice>") >= 1 and v1 >= 3,
+          f"v1 {v1}, v2 {xml.count('<voice>2</voice>')}")
+
+    # the prose speaks the layers
+    dm = chartdemo.load_demo(os.path.join(tmp, "p.mid"))
+    res = chartdemo.resolve_range(dm, None, 1, 2, 1, poly=True, grand=True,
+                                  part_label="piano")
+    said = " ".join(chartdemo.say_range(res, 0).values())
+    check("the read-aloud names the hands",
+          "Right hand:" in said and "Left hand:" in said, said[:120])
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -529,6 +632,7 @@ if __name__ == "__main__":
     check_key_names_are_usable()
     check_tuplet_ladder()
     check_meter_charts()
+    check_poly_charts()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

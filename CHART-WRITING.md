@@ -23,6 +23,13 @@ The worked example below is an invented tune called *Uptown Local*.
 
 - `demo:` names the MIDI file you played the horn lines into. The chart
   pulls real notes from it — your playing is the documentation.
+- **Piano, organ and harp come out on the grand staff.** Play the part
+  in with both hands and the build separates them by what a pair of
+  hands can physically reach — a bass note you're still holding keeps
+  that hand where it is. On any instrument, a note that keeps ringing
+  under the line (a low guitar string, a pedal tone) prints as its own
+  held voice instead of being chopped at the next attack, and the
+  findings name the bars where that happened so you can proofread them.
 - `meter:` takes any signature — 3/4, 6/8, 5/4, 12/8, whatever the
   tune is. Beats in chords and hits count in the meter's own pulses
   (in 6/8, `@4` is the fourth eighth). In a compound meter like 6/8 or
