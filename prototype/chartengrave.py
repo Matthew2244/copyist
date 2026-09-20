@@ -198,22 +198,33 @@ def draw_flag(pdf, x, y, up, n):
 def draw_clef(pdf, x, top, clef):
     mid = top - STAFF / 2
     if clef == 'G':
-        b = top - 3 * SP        # the G line
+        g = top - 3 * SP            # the G line
         s = SP
-        pdf.bez([(x + 0.4 * s, b + 5.6 * s),
-                 ((x - 1.6 * s, b + 4.2 * s), (x - 0.4 * s, b + 2.2 * s),
-                  (x + 0.9 * s, b + 1.6 * s)),
-                 ((x + 2.4 * s, b + 1.0 * s), (x + 2.6 * s, b - 0.8 * s),
-                  (x + 1.1 * s, b - 1.1 * s)),
-                 ((x - 0.5 * s, b - 1.4 * s), (x - 0.9 * s, b + 0.4 * s),
-                  (x + 0.5 * s, b + 0.7 * s)),
-                 ((x + 1.5 * s, b + 0.9 * s), (x + 1.7 * s, b - 0.1 * s),
-                  (x + 1.0 * s, b - 0.5 * s))], w=1.6)
-        pdf.line(x + 0.4 * SP, b + 5.6 * SP, x + 0.55 * SP, b - 2.6 * SP,
-                 w=1.3)
-        pdf.bez([(x + 0.55 * SP, b - 2.6 * SP),
-                 ((x + 0.5 * SP, b - 3.6 * SP), (x - 1.0 * SP, b - 3.6 * SP),
-                  (x - 1.0 * SP, b - 2.7 * SP))], w=1.3)
+        # the spiral, wound onto the G line
+        pdf.bez([(x + 1.55 * s, g + 1.55 * s),
+                 ((x + 0.6 * s, g + 2.6 * s), (x - 1.5 * s, g + 1.9 * s),
+                  (x - 1.5 * s, g + 0.4 * s)),
+                 ((x - 1.5 * s, g - 1.1 * s), (x - 0.4 * s, g - 1.85 * s),
+                  (x + 0.5 * s, g - 1.55 * s)),
+                 ((x + 1.5 * s, g - 1.2 * s), (x + 1.6 * s, g + 0.3 * s),
+                  (x + 0.65 * s, g + 0.7 * s)),
+                 ((x - 0.1 * s, g + 1.0 * s), (x - 0.5 * s, g + 0.4 * s),
+                  (x - 0.35 * s, g - 0.1 * s))], w=2.1)
+        # the tall loop above, lean and closing back across the stem
+        pdf.bez([(x + 1.55 * s, g + 1.55 * s),
+                 ((x + 0.1 * s, g + 3.2 * s), (x - 0.6 * s, g + 4.4 * s),
+                  (x - 0.45 * s, g + 5.6 * s)),
+                 ((x - 0.35 * s, g + 6.6 * s), (x + 0.5 * s, g + 6.7 * s),
+                  (x + 0.55 * s, g + 5.5 * s)),
+                 ((x + 0.6 * s, g + 4.0 * s), (x + 0.0 * s, g + 2.4 * s),
+                  (x - 0.45 * s, g + 1.2 * s))], w=1.9)
+        # the stem falls straight through to the tail
+        pdf.line(x + 0.02 * s, g + 5.6 * s, x + 0.32 * s, g - 2.5 * s,
+                 w=1.5)
+        pdf.bez([(x + 0.32 * s, g - 2.5 * s),
+                 ((x + 0.3 * s, g - 3.3 * s), (x - 0.9 * s, g - 3.4 * s),
+                  (x - 1.0 * s, g - 2.6 * s))], w=1.4)
+        _dot(pdf, x - 0.72 * s, g - 2.65 * s)
     elif clef == 'F':
         s = SP
         b = top - SP            # the F line
@@ -271,13 +282,18 @@ def draw_rest(pdf, x, top, rtype):
                   (x + 1.4 * SP, top - 2 * SP),
                   (x - 1.4 * SP, top - 2 * SP)], fill=True)
     elif rtype == 'quarter':
-        pdf.bez([(x - 0.5 * SP, mid + 1.9 * SP),
-                 ((x + 1.1 * SP, mid + 0.6 * SP),
-                  (x - 1.0 * SP, mid + 0.7 * SP),
-                  (x + 0.8 * SP, mid - 0.8 * SP)),
-                 ((x - 0.9 * SP, mid - 0.4 * SP),
-                  (x - 0.2 * SP, mid - 1.9 * SP),
-                  (x + 0.7 * SP, mid - 2.0 * SP))], w=2.2)
+        pdf.bez([(x - 0.45 * SP, mid + 1.9 * SP),
+                 ((x + 0.55 * SP, mid + 1.0 * SP),
+                  (x + 0.6 * SP, mid + 0.9 * SP),
+                  (x - 0.35 * SP, mid - 0.05 * SP))], w=2.6)
+        pdf.bez([(x - 0.35 * SP, mid - 0.05 * SP),
+                 ((x + 0.75 * SP, mid - 0.7 * SP),
+                  (x + 0.8 * SP, mid - 0.75 * SP),
+                  (x + 0.5 * SP, mid - 1.0 * SP))], w=2.2)
+        pdf.bez([(x + 0.5 * SP, mid - 1.0 * SP),
+                 ((x - 0.6 * SP, mid - 1.15 * SP),
+                  (x - 0.5 * SP, mid - 1.9 * SP),
+                  (x + 0.35 * SP, mid - 2.05 * SP))], w=1.5)
     else:
         n = FLAGS.get(rtype, 1)
         for i in range(n):
@@ -871,8 +887,17 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                 draw_accidental(pdf, ax, yy, n.alter, scale=scale)
                 ax -= 1.7 * SP
         head = ('slash' if n0.slash else DUR_HEADS.get(n0.ntype, 'black'))
-        for n, yy in zip(notes, ys):
-            notehead(pdf, cx, yy, head, scale=scale, parens=n.parens)
+        order = sorted(range(len(ps)), key=lambda i: ps[i])
+        side = {}
+        prev_p, flip = None, False
+        for i in order:
+            flip = (not flip) if (prev_p is not None
+                                  and ps[i] - prev_p == 1) else False
+            side[i] = flip
+            prev_p = ps[i]
+        for i, (n, yy) in enumerate(zip(notes, ys)):
+            dx = 2.15 * SP * scale * (1 if up else -1) if side[i] else 0
+            notehead(pdf, cx + dx, yy, head, scale=scale, parens=n.parens)
         dot_x = cx + 1.9 * SP
         for _ in range(n0.dots):
             for yy in ys:
@@ -914,10 +939,8 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                 sx, sy, sup = slur_open.pop()
                 ey = (max(ys) if sup else min(ys))
                 arc = 2.2 * SP * (1 if sup else -1)
-                mx_ = (sx + cx) / 2
-                pdf.bez([(sx, sy + 0.6 * arc / 2.2),
-                         ((mx_, sy + arc), (mx_, ey + arc),
-                          (cx, ey + 0.6 * arc / 2.2))], w=1.1)
+                draw_arc(pdf, sx, sy + 0.27 * arc, cx,
+                         ey + 0.27 * arc, arc)
         if n0.tie_start or n0.slur_start:
             sup = not up
             slur_open.append((cx + SP,
@@ -941,9 +964,8 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
     while slur_open:
         sx, sy, sup = slur_open.pop()
         arc = 2 * SP * (1 if sup else -1)
-        pdf.bez([(sx, sy), ((sx + 3 * SP, sy + arc),
-                            (x0 + width - SP, sy + arc),
-                            (x0 + width - 0.5 * SP, sy))], w=1.1)
+        draw_arc(pdf, sx, sy + 0.2 * arc, x0 + width - 0.5 * SP,
+                 sy + 0.2 * arc, arc)
 
 
 def _dot(pdf, x, y):
@@ -987,8 +1009,38 @@ def draw_artic(pdf, x, y, artic):
 
 
 def draw_chord_symbol(pdf, x, y, sym):
-    # F7, Bbm7b5, F#7#9, C/E — flats and sharps stay text, bold and clear
-    pdf.text(x, y, sym, size=10.5, font='HB')
+    """F7, Bbm7b5, C/E — root and bass accidentals drawn as real
+    flats and sharps beside their letters."""
+    m = re.match(r'([A-G])([b#]?)([^/]*)(?:/([A-G])([b#]?))?$', sym)
+    if not m:
+        pdf.text(x, y, sym, size=10.5, font='HB')
+        return
+    size = 10.5
+
+    def piece(px, letter, acc, rest=''):
+        pdf.text(px, y, letter, size=size, font='HB')
+        px += 0.68 * size
+        if acc:
+            draw_accidental(pdf, px + 1.5, y + 3.2,
+                            -1 if acc == 'b' else 1, scale=0.52)
+            px += 4.6
+        if rest:
+            pdf.text(px, y, rest, size=size * 0.86, font='HB')
+            px += 0.56 * size * 0.86 * len(rest)
+        return px
+    px = piece(x, m.group(1), m.group(2), m.group(3) or '')
+    if m.group(4):
+        pdf.text(px, y, "/", size=size, font='HB')
+        px = piece(px + 0.5 * size, m.group(4), m.group(5))
+
+
+def draw_arc(pdf, sx, sy, ex, ey, arc):
+    """A tapered tie or slur: two curves closed and filled."""
+    mx = (sx + ex) / 2
+    pdf.bez([(sx, sy),
+             ((mx, sy + arc), (mx, ey + arc), (ex, ey)),
+             ((mx, ey + arc * 0.72), (mx, sy + arc * 0.72), (sx, sy))],
+            fill=True, w=0.7)
 
 
 def flush_beam(pdf, group):
@@ -998,22 +1050,33 @@ def flush_beam(pdf, group):
             draw_flag(pdf, x, tip, up, n)
         return
     up = group[0][2]
-    tip = (max if up else min)(g[1] for g in group)
     x1, x2 = group[0][0], group[-1][0]
+    # the beam leans the way the line goes, gently
+    rise = group[-1][1] - group[0][1]
+    rise = max(-SP, min(SP, rise))
+    slope = rise / max(x2 - x1, 1)
+
+    def beam_y(x):
+        return ref + slope * (x - x1)
+    ref = (max if up else min)(g[1] - slope * (g[0] - x1) for g in group)
     levels = max(g[3] for g in group)
-    for g in group:                       # stems reach the beam
-        pdf.line(g[0], g[1], g[0], tip, w=1.1)
+    d = 1 if up else -1
+    for g in group:                       # stems reach the slanted beam
+        pdf.line(g[0], g[1] - d * 2.5 * SP, g[0], beam_y(g[0]), w=1.1)
     for i in range(levels):
-        yy = tip - i * 2.6 * (1 if up else -1)
+        off = -i * 2.6 * d
         full = [g for g in group if g[3] > i]
         if len(full) == len(group) or i == 0:
-            pdf.poly([(x1, yy), (x2, yy), (x2, yy - 2 * (1 if up else -1)),
-                      (x1, yy - 2 * (1 if up else -1))], fill=True)
+            pdf.poly([(x1, beam_y(x1) + off), (x2, beam_y(x2) + off),
+                      (x2, beam_y(x2) + off - 2 * d),
+                      (x1, beam_y(x1) + off - 2 * d)], fill=True)
         else:
             for g in full:                # partial 16th beams: short hooks
-                pdf.poly([(g[0], yy), (g[0] + 6, yy),
-                          (g[0] + 6, yy - 2 * (1 if up else -1)),
-                          (g[0], yy - 2 * (1 if up else -1))], fill=True)
+                gx = g[0]
+                pdf.poly([(gx, beam_y(gx) + off),
+                          (gx + 6, beam_y(gx + 6) + off),
+                          (gx + 6, beam_y(gx + 6) + off - 2 * d),
+                          (gx, beam_y(gx) + off - 2 * d)], fill=True)
 
 
 def draw_barline(pdf, meas, x0, tops, width):
