@@ -1321,11 +1321,11 @@ def check_engraver():
     smf.write(os.path.join(tmp, "d.mid"), notes, div, 116)
     open(os.path.join(tmp, "e.chart"), "w").write(
         'title: E\nkey: F\nmeter: 4/4\ntempo: 116\nfeel: shuffle\n'
-        'demo: d.mid\n\nband:\n  tenor = tenor sax\n  piano\n\n'
+        'demo: d.mid\n\nband:\n  tenor = tenor sax\n  guitar\n\n'
         'section A, 2 bars, repeat 2x\n  chords: F7\n'
         '  ending 1, 1 bars: chords: C7\n'
         '  ending 2, 1 bars: chords: F7\n'
-        '  tenor: from demo bars 1-2, legato\n  piano: groove\n')
+        '  tenor: from demo bars 1-2, legato\n  guitar: groove\n')
     out = os.path.join(tmp, "b")
     with redirect_stdout(io.StringIO()):
         chartc.compile_chart(os.path.join(tmp, "e.chart"), out)
@@ -1336,16 +1336,31 @@ def check_engraver():
     check("the engraver draws a real single-part PDF",
           ok and head == b"%PDF-" and os.path.getsize(pdf) > 2500,
           f"{ok} {why} {os.path.getsize(pdf) if ok else 0}")
+
+    spdf = os.path.join(tmp, "s.pdf")
     ok, why = chartengrave.engrave(
-        os.path.join(out, "E — piano.musicxml"),
-        os.path.join(tmp, "p.pdf"))
+        os.path.join(out, "E — score.musicxml"), spdf)
+    check("the conductor score engraves, stacked and scaled",
+          ok and os.path.getsize(spdf) > 2500, f"{ok} {why}")
+    # a score holding a grand-staff part still declines by name
+    open(os.path.join(tmp, "g.chart"), "w").write(
+        'title: G\nkey: F\nmeter: 4/4\ntempo: 116\n\n'
+        'band:\n  piano\n  flute\n\n'
+        'section A, 2 bars\n  chords: F7, Bb7\n  piano: groove\n')
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "g.chart"),
+                             os.path.join(tmp, "gb"))
+    ok, why = chartengrave.engrave(
+        os.path.join(tmp, "gb", "G — score.musicxml"),
+        os.path.join(tmp, "gs.pdf"))
+    check("a score with a grand-staff part declines naming it",
+          not ok and "piano" in why and "grand staff" in why,
+          f"{ok} {why}")
+    ok, why = chartengrave.engrave(
+        os.path.join(tmp, "gb", "G — piano.musicxml"),
+        os.path.join(tmp, "gp.pdf"))
     check("a grand staff declines in a sentence",
           not ok and "grand staff" in why, f"{ok} {why}")
-    ok, why = chartengrave.engrave(
-        os.path.join(out, "E — score.musicxml"),
-        os.path.join(tmp, "s.pdf"))
-    check("the score page declines in a sentence",
-          not ok and "score" in why, f"{ok} {why}")
     shutil.rmtree(tmp, ignore_errors=True)
 
 

@@ -56,9 +56,10 @@ class Pdf:
              'HO': 'Helvetica-Oblique', 'TI': 'Times-Italic',
              'TB': 'Times-Bold', 'TBI': 'Times-BoldItalic'}
 
-    def __init__(self):
+    def __init__(self, scale=1.0):
         self.pages = []
         self.buf = []
+        self.scale = scale
 
     def new_page(self):
         if self.buf:
@@ -115,6 +116,9 @@ class Pdf:
         page_ids = []
         kids_id = len(objs) + 2 * len(self.pages) + 1
         for content in self.pages:
+            if self.scale != 1.0:
+                content = (f"q {self.scale:.4f} 0 0 {self.scale:.4f} "
+                           "0 0 cm\n" + content + "Q\n")
             data = zlib.compress(content.encode('latin-1', 'replace'))
             cid = add(f"<< /Length {len(data)} /Filter /FlateDecode >>"
                       + "\nstream\n" + data.decode('latin-1')
@@ -483,13 +487,14 @@ def measure_width(meas):
 
 
 def engrave(xml_path, pdf_path):
-    """One of our part documents -> a PDF, or (False, why)."""
+    """One of our documents -> a PDF, or (False, why). A single part
+    gets the part treatment; several parts get the conductor score."""
     xml = open(xml_path, encoding='utf-8').read()
     pids = re.findall(r'<score-part id="([^"]+)">', xml)
     names = dict(re.findall(r'<score-part id="([^"]+)">.*?<part-name[^>]*>'
                             r'([^<]*)</part-name>', xml, re.S))
     if len(pids) != 1:
-        return False, "one part at a time for now — the score page is next"
+        return engrave_score(xml, pids, names, pdf_path)
     measures, why = parse_part(xml, pids[0])
     if measures is None:
         return False, why
@@ -558,6 +563,95 @@ def engrave(xml_path, pdf_path):
             x = draw_measure(pdf, meas, x, top, w * stretch,
                              first_in_system=(mi == 0))
         y = top - STAFF - SYS_GAP
+    pdf.save(pdf_path)
+    return True, None
+
+
+# ------------------------------------------------------------ the score
+
+SCORE_GAP = 9 * SP          # between one part's staff and the next
+SYS_HEAD = 7 * SP           # the top part's header band
+
+
+def engrave_score(xml, pids, names, pdf_path):
+    """Every part, stacked and synchronized — the conductor's page,
+    drawn at score size: the whole layout happens on a virtual page and
+    one PDF transform shrinks it, the way real scores drop the staff
+    size rather than the music."""
+    parts = []
+    for pid in pids:
+        measures, why = parse_part(xml, pid)
+        if measures is None:
+            return False, f"{names.get(pid, pid)} needs {why}"
+        parts.append((names.get(pid, pid), measures))
+    counts = {len(m) for _, m in parts}
+    if len(counts) != 1:
+        return False, "parts of different lengths (report that)"
+    nmeas = counts.pop()
+    title = re.search(r'<work-title>([^<]*)</work-title>', xml)
+    composer = re.search(r'<creator type="composer">([^<]*)</creator>', xml)
+
+    widths = [max(measure_width(m[j]) for _, m in parts)
+              for j in range(nmeas)]
+
+    sys_h = len(parts) * STAFF + (len(parts) - 1) * SCORE_GAP
+    per_sys = sys_h + SYS_HEAD + 4 * SP
+    want = 2 if len(parts) > 3 else 3
+    scale = max(0.38, min(0.75,
+                (PAGE_H - 2 * MARGIN - TITLE_H) / (want * per_sys)))
+    pdf = Pdf(scale=scale)
+    W, H, M = PAGE_W / scale, PAGE_H / scale, MARGIN / scale
+
+    pdf.text(W / 2, H - M - 14 / scale,
+             title.group(1) if title else '', size=19 / scale, font='HB',
+             center=True)
+    if composer:
+        pdf.text(W - M, H - M - 32 / scale, composer.group(1),
+                 size=9.5 / scale, font='H', right=True)
+    y = H - M - TITLE_H / scale - SYS_HEAD
+
+    lead_guess = 12 * SP
+    avail = W - 2 * M - lead_guess
+    systems, cur, cur_w = [], [], 0.0
+    for j in range(nmeas):
+        if cur and cur_w + widths[j] > avail:
+            systems.append(cur)
+            cur, cur_w = [], 0.0
+        cur.append(j)
+        cur_w += widths[j]
+    if cur:
+        systems.append(cur)
+
+    for si, cols in enumerate(systems):
+        if y - sys_h < M:
+            pdf.new_page()
+            y = H - M - SYS_HEAD
+        tops = [y - pi * (STAFF + SCORE_GAP) for pi in range(len(parts))]
+        for (pname, measures), top in zip(parts, tops):
+            for i in range(5):
+                pdf.line(M, top - i * SP, W - M, top - i * SP, w=0.7)
+            pdf.text(M - 4, top - STAFF / 2 - 3, pname,
+                     size=8.5, font='H', right=True)
+        pdf.line(M, tops[0], M, tops[-1] - STAFF, w=1.4)
+        x0 = M
+        lead = 0
+        for (pname, measures), top in zip(parts, tops):
+            state = measures[cols[0]]['state']
+            draw_clef(pdf, x0 + 1.2 * SP, top, state['clef'])
+            xk = draw_key(pdf, x0 + 6.5 * SP, top, state['fifths'],
+                          state['clef'], measures[cols[0]])
+            lead = max(lead, xk - x0)
+        x = x0 + lead
+        stretch = (W - M - x) / sum(widths[j] for j in cols)
+        if si == len(systems) - 1:
+            stretch = min(stretch, 1.15)
+        for mi, j in enumerate(cols):
+            w = widths[j] * stretch
+            for (pname, measures), top in zip(parts, tops):
+                draw_measure(pdf, measures[j], x, top, w,
+                             first_in_system=(mi == 0))
+            x += w
+        y = tops[-1] - STAFF - SYS_HEAD - 2 * SP
     pdf.save(pdf_path)
     return True, None
 

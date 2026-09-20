@@ -493,8 +493,8 @@ def main():
 
     look_style = (write_style(chart['header']['look'], title_dir)
                   if chart['header'].get('look') else None)
-    if mscore and not args.no_pages and args.command != 'listen':
-        say("Rendering the pages — MuseScore takes its moment.")
+    if not args.no_pages and args.command != 'listen':
+        say("Drawing the pages.")
     pages = 0
     borrowed = []
     failed = []
@@ -509,16 +509,13 @@ def main():
             continue
         dst = src[:-len('.musicxml')] + '.pdf'
         why = None
-        if '— score' not in src:
-            try:
-                ok, why = chartengrave.engrave(src, dst)
-            except Exception as e:
-                ok, why = False, f"engraver error: {e} (report that)"
-            if ok:
-                pages += 1
-                continue
-        else:
-            why = "the full score page (next on the engraving bench)"
+        try:
+            ok, why = chartengrave.engrave(src, dst)
+        except Exception as e:
+            ok, why = False, f"engraver error: {e} (report that)"
+        if ok:
+            pages += 1
+            continue
         if mscore and render(mscore, src, dst, style=look_style):
             pages += 1
             borrowed.append((os.path.basename(src)
@@ -527,11 +524,13 @@ def main():
             failed.append(os.path.basename(src) + f" ({why})"
                           if why else os.path.basename(src))
     if not args.no_pages and args.command != 'listen':
-        say(f"{pages} pages — Copyist drew "
-            f"{pages - len(borrowed) - len(failed)} itself" +
-            (f"; MuseScore covered "
-             + ", ".join(f"{n} — {w}" for n, w in borrowed)
-             if borrowed else "") + ".")
+        if borrowed:
+            say(f"{pages} pages — Copyist drew "
+                f"{pages - len(borrowed)} itself; MuseScore covered "
+                + ", ".join(f"{n} — {w}" for n, w in borrowed) + ".")
+        else:
+            say(f"{pages} pages, every one Copyist's own ink — no "
+                "MuseScore anywhere in this build.")
         if failed:
             say("No page for " + ", ".join(failed) + ".")
 
