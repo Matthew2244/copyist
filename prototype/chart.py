@@ -176,7 +176,37 @@ def render(mscore, src, dst):
     return False
 
 
+def list_instruments(want):
+    """chart.py instruments [filter] — what can sit in the band?"""
+    names = sorted(chartc.HORNS)
+    if want:
+        names = [n for n in names if want in n]
+        aliased = sorted(a for a in chartc.INSTRUMENT_ALIASES
+                         if want in a
+                         or want in chartc.INSTRUMENT_ALIASES[a])
+        if not names and not aliased:
+            say(f'Nothing here matches "{want}" — but any word still '
+                'prints verbatim through text, so nobody is blocked. '
+                'Ask for the instrument to be added; it takes a minute.')
+            return
+        if names:
+            say(f'{len(names)} instrument(s) matching "{want}": '
+                + ", ".join(names) + ".")
+        if aliased:
+            say("Nicknames that work: " + ", ".join(
+                f"{a} (that is {chartc.INSTRUMENT_ALIASES[a]})"
+                for a in aliased) + ".")
+    else:
+        say(f"{len(chartc.HORNS)} instruments, piccolo to spoons, every "
+            "voice included. Narrow it down: chart.py instruments bell "
+            "— or try sax, voice, drum, cymbal, cello.")
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == 'instruments':
+        list_instruments(" ".join(sys.argv[2:]).strip().lower())
+        return
+
     ap = argparse.ArgumentParser(
         description="Compile a chart and make everything a writer needs.")
     ap.add_argument('chart', help="the .chart file")
@@ -189,6 +219,7 @@ def main():
                          "listen: just the MP3; new: interview a starter "
                          "chart into existence")
     ap.add_argument('--part', help='with read: one part, e.g. "trumpet 1"')
+    ap.add_argument('--section', help="with read: just this section")
     ap.add_argument('--outdir', help="where the built files go "
                                      "(default: build, beside the chart)")
     ap.add_argument('--no-pages', action='store_true',
@@ -219,12 +250,17 @@ def main():
 
     if args.command == 'parts':
         chart = chartc.parse_chart(path)
-        names = [b['label'] for b in chart['band']]
-        say(f"{len(names)} parts: " + ", ".join(names) + ".")
+        bits = []
+        for b in chart['band']:
+            inst = chartc.canonical_instrument(b['instrument'])
+            bits.append(b['label'] if b['label'].lower() == inst
+                        else f"{b['label']} ({inst})")
+        say(f"{len(bits)} parts: " + ", ".join(bits) + ".")
         return
 
     if args.command == 'read':
-        argv = [path] + (['--part', args.part] if args.part else [])
+        argv = [path] + (['--part', args.part] if args.part else []) \
+            + (['--section', args.section] if args.section else [])
         sys.argv = ['chartread'] + argv
         chartread.main()
         return

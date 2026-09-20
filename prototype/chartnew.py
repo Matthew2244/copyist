@@ -111,11 +111,12 @@ def interview(out_path, demo_path):
         inst = ask(info, "")
         if not inst:
             continue
-        if inst.lower() not in chartc.HORNS:
-            say(f"  {inst} is not in the demo-part table yet — skipping "
-                "this track; ask for the instrument to be added.")
+        inst = chartc.canonical_instrument(inst)
+        if inst not in chartc.HORNS:
+            say(f"  {inst} is not in the instrument table yet — skipping "
+                "this track; ask for it to be added, it takes a minute.")
             continue
-        shift = sniff_octave(pitches, chartc.HORNS[inst.lower()]['fold'])
+        shift = sniff_octave(pitches, chartc.HORNS[inst]['fold'])
         if shift:
             keep = ask(f'  That track sits an octave '
                        f'{"high" if shift < 0 else "low"} for a '
