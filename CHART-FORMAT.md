@@ -4,9 +4,12 @@
 corpus; substantially implemented as of 2026-09-20 (the compiler, the demo
 door §3.4.1, the bars grammar with groups, the working chord-quality set,
 hits, articulations, dynamics, engraved page output, and the read-aloud
-contract of §4). Still ahead: named figures, inline `notes:`, voltas,
-`double`/`cue`/`build:`/`on pass`/`as demo`, detail levels, and meters
-beyond 4/4.
+contract of §4). Meters: any
+N over 1, 2, 4, 8 or 16 compiles (waltzes, 6/8, 5/4 — verified), with
+`at bar N: tempo X` mid-chart tempo changes; a compound meter counts in
+its denominator pulses for now, and per-bar meter changes (`at bar N:
+meter`) are still ahead — along with named figures, inline `notes:`,
+voltas, `double`/`cue`/`build:`/`on pass`/`as demo`, and detail levels.
 **Read DESIGN.md first.** This document extends it: where DESIGN.md turns a
 performance into a chart, this format lets a chart be *written* directly — as
 text — and compiled into the same MusicXML the engine already emits.

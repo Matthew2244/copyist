@@ -36,15 +36,20 @@ def verify_measures(files):
         for pid, body in re.findall(r'<part id="([^"]+)">(.*?)</part>',
                                     xml, re.S):
             div = 24
+            tnum, tden = 4, 4
             for num, m in re.findall(
                     r'<measure [^>]*?number="([^"]+)"[^>]*>(.*?)</measure>',
                     body, re.S):
                 dv = re.search(r'<divisions>(\d+)</divisions>', m)
                 if dv:
                     div = int(dv.group(1))
+                ts = re.search(r'<beats>(\d+)</beats>\s*'
+                               r'<beat-type>(\d+)</beat-type>', m)
+                if ts:
+                    tnum, tden = int(ts.group(1)), int(ts.group(2))
                 if num == '0':
                     continue               # a pickup is partial on purpose
-                expect = div * 4
+                expect = div * 4 * tnum // tden
                 total = 0
                 for note in re.findall(r'<note[ >](.*?)</note>', m, re.S):
                     if '<chord/>' in note or '<grace' in note:
@@ -405,7 +410,11 @@ def main():
                 if tempo is None:
                     return
                 printed = max(1, args.from_bar - countin)
-                seconds = max(0.0, (printed - 1) * 4 * 60.0 / tempo)
+                import chartc as _cc
+                mn, md = _cc.parse_meter(
+                    chart['header'].get('meter', '4/4'))
+                bar_sec = mn * (4.0 / md) * 60.0 / tempo
+                seconds = max(0.0, (printed - 1) * bar_sec)
                 cut = os.path.join(
                     title_dir, f"{title} — listen from bar "
                                f"{args.from_bar}.mp3")

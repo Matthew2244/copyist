@@ -29,7 +29,18 @@ import argparse
 
 import chartdemo
 
-BEATS = 4          # 4/4 only in this increment
+BEATS = 4          # the 4/4 default; parse_meter unlocks the rest
+
+
+def parse_meter(text):
+    """'6/8' -> (6, 8). The denominator must divide a whole note."""
+    m = re.fullmatch(r'(\d{1,2})\s*/\s*(1|2|4|8|16)', str(text).strip())
+    if not m:
+        fail(f"cannot read meter '{text}' — write it like 3/4 or 6/8")
+    num, den = int(m.group(1)), int(m.group(2))
+    if not 1 <= num <= 24:
+        fail(f"meter {num}/{den}: {num} beats in a bar is not a bar")
+    return num, den
 
 # Horn identity for demo-sourced parts: written transposition in
 # semitones, FOLD range, clef, key-signature offset, COMFORTABLE range.
@@ -458,7 +469,7 @@ def split_chord(sym):
     return (step, alter, qual, bass)
 
 
-def parse_bars(text, where):
+def parse_bars(text, where, beats=BEATS):
     # a parenthesized group repeats whole: ( F7, Bb7 ) x4 is eight bars
     text = re.sub(r'\(\s*([^()]*?)\s*\)\s*x(\d+)',
                   lambda m: ", ".join([m.group(1)] * int(m.group(2))),
@@ -486,7 +497,7 @@ def parse_bars(text, where):
         n = len(bar)
         for i, item in enumerate(bar):
             if item[0] is None:
-                item[0] = 1.0 + i * (BEATS / n) if n > 1 else 1.0
+                item[0] = 1.0 + i * (beats / n) if n > 1 else 1.0
         for _ in range(reps):
             bars.append([(b, split_chord(s)) for b, s in bar])
     return bars
@@ -514,8 +525,9 @@ def parse_chart(path):
                 continue
             m = re.match(r'chords ([\w ]+?):\s*(.+)$', s)
             if m:
+                beats = parse_meter(chart['header'].get('meter', '4/4'))[0]
                 chart['chords'][m.group(1).strip()] = parse_bars(
-                    m.group(2), f"chords {m.group(1)}")
+                    m.group(2), f"chords {m.group(1)}", beats)
                 continue
             m = re.match(r'group ([\w ]+?):\s*(.+)$', s)
             if m:
@@ -583,7 +595,9 @@ def parse_chart(path):
             continue
         m = re.match(r'chords:\s*(.+)$', s)
         if m:
-            cur['content'] = parse_bars(m.group(1), f"section {cur['name']}")
+            beats = parse_meter(chart['header'].get('meter', '4/4'))[0]
+            cur['content'] = parse_bars(m.group(1),
+                                        f"section {cur['name']}", beats)
             continue
         m = re.match(r'use chords ([\w ]+?)(?:\s+x(\d+))?$', s)
         if m:
@@ -595,6 +609,10 @@ def parse_chart(path):
         m = re.match(r'at bar (\d+):\s*text "([^"]*)"$', s)
         if m:
             cur['events'].append((int(m.group(1)), 'text', m.group(2)))
+            continue
+        m = re.match(r'at bar (\d+):\s*tempo ([\d.]+)$', s)
+        if m:
+            cur['events'].append((int(m.group(1)), 'tempo', m.group(2)))
             continue
         m = re.match(r'([\w ]+?):\s*(.+)$', s)
         if m:
@@ -703,12 +721,12 @@ def rehearsal(mark):
             f'<rehearsal>{mark}</rehearsal></direction-type></direction>\n')
 
 
-def harmony_xml(chord, beat, div):
+def harmony_xml(chord, beat, pulse_div):
     step, alter, qual, bass = chord
     entry = CHORD_KINDS[qual]
     kind, ktext = entry[0], entry[1]
     degrees = entry[2] if len(entry) > 2 else []
-    off = (beat - 1.0) * div
+    off = (beat - 1.0) * pulse_div
     if abs(off - round(off)) > 1e-6:
         fail(f"chord offset at beat {beat} is not integral at divisions {div}")
     out = ['      <harmony>',
@@ -748,7 +766,9 @@ def key_alter(step, fifths):
     return 0
 
 
-def slash_bar(div, clef, staves, fifths):
+def slash_bar(div, clef, staves, fifths, meter=(4, 4)):
+    num, den = meter
+    pulse = div * 4 // den
     step, octv = SLASH_PITCH.get(clef, ('B', 4))
     alter = key_alter(step, fifths)
     if clef == 'percussion':
@@ -759,45 +779,50 @@ def slash_bar(div, clef, staves, fifths):
         pitch = ('        <pitch><step>%s</step>%s<octave>%d</octave></pitch>'
                  % (step,
                     f'<alter>{alter}</alter>' if alter else '', octv))
+    ptype = {1: 'whole', 2: 'half', 4: 'quarter', 8: 'eighth',
+             16: '16th'}[den]
     out = []
-    for _ in range(BEATS):
+    for _ in range(num):
         # dynamics="0": a slash is an instruction, not a pitch — playback
         # renderers must not sound the B the notehead happens to sit on
         out += ['      <note dynamics="0">',
                 pitch,
-                f'        <duration>{div}</duration>',
+                f'        <duration>{pulse}</duration>',
                 '        <voice>1</voice>',
-                '        <type>quarter</type>',
+                f'        <type>{ptype}</type>',
                 '        <stem>none</stem>',
                 '        <notehead>slash</notehead>']
         if staves > 1:
             out.append('        <staff>1</staff>')
         out.append('      </note>')
     if staves > 1:
-        out += [f'      <backup><duration>{div * BEATS}</duration></backup>',
+        bar = pulse * num
+        out += [f'      <backup><duration>{bar}</duration></backup>',
                 '      <note>',
                 '        <rest measure="yes"/>',
-                f'        <duration>{div * BEATS}</duration>',
+                f'        <duration>{bar}</duration>',
                 '        <voice>2</voice>',
                 '        <staff>2</staff>',
                 '      </note>']
     return "\n".join(out) + "\n"
 
 
-def hits_bar(pattern, div, clef, staves, fifths):
+def hits_bar(pattern, div, clef, staves, fifths, meter=(4, 4)):
     """Rhythmic kicks: slash noteheads WITH stems at the named beats,
     rests around them — 'hits on 1, 2+, 4' as the spec always promised.
     Each hit rings to the next hit or the bar line."""
     import convert as _c
+    num, den = meter
+    pulse = div * 4 // den
     step, octv = SLASH_PITCH.get(clef, ('B', 4))
     alter = key_alter(step, fifths)
-    positions = sorted({int(round((b - 1) * div)) for b in pattern})
+    positions = sorted({int(round((b - 1) * pulse)) for b in pattern})
     out = []
     if positions and positions[0] > 0:
         for ln in _c.emit_rest(positions[0], div, 1, 1):
             out.append(ln)
     for i, pos in enumerate(positions):
-        end = positions[i + 1] if i + 1 < len(positions) else div * BEATS
+        end = positions[i + 1] if i + 1 < len(positions) else pulse * num
         for plen, ptype, dots in _c.decompose(end - pos, div):
             if clef == 'percussion':
                 pitch = ('        <unpitched><display-step>%s'
@@ -819,15 +844,16 @@ def hits_bar(pattern, div, clef, staves, fifths):
     return "\n".join(out) + "\n"
 
 
-def rest_bar(div, staves):
+def rest_bar(div, staves, meter=(4, 4)):
+    bar = div * 4 * meter[0] // meter[1]
     out = []
     for staff in range(1, staves + 1):
         if staff == 2:
-            out.append(f'      <backup><duration>{div * BEATS}</duration>'
+            out.append(f'      <backup><duration>{bar}</duration>'
                        '</backup>')
         out += ['      <note>',
                 '        <rest measure="yes"/>',
-                f'        <duration>{div * BEATS}</duration>',
+                f'        <duration>{bar}</duration>',
                 f'        <voice>{staff}</voice>']
         if staves > 1:
             out.append(f'        <staff>{staff}</staff>')
@@ -872,8 +898,7 @@ def resolve_groups(band, custom=None):
 def compile_chart(chart_path, outdir):
     chart = parse_chart(chart_path)
     hdr = chart['header']
-    if hdr.get('meter', '4/4') != '4/4':
-        fail("only 4/4 charts compile in this increment")
+    meter = parse_meter(hdr.get('meter', '4/4'))
     src_path = hdr.get('source')
     if src_path and not os.path.isabs(src_path):
         src_path = os.path.join(os.path.dirname(os.path.abspath(chart_path)),
@@ -906,7 +931,7 @@ def compile_chart(chart_path, outdir):
     # ---- the from-demo door
     findings = chartdemo.Findings()
     resolved, horn_of, key = resolve_demo(chart, plans, band, labels,
-                                          chart_path, findings)
+                                          chart_path, findings, meter)
     demo_measures = {l: {} for l in labels}
     for l in labels:
         for item in resolved[l]:
@@ -954,10 +979,11 @@ def compile_chart(chart_path, outdir):
                      f"lowest {wname(lo[0])} at bar {lo[1]}{edge}")
     return _compile_rest(chart, band, groups, labels, plans, total,
                          source, src_of, chord_parts, hdr, chart_path, outdir,
-                         demo_measures, horn_of, key, findings)
+                         demo_measures, horn_of, key, findings, meter)
 
 
-def resolve_demo(chart, plans, band, labels, chart_path, findings):
+def resolve_demo(chart, plans, band, labels, chart_path, findings,
+                 meter=(4, 4)):
     """Resolve every from-demo overlay to a quantized timeline. Shared by
     the compiler and the read-aloud view — one resolver, two renderings."""
     hdr = chart['header']
@@ -1015,6 +1041,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings):
                     track = sel
                 res = chartdemo.resolve_range(
                     dm, track, ref['lo'], ref['hi'], ref['at'],
+                    meter=meter,
                     octave_shift=b['demo_octave'],
                     sounding_range=rng, quant=ref.get('quant'),
                     poly=h['poly'],
@@ -1214,7 +1241,10 @@ def build_plans(chart, band, groups, labels):
                 plan['dyns'][l].extend(dyn_marks)
         for bar, kind, text in sec['events']:
             for l in labels:
-                plan['texts'][l].append((bar, text))
+                if kind == 'tempo':
+                    plan['texts'][l].append((bar, ('tempo', text)))
+                else:
+                    plan['texts'][l].append((bar, text))
         plans.append(plan)
         start += sec['bars']
     return plans, start - 1
@@ -1246,9 +1276,10 @@ SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
 def _compile_rest(chart, band, groups, labels, plans, total,
                   source, src_of, chord_parts, hdr, chart_path, outdir,
                   demo_measures=None, horn_of=None, key=(0, 'major'),
-                  findings=None):
+                  findings=None, meter=(4, 4)):
     demo_measures = demo_measures or {l: {} for l in labels}
     horn_of = horn_of or {}
+    m_num, m_den = meter
 
     # ---- emit one part's measures
     def part_measures(label, with_directions, with_harmony, listen=False,
@@ -1279,8 +1310,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             return ('      <attributes>\n'
                     f'        <divisions>{div}</divisions>\n'
                     + keyxml +
-                    '        <time><beats>4</beats>'
-                    '<beat-type>4</beat-type></time>\n'
+                    f'        <time><beats>{m_num}</beats>'
+                    f'<beat-type>{m_den}</beat-type></time>\n'
                     f'        <clef>{CLEF_XML[clef if clef in CLEF_XML else "G"]}'
                     '</clef>\n'
                     + ('' if clef == 'percussion' else
@@ -1356,8 +1387,20 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     if kind == 'hits' and arg[1]:
                         pieces.append(direction(arg[1]))
                 if with_directions:
-                    for tbar, text in sorted(plan['texts'][label]):
-                        if tbar == off + 1:
+                    for tbar, text in sorted(plan['texts'][label],
+                                             key=lambda t: t[0]):
+                        if tbar != off + 1:
+                            continue
+                        if isinstance(text, tuple) and text[0] == 'tempo':
+                            pieces.append(
+                                '      <direction placement="above">'
+                                '<direction-type><metronome>'
+                                '<beat-unit>quarter</beat-unit>'
+                                f'<per-minute>{text[1]}</per-minute>'
+                                '</metronome></direction-type>'
+                                f'<sound tempo="{text[1]}"/>'
+                                '</direction>\n')
+                        else:
                             pieces.append(direction(text, 'above'))
                 for dbar, dbeat, mark in plan.get('dyns', {}).get(label, ()):
                     if dbar == off + 1:
@@ -1377,7 +1420,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         if chord is None:
                             continue
                         if chord != governing[0] or off == 0:
-                            pieces.append(harmony_xml(chord, beat, div))
+                            pieces.append(harmony_xml(
+                                chord, beat, div * 4 // m_den))
                         governing[0] = chord
                 if absbar in demo_measures[label]:
                     pieces.append(demo_measures[label][absbar])
@@ -1391,27 +1435,29 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         pieces.append(strip_lifted(sp['measures'][str(srcbar)],
                                                    clef == 'percussion'))
                     else:
-                        pieces.append(rest_bar(div, staves))
+                        pieces.append(rest_bar(div, staves, meter))
                 elif kind == 'hits':
                     hmap, _gw = arg
                     pattern = hmap.get(off + 1, hmap.get(None))
                     if listen:
-                        pieces.append(rest_bar(div, staves))
+                        pieces.append(rest_bar(div, staves, meter))
                     elif pattern:
                         pieces.append(hits_bar(pattern, div, clef,
-                                               staves, fifths))
+                                               staves, fifths, meter))
                     else:
                         pieces.append(slash_bar(div, clef, staves,
-                                                fifths))
+                                                fifths, meter))
                 elif kind == 'groove':
                     # MuseScore's importer plays slash noteheads no matter
                     # what (dynamics="0", cue, sound directions and
                     # unpitched all measured audible), so the listening
                     # variant renders groove regions as real rests
-                    pieces.append(rest_bar(div, staves) if listen else
-                                  slash_bar(div, clef, staves, fifths))
+                    pieces.append(rest_bar(div, staves, meter)
+                                  if listen else
+                                  slash_bar(div, clef, staves, fifths,
+                                            meter))
                 else:
-                    pieces.append(rest_bar(div, staves))
+                    pieces.append(rest_bar(div, staves, meter))
 
                 barline = ''
                 open_bl = ''
@@ -1436,7 +1482,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 # start may not hide inside one
                 pure_rest = (len(pieces) == 1 and not open_bl
                              and '<repeat' not in barline
-                             and pieces[0] == rest_bar(div, staves))
+                             and pieces[0] == rest_bar(div, staves,
+                                                       meter))
                 out.append((f'    <measure number="{absbar}">\n' + open_bl +
                             "".join(pieces) + barline + '    </measure>\n',
                             pure_rest))

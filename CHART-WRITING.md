@@ -23,6 +23,12 @@ The worked example below is an invented tune called *Uptown Local*.
 
 - `demo:` names the MIDI file you played the horn lines into. The chart
   pulls real notes from it — your playing is the documentation.
+- `meter:` takes any signature — 3/4, 6/8, 5/4, 12/8, whatever the
+  tune is. Beats in chords and hits count in the meter's own pulses
+  (in 6/8, `@4` is the fourth eighth). Mid-chart tempo changes are one
+  line in a section: `at bar 5: tempo 96` — and slowdowns and
+  speed-ups in words (`molto rit.`, `accel.`, `a tempo`) print
+  verbatim wherever you put a text.
 - `countin: 1` says your DAW file opens with one count-in bar. From then
   on, you speak your DAW's bar numbers everywhere in the chart, and every
   spoken read-back uses them too. Only the printed page counts from one —

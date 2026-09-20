@@ -25,8 +25,8 @@ import tuplets
 from convert import spelling_table, decompose
 
 DIV = 24                # chart divisions per quarter (16th=6, trip-16th=4)
-BEATS = 4               # 4/4 only, matching chartc's increment
-BAR = DIV * BEATS
+BEATS = 4               # the 4/4 default; meter arrives per call
+BAR = DIV * BEATS       # the 4/4 bar, kept for callers with no meter
 
 # subdivisions a horn chart may use; quintuplets and septuplets stay out
 ALLOW = {k: v for k, v in tuplets.CANDIDATES.items() if k in (1, 2, 3, 4, 6, 8)}
@@ -103,7 +103,8 @@ def load_demo(path):
 def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   octave_shift=0, sounding_range=None, quant=None,
                   derive_dyns=True, short=False, spoken_shift=0,
-                  poly=False, part_label="", findings=None):
+                  poly=False, meter=(4, 4), part_label="",
+                  findings=None):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
     into a quantized timeline of sounding pitches starting at absolute
@@ -117,7 +118,10 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     find = findings if findings is not None else Findings()
     src = demo.track(track_name)
     beat = demo.division
-    tick_bar = beat * BEATS
+    m_num, m_den = meter
+    tick_bar = beat * 4 * m_num // m_den
+    bar_ticks = DIV * 4 * m_num // m_den
+    pulse_div = DIV * 4 // m_den
     lo_t = (bar_lo - 1) * tick_bar
     hi_t = bar_hi * tick_bar
     # A hair of pre-roll for an attack played a touch early — no more: a
@@ -182,7 +186,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         find.add(f"{part_label}: bars {bar_lo}-{bar_hi} use tuplet beats "
                  f"({tupl})")
 
-    n_units = (bar_hi - bar_lo + 1) * BAR
+    n_units = (bar_hi - bar_lo + 1) * bar_ticks
     scale = DIV / beat                     # demo ticks -> chart ticks
     default_sub = {'quarters': 1, 'eighths': 2, 'triplet8': 3,
                    'triplet16': 6}.get(quant, 4)
@@ -230,8 +234,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                 folded -= 12
             if folded != p:
                 find.add(f"{part_label}: bar "
-                         f"{at_bar + spoken_shift + q_on // BAR} note "
-                         f"moved {'up' if folded > p else 'down'} "
+                         f"{at_bar + spoken_shift + q_on // bar_ticks} "
+                         f"note moved {'up' if folded > p else 'down'} "
                          f"{abs(folded - p) // 12} octave(s) into range")
                 p = folded
         events.setdefault(q_on, []).append((p, q_off, on))
@@ -253,14 +257,15 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             if tgt >= 0 and tgt not in events:
                 events[tgt] = [(mv[0], min(mv[1], q_on), mv[2])]
                 find.add(f"{part_label}: bar "
-                         f"{at_bar + spoken_shift + q_on // BAR}: two "
-                         "played notes landed on one slot — moved the "
-                         "earlier one back a step")
+                         f"{at_bar + spoken_shift + q_on // bar_ticks}: "
+                         "two played notes landed on one slot — moved "
+                         "the earlier one back a step")
             else:
                 find.add(f"{part_label}: bar "
-                         f"{at_bar + spoken_shift + q_on // BAR}: two "
-                         "played notes landed on one slot with no room — "
-                         "dropped the earlier one; proofread this bar")
+                         f"{at_bar + spoken_shift + q_on // bar_ticks}: "
+                         "two played notes landed on one slot with no "
+                         "room — dropped the earlier one; proofread "
+                         "this bar")
 
     # ---- monophonic cleanup and legato gap-closing
     onsets = sorted(events)
@@ -286,7 +291,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     echo = {}
     for idx, (s, e, ps) in enumerate(timeline):
         if e - s >= DIV:
-            echo.setdefault((s % BAR, tuple(ps)), []).append(idx)
+            echo.setdefault((s % bar_ticks, tuple(ps)), []).append(idx)
     for sig, idxs in echo.items():
         if len(idxs) < 2:
             continue
@@ -299,8 +304,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             s, e, ps = timeline[i]
             nxt = timeline[i + 1][0] if i + 1 < len(timeline) else n_units
             timeline[i] = (s, min(s + target, nxt, n_units), ps)
-        bars = sorted({at_bar + spoken_shift + timeline[i][0] // BAR
-                       for i in idxs})
+        bars = sorted({at_bar + spoken_shift
+                       + timeline[i][0] // bar_ticks for i in idxs})
         find.add(f"{part_label}: repeated phrase, one cutoff — bars "
                  + ", ".join(str(b) for b in bars))
 
@@ -324,7 +329,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     for t, v in (demo.cc11(track_name) if derive_dyns else ()):
         if lo_t <= t < hi_t:
             by_bar.setdefault(int((t - lo_t) // tick_bar), []).append(v)
-    active = {s // BAR for s, _, _ in timeline}
+    active = {s // bar_ticks for s, _, _ in timeline}
     dyns, prev = [], None
     for bo in sorted(active):
         vs = sorted(by_bar.get(bo, []))
@@ -332,18 +337,19 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             continue
         k = klass(vs[len(vs) // 2])
         if k != prev:
-            dyns.append((bo * BAR, k))
+            dyns.append((bo * bar_ticks, k))
             prev = k
     if dyns:
         find.add(f"{part_label}: bars {bar_lo}-{bar_hi} dynamics read from "
                  "the expression pedal: "
-                 + ", ".join(f"{k} at bar {at_bar + t // BAR}"
+                 + ", ".join(f"{k} at bar {at_bar + t // bar_ticks}"
                              for t, k in dyns))
 
     return {'timeline': timeline, 'grids': grids_chart,
             'n_units': n_units, 'at': at_bar,
             'bars': (bar_lo, bar_hi), 'dyns': dyns,
-            'spoken_shift': spoken_shift}
+            'spoken_shift': spoken_shift,
+            'bar_ticks': bar_ticks, 'pulse_div': pulse_div}
 
 
 def bend_indices(res, bends):
@@ -358,7 +364,9 @@ def bend_indices(res, bends):
             out[len(tl) - 1] = kind
         else:
             bar, beat = sp
-            target = (bar - res['bars'][0]) * BAR + (beat - 1) * DIV
+            target = ((bar - res['bars'][0])
+                      * res.get('bar_ticks', BAR)
+                      + (beat - 1) * res.get('pulse_div', DIV))
             best = min(range(len(tl)), key=lambda i: abs(tl[i][0] - target))
             out[best] = kind
     return out
@@ -378,25 +386,26 @@ def render_range(res, fifths_written, transpose_to_written, fall,
                   'staccato' if short else None)
     bends = bend_indices(res, scoops)
 
+    bar_ticks = res.get('bar_ticks', BAR)
     out = {b: [] for b in
-           range(at_bar, at_bar + (n_units // BAR))}
+           range(at_bar, at_bar + (n_units // bar_ticks))}
     pos = 0
     for ti, (start, end, pitches) in enumerate(timeline):
         if start > pos:
             _emit(out, at_bar, pos, start, None, table, grids_chart,
-                  None, transpose_to_written)
+                  None, transpose_to_written, bar=bar_ticks)
         is_last = ti == len(timeline) - 1
         _emit(out, at_bar, start, end, pitches, table, grids_chart,
               (last_artic if is_last else None) or every,
-              transpose_to_written, bend=bends.get(ti))
+              transpose_to_written, bend=bends.get(ti), bar=bar_ticks)
         pos = end
     if pos < n_units:
         _emit(out, at_bar, pos, n_units, None, table, grids_chart,
-              None, transpose_to_written)
+              None, transpose_to_written, bar=bar_ticks)
 
     SOUND_DYN = {'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123}
     for t, k in res.get('dyns', []):
-        bar = at_bar + t // BAR
+        bar = at_bar + t // bar_ticks
         if bar in out:
             out[bar].insert(
                 0,
@@ -413,7 +422,7 @@ def _is_tuplet(grids, b):
     return actual != normal
 
 
-def _pieces(start, end, grids):
+def _pieces(start, end, grids, bar=BAR):
     """Cut a span at barlines always, and at beat boundaries around any
     tuplet beat, so every piece lives in exactly one naming regime."""
     cuts = []
@@ -421,7 +430,7 @@ def _pieces(start, end, grids):
     while pos < end:
         b = pos // DIV
         next_beat = (b + 1) * DIV
-        stop = min(end, (pos // BAR + 1) * BAR)
+        stop = min(end, (pos // bar + 1) * bar)
         if _is_tuplet(grids, b):
             stop = min(stop, next_beat)
         else:
@@ -465,18 +474,18 @@ def _name(ticks, sub):
 
 
 def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
-          bend=None):
-    pieces = _pieces(start, end, grids)
+          bend=None, bar=BAR):
+    pieces = _pieces(start, end, grids, bar)
     for pi, (a, b) in enumerate(pieces):
-        bar = at_bar + a // BAR
-        if bar not in out:
+        bar_no = at_bar + a // bar
+        if bar_no not in out:
             continue
         first, last = pi == 0, pi == len(pieces) - 1
         sub = grids.get(a // DIV, 4)
-        if pitches is None and a % BAR == 0 and b - a == BAR:
-            out[bar].append(
+        if pitches is None and a % bar == 0 and b - a == bar:
+            out[bar_no].append(
                 '      <note>\n        <rest measure="yes"/>\n'
-                f'        <duration>{BAR}</duration>\n'
+                f'        <duration>{bar}</duration>\n'
                 '        <voice>1</voice>\n      </note>\n')
             continue
         parts = _name(b - a, sub)
@@ -484,7 +493,7 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
             plast = last and qi == len(parts) - 1
             pfirst = first and qi == 0
             if pitches is None:
-                out[bar].append('      <note>\n        <rest/>\n'
+                out[bar_no].append('      <note>\n        <rest/>\n'
                                 f'        <duration>{plen}</duration>\n'
                                 '        <voice>1</voice>\n'
                                 f'        <type>{ptype}</type>\n'
@@ -532,7 +541,7 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                     lines.append('        <notations>' + ''.join(notations)
                                  + '</notations>')
                 lines.append('      </note>')
-                out[bar].append("\n".join(lines) + "\n")
+                out[bar_no].append("\n".join(lines) + "\n")
 
 
 def _mod_xml(mod):
@@ -560,11 +569,11 @@ def _say_pitch(p, table):
     return f"{step}{ACC_WORD[alter]} {octave}"
 
 
-def _say_beat(pos):
-    beat = pos % BAR / DIV + 1
+def _say_beat(pos, bar=BAR, pulse=DIV):
+    beat = pos % bar / pulse + 1
     if beat == int(beat):
         return f"beat {int(beat)}"
-    if (pos % DIV) % (DIV // 2) == 0:
+    if (pos % pulse) % (pulse // 2 or 1) == 0:
         return f"the and of {int(beat)}"
     return f"inside beat {int(beat)}"
 
@@ -588,6 +597,8 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
     find = findings if findings is not None else Findings()
     table = spelling_table(concert_fifths, find)
     at_bar = res['at'] + res.get('spoken_shift', 0)
+    bar_ticks = res.get('bar_ticks', BAR)
+    pulse = res.get('pulse_div', DIV)
     bends = bend_indices(res, scoops)
     out = {}
     # group consecutive same-duration single notes into runs
@@ -600,13 +611,14 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
         while (j + 1 < len(tl)
                and tl[j + 1][0] == tl[j][1]                 # gapless
                and tl[j + 1][1] - tl[j + 1][0] == dur       # same length
-               and tl[j + 1][0] // BAR == start // BAR      # same bar
+               and tl[j + 1][0] // bar_ticks
+               == start // bar_ticks                        # same bar
                and len(tl[j + 1][2]) == 1 and len(pitches) == 1
                and j not in bends and (j + 1) not in bends):
             j += 1
-        bar = at_bar + start // BAR
+        bar = at_bar + start // bar_ticks
         clauses = out.setdefault(bar, [])
-        where = _say_beat(start)
+        where = _say_beat(start, bar_ticks, pulse)
         if j > i:
             names = ", ".join(_say_pitch(t[2][0], table) for t in tl[i:j + 1])
             clauses.append(f"from {where}, {_say_dur(dur)}s: {names}")
@@ -615,8 +627,8 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
             if len(pitches) > 1:
                 what = "chord " + what
             held = ""
-            if end // BAR > start // BAR and end % BAR:
-                held = f", held into bar {at_bar + end // BAR}"
+            if end // bar_ticks > start // bar_ticks and end % bar_ticks:
+                held = f", held into bar {at_bar + end // bar_ticks}"
             clauses.append(f"{where}: {_say_dur(end - start)} {what}{held}")
         if i == j and i in bends:
             clauses[-1] += (", scooped" if bends[i] == 'scoop'
@@ -632,7 +644,7 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
     DYN_WORD = {'p': 'piano', 'mp': 'mezzo piano', 'mf': 'mezzo forte',
                 'f': 'forte', 'ff': 'fortissimo'}
     for t, k in res.get('dyns', []):
-        bar = at_bar + t // BAR
+        bar = at_bar + t // bar_ticks
         if bar in out:
             out[bar].insert(0, DYN_WORD[k])
     return {b: "; ".join(cl) + "." for b, cl in out.items()}

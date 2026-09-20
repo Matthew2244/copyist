@@ -111,9 +111,10 @@ def part_section(plan, label, chord_parts, figures=None):
     if kind == 'default':
         kind, arg = ('groove', '') if default_groove else ('tacet', None)
     lines = [section_heading(sec)]
-    texts = sorted(plan['texts'][label])
+    texts = sorted(plan['texts'][label], key=lambda t: t[0])
     shows_chords = (label in chord_parts or any(
-        t[1].lower().startswith('solo') for t in texts)) and \
+        isinstance(t[1], str) and t[1].lower().startswith('solo')
+        for t in texts)) and \
         label not in plan.get('percussion', ())
 
     for dbar, dbeat, mark in sorted(plan.get('dyns', {}).get(label, ())):
@@ -143,8 +144,9 @@ def part_section(plan, label, chord_parts, figures=None):
                                         scoops=item.get('scoops'))
             for bar in sorted(prose):
                 lines.append(f"Bar {bar}: {prose[bar]}")
-        rest = sec['bars'] - sum(i['res']['n_units'] // chartdemo.BAR
-                                 for i in figures)
+        rest = sec['bars'] - sum(
+            i['res']['n_units'] // i['res'].get('bar_ticks', chartdemo.BAR)
+            for i in figures)
         if rest > 0:
             lines.append(f"The other {rest} bars of the section: rest.")
     elif kind == 'engraved':
@@ -174,7 +176,8 @@ def part_section(plan, label, chord_parts, figures=None):
         g = f'Groove, "{arg}"' if arg else "Groove"
         what = "slashes with the changes" if shows_chords else "slashes"
         lines.append(f"{g} — {what}.")
-    elif any(t[1].lower().startswith('solo') for t in texts):
+    elif any(isinstance(t[1], str) and t[1].lower().startswith('solo')
+             for t in texts):
         lines.append(f"You solo — {sec['bars']} bars over the changes, "
                      "nothing written out.")
     else:
@@ -183,8 +186,11 @@ def part_section(plan, label, chord_parts, figures=None):
     if shows_chords:
         lines.append("Changes: " + say_bars(sec['content']))
     for bar, text in texts:
-        lines.append(f'At bar {bar}: "{text}".'
-                     if bar > 1 else f'Marked: "{text}".')
+        if isinstance(text, tuple) and text[0] == 'tempo':
+            lines.append(f"At bar {bar}: tempo changes to {text[1]}.")
+        else:
+            lines.append(f'At bar {bar}: "{text}".'
+                         if bar > 1 else f'Marked: "{text}".')
     return ("\n".join(lines) if figures else " ".join(lines))
 
 
@@ -202,8 +208,9 @@ def main():
     labels = [b['label'] for b in band]
     plans, total = chartc.build_plans(chart, band, groups, labels)
     findings = chartdemo.Findings()
+    meter = chartc.parse_meter(hdr.get('meter', '4/4'))
     resolved, horn_of, key = chartc.resolve_demo(chart, plans, band, labels,
-                                                 a.chart, findings)
+                                                 a.chart, findings, meter)
     for l in labels:
         for item in resolved[l]:
             item['concert_fifths'] = key[0]
