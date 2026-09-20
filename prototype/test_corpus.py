@@ -1342,7 +1342,7 @@ def check_engraver():
         os.path.join(out, "E — score.musicxml"), spdf)
     check("the conductor score engraves, stacked and scaled",
           ok and os.path.getsize(spdf) > 2500, f"{ok} {why}")
-    # a score holding a grand-staff part still declines by name
+    # the grand staff engraves — the last MuseScore borrow, retired
     open(os.path.join(tmp, "g.chart"), "w").write(
         'title: G\nkey: F\nmeter: 4/4\ntempo: 116\n\n'
         'band:\n  piano\n  flute\n\n'
@@ -1350,17 +1350,34 @@ def check_engraver():
     with redirect_stdout(io.StringIO()):
         chartc.compile_chart(os.path.join(tmp, "g.chart"),
                              os.path.join(tmp, "gb"))
+    gp = os.path.join(tmp, "gp.pdf")
     ok, why = chartengrave.engrave(
-        os.path.join(tmp, "gb", "G — score.musicxml"),
-        os.path.join(tmp, "gs.pdf"))
-    check("a score with a grand-staff part declines naming it",
-          not ok and "piano" in why and "grand staff" in why,
-          f"{ok} {why}")
+        os.path.join(tmp, "gb", "G — piano.musicxml"), gp)
+    check("the grand staff engraves",
+          ok and os.path.getsize(gp) > 2000, f"{ok} {why}")
+    gs = os.path.join(tmp, "gs.pdf")
     ok, why = chartengrave.engrave(
-        os.path.join(tmp, "gb", "G — piano.musicxml"),
-        os.path.join(tmp, "gp.pdf"))
-    check("a grand staff declines in a sentence",
-          not ok and "grand staff" in why, f"{ok} {why}")
+        os.path.join(tmp, "gb", "G — score.musicxml"), gs)
+    check("a score holding a grand staff engraves too",
+          ok and os.path.getsize(gs) > 2000, f"{ok} {why}")
+    # what still declines does so in a sentence: grace notes from a
+    # lifted engraving
+    bad = os.path.join(tmp, "bad.musicxml")
+    open(bad, "w").write(
+        '<score-partwise><part-list><score-part id="P1">'
+        '<part-name>x</part-name></score-part></part-list>'
+        '<part id="P1"><measure number="1">'
+        '<attributes><divisions>24</divisions>'
+        '<time><beats>4</beats><beat-type>4</beat-type></time>'
+        '<clef><sign>G</sign><line>2</line></clef></attributes>'
+        '<note><grace/><pitch><step>C</step><octave>5</octave></pitch>'
+        '<voice>1</voice><type>eighth</type></note>'
+        '<note><pitch><step>C</step><octave>5</octave></pitch>'
+        '<duration>96</duration><voice>1</voice><type>whole</type>'
+        '</note></measure></part></score-partwise>')
+    ok, why = chartengrave.engrave(bad, os.path.join(tmp, "x.pdf"))
+    check("grace notes still decline in a sentence",
+          not ok and "grace" in why, f"{ok} {why}")
     shutil.rmtree(tmp, ignore_errors=True)
 
 

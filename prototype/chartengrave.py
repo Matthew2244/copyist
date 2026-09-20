@@ -341,7 +341,7 @@ def _parse_note(t):
     return n
 
 
-REFUSE = ('<staves>', '<backup>', '<grace')
+REFUSE = ('<grace',)
 
 
 def parse_part(xml, pid):
@@ -351,12 +351,11 @@ def parse_part(xml, pid):
     body = body.group(1)
     for tag in REFUSE:
         if tag in body:
-            what = {'<staves>': 'a grand staff',
-                    '<backup>': 'multiple voices',
-                    '<grace': 'grace notes'}[tag]
+            what = {'<grace': 'grace notes'}[tag]
             return None, f"{what} (still MuseScore's for now)"
     measures = []
-    state = {'clef': 'G', 'fifths': 0, 'time': (4, 4), 'div': 24}
+    state = {'clefs': {1: 'G'}, 'staves': 1, 'fifths': 0,
+             'time': (4, 4), 'div': 24}
     for num, m in re.findall(r'<measure [^>]*?number="([^"]+)"[^>]*>(.*?)'
                              r'</measure>', body, re.S):
         meas = {'num': num, 'events': [], 'show': dict(),
@@ -380,19 +379,28 @@ def parse_part(xml, pid):
         if ky:
             state['fifths'] = int(ky.group(1))
             meas['show']['key'] = state['fifths']
-        cl = re.search(r'<clef[^>]*><sign>(\w+)</sign>', m)
-        if cl:
-            state['clef'] = ('percussion' if cl.group(1) == 'percussion'
-                             else cl.group(1))
-            meas['show']['clef'] = state['clef']
+        sv = re.search(r'<staves>(\d+)</staves>', m)
+        if sv:
+            state['staves'] = int(sv.group(1))
+        for cnum, sign in re.findall(
+                r'<clef(?: number="(\d+)")?><sign>(\w+)</sign>', m):
+            state['clefs'][int(cnum or 1)] = (
+                'percussion' if sign == 'percussion' else sign)
+            meas['show']['clef'] = dict(state['clefs'])
         pos = 0
+        hi_pos = 0
         for el in re.finditer(r'<note[ >].*?</note>|<forward>.*?</forward>'
+                              r'|<backup>.*?</backup>'
                               r'|<direction[ >].*?</direction>'
                               r'|<harmony[^>]*>.*?</harmony>'
                               r'|<barline[^>]*>.*?</barline>', m, re.S):
             t = el.group(0)
             if t.startswith('<forward'):
                 pos += int(re.search(r'<duration>(\d+)</duration>',
+                                     t).group(1))
+                continue
+            if t.startswith('<backup'):
+                pos -= int(re.search(r'<duration>(\d+)</duration>',
                                      t).group(1))
                 continue
             if t.startswith('<harmony'):
@@ -443,14 +451,25 @@ def parse_part(xml, pid):
                     meas['metronome'] = (bool(met.group(1)), met.group(2))
                 continue
             n = _parse_note(t)
-            if n.chord and meas['events'] and \
-                    meas['events'][-1][1] and not meas['events'][-1][1][-1].rest:
-                meas['events'][-1][1].append(n)
+            sv = re.search(r'<staff>(\d+)</staff>', t)
+            n_staff = int(sv.group(1)) if sv else 1
+            vv = re.search(r'<voice>(\d+)</voice>', t)
+            n_voice = int(vv.group(1)) if vv else 1
+            if n.chord:
+                for p2, ns2, st2, vo2 in reversed(meas['events']):
+                    if st2 == n_staff and vo2 == n_voice and \
+                            not ns2[-1].rest:
+                        ns2.append(n)
+                        break
                 continue
-            meas['events'].append((pos, [n]))
+            meas['events'].append((pos, [n], n_staff, n_voice))
             pos += n.dur
-        meas['state'] = dict(state)
-        meas['len'] = pos
+            hi_pos = max(hi_pos, pos)
+        meas['state'] = {'clefs': dict(state['clefs']),
+                         'staves': state['staves'],
+                         'fifths': state['fifths'],
+                         'time': state['time'], 'div': state['div']}
+        meas['len'] = hi_pos
         measures.append(meas)
     return measures, None
 
@@ -478,12 +497,14 @@ def measure_width(meas):
         w += abs(meas['show']['key']) * 2 * SP + SP
     if 'time' in meas['show']:
         w += 5 * SP
-    for pos, notes in meas['events']:
+    per = {}
+    for pos, notes, staff, voice in meas['events']:
         n = notes[0]
-        w += 2.4 * SP + 1.15 * SP * (max(n.dur, 2) ** 0.5)
-        if any(x.alter and not x.rest for x in notes):
-            w += 1.6 * SP
-    return max(w, 12 * SP)
+        per[(staff, voice)] = per.get((staff, voice), 0) + (
+            2.4 * SP + 1.15 * SP * (max(n.dur, 2) ** 0.5)
+            + (1.6 * SP if any(x.alter and not x.rest
+                               for x in notes) else 0))
+    return max(w + max(per.values(), default=0), 12 * SP)
 
 
 def engrave(xml_path, pdf_path):
@@ -535,34 +556,43 @@ def engrave(xml_path, pdf_path):
         pdf.text(PAGE_W - MARGIN, PAGE_H - MARGIN - 32, composer.group(1),
                  size=9.5, font='H', right=True)
     pname = names.get(pids[0], '')
+    staves = measures[0]['state']['staves'] if measures else 1
+    ph = part_height(staves)
 
     for si, system in enumerate(systems):
-        need = STAFF + SYS_GAP
-        if y - need < MARGIN:
+        if y - (ph + SYS_GAP) < MARGIN - SYS_GAP:
             pdf.new_page()
             y = PAGE_H - MARGIN - 2 * SP
             first_page = False
-        top = y
-        for i in range(5):
-            pdf.line(MARGIN, top - i * SP, PAGE_W - MARGIN, top - i * SP,
-                     w=0.7)
+        tops = staff_tops(y, staves)
+        for stop in tops:
+            for i in range(5):
+                pdf.line(MARGIN, stop - i * SP, PAGE_W - MARGIN,
+                         stop - i * SP, w=0.7)
+        if staves > 1:
+            draw_brace(pdf, MARGIN - 2, tops[0], tops[-1] - STAFF)
+            pdf.line(MARGIN, tops[0], MARGIN, tops[-1] - STAFF, w=1.2)
         if si == 0:
-            pdf.text(MARGIN - 4, top - STAFF / 2 - 3, pname, size=9,
+            pdf.text(MARGIN - (14 if staves > 1 else 4),
+                     (tops[0] + tops[-1] - STAFF) / 2 - 3, pname, size=9,
                      font='H', right=True)
         x = MARGIN
         state = system[0][0]['state']
-        # every system restates clef and key
-        draw_clef(pdf, x + 1.2 * SP, top, state['clef'])
-        x += 6.5 * SP
-        x = draw_key(pdf, x, top, state['fifths'], state['clef'],
-                     system[0][0])
+        xk = x
+        for st, stop in enumerate(tops, 1):
+            draw_clef(pdf, x + 1.2 * SP, stop, state['clefs'].get(st, 'G'))
+            xk = max(xk, draw_key(pdf, x + 6.5 * SP, stop,
+                                  state['fifths'],
+                                  state['clefs'].get(st, 'G'),
+                                  system[0][0]))
+        x = xk
         stretch = (PAGE_W - MARGIN - x) / sum(w for _, w in system)
         if si == len(systems) - 1:
             stretch = min(stretch, 1.15)   # the last system never gapes
         for mi, (meas, w) in enumerate(system):
-            x = draw_measure(pdf, meas, x, top, w * stretch,
+            x = draw_measure(pdf, meas, x, tops, w * stretch,
                              first_in_system=(mi == 0))
-        y = top - STAFF - SYS_GAP
+        y = tops[-1] - STAFF - SYS_GAP
     pdf.save(pdf_path)
     return True, None
 
@@ -583,18 +613,20 @@ def engrave_score(xml, pids, names, pdf_path):
         measures, why = parse_part(xml, pid)
         if measures is None:
             return False, f"{names.get(pid, pid)} needs {why}"
-        parts.append((names.get(pid, pid), measures))
-    counts = {len(m) for _, m in parts}
+        staves = measures[0]['state']['staves'] if measures else 1
+        parts.append((names.get(pid, pid), measures, staves))
+    counts = {len(m) for _, m, _ in parts}
     if len(counts) != 1:
         return False, "parts of different lengths (report that)"
     nmeas = counts.pop()
     title = re.search(r'<work-title>([^<]*)</work-title>', xml)
     composer = re.search(r'<creator type="composer">([^<]*)</creator>', xml)
 
-    widths = [max(measure_width(m[j]) for _, m in parts)
+    widths = [max(measure_width(m[j]) for _, m, _ in parts)
               for j in range(nmeas)]
 
-    sys_h = len(parts) * STAFF + (len(parts) - 1) * SCORE_GAP
+    sys_h = (sum(part_height(s) for _, _, s in parts)
+             + (len(parts) - 1) * SCORE_GAP)
     per_sys = sys_h + SYS_HEAD + 4 * SP
     want = 2 if len(parts) > 3 else 3
     scale = max(0.38, min(0.75,
@@ -626,32 +658,44 @@ def engrave_score(xml, pids, names, pdf_path):
         if y - sys_h < M:
             pdf.new_page()
             y = H - M - SYS_HEAD
-        tops = [y - pi * (STAFF + SCORE_GAP) for pi in range(len(parts))]
-        for (pname, measures), top in zip(parts, tops):
-            for i in range(5):
-                pdf.line(M, top - i * SP, W - M, top - i * SP, w=0.7)
-            pdf.text(M - 4, top - STAFF / 2 - 3, pname,
+        part_tops = []
+        py = y
+        for pname, measures, staves in parts:
+            part_tops.append(staff_tops(py, staves))
+            py -= part_height(staves) + SCORE_GAP
+        for (pname, measures, staves), tops in zip(parts, part_tops):
+            for stop in tops:
+                for i in range(5):
+                    pdf.line(M, stop - i * SP, W - M, stop - i * SP,
+                             w=0.7)
+            if staves > 1:
+                draw_brace(pdf, M - 2, tops[0], tops[-1] - STAFF)
+            pdf.text(M - (14 if staves > 1 else 4),
+                     (tops[0] + tops[-1] - STAFF) / 2 - 3, pname,
                      size=8.5, font='H', right=True)
-        pdf.line(M, tops[0], M, tops[-1] - STAFF, w=1.4)
+        pdf.line(M, part_tops[0][0], M, part_tops[-1][-1] - STAFF, w=1.4)
         x0 = M
         lead = 0
-        for (pname, measures), top in zip(parts, tops):
+        for (pname, measures, staves), tops in zip(parts, part_tops):
             state = measures[cols[0]]['state']
-            draw_clef(pdf, x0 + 1.2 * SP, top, state['clef'])
-            xk = draw_key(pdf, x0 + 6.5 * SP, top, state['fifths'],
-                          state['clef'], measures[cols[0]])
-            lead = max(lead, xk - x0)
+            for st, stop in enumerate(tops, 1):
+                draw_clef(pdf, x0 + 1.2 * SP, stop,
+                          state['clefs'].get(st, 'G'))
+                xk = draw_key(pdf, x0 + 6.5 * SP, stop, state['fifths'],
+                              state['clefs'].get(st, 'G'),
+                              measures[cols[0]])
+                lead = max(lead, xk - x0)
         x = x0 + lead
         stretch = (W - M - x) / sum(widths[j] for j in cols)
         if si == len(systems) - 1:
             stretch = min(stretch, 1.15)
         for mi, j in enumerate(cols):
             w = widths[j] * stretch
-            for (pname, measures), top in zip(parts, tops):
-                draw_measure(pdf, measures[j], x, top, w,
+            for (pname, measures, staves), tops in zip(parts, part_tops):
+                draw_measure(pdf, measures[j], x, tops, w,
                              first_in_system=(mi == 0))
             x += w
-        y = tops[-1] - STAFF - SYS_HEAD - 2 * SP
+        y = part_tops[-1][-1] - STAFF - SYS_HEAD - 2 * SP
     pdf.save(pdf_path)
     return True, None
 
@@ -670,22 +714,47 @@ def draw_key(pdf, x, top, fifths, clef, meas):
     return x + SP
 
 
-def draw_measure(pdf, meas, x0, top, width, first_in_system=False):
-    mid = top - STAFF / 2
-    x = x0 + 1.2 * SP
+GRAND_GAP = 6.5 * SP
+
+
+def part_height(staves):
+    return staves * STAFF + (staves - 1) * GRAND_GAP
+
+
+def staff_tops(y, staves):
+    return [y - i * (STAFF + GRAND_GAP) for i in range(staves)]
+
+
+def draw_brace(pdf, x, top, bottom_y):
+    """The grand staff's curly brace, two mirrored strokes."""
+    mid = (top + bottom_y) / 2
+    for a, b in ((top, mid), (bottom_y, mid)):
+        d = 1 if a > b else -1
+        pdf.bez([(x, a),
+                 ((x - 2.4 * SP, a - d * (a - b) * 0.32),
+                  (x + 0.4 * SP, b + d * (a - b) * 0.45),
+                  (x - 1.9 * SP, b))], w=1.8)
+
+
+def draw_measure(pdf, meas, x0, tops, width, first_in_system=False):
     state = meas['state']
     div = state['div']
-    num, den = state['time']
+    top = tops[0]
+    bottom_y = tops[-1] - STAFF
+    x = x0 + 1.2 * SP
 
-    if 'clef' in meas['show'] and not first_in_system:
-        draw_clef(pdf, x, top, meas['show']['clef'])
+    show_clefs = meas['show'].get('clef')
+    if show_clefs and not first_in_system:
+        for st, stop in enumerate(tops, 1):
+            draw_clef(pdf, x, stop, show_clefs.get(st, 'G'))
         x += 6 * SP
     if 'time' in meas['show']:
         n, d = meas['show']['time']
-        pdf.text(x, top - 1.9 * SP, str(n), size=2.6 * SP, font='TB',
-                 center=True)
-        pdf.text(x, top - 3.9 * SP, str(d), size=2.6 * SP, font='TB',
-                 center=True)
+        for stop in tops:
+            pdf.text(x, stop - 1.9 * SP, str(n), size=2.6 * SP,
+                     font='TB', center=True)
+            pdf.text(x, stop - 3.9 * SP, str(d), size=2.6 * SP,
+                     font='TB', center=True)
         x += 3.4 * SP
 
     tx = x0 + 2
@@ -716,12 +785,14 @@ def draw_measure(pdf, meas, x0, top, width, first_in_system=False):
     if (meas.get('left') or {}).get('repeat') == 'forward':
         x += 2.4 * SP
     if meas['multi']:
-        pdf.line(x + SP, mid, x0 + width - 2 * SP, mid, w=4.5)
-        for xx in (x + SP, x0 + width - 2 * SP):
-            pdf.line(xx, mid - 1.2 * SP, xx, mid + 1.2 * SP, w=1.2)
+        for stop in tops:
+            smid = stop - STAFF / 2
+            pdf.line(x + SP, smid, x0 + width - 2 * SP, smid, w=4.5)
+            for xx in (x + SP, x0 + width - 2 * SP):
+                pdf.line(xx, smid - 1.2 * SP, xx, smid + 1.2 * SP, w=1.2)
         pdf.text((x + x0 + width) / 2, top + 1.2 * SP,
                  str(meas['multi']), size=12, font='HB', center=True)
-        draw_barline(pdf, meas, x0, top, width)
+        draw_barline(pdf, meas, x0, tops, width)
         draw_measure_number(pdf, meas, x0, top)
         return x0 + width
 
@@ -731,38 +802,58 @@ def draw_measure(pdf, meas, x0, top, width, first_in_system=False):
     def xat(pos, extra=0.0):
         return x + 1.2 * SP + (pos / total) * (span - 2.4 * SP) + extra
 
-    # chord symbols above
     for pos, sym in meas['chords']:
         draw_chord_symbol(pdf, xat(pos), top + 1.5 * SP, sym)
     for pos, mark in meas['dyn']:
-        pdf.text(xat(pos), top - STAFF - 2.6 * SP, mark, size=11,
-                 font='TBI')
+        pdf.text(xat(pos), bottom_y - 2.6 * SP, mark, size=11, font='TBI')
 
-    # notes — beams grouped per beat
-    beat_len = div * 4 // den
+    beat_len = div * 4 // state['time'][1]
+    streams = {}
+    for pos, notes, staff, voice in meas['events']:
+        streams.setdefault((staff, voice), []).append((pos, notes))
+    voices_of = {}
+    for staff, voice in streams:
+        voices_of.setdefault(staff, set()).add(voice)
+    for (staff, voice), evs in streams.items():
+        stop = tops[min(staff, len(tops)) - 1]
+        two = len(voices_of[staff]) > 1
+        forced = (voice == min(voices_of[staff])) if two else None
+        clef = state['clefs'].get(staff, 'G')
+        draw_stream(pdf, evs, stop, clef, beat_len, xat, x0, width,
+                    forced, bottom_y)
+
+    draw_barline(pdf, meas, x0, tops, width)
+    draw_ending(pdf, meas, x0, top, width)
+    draw_measure_number(pdf, meas, x0, top)
+    return x0 + width
+
+
+def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
+                forced, bottom_y):
+    """One voice on one staff: heads, stems, beams, ties, words."""
+    mid = top - STAFF / 2
     pend_beam = []
     slur_open = []
     drawn = []
-    events = meas['events']
     for ei, (pos, notes) in enumerate(events):
         n0 = notes[0]
         cx = xat(pos)
         if n0.rest:
             flush_beam(pdf, pend_beam)
             pend_beam = []
-            if not n0.measure_rest or True:
-                draw_rest(pdf, cx,
-                          top, 'measure' if n0.measure_rest else n0.ntype)
-                dot_x = cx + 1.6 * SP
-                for _ in range(n0.dots):
-                    pdf.text(dot_x, mid, ".", size=11, font='HB')
-                    dot_x += 3
+            if n0.measure_rest and forced is False:
+                continue           # the second voice's filler rest
+            draw_rest(pdf, cx, top,
+                      'measure' if n0.measure_rest else n0.ntype)
+            dot_x = cx + 1.6 * SP
+            for _ in range(n0.dots):
+                _dot(pdf, dot_x, mid + 0.5 * SP)
+                dot_x += 3.4
             continue
         scale = 0.68 if n0.cue else 1.0
-        ps = [step_pos(n.step, n.octave, state['clef']) for n in notes]
+        ps = [step_pos(n.step, n.octave, clef) for n in notes]
         ys = [top - STAFF + p * SP / 2 for p in ps]
-        up = (sum(ps) / len(ps)) < 4
-        # ledger lines
+        up = forced if forced is not None else (sum(ps) / len(ps)) < 4
         for p, yy in zip(ps, ys):
             if p < -1:
                 for lp in range(-2, p - 1, -2):
@@ -776,32 +867,26 @@ def draw_measure(pdf, meas, x0, top, width, first_in_system=False):
                              w=0.8)
         ax = cx - 2.1 * SP
         for n, yy in zip(notes, ys):
-            if n.alter or (state['fifths'] and False):
-                if n.alter:
-                    draw_accidental(pdf, ax, yy, n.alter, scale=scale)
-                    ax -= 1.7 * SP
-        head = ('slash' if n0.slash else
-                DUR_HEADS.get(n0.ntype, 'black'))
+            if n.alter:
+                draw_accidental(pdf, ax, yy, n.alter, scale=scale)
+                ax -= 1.7 * SP
+        head = ('slash' if n0.slash else DUR_HEADS.get(n0.ntype, 'black'))
         for n, yy in zip(notes, ys):
             notehead(pdf, cx, yy, head, scale=scale, parens=n.parens)
         dot_x = cx + 1.9 * SP
         for _ in range(n0.dots):
             for yy in ys:
-                pdf.text(dot_x, yy - 1, ".", size=11, font='HB')
-            dot_x += 3
-        # stem
+                _dot(pdf, dot_x, yy + (0 if (round(yy - top) % round(SP))
+                                       else 0.5 * SP))
+            dot_x += 3.4
         stem_x = cx + (1.15 * SP if up else -1.15 * SP) * scale
-        if n0.ntype != 'whole' and not n0.slash or (n0.slash and False):
+        if n0.ntype != 'whole':
             lo, hi = min(ys), max(ys)
             tip = (hi + 3.4 * SP * scale) if up else (lo - 3.4 * SP * scale)
             pdf.line(stem_x, (lo if up else hi), stem_x, tip,
                      w=1.1 * scale)
         else:
             tip = max(ys) if up else min(ys)
-        if n0.slash and n0.ntype != 'whole':
-            lo, hi = min(ys), max(ys)
-            tip = (hi + 3.2 * SP) if up else (lo - 3.2 * SP)
-            pdf.line(stem_x, (lo if up else hi), stem_x, tip, w=1.1)
         nflags = FLAGS.get(n0.ntype, 0)
         if nflags:
             same_beat = [e for e in events
@@ -818,15 +903,12 @@ def draw_measure(pdf, meas, x0, top, width, first_in_system=False):
         else:
             flush_beam(pdf, pend_beam)
             pend_beam = []
-        # articulation
         if n0.artic:
             if n0.artic in ('strong-accent', 'accent'):
-                # accents read above the staff, whatever the stem does
                 ay = max(top + 0.6 * SP, max(ys) + 1.8 * SP)
             else:
                 ay = (min(ys) - 2.2 * SP) if up else (max(ys) + 1.6 * SP)
             draw_artic(pdf, cx, ay, n0.artic)
-        # ties and slurs
         if n0.tie_stop or n0.slur_stop:
             if slur_open:
                 sx, sy, sup = slur_open.pop()
@@ -840,36 +922,28 @@ def draw_measure(pdf, meas, x0, top, width, first_in_system=False):
             sup = not up
             slur_open.append((cx + SP,
                               (max(ys) if sup else min(ys)), sup))
-        # lyric
         if n0.lyric:
             syl, txt, ext = n0.lyric
             shown = txt + ("" if syl in ('single', 'end') else " -")
-            lx = pdf.text(cx, top - STAFF - 4.6 * SP, shown, size=8.5,
+            lx = pdf.text(cx, bottom_y - 4.6 * SP, shown, size=8.5,
                           font='H', center=True)
             if ext:
                 pdf.line(lx + 0.55 * 8.5 * len(shown) + 2,
-                         top - STAFF - 4.6 * SP,
+                         bottom_y - 4.6 * SP,
                          xat(pos + n0.dur * 0.9),
-                         top - STAFF - 4.6 * SP, w=0.8)
-        # tuplet number
+                         bottom_y - 4.6 * SP, w=0.8)
         if n0.tmod and (not drawn or drawn[-1] != pos // beat_len):
             pdf.text(xat(pos + beat_len / 2 - n0.dur / 2),
                      (tip + (1.6 * SP if up else -2.6 * SP)),
                      str(n0.tmod), size=8, font='HO', center=True)
             drawn.append(pos // beat_len)
     flush_beam(pdf, pend_beam)
-    # an open slur at the barline carries to... close at bar end
     while slur_open:
         sx, sy, sup = slur_open.pop()
         arc = 2 * SP * (1 if sup else -1)
         pdf.bez([(sx, sy), ((sx + 3 * SP, sy + arc),
                             (x0 + width - SP, sy + arc),
                             (x0 + width - 0.5 * SP, sy))], w=1.1)
-
-    draw_barline(pdf, meas, x0, top, width)
-    draw_ending(pdf, meas, x0, top, width)
-    draw_measure_number(pdf, meas, x0, top)
-    return x0 + width
 
 
 def _dot(pdf, x, y):
@@ -942,27 +1016,30 @@ def flush_beam(pdf, group):
                           (g[0], yy - 2 * (1 if up else -1))], fill=True)
 
 
-def draw_barline(pdf, meas, x0, top, width):
+def draw_barline(pdf, meas, x0, tops, width):
     xr = x0 + width
+    top, bottom_y = tops[0], tops[-1] - STAFF
     right = meas.get('right') or {}
     style = right.get('style')
     if style == 'light-heavy':
-        pdf.line(xr - 4, top, xr - 4, top - STAFF, w=0.9)
-        pdf.line(xr - 1, top, xr - 1, top - STAFF, w=2.6)
+        pdf.line(xr - 4, top, xr - 4, bottom_y, w=0.9)
+        pdf.line(xr - 1, top, xr - 1, bottom_y, w=2.6)
     elif style == 'light-light':
-        pdf.line(xr - 4, top, xr - 4, top - STAFF, w=0.9)
-        pdf.line(xr - 1, top, xr - 1, top - STAFF, w=0.9)
+        pdf.line(xr - 4, top, xr - 4, bottom_y, w=0.9)
+        pdf.line(xr - 1, top, xr - 1, bottom_y, w=0.9)
     else:
-        pdf.line(xr - 1, top, xr - 1, top - STAFF, w=0.9)
+        pdf.line(xr - 1, top, xr - 1, bottom_y, w=0.9)
     if right.get('repeat') == 'backward':
-        for dy in (1.5 * SP, 2.5 * SP):
-            _dot(pdf, xr - 7.5, top - dy)
+        for stop in tops:
+            for dy in (1.5 * SP, 2.5 * SP):
+                _dot(pdf, xr - 7.5, stop - dy)
     left = meas.get('left') or {}
     if left.get('repeat') == 'forward':
-        pdf.line(x0 + 1, top, x0 + 1, top - STAFF, w=2.6)
-        pdf.line(x0 + 4.5, top, x0 + 4.5, top - STAFF, w=0.9)
-        for dy in (1.5 * SP, 2.5 * SP):
-            _dot(pdf, x0 + 8, top - dy)
+        pdf.line(x0 + 1, top, x0 + 1, bottom_y, w=2.6)
+        pdf.line(x0 + 4.5, top, x0 + 4.5, bottom_y, w=0.9)
+        for stop in tops:
+            for dy in (1.5 * SP, 2.5 * SP):
+                _dot(pdf, x0 + 8, stop - dy)
 
 
 def draw_ending(pdf, meas, x0, top, width):
