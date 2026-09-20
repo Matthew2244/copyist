@@ -401,22 +401,15 @@ def main():
                     "ffmpeg gets it.")
             else:
                 countin = int(chart['header'].get('countin', 0))
-                try:
-                    tempo = float(chart['header'].get('tempo', 120))
-                except ValueError:
+                printed = max(1, args.from_bar - countin)
+                # a cumulative walk over the meter and tempo maps — one
+                # multiplication is only right until the first mid-chart
+                # change
+                seconds = chartc.seconds_before(chart, printed)
+                if seconds is None:
                     say("The tempo is words, not a number, so I cannot "
                         "place the trim — the full MP3 stands.")
-                    tempo = None
-                if tempo is None:
                     return
-                printed = max(1, args.from_bar - countin)
-                import chartc as _cc
-                mn, md = _cc.parse_meter(
-                    chart['header'].get('meter', '4/4'))
-                qbpm = (tempo * 1.5 if md == 8 and mn % 3 == 0
-                        else tempo)   # compound tempos are dotted quarters
-                bar_sec = mn * (4.0 / md) * 60.0 / qbpm
-                seconds = max(0.0, (printed - 1) * bar_sec)
                 cut = os.path.join(
                     title_dir, f"{title} — listen from bar "
                                f"{args.from_bar}.mp3")

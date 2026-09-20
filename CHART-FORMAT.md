@@ -10,9 +10,15 @@ N over 1, 2, 4, 8 or 16 compiles (waltzes, 6/8, 5/4 — verified), with
 its denominator pulses, prints its `tempo:` as a dotted-quarter
 metronome mark, and plays back at the matching speed; the `new`
 interview asks the meter (defaulting to the demo's own time signature)
-and counts bars with it. Per-bar meter changes (`at bar N:
-meter`) are still ahead — along with named figures, inline `notes:`,
-voltas, `double`/`cue`/`build:`/`on pass`/`as demo`, and detail levels.
+and counts bars with it. Per-bar meter changes (`at bar N: meter`, §3.6)
+compile as of 2026-09-20: every part restates the time signature at the
+change, chords spread against each bar's own meter, multirests break
+where a player must look up, the demo door locates figures by the demo
+file's own time signatures (a figure may not cross a change — the error
+says where to split), the listen trim walks the meter and tempo maps
+bar by bar, and a compound↔simple change with no new tempo is a
+finding. Still ahead: named figures, inline `notes:`, voltas,
+`double`/`cue`/`build:`/`on pass`/`as demo`, and detail levels.
 **Read DESIGN.md first.** This document extends it: where DESIGN.md turns a
 performance into a chart, this format lets a chart be *written* directly — as
 text — and compiled into the same MusicXML the engine already emits.

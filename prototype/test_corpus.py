@@ -335,6 +335,141 @@ def check_tuplet_ladder():
           not bad, "; ".join(bad[:3]))
 
 
+def check_meter_charts():
+    """
+    CHART-FORMAT.md 3.6 — per-bar meter changes, end to end: printed time
+    signatures at the change bars in every part, chords spread against the
+    bar's own meter, multirests breaking where a player must look up, the
+    demo door reading the file's own signatures, the listen-trim walk, and
+    every refusal in one sentence.
+    """
+    import xml.etree.ElementTree as ET
+    import chartc
+    import chartdemo
+    import smf
+    from chart import verify_measures
+    tmp = tempfile.mkdtemp()
+
+    def compile_chart(name, text):
+        p = os.path.join(tmp, name)
+        open(p, "w").write(text)
+        out = os.path.join(tmp, name + ".build")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            files = chartc.compile_chart(p, out)
+        return out, buf.getvalue(), files
+
+    def refusal(name, text):
+        p = os.path.join(tmp, name)
+        open(p, "w").write(text)
+        try:
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(p, os.path.join(tmp, "x"))
+        except SystemExit as e:
+            return str(e)
+        return ""
+
+    HEAD = ("title: T\nkey: C\nmeter: 4/4\ntempo: 120\n\n"
+            "band:\n  piano\n  trumpet\n\n")
+    MIX = (HEAD + "section A, 8 bars\n"
+           "  at bar 3: meter 5/4\n  at bar 5: meter 4/4\n"
+           "  chords: C F, Dm7 G7, C7 F7, C F G, C x4\n"
+           "  piano: groove\n  trumpet: tacet\n")
+
+    out, log, files = compile_chart("mixed.chart", MIX)
+    check("mixed-meter chart: every measure sums to its own bar",
+          not verify_measures(files))
+    for part in ("piano", "trumpet"):
+        r = ET.parse(os.path.join(out, f"T — {part}.musicxml")).getroot()
+        times = {m.get("number"): (t.findtext("beats"), t.findtext("beat-type"))
+                 for m in r.iter("measure")
+                 for t in m.iter("time")}
+        check(f"{part} part restates the time at bars 3 and 5 only",
+              times == {"1": ("4", "4"), "3": ("5", "4"), "5": ("4", "4")},
+              f"got {times}")
+    r = ET.parse(os.path.join(out, "T — piano.musicxml")).getroot()
+    bar3 = next(m for m in r.iter("measure") if m.get("number") == "3")
+    offs = [h.findtext("offset") for h in bar3.iter("harmony")]
+    check("two chords in a 5/4 bar split at beat 3.5",
+          offs == [None, "60"], f"got {offs}")
+    r = ET.parse(os.path.join(out, "T — trumpet.musicxml")).getroot()
+    multi = [m.get("number") for m in r.iter("measure")
+             if m.find(".//multiple-rest") is not None]
+    check("a resting part's multirests break at each meter change",
+          multi == ["6"] or multi == ["1", "6"], f"got {multi}")
+
+    # the demo door: a figure inside a changed region, located by the
+    # file's own time signatures
+    div = 480
+    ts = [(0, 4, 4), (2 * 4 * div, 3, 4)]
+    notes = [(i * div, i * div + div - 40, 60 + i, 90) for i in range(8)]
+    notes += [(3840 + i * div, 3840 + i * div + div - 40, 72 - i, 96)
+              for i in range(3)]
+    notes.append((5280, 6680, 67, 100))
+    demo = os.path.join(tmp, "mix.mid")
+    smf.write(demo, notes, div, 100, ts=ts, name="lead")
+    DEMO_HEAD = ("title: D\nkey: C\nmeter: 4/4\ntempo: 100\n"
+                 "demo: mix.mid\n\nband:\n  trumpet\n  piano\n\n")
+    out, log, files = compile_chart(
+        "demo.chart", DEMO_HEAD +
+        "section A, 6 bars\n  at bar 3: meter 3/4\n"
+        "  chords: C, F, G, C, G, C\n"
+        "  trumpet: from demo bars 3-4 at bar 3\n  piano: groove\n")
+    check("demo figure in a changed region: measures sum",
+          not verify_measures(files))
+    r = ET.parse(os.path.join(out, "D — trumpet.musicxml")).getroot()
+    bar3 = next(m for m in r.iter("measure") if m.get("number") == "3")
+    steps = [n.findtext(".//step") for n in bar3.iter("note")
+             if n.find("rest") is None]
+    check("the figure's notes land in the right printed bar, written pitch",
+          steps == ["D", "C", "C"], f"got {steps}")
+
+    # the listen trim: a cumulative walk, not one multiplication
+    chart = chartc.parse_chart(os.path.join(tmp, "mixed.chart"))
+    s = chartc.seconds_before(chart, 5)
+    check("seconds_before walks 4/4 and 5/4 bars at their own lengths",
+          abs(s - (2 * 2.0 + 2 * 2.5)) < 1e-9, f"got {s}")
+
+    # refusals, each in one sentence
+    for name, text, want in (
+        ("r1.chart", HEAD + "section A, 4 bars\n  at bar 9: meter 3/4\n"
+         "  chords: C x4\n", "outside its 4 bars"),
+        ("r2.chart", HEAD + "section A, 4 bars\n  at bar 2: meter 3/4\n"
+         "  at bar 2: meter 5/4\n  chords: C x4\n", "declares two meters"),
+        ("r3.chart", HEAD + "section A, 4 bars\n  at bar 2: meter 9/x\n"
+         "  chords: C x4\n", "cannot read meter"),
+        ("r4.chart", DEMO_HEAD + "section A, 6 bars\n"
+         "  at bar 3: meter 3/4\n  chords: C, F, G, C, G, C\n"
+         "  trumpet: from demo bars 2-3\n  piano: groove\n",
+         "crossing the meter change"),
+        ("r5.chart", DEMO_HEAD + "section A, 6 bars\n"
+         "  at bar 2: meter 5/4\n  chords: C, F, G, C, G, C\n"
+         "  trumpet: from demo bars 3-4 at bar 2\n  piano: groove\n",
+         "must agree where a figure lands"),
+    ):
+        got = refusal(name, text)
+        check(f"refused with '{want}'", want in got, f"got: {got}")
+
+    # findings that speak
+    out, log, _ = compile_chart(
+        "single.chart", "title: S\nkey: C\nmeter: 6/8\ntempo: 60\n"
+        "demo: mix.mid\n\nband:\n  trumpet\n  piano\n\n"
+        "section A, 4 bars\n  chords: C, F, G, C\n"
+        "  trumpet: from demo bars 1-2\n  piano: groove\n")
+    check("single-meter mismatch is a finding, not a failure",
+          "trusting the chart" in log, f"got: {log}")
+    out, log, _ = compile_chart(
+        "compound.chart", "title: X\nkey: C\nmeter: 6/8\ntempo: 60\n\n"
+        "band:\n  piano\n\nsection A, 8 bars\n"
+        "  at bar 3: meter 4/4\n  at bar 5: meter 4/4\n  chords: C x8\n")
+    check("compound-to-simple change without a tempo says so",
+          "carries the quarter note" in log, f"got: {log}")
+    check("a meter that changes nothing says so",
+          "nothing changes" in log, f"got: {log}")
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -393,6 +528,7 @@ if __name__ == "__main__":
     check_duration_algebra()
     check_key_names_are_usable()
     check_tuplet_ladder()
+    check_meter_charts()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

@@ -53,6 +53,7 @@ class Demo:
         self.division = mid["division"]
         ex = analyze.extract(mid)
         self.names = ex["names"]
+        self.timesigs = ex["timesigs"]      # [(tick, num, den)], often 4/4@0
         by_track = {}
         for n in ex["notes"]:
             by_track.setdefault(n.track, []).append(n)
@@ -62,6 +63,52 @@ class Demo:
             for ev in trk:
                 if ev[1] == "chan" and ev[2] == 0xB0 and ev[4] == 11:
                     self.cc.setdefault(ti, []).append((ev[0], ev[5]))
+
+    def _segments(self):
+        """The file's meter map as (start_tick, num, den), deduped, with a
+        4/4 floor at tick zero when the file starts silent about it."""
+        segs = [(0, 4, 4)]
+        for t, n, d in sorted(self.timesigs):
+            if t == segs[-1][0]:
+                segs[-1] = (t, n, d)
+            else:
+                segs.append((t, n, d))
+        return segs
+
+    def bar_tick(self, bar):
+        """Tick where the file's own bar N (1-based) starts, from its time
+        signatures. A signature landing mid-bar governs from the next
+        computed bar — DAW exports land them on barlines anyway."""
+        segs = self._segments()
+        starts = [0]
+        si = 0
+        while len(starts) < bar:
+            t0 = starts[-1]
+            while si + 1 < len(segs) and segs[si + 1][0] <= t0:
+                si += 1
+            _, n, d = segs[si]
+            starts.append(t0 + self.division * 4 * n // d)
+        return starts[bar - 1]
+
+    def bar_of(self, tick):
+        """The file's own 1-based bar number holding a tick."""
+        bar = 1
+        while self.bar_tick(bar + 1) <= tick:
+            bar += 1
+        return bar
+
+    def mixed_meter(self):
+        """True when the file's own map holds more than one meter."""
+        return len({(n, d) for _, n, d in self._segments()}) > 1
+
+    def meter_of(self, bar):
+        """The (num, den) governing the file's own bar N."""
+        t0 = self.bar_tick(bar)
+        n, d = 4, 4
+        for t, nn, dd in self._segments():
+            if t <= t0:
+                n, d = nn, dd
+        return (n, d)
 
     def idx(self, name):
         note_tracks = sorted(self.tracks)
@@ -103,7 +150,7 @@ def load_demo(path):
 def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   octave_shift=0, sounding_range=None, quant=None,
                   derive_dyns=True, short=False, spoken_shift=0,
-                  poly=False, meter=(4, 4), part_label="",
+                  poly=False, meter=(4, 4), window=None, part_label="",
                   findings=None):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
@@ -122,8 +169,14 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     tick_bar = beat * 4 * m_num // m_den
     bar_ticks = DIV * 4 * m_num // m_den
     pulse_div = DIV * 4 // m_den
-    lo_t = (bar_lo - 1) * tick_bar
-    hi_t = bar_hi * tick_bar
+    if window is not None:
+        # the caller located the bars against a meter map (the demo's own
+        # time signatures, or the chart's) — single-meter arithmetic below
+        # would miss every bar after a change
+        lo_t, hi_t = window
+    else:
+        lo_t = (bar_lo - 1) * tick_bar
+        hi_t = bar_hi * tick_bar
     # A hair of pre-roll for an attack played a touch early — no more: a
     # generous slack swallows the previous figure's last note and makes a
     # phantom collision at beat 1 (the trombone climb taught this).

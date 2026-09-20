@@ -100,6 +100,10 @@ def section_heading(sec):
         bits.append(f"repeated, play {sec['repeat']} times")
     if sec['open']:
         bits.append("open")
+    for bar, kind, val in sec.get('events', ()):
+        if kind == 'meter':
+            bits.append(f"in {val}" if bar == 1 else
+                        f"the meter changes to {val} at bar {bar}")
     return ", ".join(bits) + "."
 
 

@@ -17,8 +17,7 @@ lives in chartdemo.py.
 
 Deliberately not built yet (each one errors in a sentence rather than
 guessing): named `figure` blocks and inline `notes:` figures, volta
-endings, `hits`, `double`, `cue`, `build:`, `on pass`, meters other
-than 4/4.
+endings, `double`, `cue`, `build:`, `on pass`.
 
 Usage: chartc.py <file.chart> [-o outdir]
 """
@@ -469,7 +468,7 @@ def split_chord(sym):
     return (step, alter, qual, bass)
 
 
-def parse_bars(text, where, beats=BEATS):
+def parse_bars(text, where):
     # a parenthesized group repeats whole: ( F7, Bb7 ) x4 is eight bars
     text = re.sub(r'\(\s*([^()]*?)\s*\)\s*x(\d+)',
                   lambda m: ", ".join([m.group(1)] * int(m.group(2))),
@@ -494,13 +493,58 @@ def parse_bars(text, where, beats=BEATS):
                 bar.append([parse_beat(beat), sym])
             else:
                 bar.append([None, tok])
-        n = len(bar)
-        for i, item in enumerate(bar):
-            if item[0] is None:
-                item[0] = 1.0 + i * (beats / n) if n > 1 else 1.0
+        # unplaced chords keep beat None here; the spread against the
+        # bar's own meter happens once the meter map exists (a two-chord
+        # bar in 5/4 splits at beat 3.5, not 3)
         for _ in range(reps):
             bars.append([(b, split_chord(s)) for b, s in bar])
     return bars
+
+
+def meter_at(meters, bar):
+    """The (num, den) governing a printed bar, from the chart's meter map
+    — a sorted list of (first_bar, (num, den))."""
+    cur = meters[0][1]
+    for b, m in meters:
+        if b <= bar:
+            cur = m
+    return cur
+
+
+def seconds_before(chart, printed_bar):
+    """Seconds of rendered audio before printed bar N — the trim point for
+    a from-bar listen. Mirrors what the pages tell MuseScore: the last
+    sound tempo governs until the next one, a compound bar's written tempo
+    is a dotted quarter, and every bar is as long as its own meter says.
+    Returns None when the header tempo is words."""
+    hdr = chart['header']
+    try:
+        tempo = float(hdr.get('tempo', 120))
+    except ValueError:
+        return None
+    meters = chart['meters']
+
+    def qbpm_of(t, m):
+        return t * (1.5 if m[1] == 8 and m[0] % 3 == 0 else 1.0)
+
+    qbpm = qbpm_of(tempo, meter_at(meters, 1))
+    tempo_at = {}
+    start = 1
+    for sec in chart['sections']:
+        for bar, kind, text in sec['events']:
+            if kind == 'tempo':
+                tempo_at[start + bar - 1] = float(text)
+        start += sec['bars']
+    secs = 0.0
+    pk = chart.get('pickup')
+    if pk:
+        secs += pk['beats'] * (4.0 / meter_at(meters, 1)[1]) * 60.0 / qbpm
+    for b in range(1, printed_bar):
+        n, d = meter_at(meters, b)
+        if b in tempo_at:
+            qbpm = qbpm_of(tempo_at[b], (n, d))
+        secs += (n * 4.0 / d) * 60.0 / qbpm
+    return secs
 
 
 def parse_chart(path):
@@ -525,9 +569,8 @@ def parse_chart(path):
                 continue
             m = re.match(r'chords ([\w ]+?):\s*(.+)$', s)
             if m:
-                beats = parse_meter(chart['header'].get('meter', '4/4'))[0]
                 chart['chords'][m.group(1).strip()] = parse_bars(
-                    m.group(2), f"chords {m.group(1)}", beats)
+                    m.group(2), f"chords {m.group(1)}")
                 continue
             m = re.match(r'group ([\w ]+?):\s*(.+)$', s)
             if m:
@@ -595,9 +638,8 @@ def parse_chart(path):
             continue
         m = re.match(r'chords:\s*(.+)$', s)
         if m:
-            beats = parse_meter(chart['header'].get('meter', '4/4'))[0]
             cur['content'] = parse_bars(m.group(1),
-                                        f"section {cur['name']}", beats)
+                                        f"section {cur['name']}")
             continue
         m = re.match(r'use chords ([\w ]+?)(?:\s+x(\d+))?$', s)
         if m:
@@ -613,6 +655,11 @@ def parse_chart(path):
         m = re.match(r'at bar (\d+):\s*tempo ([\d.]+)$', s)
         if m:
             cur['events'].append((int(m.group(1)), 'tempo', m.group(2)))
+            continue
+        m = re.match(r'at bar (\d+):\s*meter (\S+)$', s)
+        if m:
+            parse_meter(m.group(2))     # refuse nonsense at the line it sits on
+            cur['events'].append((int(m.group(1)), 'meter', m.group(2)))
             continue
         m = re.match(r'([\w ]+?):\s*(.+)$', s)
         if m:
@@ -637,6 +684,41 @@ def parse_chart(path):
         if len(sec['content']) != sec['bars']:
             fail(f"section {sec['name']} declares {sec['bars']} bars but its "
                  f"chords cover {len(sec['content'])}")
+
+    # ---- the meter map: the header meter at bar 1, changed by
+    # `at bar N: meter` events, each holding until the next. Built here so
+    # chord spreading, emission, the demo door and the listen math all
+    # read one answer. Every timed event is also held to its section.
+    meters = [(1, parse_meter(chart['header'].get('meter', '4/4')))]
+    start = 1
+    for sec in chart['sections']:
+        for bar, kind, text in sec['events']:
+            if not 1 <= bar <= sec['bars']:
+                fail(f"section {sec['name']}: 'at bar {bar}' is outside "
+                     f"its {sec['bars']} bars")
+            if kind == 'meter':
+                absbar = start + bar - 1
+                if any(b == absbar for b, _ in meters[1:]):
+                    fail(f"section {sec['name']}: bar {bar} declares two "
+                         "meters")
+                meters.append((absbar, parse_meter(text)))
+        start += sec['bars']
+    meters.sort(key=lambda x: x[0])
+    chart['meters'] = meters
+
+    # spread unplaced chords against each bar's own meter
+    start = 1
+    for sec in chart['sections']:
+        content = []
+        for off, bar in enumerate(sec['content']):
+            beats = meter_at(meters, start + off)[0]
+            n = len(bar)
+            content.append([
+                (b, c) if b is not None else
+                (1.0 + i * (beats / n) if n > 1 else 1.0, c)
+                for i, (b, c) in enumerate(bar)])
+        sec['content'] = content
+        start += sec['bars']
     return chart
 
 
@@ -930,6 +1012,32 @@ def compile_chart(chart_path, outdir):
 
     # ---- the from-demo door
     findings = chartdemo.Findings()
+
+    # meter changes worth saying out loud, in the writer's own bar numbers
+    meters_map = chart['meters']
+    spoken = int(hdr.get('countin', 0))
+    tempo_bars = set()
+    sstart = 1
+    for sec in chart['sections']:
+        for bar, kind, _ in sec['events']:
+            if kind == 'tempo':
+                tempo_bars.add(sstart + bar - 1)
+        sstart += sec['bars']
+    for b, m in meters_map[1:]:
+        prev = meter_at(meters_map, b - 1) if b > 1 else None
+        if m == prev:
+            findings.add(f"bar {b + spoken} declares {m[0]}/{m[1]}, which "
+                         "is already the meter — nothing changes")
+            continue
+        was_c = prev is not None and prev[1] == 8 and prev[0] % 3 == 0
+        is_c = m[1] == 8 and m[0] % 3 == 0
+        if prev is not None and was_c != is_c and b not in tempo_bars:
+            findings.add(
+                f"bar {b + spoken}: the meter changes {prev[0]}/{prev[1]} "
+                f"to {m[0]}/{m[1]} with no new tempo — playback carries "
+                "the quarter note across; add an 'at bar N: tempo' there "
+                "if that is not the feel")
+
     resolved, horn_of, key = resolve_demo(chart, plans, band, labels,
                                           chart_path, findings, meter)
     demo_measures = {l: {} for l in labels}
@@ -1039,9 +1147,21 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                              "chart has no demo: line")
                     dm = chartdemo.load_demo(demo_path)
                     track = sel
+                meters_map = chart.get('meters') or [(1, meter)]
+                fig_lo = max(1, ref['at'])
+                fig_hi = ref['at'] + (ref['hi'] - ref['lo'])
+                fig_meter = meter_at(meters_map, fig_lo)
+                for pb in range(fig_lo, fig_hi + 1):
+                    if meter_at(meters_map, pb) != fig_meter:
+                        fail(f"{ref['loc']}: '{l}' has a demo figure "
+                             f"crossing the meter change at printed bar "
+                             f"{pb} — split the figure there")
+                window = demo_window(dm, ref, fig_meter, meters_map,
+                                     int(hdr.get('countin', 0)), l,
+                                     findings)
                 res = chartdemo.resolve_range(
                     dm, track, ref['lo'], ref['hi'], ref['at'],
-                    meter=meter,
+                    meter=fig_meter, window=window,
                     octave_shift=b['demo_octave'],
                     sounding_range=rng, quant=ref.get('quant'),
                     poly=h['poly'],
@@ -1057,6 +1177,47 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                     'scoops': ref.get('scoops', []),
                                     'plan': plan})
     return resolved, horn_of, (fifths, mode)
+
+
+def demo_window(dm, ref, fig_meter, meters, shift, label, findings):
+    """Where demo bars lo..hi live, in demo ticks — or None to let the
+    single-meter arithmetic stand. The file's own time signatures are
+    ground truth when present; otherwise the chart's meter map, translated
+    by the count-in (the shared-grid assumption)."""
+    lo, hi, loc = ref['lo'], ref['hi'], ref['loc']
+    if dm.timesigs:
+        for b in range(lo, hi + 1):
+            dmet = dm.meter_of(b)
+            if dmet != fig_meter:
+                if len(meters) > 1:
+                    fail(f"{loc}: demo bar {b} is in {dmet[0]}/{dmet[1]} "
+                         f"but the figure lands in "
+                         f"{fig_meter[0]}/{fig_meter[1]} — the demo and "
+                         "the page must agree where a figure lands")
+                findings.add(f"{label}: the demo is stamped "
+                             f"{dmet[0]}/{dmet[1]} but the chart is in "
+                             f"{fig_meter[0]}/{fig_meter[1]} — trusting "
+                             "the chart; re-export the demo if this "
+                             "sounds wrong")
+                return None
+        return (dm.bar_tick(lo), dm.bar_tick(hi + 1))
+    if len(meters) == 1:
+        return None
+    # no time signatures in the file, but the chart mixes meters: locate
+    # demo bars by the chart's own map, shifted by the count-in
+    for b in range(lo, hi + 1):
+        n, d = meter_at(meters, max(1, b - shift))
+        if (n, d) != fig_meter:
+            fail(f"{loc}: demo bar {b} sits in {n}/{d} on the shared "
+                 f"grid but the figure lands in "
+                 f"{fig_meter[0]}/{fig_meter[1]} — move the figure, or "
+                 "re-export the demo with its meter map")
+
+    def blen(b):
+        n, d = meter_at(meters, max(1, b - shift))
+        return dm.division * 4 * n // d
+    lo_t = sum(blen(b) for b in range(1, lo))
+    return (lo_t, lo_t + sum(blen(b) for b in range(lo, hi + 1)))
 
 
 def build_plans(chart, band, groups, labels):
@@ -1240,6 +1401,9 @@ def build_plans(chart, band, groups, labels):
                 plan['texts'][l].extend(anns)
                 plan['dyns'][l].extend(dyn_marks)
         for bar, kind, text in sec['events']:
+            if kind == 'meter':
+                continue    # the page shows a time signature, not words —
+                            # emission reads the meter map directly
             for l in labels:
                 if kind == 'tempo':
                     plan['texts'][l].append((bar, ('tempo', text)))
@@ -1279,7 +1443,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                   findings=None, meter=(4, 4)):
     demo_measures = demo_measures or {l: {} for l in labels}
     horn_of = horn_of or {}
-    m_num, m_den = meter
+    meters = chart.get('meters') or [(1, meter)]
+    m_num, m_den = meter_at(meters, 1)
 
     # ---- emit one part's measures
     def part_measures(label, with_directions, with_harmony, listen=False,
@@ -1341,10 +1506,19 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 arg = '' if kind == 'groove' else None
             for off in range(sec['bars']):
                 absbar = plan['start'] + off
+                bmeter = meter_at(meters, absbar)
                 pieces = []
                 if need_attrs:
                     pieces.append(attributes())
                     need_attrs = False
+                elif absbar > 1 and bmeter != meter_at(meters, absbar - 1):
+                    # the meter changes here: every part restates the time
+                    # signature, and a bar that shows one is never allowed
+                    # to hide inside a multirest
+                    pieces.append('      <attributes><time>'
+                                  f'<beats>{bmeter[0]}</beats>'
+                                  f'<beat-type>{bmeter[1]}</beat-type>'
+                                  '</time></attributes>\n')
                 # slashes are instructions, not pitches: mute the part's
                 # playback through a groove region, restore after (the
                 # dynamics="0" note attribute alone is ignored by
@@ -1398,13 +1572,21 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         if tbar != off + 1:
                             continue
                         if isinstance(text, tuple) and text[0] == 'tempo':
+                            # in a compound bar the mark is a dotted
+                            # quarter, and it sounds half again as fast —
+                            # the same convention the header tempo keeps
+                            bcompound = (bmeter[1] == 8
+                                         and bmeter[0] % 3 == 0)
+                            bdot = '<beat-unit-dot/>' if bcompound else ''
+                            bsound = (float(text[1]) * 1.5 if bcompound
+                                      else float(text[1]))
                             pieces.append(
                                 '      <direction placement="above">'
                                 '<direction-type><metronome>'
-                                '<beat-unit>quarter</beat-unit>'
+                                f'<beat-unit>quarter</beat-unit>{bdot}'
                                 f'<per-minute>{text[1]}</per-minute>'
                                 '</metronome></direction-type>'
-                                f'<sound tempo="{text[1]}"/>'
+                                f'<sound tempo="{bsound:g}"/>'
                                 '</direction>\n')
                         else:
                             pieces.append(direction(text, 'above'))
@@ -1420,6 +1602,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             '</direction>\n')
                 if with_harmony and clef != 'percussion' and (
                         label in chord_parts or any(
+                            isinstance(t[1], str) and
                             t[1].lower().startswith('solo') for t in
                             plan['texts'][label])):
                     for beat, chord in sec['content'][off]:
@@ -1427,7 +1610,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             continue
                         if chord != governing[0] or off == 0:
                             pieces.append(harmony_xml(
-                                chord, beat, div * 4 // m_den))
+                                chord, beat, div * 4 // bmeter[1]))
                         governing[0] = chord
                 if absbar in demo_measures[label]:
                     pieces.append(demo_measures[label][absbar])
@@ -1441,29 +1624,29 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         pieces.append(strip_lifted(sp['measures'][str(srcbar)],
                                                    clef == 'percussion'))
                     else:
-                        pieces.append(rest_bar(div, staves, meter))
+                        pieces.append(rest_bar(div, staves, bmeter))
                 elif kind == 'hits':
                     hmap, _gw = arg
                     pattern = hmap.get(off + 1, hmap.get(None))
                     if listen:
-                        pieces.append(rest_bar(div, staves, meter))
+                        pieces.append(rest_bar(div, staves, bmeter))
                     elif pattern:
                         pieces.append(hits_bar(pattern, div, clef,
-                                               staves, fifths, meter))
+                                               staves, fifths, bmeter))
                     else:
                         pieces.append(slash_bar(div, clef, staves,
-                                                fifths, meter))
+                                                fifths, bmeter))
                 elif kind == 'groove':
                     # MuseScore's importer plays slash noteheads no matter
                     # what (dynamics="0", cue, sound directions and
                     # unpitched all measured audible), so the listening
                     # variant renders groove regions as real rests
-                    pieces.append(rest_bar(div, staves, meter)
+                    pieces.append(rest_bar(div, staves, bmeter)
                                   if listen else
                                   slash_bar(div, clef, staves, fifths,
-                                            meter))
+                                            bmeter))
                 else:
-                    pieces.append(rest_bar(div, staves, meter))
+                    pieces.append(rest_bar(div, staves, bmeter))
 
                 barline = ''
                 open_bl = ''
@@ -1489,7 +1672,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 pure_rest = (len(pieces) == 1 and not open_bl
                              and '<repeat' not in barline
                              and pieces[0] == rest_bar(div, staves,
-                                                       meter))
+                                                       bmeter))
                 out.append((f'    <measure number="{absbar}">\n' + open_bl +
                             "".join(pieces) + barline + '    </measure>\n',
                             pure_rest))

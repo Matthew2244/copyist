@@ -39,12 +39,17 @@ def _track(events):
 def write(path, notes, division, bpm, ts=(4, 4), name="Copyist"):
     """
     notes: iterable of (on_tick, off_tick, pitch, velocity).
+    ts: one (num, den), or a list of (tick, num, den) the way a DAW
+    export carries its meter map.
     """
+    sigs = ts if isinstance(ts, list) else [(0, ts[0], ts[1])]
     conductor = _track([
         (0, b"\xFF\x03" + vlq(len(name)) + name.encode("latin-1", "replace")),
         (0, b"\xFF\x51\x03" + struct.pack(">I", int(60_000_000 / bpm))[1:]),
-        (0, b"\xFF\x58\x04" + bytes([ts[0], max(ts[1].bit_length() - 1, 0),
-                                     0x18, 0x08])),
+    ] + [
+        (t, b"\xFF\x58\x04" + bytes([n, max(d.bit_length() - 1, 0),
+                                     0x18, 0x08]))
+        for t, n, d in sigs
     ])
     ev = []
     for on, off, pitch, vel in notes:

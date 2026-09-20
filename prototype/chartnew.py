@@ -50,10 +50,10 @@ def sniff_octave(pitches, rng):
     return 0
 
 
-def spans(notes, division, meter=(4, 4)):
-    """Bar spans of activity, in the demo's own bar numbers."""
-    bar_ticks = division * 4 * meter[0] // meter[1]
-    bars = sorted({int(n.on // bar_ticks) + 1 for n in notes})
+def spans(notes, barof):
+    """Bar spans of activity, in the demo's own bar numbers. `barof`
+    maps a tick to a bar, so mixed-meter demos count their bars right."""
+    bars = sorted({barof(n.on) for n in notes})
     runs = []
     for b in bars:
         if runs and b - runs[-1][1] <= 1:
@@ -97,8 +97,32 @@ def interview(out_path, demo_path):
     key = ask("Key, like Eb minor or F", "C")
     meter_txt = ask("Meter, like 4/4 or 3/4 or 6/8", ts_default)
     meter = chartc.parse_meter(meter_txt)
-    bar_ticks = dm.division * 4 * meter[0] // meter[1]
-    first_bar = min(int(n.on // bar_ticks) + 1
+    # a demo whose own map changes meter counts its bars by that map;
+    # otherwise the answered meter rules, uniform
+    meter_events = []
+    if dm.mixed_meter():
+        seen = None
+        for b in range(1, dm.bar_of(max(n.off or n.on
+                                        for ns in dm.tracks.values()
+                                        for n in ns)) + 1):
+            mo = dm.meter_of(b)
+            if mo != seen:
+                if seen is not None:
+                    meter_events.append((b, mo))
+                seen = mo
+        say("The demo changes meter: " +
+            "; ".join(f"bar {b} goes to {n}/{d}"
+                      for b, (n, d) in meter_events) +
+            ". I will write those into the chart.")
+        rawbar = dm.bar_of
+    else:
+        bar_ticks = dm.division * 4 * meter[0] // meter[1]
+        rawbar = lambda tick: int(tick // bar_ticks) + 1
+    # an attack played a hair ahead of the barline belongs to the bar it
+    # aims at — the same eighth-of-a-beat slack the extractor allows
+    slack = dm.division // 8
+    barof = lambda tick: rawbar(tick + slack)
+    first_bar = min(barof(n.on)
                     for ns in dm.tracks.values() for n in ns)
     countin_default = "1" if first_bar > 1 else "0"
     tempo = ask("Tempo", tempo_default)
@@ -133,13 +157,15 @@ def interview(out_path, demo_path):
             if keep.lower().startswith('n'):
                 shift = 0
         label = ask("  Part label", inst)
-        band.append((label, inst, name, shift))
+        # the resolver matches real track names; a display name invented
+        # for an unnamed track must not land in the chart
+        band.append((label, inst, dm.names.get(ti), shift))
         notes_by_label[label] = (notes, name)
 
     if not band:
         sys.exit("chart: no parts named, no chart written.")
 
-    total = max(int(n.on // bar_ticks) + 1
+    total = max(barof(n.on)
                 for ns in dm.tracks.values() for n in ns) - int(countin or 0)
 
     lines = [f"# {title} — started by the chart interview. The activity",
@@ -150,7 +176,7 @@ def interview(out_path, demo_path):
     for label, inst, tname, shift in band:
         notes, _ = notes_by_label[label]
         lines.append(f"# {label} plays demo bars "
-                     f"{spans(notes, dm.division, meter)}")
+                     f"{spans(notes, barof)}")
     lines += ["",
               f"title: {title}"]
     if composer:
@@ -166,18 +192,26 @@ def interview(out_path, demo_path):
     lines += ["", "band:"]
     for label, inst, tname, shift in band:
         piece = f"  {label}" + (f" = {inst}" if label != inst else "")
-        piece += f', demo "{tname}"'
+        if tname:
+            piece += f', demo "{tname}"'
         if shift:
             piece += f" octave {shift:+d}"
         lines.append(piece)
     lines += ["",
-              f"section A, {total} bars",
-              f"  chords: nc x{total}",
+              f"section A, {total} bars"]
+    for b, (n, d) in meter_events:
+        printed = b - int(countin or 0)
+        if 2 <= printed <= total:
+            lines.append(f"  at bar {printed}: meter {n}/{d}")
+        else:
+            lines.append(f"# the demo goes to {n}/{d} at its bar {b}, "
+                         "outside this section's bars")
+    lines += [f"  chords: nc x{total}",
               "# give each part its lines, e.g.:"]
     for label, inst, tname, shift in band[:1]:
         notes, _ = notes_by_label[label]
         lines.append(f"#   {label}: from demo bars "
-                     f"{spans(notes, dm.division, meter).split(',')[0].strip()}")
+                     f"{spans(notes, barof).split(',')[0].strip()}")
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write("\n".join(lines) + "\n")
     say(f"Wrote {out_path}: {len(band)} part(s), one {total}-bar section "

@@ -31,6 +31,19 @@ The worked example below is an invented tune called *Uptown Local*.
   line in a section: `at bar 5: tempo 96` — and slowdowns and
   speed-ups in words (`molto rit.`, `accel.`, `a tempo`) print
   verbatim wherever you put a text.
+- **The meter can change mid-tune** the same way: `at bar 1: meter 6/8`
+  at the top of the section that goes to six, `at bar 1: meter 4/4`
+  where it comes back — bar numbers are section-relative, like every
+  `at bar`. Every part shows the new signature, and a resting player's
+  multirest breaks there so nobody counts through a change they never
+  saw. Record the tune with the meter changes in your DAW project and
+  the exported demo carries them; the `new` interview reads them and
+  writes the `at bar` lines for you, and `from demo` lines land on the
+  right bars either way. Two things to know: a single `from demo`
+  figure can't straddle a change (split it at the barline — the error
+  tells you where), and going between 6/8 and 4/4 without declaring a
+  new tempo keeps the quarter note steady, which the findings will
+  mention in case that's not the feel you meant.
 - `countin: 1` says your DAW file opens with one count-in bar. From then
   on, you speak your DAW's bar numbers everywhere in the chart, and every
   spoken read-back uses them too. Only the printed page counts from one —
