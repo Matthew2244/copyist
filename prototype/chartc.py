@@ -819,7 +819,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     horn_of = horn_of or {}
 
     # ---- emit one part's measures
-    def part_measures(label, with_directions, with_harmony, listen=False):
+    def part_measures(label, with_directions, with_harmony, listen=False,
+                      part_mode=False):
         b = next(x for x in band if x['label'] == label)
         default_groove = label in groups['rhythm']
         sp = source[src_of[label]] if source else None
@@ -860,8 +861,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     content = direction(hdr['feel'].capitalize()) + content
                 for t in pk['texts']:
                     content = direction(t, 'below') + content
-            out.append(f'    <measure implicit="yes" number="0">\n{content}'
-                       '    </measure>\n')
+            out.append((f'    <measure implicit="yes" number="0">\n{content}'
+                        '    </measure>\n', False))
 
         need_attrs = source is None
         was_groove = False
@@ -969,12 +970,54 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                '<bar-style>light-heavy</bar-style>'
                                f'<repeat direction="backward" '
                                f'times="{sec["repeat"]}"/></barline>\n')
-                out.append(f'    <measure number="{absbar}">\n' + open_bl +
-                           "".join(pieces) + barline + '    </measure>\n')
-        return "".join(out)
+                elif off == sec['bars'] - 1:
+                    # every section closes with a double bar; the last
+                    # section closes the chart with a final bar
+                    style = ('light-heavy' if plan is plans[-1]
+                             else 'light-light')
+                    barline = ('      <barline location="right">'
+                               f'<bar-style>{style}</bar-style>'
+                               '</barline>\n')
+                # a right-hand barline may close a multirest; a repeat
+                # start may not hide inside one
+                pure_rest = (len(pieces) == 1 and not open_bl
+                             and '<repeat' not in barline
+                             and pieces[0] == rest_bar(div, staves))
+                out.append((f'    <measure number="{absbar}">\n' + open_bl +
+                            "".join(pieces) + barline + '    </measure>\n',
+                            pure_rest))
+
+        # ---- multirests, parts only: a stretch of waiting prints as one
+        # bar carrying its count. Runs break naturally at anything a
+        # player must see — marks, texts, dynamics, double bars — because
+        # those bars are not pure rests.
+        if part_mode:
+            i = 0
+            while i < len(out):
+                if out[i][1]:
+                    j = i
+                    # a double bar may close a multirest, never hide in one
+                    while (j + 1 < len(out) and out[j + 1][1]
+                           and '<barline' not in out[j][0]):
+                        j += 1
+                    n = j - i + 1
+                    if n >= 2:
+                        content, _ = out[i]
+                        content = content.replace(
+                            '      <note>',
+                            '      <attributes><measure-style>'
+                            f'<multiple-rest>{n}</multiple-rest>'
+                            '</measure-style></attributes>\n'
+                            '      <note>', 1)
+                        out[i] = (content, True)
+                    i = j + 1
+                else:
+                    i += 1
+        return "".join(c for c, _ in out)
 
     # ---- whole documents
-    def document(part_labels, directions_on, harmony_on, listen=False):
+    def document(part_labels, directions_on, harmony_on, listen=False,
+                 part_mode=False):
         L = [XMLHEAD, '<score-partwise version="3.1">\n',
              '  <work><work-title>%s</work-title></work>\n' %
              hdr.get('title', 'Untitled'),
@@ -1009,7 +1052,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         for i, l in enumerate(part_labels, 1):
             L.append(f'  <part id="P{i}">\n')
             L.append(part_measures(l, directions_on(l), harmony_on(l),
-                                   listen))
+                                   listen, part_mode))
             L.append('  </part>\n')
         L.append('</score-partwise>\n')
         return "".join(L)
@@ -1033,7 +1076,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         p = os.path.join(outdir, f'{title} — {src_of.get(l, l)}.musicxml')
         with open(p, 'w', encoding='utf-8') as f:
             f.write(document([l], directions_on=lambda _: True,
-                             harmony_on=lambda _: True))
+                             harmony_on=lambda _: True, part_mode=True))
         written.append(p)
     if findings:
         seen = []

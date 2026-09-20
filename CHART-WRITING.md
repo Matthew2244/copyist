@@ -123,6 +123,14 @@ works:
    DAW's bar numbers, at concert pitch, with every mark named.
 3. Change the chart text. Run the command again.
 
+The pages come out engraved like a pro part: every section closes
+with a double bar, the last bar gets the final bar, and in the parts a
+stretch of waiting prints as one bar carrying its count — sixteen bars
+of rest is one measure with a 16 over it, never sixteen empty bars. The
+conductor score keeps every bar visible. A multirest breaks wherever a
+player needs to see something — a rehearsal letter, a dynamic, a text —
+and may close at a double bar.
+
 The build also prints findings — every place it moved a note into range,
 unified a repeated phrase's cutoff, or noticed your timing sitting loose
 on a grid. A finding is a question for your ear, not an apology.
