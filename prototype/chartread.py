@@ -37,6 +37,12 @@ QUAL = {
     '7#9': ' seven sharp nine',
     '7b9': ' seven flat nine', '7#11': ' seven sharp eleven',
     '7#9#11': ' seven sharp nine sharp eleven',
+    '69': ' six nine', 'm69': ' minor six nine', 'alt': ' altered',
+    '13b9': ' thirteen flat nine', 'sus2': ' sus two',
+    'add9': ' add nine', 'madd9': ' minor add nine',
+    'mmaj7': ' minor major seven',
+    'maj7#11': ' major seven sharp eleven', '7#5': ' seven sharp five',
+    '7b5': ' seven flat five', '7b13': ' seven flat thirteen',
 }
 
 

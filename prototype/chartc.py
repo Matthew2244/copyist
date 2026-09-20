@@ -395,7 +395,25 @@ CHORD_KINDS = {
     '7b9': ('dominant', '7b9', [(9, -1, 'add')]),
     '7#9#11': ('dominant', '7#9#11', [(9, 1, 'add'), (11, 1, 'add')]),
     '7#11': ('dominant', '7#11', [(11, 1, 'add')]),
+    '69': ('major-sixth', '69', [(9, 0, 'add')]),
+    'm69': ('minor-sixth', 'm69', [(9, 0, 'add')]),
+    'alt': ('dominant', 'alt'),
+    '13b9': ('dominant-13th', '13b9', [(9, -1, 'alter')]),
+    'sus2': ('suspended-second', 'sus2'),
+    'add9': ('major', 'add9', [(9, 0, 'add')]),
+    'madd9': ('minor', 'madd9', [(9, 0, 'add')]),
+    'mmaj7': ('major-minor', 'mmaj7'),
+    'maj7#11': ('major-seventh', 'maj7#11', [(11, 1, 'add')]),
+    '7#5': ('augmented-seventh', '7#5'),
+    '7b5': ('dominant', '7b5', [(5, -1, 'alter')]),
+    '7b13': ('dominant', '7b13', [(13, -1, 'add')]),
 }
+
+# jazz shorthand for qualities: the dash minor, min spellings, bare sus
+QUAL_SYNONYMS = {'-': 'm', '-7': 'm7', '-9': 'm9', '-11': 'm11',
+                 '-6': 'm6', 'min': 'm', 'min7': 'm7', 'min9': 'm9',
+                 'sus': 'sus4', 'ma7': 'maj7', 'M7': 'maj7',
+                 'm(maj7)': 'mmaj7', 'aug7': '7#5', '7alt': 'alt'}
 
 STEP = set('ABCDEFG')
 
@@ -431,6 +449,7 @@ def split_chord(sym):
         fail(f"cannot read chord '{sym}'")
     step, acc, qual = m.groups()
     qual = qual or 'maj'
+    qual = QUAL_SYNONYMS.get(qual, qual)
     if qual not in CHORD_KINDS:
         fail(f"chord quality '{qual}' (in '{sym}') is not in the supported list")
     alter = {'b': -1, '#': 1, '': 0}[acc]
@@ -438,6 +457,13 @@ def split_chord(sym):
 
 
 def parse_bars(text, where):
+    # a parenthesized group repeats whole: ( F7, Bb7 ) x4 is eight bars
+    text = re.sub(r'\(\s*([^()]*?)\s*\)\s*x(\d+)',
+                  lambda m: ", ".join([m.group(1)] * int(m.group(2))),
+                  text)
+    if '(' in text or ')' in text:
+        fail(f"unmatched parenthesis in {where} — a group is "
+             "( chords ) xN, nothing nested")
     bars = []
     for raw in text.split(','):
         raw = raw.strip()

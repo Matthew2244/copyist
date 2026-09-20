@@ -128,10 +128,12 @@ Defined once, used by name — a solo form is written one time:
 - **`nc`** is no chord. A bar that continues the previous chord restates it;
   the printer suppresses repeated symbols the way an engraver would, so the
   source stays explicit and the page stays clean.
-- Chord spelling: root with `b` or `#`, then quality: `7 9 11 13 maj maj7 m
-  m7 m9 m7b5 dim dim7 sus4 7sus4 aug 6 69 m6 7b9 7#9 7#11 13b9 alt`, plus
-  slash bass (`C7/E`). This list covers every quality in the measured corpus
-  (dominant-family and minor sevenths dominate: 3,306 symbols measured);
+- Chord spelling: root with `b` or `#`, then quality: `7 9 11 13 maj maj7
+  maj9 maj7#11 m m7 m9 m11 m6 m69 m7b5 mmaj7 dim dim7 sus2 sus4 7sus4 aug
+  6 69 add9 madd9 7b5 7#5 7b9 7#9 7#11 7#9#11 7b13 13b9 alt`, plus slash
+  bass (`C7/E`). Jazz shorthand normalizes: `C-7` is `Cm7`, `min` is `m`,
+  `sus` is `sus4`, `7alt` is `alt`, `aug7` is `7#5`. This list covers
+  every quality in the measured corpus plus the working jazz set;
   anything outside it is an error until added deliberately.
 
 ### 3.4 Figures — notated material
