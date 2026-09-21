@@ -127,7 +127,10 @@ convention, not a voicing.
   and the findings name every split it made, so you can overrule any
   it got wrong — your own hyphens always win. Slashes group the words
   by PHRASE, and each group lands on one phrase of your melody (the
-  phrases are wherever your line breathes — where a rest prints). Get
+  phrases are wherever your line breathes — where a rest prints; a
+  quick quarter-note breath rounds away at chart altitude, so a breath
+  that should anchor a phrase wants a half-beat of real air, or skip
+  the slashes and let the words ride note for note). Get
   a phrase wrong and the build names it: "the phrase at bar 4 has 3
   notes but 'windows shine on' gives 4 syllables." Don't know the
   shape? Put in anything ("la / la") and the refusal reads the whole
@@ -176,15 +179,15 @@ And the chart says how its pages look:
 
     look: jazz, measure numbers
 
-`jazz` (or `handwritten`) is the big-band face; `engraved` is the
-clean classical one. (As of tonight Copyist draws every single-staff
-part page itself — MuseScore only steps in for the conductor score and
-grand-staff parts, and the build says when it borrowed. The look:
-presets apply to the borrowed pages; Copyist's own pages have one clean
-face for now, and every font and margin becomes a chart setting as the
-engraver grows.) Add `landscape`, `staff 2.0` for bigger print —
-easier for low-vision readers — and `measure numbers` for a number on
-every bar. One line, every page and part agrees.
+`jazz` is the big-band hand (MuseJazz), `handwritten` the looser
+script (Petaluma), `engraved` the clean classical serif (Edwin) —
+which is also what you get with no look: line at all; `plain` keeps
+plain type. Copyist draws every page itself now and dresses the
+words — title, chords, lyrics, texts — in the look's own face,
+embedded in the PDF so it reads the same on any machine. Add
+`landscape`, `staff 2.0` for bigger print — easier for low-vision
+readers — and `measure numbers` for a number on every bar. One line,
+every page and part agrees.
 
 ## Borrowing lines — double, cue, and the build
 

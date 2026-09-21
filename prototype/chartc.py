@@ -1534,7 +1534,11 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     plan['texts'][target].append(
                         (first - plan['start'] + 1, f"({srcl} cue)"))
                 for i in items:
-                    resolved[target].append(dict(i, cue=is_cue,
+                    r = i['res']
+                    if r.get('lyrics'):
+                        # a double plays the line; only the voice sings
+                        r = dict(r, lyrics=None, lyrics_text=None)
+                    resolved[target].append(dict(i, res=r, cue=is_cue,
                                                  src_label=srcl))
 
     return resolved, horn_of, (fifths, mode)

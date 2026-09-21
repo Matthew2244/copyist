@@ -1391,6 +1391,38 @@ def check_engraver():
     check("the part PDF embeds the font (Type0 + FontFile3)",
           b"/FM" in raw and b"/FontFile3" in raw
           and b"/Identity-H" in raw, "no embedded font in t.pdf")
+    check("the default pages carry a text face beside Leland",
+          raw.count(b"/FontFile3") >= 2 and b"/FE0" in raw,
+          "no embedded text face in t.pdf")
+
+    # each look dresses the words in its own face; plain stays built-in
+    for look, want in (('handwritten', True), ('jazz', True),
+                       ('plain', False)):
+        lp = os.path.join(tmp, f"l-{look}.pdf")
+        ok, why = chartengrave.engrave(
+            os.path.join(out, "E — tenor.musicxml"), lp, look=look)
+        lraw = open(lp, "rb").read()
+        got = b"/FE0" in lraw
+        check(f"look: {look} {'uses' if want else 'skips'} a text face",
+              ok and got == want, f"{ok} {why} face={got}")
+
+    # the alto clef engraves (viola and friends)
+    cxml = os.path.join(tmp, "c.musicxml")
+    open(cxml, "w").write(
+        '<score-partwise><work><work-title>C</work-title></work>'
+        '<part-list><score-part id="P1">'
+        '<part-name>viola</part-name></score-part></part-list>'
+        '<part id="P1"><measure number="1">'
+        '<attributes><divisions>24</divisions>'
+        '<time><beats>4</beats><beat-type>4</beat-type></time>'
+        '<clef><sign>C</sign><line>3</line></clef></attributes>'
+        '<note><pitch><step>C</step><octave>4</octave></pitch>'
+        '<duration>96</duration><voice>1</voice><type>whole</type>'
+        '</note></measure></part></score-partwise>')
+    ok, why = chartengrave.engrave(cxml, os.path.join(tmp, "c.pdf"))
+    check("the alto clef engraves", ok and
+          os.path.getsize(os.path.join(tmp, "c.pdf")) > 2000,
+          f"{ok} {why}")
     shutil.rmtree(tmp, ignore_errors=True)
 
 

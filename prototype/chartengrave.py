@@ -52,7 +52,7 @@ def step_pos(step, octave, clef):
 # registered to their staff lines — the font was designed for exactly
 # this use.
 SMUFL = {
-    'gClef': 0xE050, 'fClef': 0xE062, 'percClef': 0xE069,
+    'gClef': 0xE050, 'cClef': 0xE05C, 'fClef': 0xE062, 'percClef': 0xE069,
     'flat': 0xE260, 'natural': 0xE261, 'sharp': 0xE262,
     'wholeHead': 0xE0A2, 'halfHead': 0xE0A3, 'blackHead': 0xE0A4,
     'restW': 0xE4E3, 'restH': 0xE4E4, 'restQ': 0xE4E5,
@@ -155,23 +155,57 @@ class MusicFont:
 _FONT_CACHE = {}
 
 
-def music_font():
-    """Leland, from the repo first, else the MuseScore bundle; None
-    means the hand-drawn glyphs carry the page."""
-    if 'leland' in _FONT_CACHE:
-        return _FONT_CACHE['leland']
+def load_font(fname):
+    """An OTF by file name, from the repo's fonts/ first, else the
+    MuseScore bundle; None means the fallback carries on."""
+    if fname in _FONT_CACHE:
+        return _FONT_CACHE[fname]
     here = os.path.dirname(os.path.abspath(__file__))
-    for p in (os.path.join(here, '..', 'fonts', 'Leland.otf'),
+    for p in (os.path.join(here, '..', 'fonts', fname),
               '/Applications/MuseScore 4.app/Contents/Resources/fonts/'
-              'Leland.otf'):
+              + fname):
         if os.path.exists(p):
             try:
-                _FONT_CACHE['leland'] = MusicFont(p)
+                _FONT_CACHE[fname] = MusicFont(p)
             except Exception:
-                _FONT_CACHE['leland'] = None
-            return _FONT_CACHE['leland']
-    _FONT_CACHE['leland'] = None
+                _FONT_CACHE[fname] = None
+            return _FONT_CACHE[fname]
+    _FONT_CACHE[fname] = None
     return None
+
+
+def music_font():
+    return load_font('Leland.otf')
+
+
+# every look dresses the words in its own hand: Edwin is Leland's
+# own text companion (the default and the engraved look), MuseJazz
+# Text is the classic jazz chart hand, Petaluma Script the looser
+# handwritten one. 'plain' keeps the built-in Helvetica.
+FACE_FAMILIES = {
+    'edwin': ('Edwin-Roman.otf', 'Edwin-Bold.otf', 'Edwin-Italic.otf'),
+    'jazz': ('MuseJazzText.otf',) * 3,
+    'handwritten': ('PetalumaScript.otf',) * 3,
+}
+
+
+def text_faces(look):
+    words = (look or '').lower()
+    if 'plain' in words:
+        return {}
+    fam = 'edwin'
+    if 'jazz' in words:
+        fam = 'jazz'
+    if 'handwritten' in words:
+        fam = 'handwritten'
+    reg, bold, ital = FACE_FAMILIES[fam]
+    faces = {}
+    for tag, fn in (('H', reg), ('HB', bold), ('HO', ital),
+                    ('TB', bold), ('TBI', ital)):
+        f = load_font(fn)
+        if f:
+            faces[tag] = f
+    return faces
 
 
 # ------------------------------------------------------------ pdf bones
@@ -184,11 +218,26 @@ class Pdf:
              'HO': 'Helvetica-Oblique', 'TI': 'Times-Italic',
              'TB': 'Times-Bold', 'TBI': 'Times-BoldItalic'}
 
-    def __init__(self, scale=1.0, music=None):
+    def __init__(self, scale=1.0, music=None, faces=None):
         self.pages = []
         self.buf = []
         self.scale = scale
         self.music = music
+        self.faces = faces or {}
+        self.face_res = {}          # font object -> /FE<n> resource
+        for f in self.faces.values():
+            if id(f) not in self.face_res:
+                self.face_res[id(f)] = f"FE{len(self.face_res)}"
+
+    def tw(self, s, size, font='H'):
+        """The real width of s in the embedded face, or the built-in
+        estimate."""
+        face = self.faces.get(font)
+        if face:
+            return sum(face.adv[min(face.cmap.get(ord(c), 0),
+                                    len(face.adv) - 1)]
+                       for c in s) * size / face.upem
+        return 0.52 * size * len(s)
 
     def glyph(self, x, y, name, size):
         """One SMuFL glyph at its registration point. True if drawn."""
@@ -231,10 +280,16 @@ class Pdf:
         self._w(f"{w:.2f} w " + " ".join(ops))
 
     def text(self, x, y, s, size=9, font='H', center=False, right=False):
-        s = s.replace('\\', r'\\').replace('(', r'\(').replace(')', r'\)')
+        face = self.faces.get(font)
         if center or right:
-            est = 0.52 * size * len(s)
+            est = self.tw(s, size, font)
             x -= est / 2 if center else est
+        if face:
+            gids = "".join(f"{face.cmap.get(ord(c), 0):04X}" for c in s)
+            self._w(f"BT /{self.face_res[id(face)]} {size:.1f} Tf "
+                    f"{x:.2f} {y:.2f} Td <{gids}> Tj ET")
+            return x
+        s = s.replace('\\', r'\\').replace('(', r'\(').replace(')', r'\)')
         self._w(f"BT /{'F' + font} {size:.1f} Tf "
                 f"{x:.2f} {y:.2f} Td ({s}) Tj ET")
         return x
@@ -251,29 +306,45 @@ class Pdf:
         for tag, name in self.FONTS.items():
             font_ids[tag] = add(f"<< /Type /Font /Subtype /Type1 "
                                 f"/BaseFont /{name} >>")
-        music_ref = ""
-        if self.music:
-            fdata = zlib.compress(self.music.data)
+        def embed_otf(font, psname):
+            fdata = zlib.compress(font.data)
             ff = add(f"<< /Length {len(fdata)} /Filter /FlateDecode "
                      "/Subtype /OpenType >>\nstream\n"
                      + fdata.decode('latin-1') + "\nendstream")
-            fd = add("<< /Type /FontDescriptor /FontName /Leland "
-                     "/Flags 4 /FontBBox [-200 -1200 2000 1500] "
+            fd = add(f"<< /Type /FontDescriptor /FontName /{psname} "
+                     "/Flags 4 /FontBBox [-1000 -1200 3000 1500] "
                      "/ItalicAngle 0 /Ascent 1000 /Descent -300 "
                      "/CapHeight 800 /StemV 50 "
                      f"/FontFile3 {ff} 0 R >>")
-            cid = add("<< /Type /Font /Subtype /CIDFontType0 "
-                      "/BaseFont /Leland /CIDSystemInfo "
+            # glyph advances, 1000/em — text is unreadable without
+            ws = " ".join(str(round(a * 1000 / font.upem))
+                          for a in font.adv)
+            cid = add(f"<< /Type /Font /Subtype /CIDFontType0 "
+                      f"/BaseFont /{psname} /CIDSystemInfo "
                       "<< /Registry (Adobe) /Ordering (Identity) "
                       "/Supplement 0 >> "
-                      f"/FontDescriptor {fd} 0 R /DW 0 >>")
-            f0 = add("<< /Type /Font /Subtype /Type0 /BaseFont /Leland "
-                     "/Encoding /Identity-H "
-                     f"/DescendantFonts [{cid} 0 R] >>")
-            music_ref = f" /FM {f0} 0 R"
+                      f"/FontDescriptor {fd} 0 R "
+                      f"/DW {round(font.adv[-1] * 1000 / font.upem)} "
+                      f"/W [0 [{ws}]] >>")
+            return add(f"<< /Type /Font /Subtype /Type0 "
+                       f"/BaseFont /{psname} /Encoding /Identity-H "
+                       f"/DescendantFonts [{cid} 0 R] >>")
+
+        face_refs = ""
+        seen = {}
+        for f in self.faces.values():
+            if id(f) in seen:
+                continue
+            seen[id(f)] = embed_otf(f, f"Face{len(seen)}")
+            face_refs += f" /{self.face_res[id(f)]} {seen[id(f)]} 0 R"
+        music_ref = ""
+        if self.music:
+            music_ref = (" /FM "
+                         + str(embed_otf(self.music, 'Leland'))
+                         + " 0 R")
         res = ("<< /Font << "
                + " ".join(f"/F{t} {i} 0 R" for t, i in font_ids.items())
-               + music_ref + " >> >>")
+               + music_ref + face_refs + " >> >>")
         page_ids = []
         kids_id = len(objs) + 2 * len(self.pages) + 1
         for content in self.pages:
@@ -381,10 +452,20 @@ def draw_clef(pdf, x, top, clef):
     if pdf.music:
         name, yy = {'G': ('gClef', top - 3 * SP),
                     'F': ('fClef', top - SP),
+                    'C': ('cClef', mid),
                     'percussion': ('percClef', mid)}.get(
-            clef, ('gClef', top - 3 * SP)) if clef != 'C' else (None, 0)
+            clef, ('gClef', top - 3 * SP))
         if name and pdf.glyph(x - SP, yy, name, 4 * SP):
             return
+    if clef == 'C':                     # plain alto clef: bars + wings
+        pdf.line(x - SP, top, x - SP, top - STAFF, w=2.4)
+        pdf.line(x + 0.1 * SP, top, x + 0.1 * SP, top - STAFF, w=0.9)
+        for d in (1, -1):
+            pdf.bez([(x + 0.3 * SP, mid),
+                     ((x + 1.7 * SP, mid + d * 0.4 * SP),
+                      (x + 1.7 * SP, mid + d * 1.8 * SP),
+                      (x + 0.5 * SP, mid + d * 1.8 * SP))], w=1.3)
+        return
     if clef == 'G':
         g = top - 3 * SP            # the G line
         s = SP
@@ -769,22 +850,23 @@ def measure_width(meas):
                w + cw, 12 * SP)
 
 
-def engrave(xml_path, pdf_path):
+def engrave(xml_path, pdf_path, look=None):
     """One of our documents -> a PDF, or (False, why). A single part
-    gets the part treatment; several parts get the conductor score."""
+    gets the part treatment; several parts get the conductor score.
+    `look` picks the text hand (jazz, handwritten, engraved, plain)."""
     xml = open(xml_path, encoding='utf-8').read()
     pids = re.findall(r'<score-part id="([^"]+)">', xml)
     names = dict(re.findall(r'<score-part id="([^"]+)">.*?<part-name[^>]*>'
                             r'([^<]*)</part-name>', xml, re.S))
     if len(pids) != 1:
-        return engrave_score(xml, pids, names, pdf_path)
+        return engrave_score(xml, pids, names, pdf_path, look=look)
     measures, why = parse_part(xml, pids[0])
     if measures is None:
         return False, why
     title = re.search(r'<work-title>([^<]*)</work-title>', xml)
     composer = re.search(r'<creator type="composer">([^<]*)</creator>', xml)
 
-    pdf = Pdf(music=music_font())
+    pdf = Pdf(music=music_font(), faces=text_faces(look))
     top_y = PAGE_H - MARGIN - TITLE_H
     first_page = True
 
@@ -867,7 +949,7 @@ SCORE_GAP = 9 * SP          # between one part's staff and the next
 SYS_HEAD = 7 * SP           # the top part's header band
 
 
-def engrave_score(xml, pids, names, pdf_path):
+def engrave_score(xml, pids, names, pdf_path, look=None):
     """Every part, stacked and synchronized — the conductor's page,
     drawn at score size: the whole layout happens on a virtual page and
     one PDF transform shrinks it, the way real scores drop the staff
@@ -895,7 +977,7 @@ def engrave_score(xml, pids, names, pdf_path):
     want = 2 if len(parts) > 3 else 3
     scale = max(0.38, min(0.75,
                 (PAGE_H - 2 * MARGIN - TITLE_H) / (want * per_sys)))
-    pdf = Pdf(scale=scale, music=music_font())
+    pdf = Pdf(scale=scale, music=music_font(), faces=text_faces(look))
     W, H, M = PAGE_W / scale, PAGE_H / scale, MARGIN / scale
 
     pdf.text(W / 2, H - M - 14 / scale,
@@ -1215,7 +1297,7 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                              w=0.8)
         ax = cx - 2.1 * SP
         for n, yy in zip(notes, ys):
-            if n.alter:
+            if n.alter and not n.slash:    # a slash has no pitch to alter
                 draw_accidental(pdf, ax, yy, n.alter, scale=scale)
                 ax -= 1.7 * SP
         head = ('slash' if n0.slash else DUR_HEADS.get(n0.ntype, 'black'))
@@ -1290,7 +1372,8 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             lx = pdf.text(cx, bottom_y - 4.6 * SP, shown, size=8.5,
                           font='H', center=True)
             if ext:
-                pdf.line(lx + 0.55 * 8.5 * len(shown) + 2,
+                pdf.line(lx + max(0.55 * 8.5 * len(shown),
+                                  pdf.tw(shown, 8.5, 'H')) + 2,
                          bottom_y - 4.6 * SP,
                          xat(pos + n0.dur * 0.9),
                          bottom_y - 4.6 * SP, w=0.8)
@@ -1374,14 +1457,15 @@ def draw_chord_symbol(pdf, x, y, sym):
 
     def piece(px, letter, acc, rest=''):
         pdf.text(px, y, letter, size=size, font='HB')
-        px += 0.68 * size
+        px += max(0.68 * size, pdf.tw(letter, size, 'HB') + 1.5)
         if acc:
             draw_accidental(pdf, px + 1.5, y + 3.2,
                             -1 if acc == 'b' else 1, scale=0.52)
             px += 4.6
         if rest:
             pdf.text(px, y, rest, size=size * 0.86, font='HB')
-            px += 0.56 * size * 0.86 * len(rest)
+            px += max(0.56 * size * 0.86 * len(rest),
+                      pdf.tw(rest, size * 0.86, 'HB') + 1)
         return px
     px = piece(x, m.group(1), m.group(2), m.group(3) or '')
     if m.group(4):
