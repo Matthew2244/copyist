@@ -212,6 +212,126 @@ def build_choir(shelf):
     return made
 
 
+# ------------------------------------------------------------- organ
+#
+# No openly licensed deep multisample of a real tonewheel organ
+# exists (verified hard, 2026-09-21). But a tonewheel organ is the
+# one instrument additive synthesis genuinely IS: 91 sine wheels,
+# drawbars mixing nine harmonics with foldback at the top, percussion
+# borrowing the third harmonic for a beat, key click, and a Leslie —
+# amplitude, vibrato and stereo movement from a spinning horn over a
+# slower drum. So Copyist renders its own B3 sample set, offline,
+# and owns every byte. Two registrations, both Leslie speeds.
+
+_ORGANS = [
+    # (name, drawbars 16' 5 1/3' 8' 4' 2 2/3' 2' 1 3/5' 1 1/3' 1',
+    #  percussion, leslie_hz)
+    ('organ-gospel-fast', (8, 8, 8, 8, 6, 6, 5, 5, 4), True, 6.8),
+    ('organ-gospel-slow', (8, 8, 8, 8, 6, 6, 5, 5, 4), True, 0.72),
+    ('organ-jazz-slow', (8, 8, 8, 0, 0, 0, 0, 0, 0), True, 0.72),
+]
+_HARM = (0.5, 1.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0)
+
+
+def _render_organ_note(freq, drawbars, percussion, leslie_hz, sr,
+                       seconds=8.0):
+    """One tonewheel note through the Leslie -> (L, R) float lists."""
+    import math
+    n = int(seconds * sr)
+    L = [0.0] * n
+    R = [0.0] * n
+    two_pi = 2 * math.pi
+    for bar, mult in zip(drawbars, _HARM):
+        if not bar:
+            continue
+        f = freq * mult
+        while f > 5924.6:               # tonewheel foldback, the real
+            f /= 2.0                    # generator's top octave
+        amp = (bar / 8.0) ** 1.5 * 3000.0
+        # the horn spins: vibrato plus tremolo, upper partials moving
+        # harder than the drum-fed lows (crossover near 800 Hz)
+        horn = min(max((f - 400.0) / 800.0, 0.15), 1.0)
+        fm = 0.006 * horn               # ~10 cents at full horn
+        am = 0.35 * horn
+        rate = two_pi * leslie_hz / sr
+        w = two_pi * f / sr
+        phase = 0.0
+        rot = 0.0
+        for i in range(n):
+            rot = rate * i
+            m = math.sin(rot)
+            phase += w * (1.0 + fm * m)
+            s = math.sin(phase) * amp
+            # two virtual mics, the horn sweeping between them
+            L[i] += s * (1.0 + am * m)
+            R[i] += s * (1.0 - am * m)
+    if percussion:
+        f = freq * 3.0
+        while f > 5924.6:
+            f /= 2.0
+        w = two_pi * f / sr
+        dec = math.exp(math.log(0.001) / (0.35 * sr))
+        env = 1.0
+        for i in range(int(0.35 * sr)):
+            s = math.sin(w * i) * env * 2600.0
+            env *= dec
+            L[i] += s
+            R[i] += s
+    # key click: a few ms of filtered noise at the attack
+    x = 1234567
+    for i in range(int(0.004 * sr)):
+        x = (x * 1103515245 + 12345) & 0x7FFFFFFF
+        s = ((x / 0x3FFFFFFF) - 1.0) * 900.0 * (1.0 - i / (0.004 * sr))
+        L[i] += s
+        R[i] += s
+    return L, R
+
+
+def build_organ(shelf, sr=44100):
+    """Render the tonewheel set (every third semitone, C1..C6) and
+    write one SFZ per registration. Skips work already on disk."""
+    import struct as _st
+    import wave as _wave
+    out_dir = os.path.join(shelf, 'Copyist-Extras', 'organ-samples')
+    os.makedirs(out_dir, exist_ok=True)
+    made = []
+    keys = list(range(24, 85, 3))
+    for name, bars, perc, hz in _ORGANS:
+        lines = ['// Rendered by Copyist mkshelf — its own tonewheels',
+                 '// and Leslie; CC0 by construction. Edits do not',
+                 '// last.', '<control>', 'default_path=organ-samples/',
+                 '', '<group>', 'ampeg_release=0.25', 'loop_mode=loop_continuous',
+                 'loop_start=%d' % (2 * sr), 'loop_end=%d' % (6 * sr - 1), '']
+        for i, k in enumerate(keys):
+            wav_name = '%s_%d.wav' % (name, k)
+            p = os.path.join(out_dir, wav_name)
+            if not os.path.exists(p):
+                freq = 440.0 * 2 ** ((k - 69) / 12.0)
+                L, R = _render_organ_note(freq, bars, perc, hz, sr)
+                frames = bytearray()
+                for a, b in zip(L, R):
+                    frames += _st.pack('<hh',
+                                       int(max(-1, min(1, a / 32767.0))
+                                           * 32767),
+                                       int(max(-1, min(1, b / 32767.0))
+                                           * 32767))
+                with _wave.open(p, 'wb') as w:
+                    w.setnchannels(2)
+                    w.setsampwidth(2)
+                    w.setframerate(sr)
+                    w.writeframes(bytes(frames))
+            lo = keys[i - 1] + 2 if i else 0
+            hi = k + 1 if i + 1 < len(keys) else 127
+            lines.append('<region> sample=%s lokey=%d hikey=%d '
+                         'pitch_keycenter=%d' % (wav_name, lo, hi, k))
+        sfz_path = os.path.join(shelf, 'Copyist-Extras',
+                                name + '.sfz')
+        with open(sfz_path, 'w', encoding='utf-8') as fh:
+            fh.write('\n'.join(lines) + '\n')
+        made.append(name + '.sfz')
+    return made
+
+
 def main(shelf):
     made = []
     for rel, shift, name, spread in MAPS:

@@ -53,8 +53,7 @@ _SFZ_VOICES = (
     (('keyboard.piano', 'keyboard.harpsichord', 'keyboard.celesta'),
      {'sus': 'Salamander/SalamanderGrandPianoV3.sfz'}),
     (('keyboard.organ',),
-     {'sus': 'Organ-DrawbarOrganEmulation/'
-             'DrawbarOrganEmulation-20190712.sfz'}),
+     {'sus': 'Copyist-Extras/organ-gospel-slow.sfz'}),
     (('pluck.guitar',),
      {'sus': 'BlackAndGreenGuitars/Programs/04-green_twang.sfz',
       'stac': 'BlackAndGreenGuitars/Programs/05-green_staccato.sfz'}),
