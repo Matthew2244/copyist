@@ -5,8 +5,12 @@ writing the code. A chart is a plain text file — readable by any screen
 reader, editable in any editor, shareable like any file — that says what
 you would say to the band. You type it the way you'd say it, run one
 command, and out come the conductor score, a part per player, a spoken
-version of every part, and a robot recording of exactly what the pages
-say, so you can proofread with your ears before a single player sees it.
+version of every part, and a recording of exactly what the pages say —
+played on real recorded instruments when the sample shelf is installed
+(`chart sounds` shows it), a plain synth otherwise — so you can
+proofread with your ears before a single player sees it. Your slash
+bars play too: the listen realizes drums, bass and comping from your
+own chord symbols, while the pages keep their slashes.
 
 The worked example below is an invented tune called *Uptown Local*.
 
@@ -304,8 +308,9 @@ detective work.
 
 That one command checks the chart, builds score and parts, renders the
 PDFs, writes a spoken read-aloud for every part, and bounces the listen
-MP3 — robot horns playing exactly what the pages say. The workflow that
-works:
+MP3 — the band playing exactly what the pages say, with your groove
+bars realized into real time-keeping from the chord symbols. The
+workflow that works:
 
 1. Listen to the MP3. Anywhere it sounds wrong, the page is wrong.
 2. Open the read-aloud for that part and find the bar — it speaks your

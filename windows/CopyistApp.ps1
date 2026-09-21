@@ -134,7 +134,8 @@ function Do-Settings {
     while ($true) {
         $desk = Run-Chart 'settings'
         $c = Choose-FromList ($desk + "`nChange which one?") @(
-            'composer', 'look', 'notify', 'open', 'Back')
+            'composer', 'look', 'notify', 'open', 'sounds',
+            'sounds_dir', 'Back')
         if (-not $c -or $c -eq 'Back') { return }
         if ($c -in @('notify', 'open')) {
             $v = Choose-FromList "Set $c to:" @('yes', 'no', 'Back')
@@ -143,6 +144,12 @@ function Do-Settings {
             $hint = ''
             if ($c -eq 'look') {
                 $hint = ' The looks are jazz, handwritten, engraved and plain; empty lets each chart decide.'
+            }
+            if ($c -eq 'sounds') {
+                $hint = ' A sample library name or an .sf2 file path; empty plays the plain built-in synth.'
+            }
+            if ($c -eq 'sounds_dir') {
+                $hint = ' Where sample libraries live and download; empty uses the standard spot.'
             }
             $v = [Microsoft.VisualBasic.Interaction]::InputBox(
                 "New value for $c.$hint", 'Copyist', '')
@@ -157,6 +164,7 @@ while ($true) {
         'Build - pages, listen MP3, findings',
         'Check - compile only, nothing rendered',
         'Read a part aloud',
+        'Sounds - the band''s sample shelf',
         'Settings - the defaults desk',
         'Help - what this is',
         'Quit')
@@ -172,6 +180,7 @@ while ($true) {
         'Build*' { Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
         'Check*' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }
         'Read*' { Do-ReadPart }
+        'Sounds*' { Show-Info (Run-Chart 'sounds') }
         'Settings*' { Do-Settings }
         'Help*' {
             Show-Info ('Copyist turns a chart file - plain words and a ' +

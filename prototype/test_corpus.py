@@ -720,16 +720,27 @@ def check_audio():
     check("a tie across the barline is one event",
           len(fl['events']) == 2 and abs(fl['events'][0][1] - 8.0) < 1e-9,
           f"got {fl['events']}")
-    check("groove parts are silent in the listen",
-          not next(p for p in plan['parts']
-                   if p['name'] == 'drums')['events'])
+    # the 2026-09-20 ruling: groove bars realize into a real rhythm
+    # section in the LISTENING document (the pages keep their slashes)
+    drum_ev = next(p for p in plan['parts']
+                   if p['name'] == 'drums')['events']
+    check("groove parts play a realized rhythm section in the listen",
+          len(drum_ev) >= 6, f"got {len(drum_ev)} events")
+    check("the realized drums stay inside the chart",
+          max(e[0] + e[1] for e in drum_ev) <= 12.0 + 1e-6)
+    page = open(os.path.join(tmp, "ab", "A — drums.musicxml"),
+                encoding="utf-8").read()
+    check("the drums PAGE still prints slashes, not the realization",
+          '<notehead>slash</notehead>' in page
+          and '<unpitched><display-step>F</display-step>'
+              '<display-octave>5' not in page)
 
     wav = os.path.join(tmp, "a.wav")
     secs, n_parts, n_notes, _ = chartaudio.render(listen, wav)
-    # the tied note spans bars 1-2 (8 quarters), the last quarter ends
-    # at 4.5s, and the render adds its 1.5s tail
+    # the realized drums play to the end of bar 3 (12 quarters, 6.0s
+    # at 120), and the render adds its 1.5s tail
     check("the render ends after the last release plus the tail",
-          abs(secs - 6.0) < 0.6, f"got {secs}")
+          abs(secs - 7.5) < 0.6, f"got {secs}")
     # the held A4 must actually BE 440 Hz: a small DFT over one second
     with wavemod.open(wav) as w:
         raw = w.readframes(int(1.0 * chartaudio.SR))
@@ -765,7 +776,7 @@ def check_audio():
           f"got {len(fl['events'])}")
     sched = chartaudio._seconds(plan)[0]
     beat = 0.5
-    fr = sorted({round((a % beat) / beat, 2) for a, _, _, _ in sched
+    fr = sorted({round((a % beat) / beat, 2) for a, _, _, _, _ in sched
                  if (a % beat) / beat > 0.1})
     check("the swung offbeat plays at two-thirds", fr == [0.67],
           f"got {fr}")

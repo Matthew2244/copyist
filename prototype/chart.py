@@ -169,7 +169,55 @@ SETTINGS = (
     ('notify', 'no', "a phone ping when a build lands — for the long "
                      "ones you walk away from"),
     ('open', 'no', "pop the score PDF open the moment a build lands"),
+    ('sounds', '', "the sample library the listen plays on — a "
+                   "library's name or an .sf2 file's path; empty "
+                   "plays the plain built-in synth"),
+    ('sounds_dir', '', "where sample libraries live and download; "
+                       "empty uses the standard spot for this "
+                       "computer"),
 )
+
+
+def sounds_home(cfg=None):
+    """Where sample libraries live: the setting when given, else the
+    standard place on each platform."""
+    if cfg and cfg.get('sounds_dir'):
+        return os.path.expanduser(cfg['sounds_dir'])
+    if sys.platform == 'darwin':
+        return os.path.expanduser(
+            '~/Library/Application Support/Copyist/Sounds')
+    if sys.platform == 'win32':
+        return os.path.join(os.environ.get('APPDATA', ''),
+                            'Copyist', 'Sounds')
+    return os.path.expanduser('~/.local/share/copyist/sounds')
+
+
+def resolve_sounds(cfg):
+    """What the band plays, as a path — or None for the built-in
+    synth. An empty setting plays the whole shelf (chartband picks the
+    recorded player per instrument, GM SoundFont as the floor); the
+    setting may also be an .sf2 path for one library, or a name
+    matched loosely against the shelf's SoundFonts."""
+    import glob as _g
+    want = (cfg.get('sounds') or '').strip()
+    home = sounds_home(cfg)
+    floors = sorted(_g.glob(os.path.join(home, '*.sf2'))
+                    + _g.glob(os.path.join(home, '*', '*.sf2')))
+    if not want:
+        if floors or _g.glob(os.path.join(home, '*', '*.sfz')) \
+                or _g.glob(os.path.join(home, '*', '*', '*.sfz')):
+            return home
+        return None
+    if want.lower() in ('shelf', 'band', 'all'):
+        return home if os.path.isdir(home) else None
+    p = os.path.expanduser(want)
+    if os.path.exists(p) and p.lower().endswith('.sf2'):
+        return p
+    key = want.lower()
+    for cand in floors:
+        if key in os.path.basename(cand).lower():
+            return cand
+    return None
 
 
 def load_cfg():
@@ -200,7 +248,7 @@ def run_settings(argv):
     k, v = k.strip().lower(), v.strip()
     if k not in {s[0] for s in SETTINGS}:
         sys.exit(f"chart: no setting called '{k}' — settings lists "
-                 "the four that exist.")
+                 "the ones that exist.")
     if k in ('notify', 'open'):
         if v.lower() not in ('yes', 'no', 'on', 'off'):
             sys.exit(f"chart: {k} is yes or no.")
@@ -227,7 +275,79 @@ def run_settings(argv):
                  if v == 'yes' else
                  "open is off — the pages wait in the build folder."),
     }
+    if k == 'sounds':
+        found = resolve_sounds(cfg)
+        if not v:
+            lines[k] = ("sounds is unset — the listen plays the "
+                        "installed library if there is one, else the "
+                        "plain synth.")
+        elif found:
+            lines[k] = (f"sounds is now {v} — found "
+                        f"{os.path.basename(found)}; the listen plays "
+                        "on it.")
+        else:
+            lines[k] = (f"sounds is now {v} — nothing by that name is "
+                        "installed yet, so the listen plays the plain "
+                        "synth until it is. 'chart sounds' shows the "
+                        "shelf.")
+    if k == 'sounds_dir':
+        lines[k] = (f"sounds_dir is now {v or 'the standard spot'} — "
+                    f"libraries live in {sounds_home(cfg)}.")
     say(lines[k])
+
+
+def run_sounds():
+    """The sample shelf: which library the band plays, what else is
+    installed, and where libraries live. Every line states what is,
+    before anyone changes anything."""
+    import glob as _g
+    cfg = load_cfg()
+    home = sounds_home(cfg)
+    active = resolve_sounds(cfg)
+    say("Copyist sounds — the band's sample shelf:")
+    if active and os.path.isdir(active):
+        import chartband
+        shelf_obj = chartband.Shelf(active)
+        n = sum(1 for frags, v in chartband._SFZ_VOICES
+                for k, rel in v.items()
+                if os.path.exists(os.path.join(active, rel)))
+        say(f"  Playing now: the whole band shelf — {n} recorded "
+            "instrument programs"
+            + (", GM SoundFont as the floor"
+               if shelf_obj.sf2 else "") + ".")
+    elif active:
+        say(f"  Playing now: "
+            f"{os.path.splitext(os.path.basename(active))[0]}"
+            + ("" if cfg.get('sounds') else
+               " (the one installed library — nothing is set)"))
+    else:
+        if (cfg.get('sounds') or '').strip():
+            say(f"  The sounds setting says "
+                f"'{cfg['sounds']}' but nothing by that name is "
+                "installed — the plain synth plays until it is.")
+        else:
+            say("  Playing now: the plain built-in synth — no sample "
+                "library installed yet.")
+    shelf = sorted(_g.glob(os.path.join(home, '*.sf2'))
+                   + _g.glob(os.path.join(home, '*', '*.sf2')))
+    libs = sorted(d for d in _g.glob(os.path.join(home, '*'))
+                  if os.path.isdir(d)
+                  and (_g.glob(os.path.join(d, '*.sfz'))
+                       or _g.glob(os.path.join(d, '*', '*.sfz'))))
+    if shelf or libs:
+        say(f"  On the shelf in {home}:")
+        for p in shelf:
+            mb = os.path.getsize(p) / 1e6
+            say(f"    {os.path.splitext(os.path.basename(p))[0]} "
+                f"({mb:.0f} MB, General MIDI floor)")
+        for d in libs:
+            say(f"    {os.path.basename(d)} (recorded samples)")
+    else:
+        say(f"  The shelf is empty ({home}) — drop an .sf2 library "
+            "there, or point the sounds setting at one anywhere on "
+            "disk.")
+    say("  Choose with: chart set sounds=<name or path>; back to the "
+        "synth with: chart set sounds=")
 
 
 def notify_build(title, line, failed=False):
@@ -275,19 +395,28 @@ def find_mscore():
 
 
 def render_listen(listen_src, mp3, say, only=None, count_in=None,
-                  lead=None):
+                  lead=None, samples=None):
     """Copyist synthesizes the listening document itself, then encodes.
     True with the MP3 in place (or, without ffmpeg, the WAV and a
-    sentence)."""
+    sentence). With a sample library the band plays real recorded
+    instruments; a library that fails mid-render falls back to the
+    plain synth and says so, because a build must land either way."""
     wav = mp3[:-4] + ".wav"
     try:
         _, _, _, lead_s = chartaudio.render(listen_src, wav, only=only,
-                                            count_in=count_in)
+                                            count_in=count_in,
+                                            samples=samples)
         if lead is not None:
             lead[0] = lead_s
     except SystemExit:
         raise
     except Exception as e:
+        if samples:
+            say("The sample library balked mid-render "
+                f"({os.path.basename(samples)}: {e}) — the plain synth "
+                "is covering this one.")
+            return render_listen(listen_src, mp3, say, only=only,
+                                 count_in=count_in, lead=lead)
         say(f"Copyist hit a wall rendering its own audio: {e}")
         return False
     if chartaudio.to_mp3(wav, mp3):
@@ -438,6 +567,9 @@ def main():
         pass
     if len(sys.argv) > 1 and sys.argv[1] in ('settings', 'set'):
         run_settings(sys.argv[1:])
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == 'sounds':
+        run_sounds()
         return
     ap = argparse.ArgumentParser(
         description="Compile a chart and make everything a writer "
@@ -668,16 +800,33 @@ def main():
             say("No page for " + ", ".join(failed) + ".")
 
     if not args.no_listen and listen_src:
-        mp3 = os.path.join(title_dir,
-                           f"{title} — chart as written (robot horns).mp3")
+        band = resolve_sounds(cfg)
+        robot = os.path.join(title_dir,
+                             f"{title} — chart as written "
+                             "(robot horns).mp3")
+        played = os.path.join(title_dir,
+                              f"{title} — chart as written.mp3")
+        mp3 = played if band else robot
+        stale = robot if band else played
         lead = [0.0]
-        if render_listen(listen_src, mp3, say,
-                         count_in=args.count_in, lead=lead):
-            say("The listen file is ready — Copyist's own robot horns "
-                "playing exactly what the pages say"
-                + (f", after {args.count_in} bar(s) of count-in"
-                   if args.count_in else "")
-                + ". Anywhere it sounds wrong, the page is wrong.")
+        if render_listen(listen_src, mp3, say, count_in=args.count_in,
+                         lead=lead, samples=band):
+            if os.path.exists(stale) and os.path.exists(mp3):
+                os.remove(stale)       # the other band's old take
+            countin_words = (f", after {args.count_in} bar(s) of "
+                             "count-in" if args.count_in else "")
+            if band:
+                say("The listen file is ready — the band plays real "
+                    f"recorded instruments "
+                    f"({os.path.splitext(os.path.basename(band))[0]}), "
+                    "exactly what the pages say"
+                    + countin_words
+                    + ". Anywhere it sounds wrong, the page is wrong.")
+            else:
+                say("The listen file is ready — Copyist's own robot "
+                    "horns playing exactly what the pages say"
+                    + countin_words
+                    + ". Anywhere it sounds wrong, the page is wrong.")
         elif mscore and render(mscore, listen_src, mp3):
             say("Copyist's own render failed (report that), so MuseScore "
                 "played this one — the old robot horns.")
@@ -721,7 +870,8 @@ def main():
         nice = " + ".join(wanted)
         mp3 = os.path.join(title_dir, f"{title} — listen, {nice}.mp3")
         try:
-            if render_listen(listen_src, mp3, say, only=wanted):
+            if render_listen(listen_src, mp3, say, only=wanted,
+                             samples=resolve_sounds(cfg)):
                 say(f"Isolated listen ready: {nice}, alone.")
         except SystemExit:
             say(f'No parts matched --solo "{args.solo}" — '

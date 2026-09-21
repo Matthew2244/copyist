@@ -104,7 +104,7 @@ end currentValue
 on settingsDesk()
 	repeat
 		set desk to sh("chart settings")
-		set choice to choose from list {"composer", "look", "notify", "open", "Back"} with prompt desk & return & "Change which one?" with title "Copyist"
+		set choice to choose from list {"composer", "look", "notify", "open", "sounds", "sounds_dir", "Back"} with prompt desk & return & "Change which one?" with title "Copyist"
 		if choice is false then exit repeat
 		set k to item 1 of choice
 		if k is "Back" then exit repeat
@@ -119,6 +119,8 @@ on settingsDesk()
 			else
 				set hint to ""
 				if k is "look" then set hint to " The looks are jazz, handwritten, engraved and plain; empty lets each chart decide."
+				if k is "sounds" then set hint to " A sample library's name or an .sf2 file's full path; empty plays the plain built-in synth. The Sounds shelf on the main menu says what is installed."
+				if k is "sounds_dir" then set hint to " Where sample libraries live and download; empty uses the standard spot for this computer."
 				set d to display dialog "New value for " & k & "." & hint buttons {"Cancel", "Set"} default button "Set" cancel button "Cancel" default answer currentValue(k) with title "Copyist"
 				set v to text returned of d
 			end if
@@ -132,7 +134,7 @@ end settingsDesk
 
 on run
 	repeat
-		set choice to choose from list {"Build — pages, listen MP3, findings", "Check — compile only, nothing rendered", "Read a part aloud", "Settings — the defaults desk", "Help — what this is", "Quit"} with prompt "Copyist — from your played demo to pages a band can read. What are we doing?" with title "Copyist" default items {"Build — pages, listen MP3, findings"}
+		set choice to choose from list {"Build — pages, listen MP3, findings", "Check — compile only, nothing rendered", "Read a part aloud", "Sounds — the band's sample shelf", "Settings — the defaults desk", "Help — what this is", "Quit"} with prompt "Copyist — from your played demo to pages a band can read. What are we doing?" with title "Copyist" default items {"Build — pages, listen MP3, findings"}
 		if choice is false then
 			-- Escape (or Cancel) at the main menu must not kill the
 			-- app silently: every sublist goes BACK on Escape, so the
@@ -155,6 +157,8 @@ on run
 			else if c starts with "Read" then
 				set p to pickChart()
 				if p is not "" then readPart(p)
+			else if c starts with "Sounds" then
+				info(sh("chart sounds"))
 			else if c starts with "Settings" then
 				settingsDesk()
 			else if c starts with "Help" then
