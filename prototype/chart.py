@@ -816,9 +816,11 @@ def main():
             countin_words = (f", after {args.count_in} bar(s) of "
                              "count-in" if args.count_in else "")
             if band:
+                played_on = ("the sample shelf" if os.path.isdir(band)
+                             else os.path.splitext(
+                                 os.path.basename(band))[0])
                 say("The listen file is ready — the band plays real "
-                    f"recorded instruments "
-                    f"({os.path.splitext(os.path.basename(band))[0]}), "
+                    f"recorded instruments ({played_on}), "
                     "exactly what the pages say"
                     + countin_words
                     + ". Anywhere it sounds wrong, the page is wrong.")
