@@ -1,8 +1,23 @@
 # Copyist — Design
 
-**Status:** working prototype. Engine, both GUIs and the corpus are real; see
-§22 for exactly what is built and what is not.
-**Last updated:** 2026-08-04
+**Status:** the original design document, August 2026. Kept as the
+record of the decisions and their reasons — the D-numbers and section
+references below are cited throughout the code and corpus. **The
+software has since moved past several of this document's premises**;
+where a section below says something that is no longer true, a
+bracketed note marks it. The living spec for what Copyist actually is
+today is **CHART-FORMAT.md** (the chart language and compiler), with
+CHART-WRITING.md as the writer's guide and README.md as the front
+door. The biggest changes since this was written: Copyist **renders
+its own pages** (chartengrave.py, embedded fonts, no MuseScore) and
+**plays its own audio** (chartaudio.py); the chart format, the
+whole-band compiler and the 112-instrument table replaced the
+single-part converter as the center of gravity; and the August Swift/
+.NET GUIs in gui/ were retired in favour of dialog apps over the one
+CLI. §22's build table is superseded — see the 2026-09-20 addendum at
+its top.
+**Last updated:** 2026-09-20 (status notes only; design text is the
+2026-08-04 original)
 
 ---
 
@@ -122,6 +137,12 @@ two codebases stay genuinely thin.
 
 **Copyist does not render notation.** The score opens in MuseScore. Copyist's
 job is everything before that.
+
+> **[2026-09-20: no longer true — and the reversal is the story.]**
+> Copyist renders its own pages now (chartengrave.py: pure-stdlib PDF,
+> embedded SMuFL and text fonts, optical spacing, the conductor score)
+> and synthesizes its own audio (chartaudio.py). MuseScore remains only
+> as an optional fallback for grace notes inside lifted engravings.
 
 ### 5.2 Two thin UIs make the protocol load-bearing
 
@@ -864,6 +885,18 @@ directly would make the whole app GPL-3.
 ---
 
 ## 22. Built so far
+
+> **[2026-09-20 addendum: this table is the August snapshot and is
+> superseded.]** Since it was written: the chart format, compiler and
+> front door (chart.py) landed and are the product; tuplets,
+> transposing instruments (parts AND chord symbols), grand staff,
+> voltas, lyrics, per-bar meters, swing — all built and suite-tested
+> (163 checks in prototype/test_corpus.py); Copyist draws its own
+> pages and plays its own listen files with no MuseScore; the two
+> GUIs this table scores were retired for dialog apps over the CLI
+> (CopyistApp.applescript, windows/CopyistApp.ps1). The one MuseScore
+> borrow left: grace notes in lifted engravings. The rows below stand
+> only as history.
 
 | Area | State |
 |---|---|
