@@ -98,6 +98,8 @@ _SFZ_VOICES = (
     (('strings.group',),
      {'sus': _V + 'ViolinEnsSusVib.sfz',
       'stac': _V + 'ViolinEnsSpic.sfz'}),
+    (('voice.',),
+     {'sus': 'Copyist-Extras/choir-ah.sfz'}),
     (('pitched-percussion.glockenspiel',),
      {'sus': _V + 'Glockenspiel.sfz'}),
     (('pitched-percussion.marimba',), {'sus': _V + 'Marimba.sfz'}),
