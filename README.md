@@ -102,6 +102,21 @@ the number you have in your head.
 `check` compiles without building. `read` speaks the chart. `parts` lists the
 band. `diff` re-speaks what changed. Every one has a one letter shortcut.
 
+`chart settings` is the defaults desk: your composer name for new charts, a
+default look, a phone ping when a build lands, whether the score pops open.
+Every setting states what it is currently set to before you change it, because
+a screen reader user should never have to change something to learn what it was.
+
+## The apps
+
+The same brain answers to dialogs. On the Mac, compile `CopyistApp.applescript`
+into an app (the file's header has the one-line command): a menu of dialogs —
+build, check, open a part's read-aloud in TextEdit, the settings desk — every
+one of them shaped for a screen reader, with Escape working everywhere it can.
+On Windows, the `windows` folder holds `Copyist.bat`, the same menu in native
+Windows dialogs (written on a Mac, honestly untested on real Windows — the
+README in that folder says so too).
+
 The MIDI analysis underneath is still there and still standalone:
 
 ```bash
