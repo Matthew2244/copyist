@@ -1,0 +1,178 @@
+# CopyistApp.ps1 - Copyist with native Windows dialogs a screen reader
+# reads. Double-click Copyist.bat next to this file, or run:
+#   powershell -ExecutionPolicy Bypass -File CopyistApp.ps1
+#
+# Needs Python 3 from python.org (tick "Add python.exe to PATH").
+# Everything else is in this repository - no other installs.
+#
+# HONESTY NOTE: written on a Mac, not yet run on a real Windows
+# machine. The controls are plain WinForms - buttons, a list box, the
+# standard file dialog - chosen because NVDA and JAWS read them well.
+# If something misbehaves, that is a bug worth reporting.
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName Microsoft.VisualBasic
+
+$root = Split-Path -Parent $PSScriptRoot
+$chartPy = Join-Path $root 'prototype\chart.py'
+$lastFile = Join-Path $env:APPDATA 'copyist-last-chart.txt'
+
+function Show-Info([string]$msg) {
+    [System.Windows.Forms.MessageBox]::Show($msg, 'Copyist') | Out-Null
+}
+
+$py = $null
+foreach ($cand in @('py', 'python', 'python3')) {
+    if (Get-Command $cand -ErrorAction SilentlyContinue) { $py = $cand; break }
+}
+if (-not $py) {
+    Show-Info ("Copyist needs Python 3. Install it free from " +
+        "python.org and tick 'Add python.exe to PATH', then run this again.")
+    exit 1
+}
+if (-not (Test-Path $chartPy)) {
+    Show-Info "Cannot find prototype\chart.py next to this app - keep the windows folder inside the copyist folder."
+    exit 1
+}
+
+function Run-Chart([string]$argline) {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $py
+    $psi.Arguments = '"' + $chartPy + '" ' + $argline
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+    $psi.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $out = $p.StandardOutput.ReadToEnd()
+    $err = $p.StandardError.ReadToEnd()
+    $p.WaitForExit()
+    return ($out + $err).Trim()
+}
+
+function Tail([string]$text, [int]$n) {
+    $lines = $text -split "`n"
+    if ($lines.Count -le $n) { return $text }
+    return ($lines[-$n..-1] -join "`n")
+}
+
+function Choose-FromList([string]$prompt, [string[]]$items) {
+    $f = New-Object System.Windows.Forms.Form
+    $f.Text = 'Copyist'
+    $f.Width = 640; $f.Height = 460
+    $f.StartPosition = 'CenterScreen'
+    $lbl = New-Object System.Windows.Forms.Label
+    $lbl.Text = $prompt; $lbl.Dock = 'Top'; $lbl.Height = 60
+    $lb = New-Object System.Windows.Forms.ListBox
+    $lb.Dock = 'Fill'
+    foreach ($i in $items) { [void]$lb.Items.Add($i) }
+    if ($lb.Items.Count -gt 0) { $lb.SelectedIndex = 0 }
+    $panel = New-Object System.Windows.Forms.FlowLayoutPanel
+    $panel.Dock = 'Bottom'; $panel.Height = 44
+    $panel.FlowDirection = 'RightToLeft'
+    $ok = New-Object System.Windows.Forms.Button
+    $ok.Text = 'OK'; $ok.DialogResult = 'OK'
+    $cancel = New-Object System.Windows.Forms.Button
+    $cancel.Text = 'Cancel'; $cancel.DialogResult = 'Cancel'
+    $panel.Controls.Add($ok); $panel.Controls.Add($cancel)
+    $f.Controls.Add($lb); $f.Controls.Add($lbl); $f.Controls.Add($panel)
+    $f.AcceptButton = $ok      # Enter chooses
+    $f.CancelButton = $cancel  # Escape backs out
+    $lb.Add_DoubleClick({ $f.DialogResult = 'OK'; $f.Close() })
+    if ($f.ShowDialog() -eq 'OK' -and $lb.SelectedItem) {
+        return [string]$lb.SelectedItem
+    }
+    return $null
+}
+
+function Pick-Chart {
+    if (Test-Path $lastFile) {
+        $last = (Get-Content $lastFile -Raw).Trim()
+        if ($last -and (Test-Path $last)) {
+            $name = Split-Path -Leaf $last
+            $c = Choose-FromList 'Which chart are we working on?' @(
+                "Same chart: $name", 'Pick a different chart', 'Back')
+            if (-not $c -or $c -eq 'Back') { return $null }
+            if ($c -like 'Same chart*') { return $last }
+        }
+    }
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Title = 'Pick a .chart file'
+    $dlg.Filter = 'Chart files (*.chart)|*.chart|All files (*.*)|*.*'
+    if ($dlg.ShowDialog() -ne 'OK') { return $null }
+    Set-Content -Path $lastFile -Value $dlg.FileName
+    return $dlg.FileName
+}
+
+function Do-Build([string]$mode, [string]$doing) {
+    $p = Pick-Chart
+    if (-not $p) { return }
+    Show-Info "$doing Press OK and hold tight - the big charts take a minute, and a dialog will bring the news."
+    $out = Run-Chart ('"' + $p + '" ' + $mode)
+    Show-Info (Tail $out 8)
+}
+
+function Do-ReadPart {
+    $p = Pick-Chart
+    if (-not $p) { return }
+    $dir = Split-Path -Parent $p
+    $files = Get-ChildItem -Path $dir -Filter '* read aloud.txt' -ErrorAction SilentlyContinue
+    if (-not $files) {
+        Show-Info 'No read-alouds here yet - build or check the chart first; they land beside it.'
+        return
+    }
+    $c = Choose-FromList 'Which part should Notepad open? A screen reader reads it like a letter.' (
+        @($files | ForEach-Object { $_.Name }) + @('Back'))
+    if (-not $c -or $c -eq 'Back') { return }
+    Start-Process notepad.exe -ArgumentList ('"' + (Join-Path $dir $c) + '"')
+}
+
+function Do-Settings {
+    while ($true) {
+        $desk = Run-Chart 'settings'
+        $c = Choose-FromList ($desk + "`nChange which one?") @(
+            'composer', 'look', 'notify', 'open', 'Back')
+        if (-not $c -or $c -eq 'Back') { return }
+        if ($c -in @('notify', 'open')) {
+            $v = Choose-FromList "Set $c to:" @('yes', 'no', 'Back')
+            if (-not $v -or $v -eq 'Back') { continue }
+        } else {
+            $hint = ''
+            if ($c -eq 'look') {
+                $hint = ' The looks are jazz, handwritten, engraved and plain; empty lets each chart decide.'
+            }
+            $v = [Microsoft.VisualBasic.Interaction]::InputBox(
+                "New value for $c.$hint", 'Copyist', '')
+        }
+        Show-Info (Run-Chart ('set "' + $c + '=' + $v + '"'))
+    }
+}
+
+while ($true) {
+    $c = Choose-FromList ('Copyist - from your played demo to pages a band ' +
+        'can read. What are we doing?') @(
+        'Build - pages, listen MP3, findings',
+        'Check - compile only, nothing rendered',
+        'Read a part aloud',
+        'Settings - the defaults desk',
+        'Help - what this is',
+        'Quit')
+    if (-not $c -or $c -eq 'Quit') { break }
+    switch -Wildcard ($c) {
+        'Build*' { Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
+        'Check*' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }
+        'Read*' { Do-ReadPart }
+        'Settings*' { Do-Settings }
+        'Help*' {
+            Show-Info ('Copyist turns a chart file - plain words and a ' +
+                'played demo - into engraved parts, a conductor score, ' +
+                'spoken read-alouds and a listening MP3, all its own ink. ' +
+                'Write charts with any text editor; the guide is ' +
+                'CHART-WRITING.md. The same brain answers to ' +
+                '"python prototype\chart.py" in a terminal.')
+        }
+    }
+}

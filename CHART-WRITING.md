@@ -189,6 +189,15 @@ embedded in the PDF so it reads the same on any machine. Add
 readers — and `measure numbers` for a number on every bar. One line,
 every page and part agrees.
 
+## The apps
+
+On the Mac, **Copyist** lives in Applications: a menu of dialogs over
+the same brain — build, check, open a part's read-aloud in TextEdit,
+and the settings desk. On Windows, the `windows` folder holds
+**Copyist.bat** — the same menu in native Windows dialogs (Python
+from python.org is the one requirement). The terminal `chart` command
+does everything either app does, and more.
+
 ## The settings desk, and shortcuts
 
 Copyist keeps four defaults, and every one tells you what it is set
