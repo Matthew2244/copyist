@@ -189,6 +189,23 @@ embedded in the PDF so it reads the same on any machine. Add
 readers — and `measure numbers` for a number on every bar. One line,
 every page and part agrees.
 
+## The settings desk, and shortcuts
+
+Copyist keeps four defaults, and every one tells you what it is set
+to before you change it:
+
+    chart settings
+    chart set composer=Matthew Whitaker
+    chart set look=jazz          # charts without a look: line dress this way
+    chart set notify=yes         # your phone hears every build land
+    chart set open=yes           # the score PDF pops up when a build lands
+
+`composer` prefills the interview so your name lands on every new
+chart without typing it. The notify ping is quiet — a note you can
+read later, not an alarm. And every command has a one-letter
+shortcut: `chart tune.chart c` checks, `b` builds, `r` reads, `p`
+lists the band, `d` diffs, `l` bounces the listen, `n` interviews.
+
 ## Borrowing lines — double, cue, and the build
 
     section C, 12 bars, label "Head out"

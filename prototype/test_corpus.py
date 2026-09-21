@@ -1473,6 +1473,37 @@ def check_engraver():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_settings():
+    """The defaults desk: set reads back, every value survives the
+    round trip, and nothing touches the real config."""
+    import chart
+    tmp = tempfile.mkdtemp()
+    real = chart.CONFIG
+    chart.CONFIG = os.path.join(tmp, "config.json")
+    try:
+        with redirect_stdout(io.StringIO()) as out:
+            chart.run_settings(['set', 'look=jazz'])
+        check("set writes and reads back",
+              'jazz' in out.getvalue()
+              and chart.load_cfg()['look'] == 'jazz', out.getvalue())
+        with redirect_stdout(io.StringIO()) as out:
+            chart.run_settings(['settings'])
+        check("every setting states its current value",
+              'look (now: jazz)' in out.getvalue()
+              and 'composer (now: not set)' in out.getvalue(),
+              out.getvalue())
+        bad = False
+        try:
+            with redirect_stdout(io.StringIO()):
+                chart.run_settings(['set', 'look=cursive'])
+        except SystemExit:
+            bad = True
+        check("a look nobody has refuses in a sentence", bad, "accepted")
+    finally:
+        chart.CONFIG = real
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -1542,6 +1573,7 @@ if __name__ == "__main__":
     check_detail_and_look()
     check_user_chair()
     check_engraver()
+    check_settings()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

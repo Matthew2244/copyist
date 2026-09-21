@@ -63,7 +63,7 @@ def spans(notes, barof):
     return ", ".join(f"{a}-{b}" if a != b else str(a) for a, b in runs)
 
 
-def interview(out_path, demo_path):
+def interview(out_path, demo_path, composer=''):
     if os.path.exists(out_path):
         sys.exit(f"chart: {out_path} already exists — I will not write "
                  "over a chart. Pick a new name.")
@@ -93,7 +93,7 @@ def interview(out_path, demo_path):
         ts_default = f"{tn}/{td}"
 
     title = ask("Title", os.path.splitext(os.path.basename(out_path))[0])
-    composer = ask("Composer", "")
+    composer = ask("Composer", composer)
     key = ask("Key, like Eb minor or F", "C")
     meter_txt = ask("Meter, like 4/4 or 3/4 or 6/8", ts_default)
     meter = chartc.parse_meter(meter_txt)

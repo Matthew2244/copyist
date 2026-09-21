@@ -148,7 +148,9 @@ def subset_listen(listen_src, keep_labels, dst):
 MSCORE_CANDIDATES = [
     "/Applications/MuseScore 4.app/Contents/MacOS/mscore",
     "/Applications/MuseScore 4.5.app/Contents/MacOS/mscore",
+    r"C:\Program Files\MuseScore 4\bin\MuseScore4.exe",
     "mscore",
+    "MuseScore4",
 ]
 
 
@@ -156,6 +158,108 @@ def say(line):
     """One write per thing said — a screen reader restarts on every write."""
     sys.stdout.write(line + "\n")
     sys.stdout.flush()
+
+
+CONFIG = os.path.expanduser("~/.config/copyist/config.json")
+SETTINGS = (
+    ('composer', '', "the name every new chart offers to put on the "
+                     "page — set it once, stop typing it"),
+    ('look', '', "how pages dress when a chart has no look: line — "
+                 "jazz, handwritten, engraved or plain"),
+    ('notify', 'no', "a phone ping when a build lands — for the long "
+                     "ones you walk away from"),
+    ('open', 'no', "pop the score PDF open the moment a build lands"),
+)
+
+
+def load_cfg():
+    cfg = {k: d for k, d, _ in SETTINGS}
+    try:
+        import json
+        cfg.update({k: v for k, v in
+                    json.load(open(CONFIG, encoding='utf-8')).items()
+                    if k in cfg})
+    except Exception:
+        pass
+    return cfg
+
+
+def run_settings(argv):
+    cfg = load_cfg()
+    if not argv or argv[0] == 'settings':
+        say("Copyist settings — every one says what it is set to now:")
+        for k, _, desc in SETTINGS:
+            say(f"  {k} (now: {cfg[k] or 'not set'}) — {desc}")
+        say("Change one with: chart set key=value")
+        return
+    # chart set key=value
+    pair = " ".join(argv[1:])
+    if '=' not in pair:
+        sys.exit("chart: set wants key=value, like: chart set look=jazz")
+    k, v = pair.split('=', 1)
+    k, v = k.strip().lower(), v.strip()
+    if k not in {s[0] for s in SETTINGS}:
+        sys.exit(f"chart: no setting called '{k}' — settings lists "
+                 "the four that exist.")
+    if k in ('notify', 'open'):
+        if v.lower() not in ('yes', 'no', 'on', 'off'):
+            sys.exit(f"chart: {k} is yes or no.")
+        v = 'yes' if v.lower() in ('yes', 'on') else 'no'
+    if k == 'look' and v and not any(w in v.lower() for w in (
+            'jazz', 'handwritten', 'engraved', 'plain')):
+        sys.exit("chart: the looks are jazz, handwritten, engraved "
+                 "and plain (or empty to let each chart decide).")
+    cfg[k] = v
+    import json
+    os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
+    with open(CONFIG, 'w', encoding='utf-8') as f:
+        json.dump(cfg, f, indent=1)
+    lines = {
+        'composer': f"composer is now {v or 'not set'} — every new "
+                    "chart offers it on the page.",
+        'look': (f"look is now {v} — every chart without its own look: "
+                 "line dresses this way." if v else
+                 "look is now unset — each chart decides for itself."),
+        'notify': ("notify is on — your phone hears every build land."
+                   if v == 'yes' else
+                   "notify is off — builds finish quietly."),
+        'open': ("open is on — the score pops up when a build lands."
+                 if v == 'yes' else
+                 "open is off — the pages wait in the build folder."),
+    }
+    say(lines[k])
+
+
+def notify_build(title, line, failed=False):
+    """A phone ping when a build lands; never the reason one fails."""
+    from shutil import which
+    po = which('pushover') or os.path.expanduser('~/bin/pushover')
+    if not os.path.exists(po):
+        return
+    try:
+        subprocess.run([po, 'send', '--title', f"Copyist: {title}",
+                        '--priority', '0' if failed else '-1', line],
+                       capture_output=True, timeout=15)
+    except Exception:
+        pass
+
+
+def open_pages(title_dir):
+    """Pop the score (or the first PDF) open, each platform its way."""
+    import glob as _g
+    pdfs = sorted(_g.glob(os.path.join(title_dir, "* — score.pdf"))) or \
+        sorted(_g.glob(os.path.join(title_dir, "*.pdf")))
+    if not pdfs:
+        return
+    try:
+        if sys.platform == 'darwin':
+            subprocess.run(['open', pdfs[0]], timeout=15)
+        elif sys.platform == 'win32':
+            os.startfile(pdfs[0])
+        else:
+            subprocess.run(['xdg-open', pdfs[0]], timeout=15)
+    except Exception:
+        pass
 
 
 def find_mscore():
@@ -189,8 +293,11 @@ def render_listen(listen_src, mp3, say, only=None, count_in=None,
     if chartaudio.to_mp3(wav, mp3):
         os.remove(wav)
     else:
-        say("No ffmpeg here, so the listen stays a WAV — brew install "
-            "ffmpeg gets MP3s.")
+        how = ("brew install ffmpeg" if sys.platform == "darwin"
+               else "winget install ffmpeg" if sys.platform == "win32"
+               else "your package manager's ffmpeg")
+        say(f"No ffmpeg here, so the listen stays a WAV — {how} "
+            "gets MP3s.")
     return True
 
 
@@ -325,17 +432,27 @@ def main():
         say("The writer's guide is CHART-WRITING.md, next to the code "
             "and in your Copyist Charts folder.")
         return
+    try:
+        sys.stdout.reconfigure(errors='replace')   # a Windows console
+    except Exception:                              # never kills a build
+        pass
+    if len(sys.argv) > 1 and sys.argv[1] in ('settings', 'set'):
+        run_settings(sys.argv[1:])
+        return
     ap = argparse.ArgumentParser(
-        description="Compile a chart and make everything a writer needs.")
+        description="Compile a chart and make everything a writer "
+                    "needs. 'chart settings' shows the defaults desk.")
     ap.add_argument('chart', help="the .chart file")
     ap.add_argument('command', nargs='?', default='build',
                     choices=['build', 'check', 'read', 'parts', 'diff',
-                             'listen', 'new'],
+                             'listen', 'new',
+                             'b', 'c', 'r', 'p', 'd', 'l', 'n'],
                     help="build (default): everything; check: compile "
                          "only; read: speak the chart; parts: list the "
                          "band; diff: what changed since the last build; "
                          "listen: just the MP3; new: interview a starter "
-                         "chart into existence")
+                         "chart into existence. Each has a one-letter "
+                         "shortcut: b c r p d l n")
     ap.add_argument('--part', help='with read: one part, e.g. "trumpet 1"')
     ap.add_argument('--section', help="with read: just this section")
     ap.add_argument('--outdir', help="where the built files go "
@@ -358,10 +475,15 @@ def main():
     ap.add_argument('--demo', help="with new: the demo MIDI to scaffold "
                                    "the chart around")
     args = ap.parse_args()
+    args.command = {'b': 'build', 'c': 'check', 'r': 'read',
+                    'p': 'parts', 'd': 'diff', 'l': 'listen',
+                    'n': 'new'}.get(args.command, args.command)
+    cfg = load_cfg()
 
     if args.command == 'new':
         import chartnew
-        chartnew.interview(args.chart, args.demo)
+        chartnew.interview(args.chart, args.demo,
+                           composer=cfg['composer'])
         return
 
     path = args.chart
@@ -491,8 +613,8 @@ def main():
             "musescore.org. The listen file is Copyist's own and comes "
             "out regardless.")
 
-    look_style = (write_style(chart['header']['look'], title_dir)
-                  if chart['header'].get('look') else None)
+    look = chart['header'].get('look') or cfg['look'] or None
+    look_style = write_style(look, title_dir) if look else None
     if not args.no_pages and args.command != 'listen':
         say("Drawing the pages.")
     pages = 0
@@ -510,7 +632,7 @@ def main():
         dst = src[:-len('.musicxml')] + '.pdf'
         why = None
         try:
-            ok, why = chartengrave.engrave(src, dst)
+            ok, why = chartengrave.engrave(src, dst, look=look)
         except Exception as e:
             ok, why = False, f"engraver error: {e} (report that)"
         if ok:
@@ -595,6 +717,12 @@ def main():
                 "try the parts command for the exact names.")
 
     say("Done. Proof it by ear before a single player sees it.")
+    tname = os.path.splitext(os.path.basename(path))[0]
+    if cfg['notify'] == 'yes':
+        notify_build(tname, f"{pages} page(s) built, listen ready."
+                     if pages else "Built — listen ready.")
+    if cfg['open'] == 'yes' and pages:
+        open_pages(title_dir)
     marker = os.path.expanduser("~/.config/copyist/welcomed")
     if args.command == 'build' and not os.path.exists(marker):
         try:
