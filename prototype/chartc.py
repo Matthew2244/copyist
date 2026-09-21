@@ -27,6 +27,7 @@ import sys
 import argparse
 
 import chartdemo
+import chartgroove
 
 BEATS = 4          # the 4/4 default; parse_meter unlocks the rest
 
@@ -1949,6 +1950,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     demo_measures = demo_measures or {l: {} for l in labels}
     div_marks = div_marks or {}
     horn_of = horn_of or {}
+    realized_bars = {}          # label -> listening bars the band realized
     meters = chart.get('meters') or [(1, meter)]
     m_num, m_den = meter_at(meters, 1)
 
@@ -1967,6 +1969,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                           else key[0])
         governing = [None]      # printed-chord state, carried across bars
         out = []
+        # the listening document's rhythm section: what this chair
+        # plays when the page says slashes (Matthew's ruling, 2026-09-20)
+        _snd = SOUNDS.get(canonical_instrument(b['instrument']))
+        sound_id = _snd[1] if _snd else ''
+        groove_state = {}
+        active_chord = [None]   # harmony carried bar to bar, all parts
 
         def attributes():
             tr = ''
@@ -2194,7 +2202,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     hmap, _gw = arg
                     pattern = hmap.get(off + 1, hmap.get(None))
                     if listen:
-                        pieces.append(rest_bar(div, staves, bmeter))
+                        made = chartgroove.realize(
+                            'hits', arg, sound_id, clef, staves,
+                            fifths, sec, off, absbar, bmeter, div,
+                            sec['feel'] or hdr.get('feel') or '',
+                            groove_state, active_chord[0])
+                        pieces.append(made or rest_bar(div, staves,
+                                                       bmeter))
+                        if made:
+                            realized_bars[label] = \
+                                realized_bars.get(label, 0) + 1
                     elif pattern:
                         pieces.append(hits_bar(pattern, div, clef,
                                                staves, fifths, bmeter))
@@ -2205,13 +2222,28 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     # MuseScore's importer plays slash noteheads no matter
                     # what (dynamics="0", cue, sound directions and
                     # unpitched all measured audible), so the listening
-                    # variant renders groove regions as real rests
-                    pieces.append(rest_bar(div, staves, bmeter)
-                                  if listen else
-                                  slash_bar(div, clef, staves, fifths,
-                                            bmeter))
+                    # variant used to render groove regions as real
+                    # rests. Now it renders what the slashes MEAN: the
+                    # realized rhythm section, listening document only.
+                    if listen:
+                        made = chartgroove.realize(
+                            'groove', arg, sound_id, clef, staves,
+                            fifths, sec, off, absbar, bmeter, div,
+                            sec['feel'] or hdr.get('feel') or '',
+                            groove_state, active_chord[0])
+                        pieces.append(made or rest_bar(div, staves,
+                                                       bmeter))
+                        if made:
+                            realized_bars[label] = \
+                                realized_bars.get(label, 0) + 1
+                    else:
+                        pieces.append(slash_bar(div, clef, staves,
+                                                fifths, bmeter))
                 else:
                     pieces.append(rest_bar(div, staves, bmeter))
+                for _cb, _cc in sec['content'][off]:
+                    if _cc is not None:
+                        active_chord[0] = _cc
 
                 barline = ''
                 open_bl = ''
@@ -2356,6 +2388,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                          harmony_on=lambda l: l in chord_parts,
                          listen=True))
     written.append(listen_path)
+    if realized_bars:
+        findings.add("listen: rhythm section realized from the chord "
+                     "symbols — "
+                     + ", ".join(f"{src_of.get(l, l)} ({n} bars)"
+                                 for l, n in realized_bars.items())
+                     + " — the pages keep their slashes")
     for l in labels:
         p = os.path.join(outdir, f'{title} — {src_of.get(l, l)}.musicxml')
         with open(p, 'w', encoding='utf-8') as f:
