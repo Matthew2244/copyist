@@ -65,7 +65,8 @@ _SFZ_VOICES = (
     (('brass.trumpet',),
      {'sus': _V + 'TrumpetSusVib.sfz', 'stac': _V + 'TrumpetStac.sfz'}),
     (('brass.trombone',),
-     {'sus': _V + 'TromboneSus.sfz', 'stac': _V + 'TromboneStac.sfz'}),
+     {'sus': _V + 'TromboneSus.sfz', 'stac': _V + 'TromboneStac.sfz',
+      'fall': 'Copyist-Extras/trombone-falls.sfz'}),
     (('brass.french-horn',),
      {'sus': _V + 'FHornSus.sfz', 'stac': _V + 'FHornStac.sfz'}),
     (('brass.tuba',),
@@ -402,41 +403,62 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None):
     for a, d, idx, key, vel, bright, bend, amps, fam, art in jobs:
         part = plan['parts'][idx]
         v = int(round(min(max(vel, 1.0), 127.0)))
-        res = None
-        inst = _variant(voices[idx], art)
-        if inst is not None:
-            res = inst.render_note(int(key), v, d, SR, bend=bend,
-                                   brightness=bright, amps=amps,
-                                   detune=detunes[idx])
-        if res is None and shelf.sf2 is not None:
-            if part['percussion']:
-                res = sf2mod.render_note(
-                    shelf.sf2, 128, max(part['program'] - 1, 0),
-                    int(key), v, d, SR, bend=bend, brightness=bright,
-                    amps=amps, detune=detunes[idx])
+        pieces = []
+        voice = voices[idx]
+        if 'fall' in art and voice and 'fall' in voice \
+                and key is not None:
+            # a RECORDED fall beats a synthetic bend every time. A
+            # short note IS the gesture; a long one sings first and
+            # falls out of the end.
+            if d > 1.1 and 'sus' in voice:
+                body = voice['sus'].render_note(
+                    int(key), v, d - 0.45, SR,
+                    amps=[(0.0, 1.0), (d - 0.45, 0.8)],
+                    detune=detunes[idx])
+                if body:
+                    pieces.append((a, body))
+                drop = voice['fall'].render_note(
+                    int(key), v, 1.2, SR, detune=detunes[idx])
+                if drop:
+                    pieces.append((a + d - 0.5, drop))
             else:
+                drop = voice['fall'].render_note(
+                    int(key), v, max(d, 0.9), SR,
+                    detune=detunes[idx])
+                if drop:
+                    pieces.append((a, drop))
+        if not pieces:
+            res = None
+            inst = _variant(voice, art)
+            if inst is not None:
+                res = inst.render_note(int(key), v, d, SR, bend=bend,
+                                       brightness=bright, amps=amps,
+                                       detune=detunes[idx])
+            if res is None and shelf.sf2 is not None:
                 res = sf2mod.render_note(
-                    shelf.sf2, 0, max(part['program'] - 1, 0),
+                    shelf.sf2, 128 if part['percussion'] else 0,
+                    max(part['program'] - 1, 0),
                     int(key), v, d, SR, bend=bend, brightness=bright,
                     amps=amps, detune=detunes[idx])
-        if res is None:
-            continue
-        nl, nr = res
+            if res is None:
+                continue
+            pieces.append((a, res))
         pan = (-0.6 + 1.2 * idx / max(n_parts - 1, 1)) \
             if n_parts > 1 else 0.0
         gl = math.cos((pan + 1) * math.pi / 4) * 1.1
         gr = math.sin((pan + 1) * math.pi / 4) * 1.1
-        i0 = int(a * SR)
         send = _SEND[fam]
-        room = min(len(nl), frames - i0)
-        for i in range(room):
-            sl = nl[i] * gl
-            sr_ = nr[i] * gr
-            j = i0 + i
-            L[j] += sl
-            R[j] += sr_
-            wetL[j] += sl * send
-            wetR[j] += sr_ * send
+        for at, (nl, nr) in pieces:
+            i0 = int(at * SR)
+            room = min(len(nl), frames - i0)
+            for i in range(room):
+                sl = nl[i] * gl
+                sr_ = nr[i] * gr
+                j = i0 + i
+                L[j] += sl
+                R[j] += sr_
+                wetL[j] += sl * send
+                wetR[j] += sr_ * send
 
     _room(L, R, wetL, wetR, SR)
 
