@@ -1637,6 +1637,7 @@ def build_plans(chart, band, groups, labels):
             if tgts is None:
                 fail(f"{loc}: '{target}' is not a band part or group")
             anns, engraved, groove_words = [], None, None
+            solo_slashes = False
             demo_refs, fall, quant, short = [], False, None, False
             legato, ghost = False, False
             fig_lifts, lyrics_text = [], None
@@ -1861,6 +1862,7 @@ def build_plans(chart, band, groups, labels):
                 if piece in ('solo', 'solo open'):
                     anns.append((1, 'solos (open)' if 'open' in piece
                                  or sec['open'] else 'Solo'))
+                    solo_slashes = True
                     continue
                 if piece == 'backgrounds':
                     anns.append((1, 'backgrounds'))
@@ -1886,6 +1888,11 @@ def build_plans(chart, band, groups, labels):
                                           (hits_map, groove_words or ''))
                 elif groove_words is not None:
                     plan['content'][l] = ('groove', groove_words)
+                elif solo_slashes and plan['content'][l][0] == 'default':
+                    # a soloist reads slashes under the changes, never
+                    # empty bars — rests with chords over them look like
+                    # unfinished engraving (Matthew's ruling, 2026-09-21)
+                    plan['content'][l] = ('groove', '')
                 for ref in demo_refs:
                     plan['overlays'][l].append(dict(ref, fall=fall,
                                                     quant=quant,

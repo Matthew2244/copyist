@@ -163,7 +163,12 @@ convention, not a voicing.
 - `from demo bars 2-9` lifts YOUR played line, bars 2 to 9 of your DAW,
   cleans it up (your lay-back is measured and kept as feel, not printed
   as wrong rhythms), and lands it at the same bars of the chart.
-- `solo` prints "Solo" with the changes. `groove` prints slashes.
+- `solo` prints "Solo" and puts slashes under the changes — the
+  soloist reads slashes, never a page of empty bars, which look like
+  unfinished engraving. Everyone else in the section just rests, and
+  their wait collapses into a multirest with the section label (say
+  "flute solo" in the label) telling them who's blowing while they
+  count. `groove` prints slashes too, with your words above.
 - A part you don't mention rests. The read-back tells you every part's
   fate per section, so an accidental eight-bar rest in the lead alto is
   heard in text before it is ever printed.

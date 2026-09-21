@@ -369,7 +369,7 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
   | `figure <name> [at bar N]` | the notated figure, from that section-relative bar (default 1) |
   | `as engraved bars A-B [at bar N]` | each targeted part's own bars A–B of the `source:` score, exact |
   | `hits on 1, 2+, 4` | rhythmic-slash kicks on those beats (bar prefix: `hits bar 3 on 2+, 4`) |
-  | `solo` / `solo open` | solo changes shown, "Solo" / "solos (open)" printed |
+  | `solo` / `solo open` | slashes under the solo changes, "Solo" / "solos (open)" printed — a soloist reads slashes, never empty bars (2026-09-21); notated material on the same part still wins its bars |
   | `backgrounds, on cue` | the figure marked "backgrounds on cue" |
   | `tacet` | whole-section multirest in the part |
   | `as demo` | "as demo" over slashes — symbols-level (DESIGN.md §11) |
