@@ -31,6 +31,61 @@ SR = 44100
 TABLE = 4096
 STEP = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
 
+# what a note carries besides pitch and time: the articulation flags the
+# page prints, so the band can play them. Ties merge these across the
+# tied span (a fall marked on the last tied note falls out of the whole).
+_ART_MARKS = [('<staccato/>', 'stac'), ('<tenuto/>', 'ten'),
+              ('<accent/>', 'acc'), ('<strong-accent', 'marc'),
+              ('<falloff', 'fall'), ('<doit', 'doit'),
+              ('<scoop', 'scoop'), ('<plop', 'plop'),
+              ('<fermata', 'fermata')]
+
+# the drum map read backwards: staff position and notehead -> GM number.
+# Our own charts write instruments.DRUM_MAP positions; a lifted engraving
+# passes its source's positions through verbatim, so exact match falls
+# back to same-position-any-head, then to the nearest staff position
+# (same head family preferred) — a normal head at E4 is somebody's kick.
+def _drum_decode():
+    import instruments
+    prefer = {('F', 4, 'normal'): 36, ('C', 5, 'normal'): 38,
+              ('C', 5, 'x'): 37, ('A', 4, 'normal'): 43,
+              ('D', 5, 'normal'): 47, ('E', 5, 'normal'): 48,
+              ('A', 5, 'x'): 49, ('F', 5, 'x'): 51}
+    exact, by_pos = {}, {}
+    for midi, (st, oc, head) in sorted(instruments.DRUM_MAP.items()):
+        exact.setdefault((st, oc, head), prefer.get((st, oc, head), midi))
+        by_pos.setdefault((st, oc), []).append(
+            (head, prefer.get((st, oc, head), midi)))
+    return exact, by_pos
+
+
+_DRUM_EXACT = _DRUM_BYPOS = None
+
+
+def drum_midi(step, octave, notehead):
+    """GM drum number for a staff position and notehead."""
+    global _DRUM_EXACT, _DRUM_BYPOS
+    if _DRUM_EXACT is None:
+        _DRUM_EXACT, _DRUM_BYPOS = _drum_decode()
+    key = (step, octave, notehead)
+    if key in _DRUM_EXACT:
+        return _DRUM_EXACT[key]
+    cands = _DRUM_BYPOS.get((step, octave))
+    if cands:
+        for head, midi in cands:
+            if head == notehead:
+                return midi
+        return cands[0][1]
+    want = 'CDEFGAB'.index(step) + 7 * octave
+    best, best_key = 38, (99, 2)
+    for (st, oc), cands in _DRUM_BYPOS.items():
+        d = abs('CDEFGAB'.index(st) + 7 * oc - want)
+        for head, midi in cands:
+            key = (d, 0 if head == notehead else 1)
+            if key < best_key:
+                best, best_key = midi, key
+    return best
+
 # ---------------------------------------------------------------- parse
 
 
@@ -89,11 +144,14 @@ def parse_score(path, only=None):
         name = re.search(r'<part-name>([^<]*)</part-name>', body)
         prog = re.search(r'<midi-program>(\d+)</midi-program>', body)
         chan = re.search(r'<midi-channel>(\d+)</midi-channel>', body)
+        snd = re.search(r'<instrument-sound>([^<]*)</instrument-sound>',
+                        body)
         meta[pid] = {'name': name.group(1) if name else pid,
                      'program': int(prog.group(1)) if prog else 1,
-                     'percussion': bool(chan) and chan.group(1) == '10'}
+                     'percussion': bool(chan) and chan.group(1) == '10',
+                     'sound': snd.group(1) if snd else ''}
 
-    parts, tempos, swings = [], {}, {}
+    parts, tempos, swings, holds = [], {}, {}, {}
     for pid, body in re.findall(r'<part id="([^"]+)">(.*?)</part>',
                                 xml, re.S):
         m = meta.get(pid, {'name': pid, 'program': 1, 'percussion': False})
@@ -107,6 +165,10 @@ def parse_score(path, only=None):
         bars = {}                       # printed bar -> q of FIRST play
         events = []
         carry = {}                      # (voice, midi) -> event index, for ties
+        dyns = []                       # (q, dynamics value) timeline
+        wedges = []                     # (q_start, q_end, 'cresc'|'dim')
+        wedge_open = None
+        slur_depth = 0
         for num, meas in _expand_repeats(_measures(body)):
             if num.isdigit():
                 bars.setdefault(int(num), q0)
@@ -149,6 +211,17 @@ def parse_score(path, only=None):
                     sd = re.search(r'<sound dynamics="([\d.]+)"', t)
                     if sd:
                         dyn_state = float(sd.group(1))
+                        dyns.append((q0 + pos / div, dyn_state))
+                    wd = re.search(r'<wedge [^>]*type="(\w+)"', t)
+                    if wd:
+                        if wd.group(1) in ('crescendo', 'diminuendo'):
+                            wedge_open = (q0 + pos / div,
+                                          'cresc' if wd.group(1)[0] == 'c'
+                                          else 'dim')
+                        elif wd.group(1) == 'stop' and wedge_open:
+                            wedges.append((wedge_open[0], q0 + pos / div,
+                                           wedge_open[1]))
+                            wedge_open = None
                     sw = re.search(r'<swing>(.*?)</swing>', t, re.S)
                     if sw:
                         if '<straight/>' in sw.group(1):
@@ -185,8 +258,26 @@ def parse_score(path, only=None):
                 gain = (float(nd.group(1)) if nd else dyn_state) / 100.0
                 if gain <= 0:
                     continue            # a slash is an instruction
+                art = {}
+                for pat, flag in _ART_MARKS:
+                    if pat in t:
+                        art[flag] = True
+                if '<notehead parentheses="yes"' in t:
+                    art['ghost'] = True
+                starts = len(re.findall(r'<slur [^>]*type="start"', t))
+                stops = len(re.findall(r'<slur [^>]*type="stop"', t))
+                if slur_depth + starts - stops > 0:
+                    art['leg'] = True   # the line carries on past this note
+                slur_depth = max(slur_depth + starts - stops, 0)
                 if '<unpitched' in t or m['percussion']:
-                    midi = None
+                    st = re.search(r'<display-step>(\w)</display-step>', t)
+                    oc = re.search(r'<display-octave>(\d)</display-octave>',
+                                   t)
+                    nh = re.search(r'<notehead[^>]*>([a-z-]+)</notehead>',
+                                   t)
+                    midi = drum_midi(st.group(1), int(oc.group(1)),
+                                     nh.group(1) if nh else 'normal') \
+                        if st and oc else 38
                 else:
                     st = re.search(r'<step>(\w)</step>', t).group(1)
                     al = re.search(r'<alter>(-?\d+)</alter>', t)
@@ -196,28 +287,37 @@ def parse_score(path, only=None):
                             + (oc + 1) * 12 + transpose)
                 q_on = q0 + on / div
                 q_dur = dur / div
+                if 'fermata' in art:
+                    # time itself holds just before the note lets go
+                    hq = q_on + q_dur - 1e-6
+                    holds[hq] = max(holds.get(hq, 0.0),
+                                    min(q_dur, 2.0) * 0.9)
                 key = (voice, midi)
                 if '<tie type="stop"/>' in t and key in carry:
                     i = carry[key]
                     events[i] = (events[i][0], events[i][1] + q_dur,
-                                 events[i][2], events[i][3])
+                                 events[i][2], events[i][3],
+                                 {**events[i][4], **art})
                     if '<tie type="start"/>' not in t:
                         del carry[key]
                     continue
-                events.append((q_on, q_dur, midi, gain))
+                events.append((q_on, q_dur, midi, gain, art))
                 if '<tie type="start"/>' in t:
                     carry[key] = len(events) - 1
             barlen = div * 4 * tnum // tden
             q0 += (top if num == '0' else barlen) / div
+        if wedge_open:                  # a hairpin nothing closed
+            wedges.append((wedge_open[0], q0, wedge_open[1]))
         parts.append({'name': m['name'], 'program': m['program'],
                       'percussion': m['percussion'], 'events': events,
                       'bars': bars, 'meter0': meter0 or (4, 4),
-                      'length_q': q0})
+                      'length_q': q0, 'dyns': dyns, 'wedges': wedges})
     return {'parts': parts,
             'bars': parts[0]['bars'] if parts else {},
             'meter0': parts[0]['meter0'] if parts else (4, 4),
             'tempos': sorted(tempos.items()),
-            'swings': sorted(swings.items())}
+            'swings': sorted(swings.items()),
+            'holds': sorted(holds.items())}
 
 
 # ------------------------------------------------------------- schedule
@@ -240,7 +340,7 @@ def _warp(q, swings):
     return math.floor(q) + f
 
 
-def _sec_of(q, tempos):
+def _sec_of(q, tempos, holds=()):
     tempos = tempos or [(0.0, 120.0)]
     if tempos[0][0] > 0:
         tempos = [(0.0, tempos[0][1])] + tempos
@@ -250,33 +350,44 @@ def _sec_of(q, tempos):
             break
         s += (at - prev_q) * 60.0 / bpm
         prev_q, bpm = at, t
-    return s + (q - prev_q) * 60.0 / bpm
+    s += (q - prev_q) * 60.0 / bpm
+    for hq, extra_q in holds:           # every fermata already passed
+        if q > hq + 1e-9:
+            hb = tempos[0][1]
+            for at, t in tempos:
+                if at > hq:
+                    break
+                hb = t
+            s += extra_q * 60.0 / hb
+    return s
 
 
 def first_bar_seconds(path, printed_bar):
     """Seconds into the rendered audio where printed bar N first plays —
-    repeats and voltas included, because this is the player's own walk.
-    None when the page has no such bar."""
+    repeats, voltas and fermatas included, because this is the player's
+    own walk. None when the page has no such bar."""
     plan = parse_score(path)
     q = plan['bars'].get(printed_bar)
     if q is None:
         return None
-    return _sec_of(q, plan['tempos'])
+    return _sec_of(q, plan['tempos'], plan.get('holds', ()))
 
 
 def _seconds(plan):
     """Quarter positions -> seconds through the tempo map, swing warp
-    first. Returns per part: [(sec_on, sec_dur, midi, gain)]."""
+    first. Returns per part: [(sec_on, sec_dur, midi, gain, art)]."""
+    holds = plan.get('holds', ())
+
     def sec_of(q):
-        return _sec_of(q, plan['tempos'])
+        return _sec_of(q, plan['tempos'], holds)
 
     out = []
     for part in plan['parts']:
         ev = []
-        for q_on, q_dur, midi, gain in part['events']:
+        for q_on, q_dur, midi, gain, art in part['events']:
             a = sec_of(_warp(q_on, plan['swings']))
             b = sec_of(_warp(q_on + q_dur, plan['swings']))
-            ev.append((a, max(b - a, 0.03), midi, gain))
+            ev.append((a, max(b - a, 0.03), midi, gain, art))
         out.append(ev)
     return out
 
@@ -378,16 +489,23 @@ def _add_click(L, R, t0, gain, panl, panr, seed=1234):
         R[i0 + i] += s * panr
 
 
-def render(listen_path, wav_path, only=None, tail=1.5, count_in=None):
+def render(listen_path, wav_path, only=None, tail=1.5, count_in=None,
+           samples=None):
     """The listening document -> a stereo WAV. `only` filters part
     names (lowercased); `count_in` prepends that many bars of click,
-    high tick on one, like a session. Returns (seconds, n_parts,
-    n_notes, lead_seconds)."""
+    high tick on one, like a session. `samples` names a sample library
+    (.sf2); with one, chartband plays real recorded instruments and
+    this module's wavetable is only the no-library fallback. Returns
+    (seconds, n_parts, n_notes, lead_seconds)."""
     plan = parse_score(listen_path,
                        only={o.lower().strip() for o in only}
                        if only else None)
     if not plan['parts']:
         raise SystemExit("chartaudio: no parts matched")
+    if samples:
+        import chartband
+        return chartband.render_plan(plan, wav_path, samples,
+                                     tail=tail, count_in=count_in)
     scheduled = _seconds(plan)
     lead = 0.0
     if count_in:
@@ -395,9 +513,9 @@ def render(listen_path, wav_path, only=None, tail=1.5, count_in=None):
         qbpm = plan['tempos'][0][1] if plan['tempos'] else 120.0
         pulse = (4.0 / d0) * 60.0 / qbpm
         lead = n0 * count_in * pulse
-        scheduled = [[(a + lead, d, m, g) for a, d, m, g in ev]
+        scheduled = [[(a + lead, d, mi, g, ar) for a, d, mi, g, ar in ev]
                      for ev in scheduled]
-    end = max((a + d for ev in scheduled for a, d, _, _ in ev),
+    end = max((a + d for ev in scheduled for a, d, _, _, _ in ev),
               default=0.0) + tail
     frames = int(end * SR)
     L = array('f', [0.0]) * frames
@@ -416,11 +534,20 @@ def render(listen_path, wav_path, only=None, tail=1.5, count_in=None):
         panr = math.sin((pan + 1) * math.pi / 4) * 1.2
         kind, harm = _recipe(part['program'])
         tab = _wavetable(harm)
-        for a, d, midi, gain in ev:
+        for a, d, midi, gain, art in ev:
             notes += 1
-            if midi is None:
+            if part['percussion'] or midi is None:
                 _add_click(L, R, a, gain, panl, panr)
                 continue
+            # the fallback plays the page's marks too, plainly
+            if 'stac' in art:
+                d = max(d * 0.5, 0.05)
+            if 'marc' in art:
+                d, gain = max(d * 0.6, 0.05), gain * 1.25
+            if 'acc' in art:
+                gain = gain * 1.2
+            if 'ghost' in art:
+                gain = gain * 0.5
             freq = 440.0 * 2 ** ((midi - 69) / 12)
             g = gain ** 1.4 * 0.5
             if kind == 'pluck':
