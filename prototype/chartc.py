@@ -717,7 +717,12 @@ def parse_chart(path):
                 if not cur_fig['kind']:
                     fail(f"{loc}: lyrics: follows the figure's source "
                          "line")
-                cur_fig['lyrics'] = m.group(1).strip()
+                # quotes around the words are the writer's fence,
+                # not lyrics — strip a matched pair
+                lyr = m.group(1).strip()
+                if len(lyr) > 1 and lyr[0] == lyr[-1] and lyr[0] in '"\'':
+                    lyr = lyr[1:-1]
+                cur_fig['lyrics'] = lyr
                 continue
             if cur_fig['kind']:
                 fail(f"{loc}: one source per figure — this one already "
@@ -975,6 +980,33 @@ def direction(text, placement='above'):
 def rehearsal(mark):
     return ('      <direction placement="above"><direction-type>'
             f'<rehearsal>{mark}</rehearsal></direction-type></direction>\n')
+
+
+_NAT_PC = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
+
+
+def transpose_chord(chord, t):
+    """The printed changes move with the horn: a Bb player's F7 is
+    written G7. Letters move along the scale (so Bb reads as written C,
+    never B-sharp) and the alter takes up the difference."""
+    if t % 12 == 0:
+        return chord
+
+    def move(step, alter):
+        steps = round(t * 7 / 12)
+        i = 'CDEFGAB'.index(step)
+        new = 'CDEFGAB'[(i + steps) % 7]
+        delta = (t % 12) - ((_NAT_PC[new] - _NAT_PC[step]) % 12)
+        delta = (delta + 6) % 12 - 6
+        return new, alter + delta
+
+    step, alter, qual, bass = chord
+    step, alter = move(step, alter)
+    if bass:
+        m = re.fullmatch(r'([A-G])([b#]?)', bass)
+        bs, ba = move(m.group(1), {'b': -1, '#': 1, '': 0}[m.group(2)])
+        bass = bs + {-2: 'bb', -1: 'b', 0: '', 1: '#', 2: '##'}[ba]
+    return (step, alter, qual, bass)
 
 
 def harmony_xml(chord, beat, pulse_div):
@@ -2138,8 +2170,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         if chord is None:
                             continue
                         if chord != governing[0] or off == 0:
+                            pc = chord
+                            if horn and not listen:
+                                pc = transpose_chord(pc,
+                                                     horn['transpose'])
                             pieces.append(harmony_xml(
-                                chord, beat, div * 4 // bmeter[1]))
+                                pc, beat, div * 4 // bmeter[1]))
                         governing[0] = chord
                 if absbar in demo_measures[label]:
                     pieces.append(demo_measures[label][absbar])

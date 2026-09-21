@@ -1325,10 +1325,17 @@ def check_engraver():
         'section A, 2 bars, repeat 2x\n  chords: F7\n'
         '  ending 1, 1 bars: chords: C7\n'
         '  ending 2, 1 bars: chords: F7\n'
-        '  tenor: from demo bars 1-2, legato\n  guitar: groove\n')
+        '  tenor: from demo bars 1-2, legato\n  guitar: groove\n\n'
+        'section B, 2 bars\n  chords: F7, C7\n'
+        '  tenor: solo\n  guitar: groove\n')
     out = os.path.join(tmp, "b")
     with redirect_stdout(io.StringIO()):
         chartc.compile_chart(os.path.join(tmp, "e.chart"), out)
+    txml = open(os.path.join(out, "E — tenor.musicxml")).read()
+    check("a Bb horn's changes print transposed (F7 reads G7)",
+          '<root-step>G</root-step>' in txml
+          and '<root-step>F</root-step>' not in txml,
+          "concert roots leaked onto the tenor part")
     pdf = os.path.join(tmp, "t.pdf")
     ok, why = chartengrave.engrave(
         os.path.join(out, "E — tenor.musicxml"), pdf)
@@ -1423,6 +1430,46 @@ def check_engraver():
     check("the alto clef engraves", ok and
           os.path.getsize(os.path.join(tmp, "c.pdf")) > 2000,
           f"{ok} {why}")
+
+    # accidentals follow the key: in key G, an F# is bare, an F prints
+    # the natural, a Bb prints one flat and its repeat prints none
+    def note(step, alter, octv):
+        alt = f'<alter>{alter}</alter>' if alter else ''
+        return (f'<note><pitch><step>{step}</step>{alt}'
+                f'<octave>{octv}</octave></pitch><duration>24</duration>'
+                '<voice>1</voice><type>quarter</type></note>')
+    axml = os.path.join(tmp, "a.musicxml")
+    open(axml, "w").write(
+        '<score-partwise><part-list><score-part id="P1">'
+        '<part-name>x</part-name></score-part></part-list>'
+        '<part id="P1"><measure number="1">'
+        '<attributes><divisions>24</divisions>'
+        '<key><fifths>1</fifths></key>'
+        '<time><beats>4</beats><beat-type>4</beat-type></time>'
+        '<clef><sign>G</sign><line>2</line></clef></attributes>'
+        + note('F', 1, 5) + note('F', 0, 5)
+        + note('B', -1, 4) + note('B', -1, 4)
+        + '</measure></part></score-partwise>')
+    apdf = os.path.join(tmp, "a.pdf")
+    ok, why = chartengrave.engrave(axml, apdf)
+    m = chartengrave.music_font()
+    raw = open(apdf, "rb").read()
+    import re
+    import zlib as _z
+    parts = []
+    for s in re.findall(rb'stream\r?\n(.*?)\r?\nendstream', raw, re.S):
+        try:
+            parts.append(_z.decompress(s))
+        except Exception:
+            parts.append(s)
+    stream = b"".join(parts)
+    def glyphs(name):
+        return stream.count(b"<%04X> Tj" % m.gids[name])
+    check("in key G: one sharp (the signature), one natural, one flat",
+          ok and glyphs('sharp') == 1 and glyphs('natural') == 1
+          and glyphs('flat') == 1,
+          f"{ok} {why} s={glyphs('sharp')} n={glyphs('natural')} "
+          f"f={glyphs('flat')}" if ok else f"{ok} {why}")
     shutil.rmtree(tmp, ignore_errors=True)
 
 

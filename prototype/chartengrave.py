@@ -54,6 +54,7 @@ def step_pos(step, octave, clef):
 SMUFL = {
     'gClef': 0xE050, 'cClef': 0xE05C, 'fClef': 0xE062, 'percClef': 0xE069,
     'flat': 0xE260, 'natural': 0xE261, 'sharp': 0xE262,
+    'dblSharp': 0xE263, 'dblFlat': 0xE264,
     'wholeHead': 0xE0A2, 'halfHead': 0xE0A3, 'blackHead': 0xE0A4,
     'restW': 0xE4E3, 'restH': 0xE4E4, 'restQ': 0xE4E5,
     'rest8': 0xE4E6, 'rest16': 0xE4E7, 'rest32': 0xE4E8,
@@ -521,9 +522,11 @@ def draw_clef(pdf, x, top, clef):
 def draw_accidental(pdf, x, y, alter, scale=1.0):
     s = SP * scale
     if pdf.music:
-        name = {1: 'sharp', -1: 'flat', 0: 'natural'}[alter]
+        name = {1: 'sharp', -1: 'flat', 0: 'natural',
+                2: 'dblSharp', -2: 'dblFlat'}.get(alter)
         size = 4 * SP * scale
-        if pdf.glyph(x - pdf.gw(name, size) * 0.6, y, name, size):
+        if name and pdf.glyph(x - pdf.gw(name, size) * 0.6, y, name,
+                              size):
             return
     if alter == 1:              # sharp
         for dx in (-0.45 * s, 0.45 * s):
@@ -597,7 +600,8 @@ def draw_rest(pdf, x, top, rtype):
 
 
 class Note:
-    __slots__ = ('rest', 'step', 'alter', 'octave', 'dur', 'ntype',
+    __slots__ = ('show_acc',
+                 'rest', 'step', 'alter', 'octave', 'dur', 'ntype',
                  'dots', 'chord', 'tie_start', 'tie_stop', 'slur_start',
                  'slur_stop', 'artic', 'slash', 'parens', 'cue', 'lyric',
                  'tmod', 'measure_rest')
@@ -641,6 +645,39 @@ def _parse_note(t):
 
 
 REFUSE = ('<grace',)
+
+
+KEY_STEPS_SHARP = ['F', 'C', 'G', 'D', 'A', 'E', 'B']
+KEY_STEPS_FLAT = ['B', 'E', 'A', 'D', 'G', 'C', 'F']
+
+
+def mark_accidentals(meas, state):
+    """Decide which notes print an accidental: only where the pitch
+    departs from the key and the bar's running state. That includes
+    the natural that cancels — a bare F after the key says F-sharp
+    would be read sharp. A tie into a bar restates nothing; a slash
+    and a percussion staff have no pitch to alter."""
+    fifths = state['fifths']
+    if fifths > 0:
+        base = {s: 1 for s in KEY_STEPS_SHARP[:fifths]}
+    elif fifths < 0:
+        base = {s: -1 for s in KEY_STEPS_FLAT[:-fifths]}
+    else:
+        base = {}
+    cur = {}                     # (staff, step, octave) -> alter in force
+    for pos, notes, staff, voice in sorted(
+            meas['events'], key=lambda e: (e[0], e[2], e[3])):
+        perc = state['clefs'].get(staff) == 'percussion'
+        for n in notes:
+            n.show_acc = None
+            if n.rest or n.slash or perc:
+                continue
+            k = (staff, n.step, n.octave)
+            want = n.alter or 0
+            if want != cur.get(k, base.get(n.step, 0)) \
+                    and not n.tie_stop:
+                n.show_acc = want
+            cur[k] = want
 
 
 def parse_part(xml, pid):
@@ -764,6 +801,7 @@ def parse_part(xml, pid):
             meas['events'].append((pos, [n], n_staff, n_voice))
             pos += n.dur
             hi_pos = max(hi_pos, pos)
+        mark_accidentals(meas, state)
         meas['state'] = {'clefs': dict(state['clefs']),
                          'staves': state['staves'],
                          'fifths': state['fifths'],
@@ -803,7 +841,8 @@ def ink_needs(meas):
             l, r = 1.5 * SP, 1.5 * SP
         else:
             l = r = 1.35 * SP * s
-            naccs = sum(1 for n in notes if n.alter)
+            naccs = sum(1 for n in notes
+                        if getattr(n, 'show_acc', None) is not None)
             if naccs:
                 l = max(l, (2.1 + 1.7 * (naccs - 1) + 1.7) * SP)
             # seconds flip a head across the stem; count them the way
@@ -1297,8 +1336,8 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                              w=0.8)
         ax = cx - 2.1 * SP
         for n, yy in zip(notes, ys):
-            if n.alter and not n.slash:    # a slash has no pitch to alter
-                draw_accidental(pdf, ax, yy, n.alter, scale=scale)
+            if getattr(n, 'show_acc', None) is not None:
+                draw_accidental(pdf, ax, yy, n.show_acc, scale=scale)
                 ax -= 1.7 * SP
         head = ('slash' if n0.slash else DUR_HEADS.get(n0.ntype, 'black'))
         order = sorted(range(len(ps)), key=lambda i: ps[i])
@@ -1348,7 +1387,9 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             else:
                 ay = (min(ys) - 2.2 * SP) if up else (max(ys) + 1.6 * SP)
             acx = cx
-            if n0.artic in ('scoop', 'plop') and any(n.alter for n in notes):
+            if n0.artic in ('scoop', 'plop') and any(
+                    getattr(n, 'show_acc', None) is not None
+                    for n in notes):
                 acx -= 1.9 * SP        # start left of the accidental
             draw_artic(pdf, acx, ay, n0.artic)
         if n0.tie_stop or n0.slur_stop:
