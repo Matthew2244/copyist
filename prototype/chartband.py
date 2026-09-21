@@ -236,6 +236,24 @@ def _shape(art, d, vel, fam):
         d = max(min(d * 0.45, 0.5), 0.06)
     elif 'ten' not in art and 'leg' not in art and fam in _BREATHERS:
         d = max(d * 0.93, 0.05)         # air between unslurred notes
+    if 'trill' in art:
+        # alternate with the upper neighbor, easing in like a player:
+        # whole step unless the mark carries an accidental
+        step = 1.0 if 'trill_half' in art else 2.0
+        bend, t, up, period = [(0.0, 0.0)], 0.12, False, 0.075
+        while t < d - 0.02:
+            up = not up
+            bend.append((t, step if up else 0.0))
+            bend.append((min(t + period, d), step if up else 0.0))
+            t += period
+        bend.append((d, 0.0))
+    if 'slide_to' in art and ('gliss' in art or 'port' in art):
+        delta = float(art['slide_to'])
+        if 'port' in art:               # the whole note leans over
+            bend = [(0.0, 0.0), (d * 0.35, 0.0), (d, delta)]
+        else:                           # gliss: the tail slides
+            slide = min(0.35, d * 0.45)
+            bend = [(0.0, 0.0), (d - slide, 0.0), (d, delta)]
     if 'scoop' in art:
         bend = [(0.0, -2.5), (min(0.15, d * 0.4), 0.0)]
     if 'plop' in art:

@@ -38,7 +38,9 @@ _ART_MARKS = [('<staccato/>', 'stac'), ('<tenuto/>', 'ten'),
               ('<accent/>', 'acc'), ('<strong-accent', 'marc'),
               ('<falloff', 'fall'), ('<doit', 'doit'),
               ('<scoop', 'scoop'), ('<plop', 'plop'),
-              ('<fermata', 'fermata')]
+              ('<fermata', 'fermata'), ('<trill-mark', 'trill'),
+              ('<glissando type="start"', 'gliss'),
+              ('<slide type="start"', 'port')]
 
 # the drum map read backwards: staff position and notehead -> GM number.
 # Our own charts write instruments.DRUM_MAP positions; a lifted engraving
@@ -262,6 +264,8 @@ def parse_score(path, only=None):
                 for pat, flag in _ART_MARKS:
                     if pat in t:
                         art[flag] = True
+                if 'trill' in art and '<accidental-mark' in t:
+                    art['trill_half'] = True   # marked neighbor: a step
                 if '<notehead parentheses="yes"' in t:
                     art['ghost'] = True
                 starts = len(re.findall(r'<slur [^>]*type="start"', t))
@@ -308,6 +312,17 @@ def parse_score(path, only=None):
             q0 += (top if num == '0' else barlen) / div
         if wedge_open:                  # a hairpin nothing closed
             wedges.append((wedge_open[0], q0, wedge_open[1]))
+        # a gliss or portamento rides toward the NEXT sounding pitch
+        order = sorted(range(len(events)), key=lambda k: events[k][0])
+        for oi, k in enumerate(order):
+            ev = events[k]
+            if ('gliss' in ev[4] or 'port' in ev[4]) \
+                    and ev[2] is not None:
+                for k2 in order[oi + 1:]:
+                    nxt = events[k2]
+                    if nxt[0] > ev[0] + 1e-9 and nxt[2] is not None:
+                        ev[4]['slide_to'] = nxt[2] - ev[2]
+                        break
         parts.append({'name': m['name'], 'program': m['program'],
                       'percussion': m['percussion'], 'events': events,
                       'bars': bars, 'meter0': meter0 or (4, 4),
