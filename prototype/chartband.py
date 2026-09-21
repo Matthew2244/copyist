@@ -400,12 +400,44 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None):
             chartaudio._add_tick(L, R, c * pulse,
                                  1568.0 if c % n0 == 0 else 1047.0, 0.5)
 
+    # a groove repeats its hits by the hundred: keep a four-take
+    # round-robin cache per drum voice so the kit renders each take
+    # once and then plays it like a player would — same variety, a
+    # fraction of the time
+    drum_cache = {}
+    drum_turn = {}
     for a, d, idx, key, vel, bright, bend, amps, fam, art in jobs:
         part = plan['parts'][idx]
         v = int(round(min(max(vel, 1.0), 127.0)))
         pieces = []
         voice = voices[idx]
-        if 'fall' in art and voice and 'fall' in voice \
+        if part['percussion'] and bend is None and amps is None:
+            ck = (idx, int(key), v // 8, round(d, 1))
+            takes = drum_cache.setdefault(ck, [])
+            if len(takes) >= 4:
+                n = drum_turn.get(ck, 0)
+                drum_turn[ck] = n + 1
+                res = takes[n % 4]
+                if res is not None:
+                    pieces.append((a, res))
+                else:
+                    continue
+            else:
+                inst = _variant(voice, art)
+                res = inst.render_note(int(key), v, d, SR,
+                                       brightness=bright,
+                                       detune=detunes[idx]) \
+                    if inst is not None else None
+                if res is None and shelf.sf2 is not None:
+                    res = sf2mod.render_note(
+                        shelf.sf2, 128, max(part['program'] - 1, 0),
+                        int(key), v, d, SR, brightness=bright,
+                        detune=detunes[idx])
+                takes.append(res)
+                if res is None:
+                    continue
+                pieces.append((a, res))
+        if not pieces and 'fall' in art and voice and 'fall' in voice \
                 and key is not None:
             # a RECORDED fall beats a synthetic bend every time. A
             # short note IS the gesture; a long one sings first and
