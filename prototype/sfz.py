@@ -95,6 +95,7 @@ class SfzInstrument:
         cur = None
         default_path = ''
         in_control = False
+        self.cc = {}                    # control-header CC defaults
         for kind, name, val in _tokens(text):
             if kind == 'header':
                 in_control = name == 'control'
@@ -120,6 +121,11 @@ class SfzInstrument:
             elif kind == 'op':
                 if in_control and name == 'default_path':
                     default_path = val.replace('\\', os.sep)
+                elif in_control and name.startswith('set_cc'):
+                    try:
+                        self.cc[int(name[6:])] = float(val)
+                    except ValueError:
+                        pass
                 elif cur is not None:
                     cur[name] = val
         self.default_path = default_path
@@ -179,6 +185,37 @@ class SfzInstrument:
         self._wavs[key] = data
         return data
 
+    def _mod(self, r, base_name, default):
+        """An opcode plus its CC modulations at the control header's
+        default CC values — how Karoryfer sets real envelopes (their
+        base sustain is 0; set_cc103=127 is what makes notes sustain)
+        and how Virtuosity exposes its tuning knobs. curvecc 1 reads
+        bipolar, centered CCs mean no change."""
+        try:
+            v = float(r.get(base_name, default))
+        except (TypeError, ValueError):
+            v = default
+        for k, raw in r.items():
+            n = None
+            if k.startswith(base_name + '_oncc'):
+                tail = k[len(base_name) + 5:]
+            elif k.startswith(base_name + '_cc'):
+                tail = k[len(base_name) + 3:]
+            else:
+                continue
+            try:
+                n = int(tail)
+                amt = float(raw)
+            except (TypeError, ValueError):
+                continue
+            cc = self.cc.get(n, 0.0)
+            curve = r.get(base_name + '_curvecc%d' % n)
+            if curve == '1':
+                v += amt * (cc - 63.5) / 63.5
+            else:
+                v += amt * cc / 127.0
+        return v
+
     def regions_for(self, key, vel):
         """The regions this note plays: key and velocity windows, then
         one winner per round-robin set (seq counters and the shared
@@ -237,7 +274,7 @@ class SfzInstrument:
         keytrack = float(r.get('pitch_keytrack', 100)) / 100.0
         semis = ((key - root) * keytrack
                  + float(r.get('transpose', 0))
-                 + float(r.get('tune', 0)) / 100.0 + detune)
+                 + self._mod(r, 'tune', 0.0) / 100.0 + detune)
         base_step = (wsr / sr) * (2.0 ** (semis / 12.0))
 
         lm = r.get('loop_mode')
@@ -255,13 +292,15 @@ class SfzInstrument:
         gain = vgain * 10.0 ** (float(r.get('volume', 0)) / 20.0) \
             * float(r.get('amplitude', 100)) / 100.0 \
             * min(brightness, 1.0)
-        pan = float(r.get('pan', 0)) / 100.0     # -1..1
+        pan = min(max(self._mod(r, 'pan', 0.0), -100.0),
+                  100.0) / 100.0                 # -1..1
 
-        atk = float(r.get('ampeg_attack', 0.001))
-        hold = float(r.get('ampeg_hold', 0))
-        dec = float(r.get('ampeg_decay', 0))
-        sus = float(r.get('ampeg_sustain', 100)) / 100.0
-        rel = max(float(r.get('ampeg_release', 0.08)), 0.01)
+        atk = max(self._mod(r, 'ampeg_attack', 0.001), 0.0)
+        hold = max(self._mod(r, 'ampeg_hold', 0.0), 0.0)
+        dec = max(self._mod(r, 'ampeg_decay', 0.0), 0.0)
+        sus = min(max(self._mod(r, 'ampeg_sustain', 100.0), 0.0),
+                  100.0) / 100.0
+        rel = max(self._mod(r, 'ampeg_release', 0.08), 0.01)
 
         n_on = max(int(dur * sr), 1)
         n = n_on + int(rel * sr) + 1
@@ -280,6 +319,8 @@ class SfzInstrument:
         pos = float(r.get('offset', 0))
         i = 0
         amul = gain
+        env = sus
+        rel_base = None
         stereo = smpR is not None
         loop_len = float(loop_e - loop_s) if looping else 0.0
         while i < n:
@@ -311,7 +352,11 @@ class SfzInstrument:
                 elif i < n_on:
                     env = sus
                 else:
-                    env = max(0.0, 1.0 - (i - n_on) / r_n)
+                    # release fades from wherever the note actually
+                    # was — restarting at full is an audible pop
+                    if rel_base is None:
+                        rel_base = env
+                    env = rel_base * max(0.0, 1.0 - (i - n_on) / r_n)
                     if env <= 0.0:
                         i = n
                         break

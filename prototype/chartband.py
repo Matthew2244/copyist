@@ -178,7 +178,7 @@ _FAMILIES = [
     (range(65, 73), 'reed'), (range(73, 81), 'flute'),
 ]
 _SEND = {'piano': .12, 'mallet': .16, 'organ': .08, 'guitar': .10,
-         'bass': .04, 'strings': .22, 'voice': .24, 'brass': .18,
+         'bass': .04, 'strings': .22, 'voice': .16, 'brass': .18,
          'reed': .16, 'flute': .16, 'synth': .12, 'drums': .10}
 _BREATHERS = {'brass', 'reed', 'flute', 'voice', 'strings'}
 

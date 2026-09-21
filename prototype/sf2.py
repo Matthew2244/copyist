@@ -257,6 +257,8 @@ def render_zone(sf, gen, key, vel, dur, sr, bend=None, brightness=1.0,
     end_f = float(end - 1)
     loop_len = float(loop_e - loop_s)
     low = band = 0.0
+    env = sustain
+    rel_base = None
     if bend:
         bend = list(bend)
     if amps:
@@ -286,7 +288,16 @@ def render_zone(sf, gen, key, vel, dur, sr, bend=None, brightness=1.0,
             frac = pos - ip
             s = smpl[ip] * (1.0 - frac) + smpl[ip + 1] * frac
             # envelope
-            if i < delay:
+            if i >= n_on:
+                # release fades from wherever the note actually was —
+                # restarting at full is an audible pop
+                if rel_base is None:
+                    rel_base = env
+                env = rel_base * max(0.0, 1.0 - (i - n_on) / release)
+                if env <= 0.0:
+                    i = n
+                    break
+            elif i < delay:
                 env = 0.0
             elif i < delay + attack:
                 env = (i - delay) / attack
@@ -295,15 +306,8 @@ def render_zone(sf, gen, key, vel, dur, sr, bend=None, brightness=1.0,
             elif i < delay + attack + hold + decay:
                 f = (i - delay - attack - hold) / decay
                 env = 1.0 + (sustain - 1.0) * f
-            elif i < n_on:
-                env = sustain
             else:
-                env = max(0.0, 1.0 - (i - n_on) / release) \
-                    * (sustain if decay and i >= delay + attack + hold
-                       + decay else 1.0)
-                if env <= 0.0:
-                    i = n
-                    break
+                env = sustain
             if use_filter:
                 low += f1 * band
                 high = s - low - damp * band

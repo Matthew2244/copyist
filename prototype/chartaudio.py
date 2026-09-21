@@ -324,7 +324,8 @@ def parse_score(path, only=None):
                         ev[4]['slide_to'] = nxt[2] - ev[2]
                         break
         parts.append({'name': m['name'], 'program': m['program'],
-                      'percussion': m['percussion'], 'events': events,
+                      'percussion': m['percussion'],
+                      'sound': m.get('sound', ''), 'events': events,
                       'bars': bars, 'meter0': meter0 or (4, 4),
                       'length_q': q0, 'dyns': dyns, 'wedges': wedges})
     return {'parts': parts,

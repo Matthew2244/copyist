@@ -116,6 +116,14 @@ def _detect_pitch(path):
     seg = L[n // 3:n // 3 + 8192]
     rms = math.sqrt(sum(v * v for v in seg) / len(seg)) or 1e-6
     rms_db = 20 * math.log10(rms / 30000.0)
+    # the breath before the tone: skip to the first real signal, a
+    # touch early so the attack keeps its consonant of air
+    peak = max(abs(v) for v in L) or 1.0
+    onset = 0
+    for i in range(n):
+        if abs(L[i]) > 0.04 * peak:
+            onset = max(i - int(0.02 * sr), 0)
+            break
 
     def g(freq):
         w = 2 * math.pi * freq / sr
@@ -140,7 +148,7 @@ def _detect_pitch(path):
         s = g(f0 * 2 ** (c / 1200.0))
         if s > ref:
             ref, cents = s, c
-    return best, cents, rms_db
+    return best, cents, rms_db, onset
 
 
 def build_choir(shelf):
@@ -171,12 +179,12 @@ def build_choir(shelf):
                     continue
                 rel = '/'.join((singer, 'long_tones', dyn, f))
                 got = cache.get(rel)
-                if not got or len(got) < 3:
+                if not got or len(got) < 4:
                     got = _detect_pitch(os.path.join(folder, f))
                     cache[rel] = got
                 if got:
                     tones.setdefault((vowel, dyn), []).append(
-                        (got[0], got[1], got[2], rel))
+                        (got[0], got[1], got[2], got[3], rel))
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     json.dump(cache, open(cache_path, 'w', encoding='utf-8'))
     made = []
@@ -187,13 +195,13 @@ def build_choir(shelf):
         wrote = False
         for dyn, (lovel, hivel) in _DYN_LAYERS.items():
             notes = sorted(tones.get((vowel, dyn), ()))
-            keys = sorted({m for m, _c, _d, _r in notes})
+            keys = sorted({m for m, _c, _d, _o, _r in notes})
             for i, k in enumerate(keys):
                 lo = (keys[i - 1] + k) // 2 + 1 if i else max(k - 5, 0)
                 hi = (k + keys[i + 1]) // 2 if i + 1 < len(keys) \
                     else min(k + 5, 127)
                 stack = [n for n in notes if n[0] == k]
-                for m, cents, rms_db, rel in stack:
+                for m, cents, rms_db, onset, rel in stack:
                     # every voice to one loudness (-24 dB RMS on the
                     # engine scale), minus a share for stacking
                     vol = -24.0 - rms_db - 3.0 * (len(stack) - 1)
@@ -201,8 +209,9 @@ def build_choir(shelf):
                     lines.append(
                         '<region> sample=%s lokey=%d hikey=%d '
                         'pitch_keycenter=%d tune=%d lovel=%d hivel=%d '
-                        'volume=%.1f' % (rel, lo, hi, k, -cents,
-                                         lovel, hivel, vol))
+                        'volume=%.1f offset=%d ampeg_release=0.2'
+                        % (rel, lo, hi, k, -cents, lovel, hivel, vol,
+                           onset))
                     wrote = True
         if wrote:
             out = os.path.join(shelf, 'Copyist-Extras', out_name)
