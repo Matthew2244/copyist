@@ -536,14 +536,25 @@ def main():
     built_from = os.path.join(title_dir, "built from.chart")
     os.makedirs(title_dir, exist_ok=True)
     import shutil
-    if os.path.exists(built_from):
-        os.makedirs(prev_dir, exist_ok=True)
-        shutil.copy2(built_from,
-                     os.path.join(prev_dir, "previous built from.chart"))
+    # the snapshot is a nicety for the diff — a cloud file that is not
+    # local yet (or any copy hiccup) must never kill the build itself
+    try:
+        if os.path.exists(built_from):
+            os.makedirs(prev_dir, exist_ok=True)
+            shutil.copy2(built_from,
+                         os.path.join(prev_dir,
+                                      "previous built from.chart"))
+    except OSError as e:
+        say(f"Could not snapshot the previous source ({e}) — "
+            "the build carries on; only the diff loses its memory.")
 
     # ---- check / build: compile first, loudly, then prove the arithmetic
     written = chartc.compile_chart(path, title_dir)
-    shutil.copy2(path, built_from)
+    try:
+        shutil.copy2(path, built_from)
+    except OSError as e:
+        say(f"Could not snapshot the chart source ({e}) — "
+            "the build carries on.")
     bad = verify_measures(written)
     if bad:
         for b in bad[:10]:
@@ -738,4 +749,23 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except Exception as e:
+        # the house rule: every error is one sentence. The whole story
+        # goes to a file for whoever chases it.
+        import traceback
+        spot = os.path.expanduser('~/.config/copyist/last-error.txt')
+        where = ""
+        try:
+            os.makedirs(os.path.dirname(spot), exist_ok=True)
+            with open(spot, 'w', encoding='utf-8') as f:
+                f.write(traceback.format_exc())
+            where = f" The full story is in {spot}."
+        except OSError:
+            pass
+        sys.exit(f"chart: something broke inside — "
+                 f"{type(e).__name__}: {e}.{where} That is a bug in "
+                 "Copyist, not in your chart.")

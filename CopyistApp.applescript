@@ -77,7 +77,12 @@ end runChart
 
 on readPart(p)
 	set d to sh("dirname " & quoted form of p)
-	set found to sh("ls " & quoted form of d & " 2>/dev/null | grep ' read aloud.txt$' || true")
+	try
+		set found to sh("cd " & quoted form of d & " && { ls | grep ' read aloud.txt$' || true; }")
+	on error errText
+		info("Could not look inside the chart's folder — " & errText)
+		return
+	end try
 	if found is "" then
 		info("No read-alouds here yet — build or check the chart first; they land beside it.")
 		return
@@ -106,16 +111,20 @@ on settingsDesk()
 		try
 			if k is "notify" or k is "open" then
 				set onoff to choose from list {"yes", "no", "Back"} with prompt "Set " & k & " to:" with title "Copyist"
-				if onoff is false then exit repeat
-				set v to item 1 of onoff
-				if v is "Back" then exit repeat
+				if onoff is false then
+					set v to "Back"
+				else
+					set v to item 1 of onoff
+				end if
 			else
 				set hint to ""
 				if k is "look" then set hint to " The looks are jazz, handwritten, engraved and plain; empty lets each chart decide."
 				set d to display dialog "New value for " & k & "." & hint buttons {"Cancel", "Set"} default button "Set" cancel button "Cancel" default answer currentValue(k) with title "Copyist"
 				set v to text returned of d
 			end if
-			info(sh("chart set " & quoted form of (k & "=" & v)))
+			if v is not "Back" then
+				info(sh("chart set " & quoted form of (k & "=" & v)))
+			end if
 		on error number -128
 		end try
 	end repeat
