@@ -160,7 +160,14 @@ while ($true) {
         'Settings - the defaults desk',
         'Help - what this is',
         'Quit')
-    if (-not $c -or $c -eq 'Quit') { break }
+    if (-not $c) {
+        # Escape at the main menu asks before leaving - sublists go
+        # back on Escape, so the same key must not kill the app here
+        $r = [System.Windows.Forms.MessageBox]::Show(
+            'Leave Copyist?', 'Copyist', 'YesNo')
+        if ($r -eq 'Yes') { break } else { continue }
+    }
+    if ($c -eq 'Quit') { break }
     switch -Wildcard ($c) {
         'Build*' { Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
         'Check*' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }

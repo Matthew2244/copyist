@@ -133,7 +133,16 @@ end settingsDesk
 on run
 	repeat
 		set choice to choose from list {"Build — pages, listen MP3, findings", "Check — compile only, nothing rendered", "Read a part aloud", "Settings — the defaults desk", "Help — what this is", "Quit"} with prompt "Copyist — from your played demo to pages a band can read. What are we doing?" with title "Copyist" default items {"Build — pages, listen MP3, findings"}
-		if choice is false then exit repeat
+		if choice is false then
+			-- Escape (or Cancel) at the main menu must not kill the
+			-- app silently: every sublist goes BACK on Escape, so the
+			-- same key here asks first. Return quits; Escape stays.
+			try
+				display dialog "Leave Copyist?" buttons {"Stay", "Quit"} default button "Quit" cancel button "Stay" with title "Copyist"
+				exit repeat
+			on error number -128
+			end try
+		else
 		set c to item 1 of choice
 		if c is "Quit" then exit repeat
 		try
@@ -153,5 +162,6 @@ on run
 			end if
 		on error number -128
 		end try
+		end if
 	end repeat
 end run
