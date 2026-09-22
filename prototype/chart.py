@@ -577,14 +577,16 @@ def main():
     ap.add_argument('chart', help="the .chart file")
     ap.add_argument('command', nargs='?', default='build',
                     choices=['build', 'check', 'read', 'parts', 'diff',
-                             'listen', 'new',
-                             'b', 'c', 'r', 'p', 'd', 'l', 'n'],
+                             'listen', 'new', 'edit',
+                             'b', 'c', 'r', 'p', 'd', 'l', 'n', 'e'],
                     help="build (default): everything; check: compile "
                          "only; read: speak the chart; parts: list the "
                          "band; diff: what changed since the last build; "
                          "listen: just the MP3; new: interview a starter "
-                         "chart into existence. Each has a one-letter "
-                         "shortcut: b c r p d l n")
+                         "chart into existence; edit: the roadmap "
+                         "conversation — describe the tune, Copyist "
+                         "writes the sections. Each has a one-letter "
+                         "shortcut: b c r p d l n e")
     ap.add_argument('--part', help='with read: one part, e.g. "trumpet 1"')
     ap.add_argument('--section', help="with read: just this section")
     ap.add_argument('--outdir', help="where the built files go "
@@ -609,13 +611,20 @@ def main():
     args = ap.parse_args()
     args.command = {'b': 'build', 'c': 'check', 'r': 'read',
                     'p': 'parts', 'd': 'diff', 'l': 'listen',
-                    'n': 'new'}.get(args.command, args.command)
+                    'n': 'new', 'e': 'edit'}.get(args.command,
+                                                 args.command)
     cfg = load_cfg()
 
     if args.command == 'new':
         import chartnew
         chartnew.interview(args.chart, args.demo,
                            composer=cfg['composer'])
+        return
+
+    if args.command == 'edit':
+        import chartedit
+        chartedit.edit(args.chart, demo=args.demo,
+                       composer=cfg['composer'])
         return
 
     path = args.chart

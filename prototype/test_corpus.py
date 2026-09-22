@@ -1515,6 +1515,154 @@ def check_settings():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_roadmap():
+    """chartedit — the roadmap conversation: the form parser, spoken
+    chords, played-chord naming, and a whole scripted session."""
+    print("\nroadmap conversation (chartedit)")
+    import collections
+    import chartedit
+
+    plans, gaps = chartedit.parse_form(
+        "8 bar intro, head is 32 AABA, solos over the head twice, "
+        "out on the last A")
+    check("the breath parses whole", not gaps and len(plans) == 4)
+    check("intro is 8 plain bars",
+          plans[0]["name"] == "intro" and plans[0]["bars"] == 8)
+    check("the head carries its shape",
+          plans[1]["bars"] == 32 and plans[1]["shape"] == "aaba")
+    check("solos borrow the head twice",
+          plans[2]["kind"] == "solos" and plans[2]["use"] == "head"
+          and plans[2]["repeat"] == 2)
+    check("the out names its source",
+          plans[3]["kind"] == "out" and plans[3]["source"] == "last a")
+
+    check("number words digitize",
+          chartedit.digitize("thirty two bars of head") ==
+          "32 bars of head")
+    sp = chartedit.parse_spoken_chords
+    check("bandstand chords speak",
+          sp("b flat seven 4 bars, e flat seven") == "Bb7 x4, Eb7")
+    check("placement speaks",
+          sp("c nine f seven at 3, b flat seven at the and of 4") ==
+          "C9 F7@3, Bb7@4+")
+    check("qualities speak",
+          sp("F minor seven flat five, a half diminished") ==
+          "Fm7b5, Am7b5")
+    check("slash bass speaks",
+          sp("e flat minor over b flat") == "Ebm/Bb")
+    check("typed symbols pass through", sp("Bb7 x4, F7@3") ==
+          "Bb7 x4, F7@3")
+    try:
+        sp("b flat burner")
+        check("an unknown word names itself", False, "no error")
+    except chartedit.SpokenError as e:
+        check("an unknown word names itself", e.word == "burner")
+    check("the vocabulary applies his words",
+          sp("b flat burner", {"burner": "seven sharp nine"}) ==
+          "Bb7#9")
+
+    check("a played Bb7 names itself",
+          chartedit.name_chord({46, 58, 62, 65, 68}) == "Bb7")
+    check("a rootless bass note names the slash",
+          chartedit.name_chord({40, 48, 55, 58, 62}) == "C9/E")
+    check("nothing nameable stays honest",
+          chartedit.name_chord({48, 49, 50, 51}) is None)
+
+    N = collections.namedtuple("N", "on off pitch")
+    div = 480
+    Bb7 = [46, 58, 62, 65, 68]
+    Cm7 = [48, 58, 63, 67]
+    G7 = [43, 55, 59, 65]
+    notes = [N(0, div * 4, p) for p in Bb7]            # bar 1, held whole
+    notes += [N(div * 4, div * 8, p) for p in Bb7]     # bar 2 restates
+    notes += [N(div * 8, div * 10, p) for p in Cm7]    # bar 3 beat 1
+    notes += [N(div * 10, div * 12, p) for p in G7]    # bar 3 beat 3
+    barof = lambda t: t // (div * 4) + 1
+    bars, misses = chartedit.detect_bars(
+        notes, barof, 1, 3, half_beat=3, half_ticks=div * 2)
+    check("played bars name themselves, split lands at 3",
+          bars == ["Bb7", "Bb7", "Cm7 G7@3"] and not misses, str(bars))
+    bars, _ = chartedit.detect_bars(notes[:5], barof, 1, 2,
+                                    half_beat=3, half_ticks=div * 2)
+    check("a held chord restates, never splits",
+          bars == ["Bb7", "Bb7"], str(bars))
+    check("compress speaks runs",
+          chartedit.compress(["Bb7", "Bb7", "Eb7"]) == "Bb7 x2, Eb7")
+
+    who = chartedit.parse_who("horns tacet; trumpet from demo bars "
+                              "5-12, piano grooves",
+                              ["trumpet", "piano"], ["horns"], {})
+    check("who plays parses to directives",
+          who == ["horns: tacet", "trumpet: from demo bars 5-12",
+                  "piano: groove"], str(who))
+
+    # the whole conversation, scripted: breath, carve, spoken blues,
+    # same-as, solos over the form, out on the last A
+    tmp = tempfile.mkdtemp()
+    chart_path = os.path.join(tmp, "t.chart")
+    with open(chart_path, "w", encoding="utf-8") as f:
+        f.write("title: T\nkey: Bb\nmeter: 4/4\ntempo: 160\n\nband:\n"
+                "  trumpet\n  piano\n  bass = electric bass\n"
+                "  drums = drum set\n\nsection A, 40 bars\n"
+                "  chords: nc x40\n")
+    real_vocab = chartedit.VOCAB_PATH
+    real_dir = chartedit.CONFIG_DIR
+    real_stdin = sys.stdin
+    chartedit.CONFIG_DIR = tmp
+    chartedit.VOCAB_PATH = os.path.join(tmp, "vocab.json")
+    sys.stdin = io.StringIO(
+        "8 bar intro, head is 32 AABA, solos over the head twice, "
+        "out on the last A\n"          # the breath
+        "\n"                           # carve (default)
+        "\n"                           # intro chords: none yet
+        "piano grooves\n"              # intro who
+        "b flat seven 2 bars, e flat seven 2 bars, b flat seven "
+        "2 bars, f seven, b flat seven\n"   # A chords
+        "\n"                           # A who: defaults
+        "\n"                           # A2 same as A (yes)
+        "\n"                           # A2 who
+        "e flat seven 4 bars, b flat seven 2 bars, f seven 2 bars\n"
+        "\n"                           # B who
+        "\n"                           # A3 same as A
+        "\n"                           # A3 who
+        "trumpet, piano\n"             # who solos
+        "\n")                          # out who
+    try:
+        with redirect_stdout(io.StringIO()) as out:
+            chartedit.edit(chart_path)
+    finally:
+        sys.stdin = real_stdin
+        chartedit.VOCAB_PATH = real_vocab
+        chartedit.CONFIG_DIR = real_dir
+    said = out.getvalue()
+    check("the session ends written and checked",
+          "Written and checked: 7 section(s), 112 bars" in said, said)
+    import chartc
+    final = chartc.parse_chart(chart_path)
+    names = [s["name"] for s in final["sections"]]
+    check("the form landed in order",
+          names == ["intro", "A", "A2", "B", "A3", "solos", "out"],
+          str(names))
+    check("solos ride the named head progression",
+          "head" in final["chords"] and
+          len(final["chords"]["head"]) == 32)
+    solos = final["sections"][5]
+    check("solos repeat and resolve",
+          solos["repeat"] == 2 and solos["bars"] == 32
+          and len(solos["content"]) == 32)
+    check("the out plays the last A's changes",
+          final["sections"][6]["content"] ==
+          final["sections"][4]["content"])
+    check("who landed as directives",
+          ("piano", "groove") in [(t, i) for t, i, _ in
+                                  final["sections"][0]["directives"]]
+          and [(t, i) for t, i, _ in solos["directives"]] ==
+          [("trumpet", "solo"), ("piano", "solo")])
+    check("the scaffold section is gone", "A, 40 bars" not in
+          open(chart_path, encoding="utf-8").read())
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def run_fixture(name, key, expect_verdicts):
     print(f"\n{name}")
     d = os.path.join(CORPUS, name)
@@ -1585,6 +1733,7 @@ if __name__ == "__main__":
     check_user_chair()
     check_engraver()
     check_settings()
+    check_roadmap()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

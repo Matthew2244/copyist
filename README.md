@@ -92,6 +92,18 @@ the tempo and count-in it found, announces each track with its name, note count
 and range, and proposes octave corrections from register evidence.
 
 ```bash
+python3 prototype/chart.py yourtune.chart edit
+```
+
+`edit` is the roadmap conversation: describe the tune in one breath — "8 bar
+intro, head is 32 AABA, solos over the head twice, out on the last A" — and it
+writes the sections, asking one question at a time about only the gaps. Chords
+arrive spoken the way you'd call them ("b flat seven 4 bars"), played (a MIDI
+file of the changes, named and read back for your yes), or lifted from the
+demo's comping. A word it doesn't know is asked about once, remembered in your
+own vocabulary file, and never guessed.
+
+```bash
 python3 prototype/chart.py yourtune.chart listen --from-bar 65 --solo "bari,trombone"
 ```
 

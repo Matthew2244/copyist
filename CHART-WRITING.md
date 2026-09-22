@@ -222,7 +222,8 @@ to before you change it:
 chart without typing it. The notify ping is quiet — a note you can
 read later, not an alarm. And every command has a one-letter
 shortcut: `chart tune.chart c` checks, `b` builds, `r` reads, `p`
-lists the band, `d` diffs, `l` bounces the listen, `n` interviews.
+lists the band, `d` diffs, `l` bounces the listen, `n` interviews,
+`e` is the roadmap conversation.
 
 ## Borrowing lines — double, cue, and the build
 
@@ -306,6 +307,42 @@ track sits an octave off that instrument's real register it says so and
 proposes the correction. The chart it writes opens with an activity
 map — who plays which bars — so carving sections is reading, not
 detective work.
+
+## Describing the tune — the roadmap conversation
+
+    python3 prototype/chart.py "Uptown Local.chart" edit
+
+You don't have to carve the sections by hand. `edit` (shortcut `e`)
+asks for the tune in one breath, the way you'd describe it to the
+band:
+
+    8 bar intro, head is 32 AABA, solos over the head twice,
+    out on the last A
+
+It places what it understood, reads the placement back, and asks one
+question at a time about only the gaps. An AABA head offers to carve
+itself into lettered 8s; a later A offers "same changes as A?"; solos
+over a form ride that form's own changes; the out on the last A plays
+the last A's changes without you typing them twice. If the chart
+doesn't exist yet, the `new` interview runs first and the roadmap
+picks up where it stops.
+
+Chords go in three ways, and they mix freely:
+
+- **Say them** the way you'd call them on the bandstand: `b flat
+  seven 4 bars, e flat seven, c nine f seven at 3` — or type the
+  symbols; both land as a proper chords line, and a line that doesn't
+  add up to the section says both counts and asks again.
+- **Play them**: `play changes.mid` reads a MIDI file of you playing
+  the changes, names what it hears — mid-bar changes included — and
+  reads the whole progression back for your yes before anything is
+  written.
+- **Lift them**: `from demo` names the changes from a comping track of
+  the chart's own demo, same read-back, same yes.
+
+Words it doesn't know, it never guesses. It asks once what to read the
+word as, writes the answer to your own vocabulary file, and uses it
+forever after — your slang becomes part of your Copyist.
 
 ## The loop that replaces a copyist
 
