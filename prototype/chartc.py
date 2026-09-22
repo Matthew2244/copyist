@@ -2487,7 +2487,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                            and any(p == rest_bar(div, staves, bmeter)
                                    for p in pieces)
                            and all(p == rest_bar(div, staves, bmeter)
-                                   or p.lstrip().startswith('<direction')
+                                   or p.lstrip().startswith(
+                                       ('<direction', '<attributes'))
                                    for p in pieces))
                 out.append((f'    <measure number="{absbar}">\n' + open_bl +
                             "".join(pieces) + barline + '    </measure>\n',

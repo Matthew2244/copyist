@@ -1345,16 +1345,24 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
                          font='TB', center=True)
         x += 3.4 * SP
 
-    tx = x0 + 2
+    # the header lane is one lane across the whole system: marks,
+    # tempo and words advance a shared cursor so a label spilling
+    # right can never sit under the next section's box (Victory's
+    # INTRO/percussion/A pile-up, 2026-09-22)
+    hx0 = -1e9
+    if wedge_run is not None and not first_in_system:
+        hx0 = wedge_run.get('hx', -1e9)
+    tx = max(x0 + 2, hx0)
     if meas['rehearsal']:
-        pdf.text(x0 + 3, top + 4.6 * SP, meas['rehearsal'], size=11,
+        bx = max(x0 - 1, hx0)
+        pdf.text(bx + 4, top + 4.6 * SP, meas['rehearsal'], size=11,
                  font='HB')
         est = 11 * 0.62 * len(meas['rehearsal']) + 6
-        pdf.poly([(x0 - 1, top + 4.2 * SP), (x0 + est, top + 4.2 * SP),
-                  (x0 + est, top + 4.6 * SP + 11),
-                  (x0 - 1, top + 4.6 * SP + 11)], close=True, fill=False,
+        pdf.poly([(bx, top + 4.2 * SP), (bx + est + 1, top + 4.2 * SP),
+                  (bx + est + 1, top + 4.6 * SP + 11),
+                  (bx, top + 4.6 * SP + 11)], close=True, fill=False,
                  w=0.9)
-        tx = x0 + est + 6
+        tx = bx + est + 7
     if meas['metronome']:
         dot, per = meas['metronome']
         notehead(pdf, tx + SP, top + 5.2 * SP, 'black', scale=0.5)
@@ -1369,6 +1377,8 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
         wx = x + frac * (x0 + width - x - 2 * SP)
         pdf.text(max(wx, tx), ty, words, size=8.5, font='HO')
         tx = max(wx, tx) + 8.5 * 0.55 * len(words) + 6
+    if wedge_run is not None:
+        wedge_run['hx'] = tx
 
     if (meas.get('left') or {}).get('repeat') == 'forward':
         meas['_repx'] = max(x0, x - 1.2 * SP)

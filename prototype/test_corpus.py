@@ -396,7 +396,9 @@ def check_meter_charts():
     multi = [m.get("number") for m in r.iter("measure")
              if m.find(".//multiple-rest") is not None]
     check("a resting part's multirests break at each meter change",
-          multi == ["6"] or multi == ["1", "6"], f"got {multi}")
+          multi == ["1", "3", "5"], f"got {multi}")
+    # each change starts its own counted rest, signature above the
+    # count — the working-book grouping (Victory's intro, 2026-09-22)
 
     # the demo door: a figure inside a changed region, located by the
     # file's own time signatures
