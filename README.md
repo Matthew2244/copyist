@@ -149,13 +149,14 @@ a screen reader user should never have to change something to learn what it was.
 
 ## The apps
 
-The same brain answers to dialogs. On the Mac, compile `CopyistApp.applescript`
-into an app (the file's header has the one-line command): a menu of dialogs —
-build, check, open a part's read-aloud in TextEdit, the settings desk — every
-one of them shaped for a screen reader, with Escape working everywhere it can.
-On Windows, the `windows` folder holds `Copyist.bat`, the same menu in native
-Windows dialogs (written on a Mac, honestly untested on real Windows — the
-README in that folder says so too).
+**Copyist.app** (the `app` folder, described above) is the Mac front door: a
+real SwiftUI app over the same engine. Before it existed, the same brain
+answered to dialogs, and those doors still work: `CopyistApp.applescript`
+compiles into a menu-of-dialogs applet (the file's header has the one-line
+command), every dialog shaped for a screen reader with Escape working
+everywhere it can. On Windows, the `windows` folder holds `Copyist.bat`, the
+same menu in native Windows dialogs (written on a Mac, honestly untested on
+real Windows — the README in that folder says so too).
 
 The MIDI analysis underneath is still there and still standalone:
 
