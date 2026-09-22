@@ -1683,7 +1683,45 @@ def check_roadmap():
     check("a story entrance becomes a build cue",
           who3 == ["build: add bass at 5"], str(who3))
 
+    # the audit's three features: key changes, hairpins, swing 16ths
     import chartc as _cc
+    tmp3 = tempfile.mkdtemp()
+    kpath = os.path.join(tmp3, "k.chart")
+    with open(kpath, "w", encoding="utf-8") as f:
+        f.write("title: K\nkey: Db\nmeter: 4/4\ntempo: 100\n"
+                "feel: swing 16ths\n\nband:\n  trumpet\n  piano\n\n"
+                "section A, 8 bars\n"
+                "  chords: Db7 x4, Gb7 x4\n"
+                "  at bar 5: key D\n"
+                "  piano: groove, cresc bars 2-4, dim bars 6-8\n")
+    kchart = _cc.parse_chart(kpath)
+    check("a key event lands in the key map",
+          kchart["keys"] == [(1, (-5, "major")), (5, (2, "major"))],
+          str(kchart.get("keys")))
+    with redirect_stdout(io.StringIO()):
+        _cc.compile_chart(kpath, tmp3)
+    tp = open(os.path.join(tmp3, "K — trumpet.musicxml"),
+              encoding="utf-8").read()
+    pn = open(os.path.join(tmp3, "K — piano.musicxml"),
+              encoding="utf-8").read()
+    check("the restated key is each part's own written key",
+          "<key><fifths>4</fifths>" in tp
+          and "<key><fifths>2</fifths>" in pn)
+    check("hairpins land as wedges",
+          pn.count('<wedge type="crescendo"') == 1
+          and pn.count('<wedge type="diminuendo"') == 1
+          and pn.count('<wedge type="stop"') == 2)
+    listen = open(os.path.join(tmp3, "K — for listening.musicxml"),
+                  encoding="utf-8").read()
+    check("swing 16ths reaches the listening document",
+          "<swing-type>16th</swing-type>" in listen)
+    import chartaudio as _ca
+    sw = [(0.0, (2 / 3, 0.5))]
+    check("the 16th swing warp swings the half-beat",
+          abs(_ca._warp(0.25, sw) - (2 / 3) * 0.5) < 1e-9
+          and abs(_ca._warp(0.5, sw) - 0.5) < 1e-9)
+    shutil.rmtree(tmp3, ignore_errors=True)
+
     bars = _cc.parse_bars("D9, /C, Bmi9, Ami7, D7(#9) x2, "
                           "( F7, Bb7 ) x2", "the 8BBB spellings")
     check("the working book's chord spellings parse",

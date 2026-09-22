@@ -145,6 +145,8 @@ Key–value lines, one per line:
   `Slow, freely` — both appear in *Lush Life*), or absent.
 - `feel` is printed verbatim at the top (`Swing`, `Latin`, `Afro-Cuban feel`
   are all in the corpus) and tells the compiler how to interpret eighths.
+  A feel naming 16ths (`swing 16ths`, the 8-Bit book's groove) swings the
+  half-beat in the listening document instead of the beat.
 - `source: "<file.musicxml>"` names the chart's default engraving — the
   score that `as engraved` directives (§3.6) lift from. Optional; only
   charts derived from an existing score need it.
@@ -382,6 +384,7 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
   | `as demo` | "as demo" over slashes — symbols-level (DESIGN.md §11) |
   | `double <part>` | this part plays another part's line (printed full size) |
   | `cue <part>` | another part's line printed cue-size, not played — "(Piano cue)" |
+  | `cresc bars A-B` / `dim bars A-B` | a hairpin under those bars — printed as a wedge, played as a swell; `crescendo`, `diminuendo` and `decresc` all read |
   | `text "words" [at bar N]` | the words, verbatim, at that (section-relative) bar |
   | `mute cup` / `mute harmon` / `open` | technique text at its position |
   | `on pass 2: <instruction>` | the instruction on that repeat pass only — prints "(2x only)" |
@@ -396,11 +399,19 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
 
       at bar 9: text "Swing--"
       at bar 5: meter 5/4
+      at bar 5: key D
       at bar 7: tempo 96
       build: add saxes at 3, add trombones at 11
 
   `build:` prints the "+saxes" style entrance cues *Jeannine*'s montuno
-  uses. Tempo words (`molto rall.`, `a tempo`, `Colla Voce`, `Tempo I`)
+  uses. `at bar N: key X` changes key mid-chart (the 8-Bit Big Band
+  audit: working books modulate constantly): every pitched part
+  restates its own written signature — concert fifths plus its
+  transposition — right where the change lands, accidentals follow
+  the new key from that bar, and the read-aloud names it. Chord
+  symbols stay exactly as the writer spelled them. Honest limits:
+  a change to C major prints no cancelling naturals yet, and
+  from-demo material spells by the header key. Tempo words (`molto rall.`, `a tempo`, `Colla Voce`, `Tempo I`)
   go through `text` — they are performance language, printed verbatim.
 
 - `use chords <name> [xN]` cites a named progression instead of an inline

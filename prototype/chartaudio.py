@@ -233,9 +233,15 @@ def parse_score(path, only=None):
                                           sw.group(1))
                             s = re.search(r'<second>(\d+)</second>',
                                           sw.group(1))
+                            # a 16th swing-type swings each half-beat
+                            # — the 8-Bit book's "Swing 16ths Groove"
+                            unit = 0.5 if re.search(
+                                r'<swing-type>16th</swing-type>',
+                                sw.group(1)) else 1.0
                             if f and s:
                                 fv, sv = int(f.group(1)), int(s.group(1))
-                                swings[q0 + pos / div] = fv / (fv + sv)
+                                swings[q0 + pos / div] = \
+                                    (fv / (fv + sv), unit)
                     continue
                 # a note
                 if '<grace' in t.split('<duration')[0] \
@@ -341,19 +347,25 @@ def parse_score(path, only=None):
 
 def _warp(q, swings):
     """Swing as an honest time warp: inside a swung span, the second
-    half of each beat starts at the ratio point instead of halfway."""
-    ratio = None
+    half of each swing unit starts at the ratio point instead of
+    halfway. The unit is the beat for eighth swing, the half-beat
+    for 16th swing."""
+    ratio, unit = None, 1.0
     for at, r in swings:
         if at <= q + 1e-9:
-            ratio = r
+            if r is None:
+                ratio = None
+            else:
+                ratio, unit = r if isinstance(r, tuple) else (r, 1.0)
     if not ratio:
         return q
-    f = q - math.floor(q)
+    base = math.floor(q / unit) * unit
+    f = (q - base) / unit
     if f <= 0.5:
         f = f * (ratio / 0.5)
     else:
         f = ratio + (f - 0.5) * ((1 - ratio) / 0.5)
-    return math.floor(q) + f
+    return base + f * unit
 
 
 def _sec_of(q, tempos, holds=()):

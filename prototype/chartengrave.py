@@ -697,6 +697,7 @@ def parse_part(xml, pid):
         meas = {'num': num, 'events': [], 'show': dict(),
                 'texts': [], 'chords': [], 'dyn': [], 'metronome': None,
                 'rehearsal': None, 'left': None, 'right': None,
+                'wedges': [],
                 'ending': [], 'multi': 0}
         mm = re.search(r'<multiple-rest>(\d+)</multiple-rest>', m)
         if mm:
@@ -774,6 +775,9 @@ def parse_part(xml, pid):
                 w = re.search(r'<words[^>]*>([^<]+)</words>', t)
                 if w and 'print-object="no"' not in t:
                     meas['texts'].append((pos, w.group(1)))
+                wg = re.search(r'<wedge type="(\w+)"', t)
+                if wg:
+                    meas['wedges'].append((pos, wg.group(1)))
                 dyn = re.search(r'<dynamics><(\w+)/></dynamics>', t)
                 if dyn:
                     off = re.search(r'<offset>(-?\d+)</offset>', t)
@@ -921,6 +925,7 @@ def engrave(xml_path, pdf_path, look=None):
 
     avail = PAGE_W - 2 * MARGIN
     carry = {}
+    wedge_run = {}
     systems, cur, cur_w = [], [], 0.0
     for meas in seq:
         w = measure_width(meas)
@@ -975,8 +980,15 @@ def engrave(xml_path, pdf_path, look=None):
             stretch = min(stretch, 1.15)   # the last system never gapes
         for mi, (meas, w) in enumerate(system):
             x = draw_measure(pdf, meas, x, tops, w * stretch,
-                             first_in_system=(mi == 0), carry=carry)
+                             first_in_system=(mi == 0), carry=carry,
+                             wedge_run=wedge_run)
         drain_ties(pdf, carry, PAGE_W - MARGIN - 0.5 * SP)
+        if wedge_run.get('open') and wedge_run['open'][0] is not None:
+            xw, wk, res = wedge_run['open']
+            draw_wedge(pdf, xw, PAGE_W - MARGIN - 0.5 * SP,
+                       tops[-1] - STAFF - 2.6 * SP + 3, wk,
+                       open_left=res, open_right=True)
+            wedge_run['open'] = (None, wk, True)
         y = tops[-1] - STAFF - SYS_GAP
     pdf.save(pdf_path)
     return True, None
@@ -1029,6 +1041,7 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
 
     lead_guess = 12 * SP
     carries = [dict() for _ in parts]
+    wedge_runs = [dict() for _ in parts]
     avail = W - 2 * M - lead_guess
     systems, cur, cur_w = [], [], 0.0
     for j in range(nmeas):
@@ -1081,10 +1094,17 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
                     zip(parts, part_tops)):
                 draw_measure(pdf, measures[j], x, tops, w,
                              first_in_system=(mi == 0),
-                             carry=carries[pi])
+                             carry=carries[pi],
+                             wedge_run=wedge_runs[pi])
             x += w
-        for c in carries:
+        for c, wr, ptops in zip(carries, wedge_runs, part_tops):
             drain_ties(pdf, c, W - M - 0.5 * SP)
+            if wr.get('open') and wr['open'][0] is not None:
+                xw, wk, res = wr['open']
+                draw_wedge(pdf, xw, W - M - 0.5 * SP,
+                           ptops[-1] - STAFF - 2.6 * SP + 3, wk,
+                           open_left=res, open_right=True)
+                wr['open'] = (None, wk, True)
         y = part_tops[-1][-1] - STAFF - SYS_HEAD - 2 * SP
     pdf.save(pdf_path)
     return True, None
@@ -1126,8 +1146,27 @@ def draw_brace(pdf, x, top, bottom_y):
                   (x - 1.9 * SP, b))], w=1.8)
 
 
+def draw_wedge(pdf, x1, x2, y, kind, open_left=False,
+               open_right=False):
+    """A hairpin on the dynamics lane. A system break cuts a span in
+    two; the cut ends stay open, the way an engraver continues one —
+    a resumed crescendo must never read as a second crescendo."""
+    if x2 - x1 < 2:
+        return
+    h = 0.42 * SP
+    mid = 0.55 * h
+    if kind == 'crescendo':
+        a1 = mid if open_left else 0.0
+        a2 = mid if open_right else h
+    else:
+        a1 = mid if open_left else h
+        a2 = mid if open_right else 0.0
+    pdf.line(x1, y + a1, x2, y + a2, 0.9)
+    pdf.line(x1, y - a1, x2, y - a2, 0.9)
+
+
 def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
-                 carry=None):
+                 carry=None, wedge_run=None):
     state = meas['state']
     div = state['div']
     top = tops[0]
@@ -1139,6 +1178,14 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
         for st, stop in enumerate(tops, 1):
             draw_clef(pdf, x, stop, show_clefs.get(st, 'G'))
         x += 6 * SP
+    if 'key' in meas['show'] and not first_in_system:
+        # a mid-chart key change restates the signature where the
+        # player must see it; the system head already shows it when
+        # the change lands on a system's first bar
+        for st, stop in enumerate(tops, 1):
+            draw_key(pdf, x, stop, meas['show']['key'],
+                     state['clefs'].get(st, 'G'), meas)
+        x += abs(meas['show']['key']) * 2 * SP + SP
     if 'time' in meas['show']:
         n, d = meas['show']['time']
         for stop in tops:
@@ -1254,6 +1301,21 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
                                 4 * SP)):
             pdf.text(xat(pos), bottom_y - 2.6 * SP, mark, size=11,
                      font='TBI')
+
+    if wedge_run is not None:
+        wy = bottom_y - 2.6 * SP + 3
+        if wedge_run.get('open') and wedge_run['open'][0] is None \
+                and first_in_system:
+            wedge_run['open'] = (x0 + 0.6 * SP,
+                                 wedge_run['open'][1], True)
+        for pos, wkind in meas.get('wedges', ()):
+            if wkind == 'stop':
+                o = wedge_run.pop('open', None)
+                if o and o[0] is not None:
+                    draw_wedge(pdf, o[0], xat(pos), wy, o[1],
+                               open_left=o[2])
+            else:
+                wedge_run['open'] = (xat(pos), wkind, False)
 
     beat_len = div * 4 // state['time'][1]
     streams = {}

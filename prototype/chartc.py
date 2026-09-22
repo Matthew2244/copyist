@@ -599,6 +599,15 @@ def parse_notes(text, loc):
     return items, grids, pos
 
 
+def key_at(keys, bar):
+    """The (fifths, mode) governing a printed bar."""
+    cur = keys[0][1]
+    for b, k in keys:
+        if b <= bar:
+            cur = k
+    return cur
+
+
 def meter_at(meters, bar):
     """The (num, den) governing a printed bar, from the chart's meter map
     — a sorted list of (first_bar, (num, den))."""
@@ -833,6 +842,12 @@ def parse_chart(path):
             parse_meter(m.group(2))     # refuse nonsense at the line it sits on
             cur['events'].append((int(m.group(1)), 'meter', m.group(2)))
             continue
+        m = re.match(r'at bar (\d+):\s*key (.+)$', s)
+        if m:
+            parse_key(m.group(2))       # refuse nonsense at the line it sits on
+            cur['events'].append((int(m.group(1)), 'key',
+                                  m.group(2).strip()))
+            continue
         m = re.match(r'([\w ]+?):\s*(.+)$', s)
         if m:
             cur['directives'].append((m.group(1).strip(), m.group(2).strip(),
@@ -911,6 +926,34 @@ def parse_chart(path):
         start += sec['bars']
     meters.sort(key=lambda x: x[0])
     chart['meters'] = meters
+
+    # the key map: the header's key, then every mid-chart change — a
+    # working book modulates (the 8-Bit Big Band audit, 2026-09-22)
+    base_key = parse_key(chart['header'].get('key', 'C'))
+    keys = [(1, base_key)]
+    start = 1
+    for sec in chart['sections']:
+        for bar, kind, text in sec['events']:
+            if kind != 'key':
+                continue
+            absbar = start + bar - 1
+            if absbar == 1:
+                fail(f"section {sec['name']}: bar 1's key belongs in "
+                     "the header")
+            if any(b == absbar for b, _ in keys[1:]):
+                fail(f"section {sec['name']}: bar {bar} declares two "
+                     "keys")
+            kf = parse_key(text)
+            for b in chart['band']:
+                h = HORNS.get(canonical_instrument(b['instrument']))
+                if h and not -7 <= kf[0] + h['foff'] <= 7:
+                    fail(f"the key change to {text} lands "
+                         f"{b['label']}'s written key at "
+                         f"{kf[0] + h['foff']} fifths — respell it")
+            keys.append((absbar, kf))
+        start += sec['bars']
+    keys.sort(key=lambda x: x[0])
+    chart['keys'] = keys
 
     # spread unplaced chords against each bar's own meter
     start = 1
@@ -1655,6 +1698,7 @@ def build_plans(chart, band, groups, labels):
                 'content': {l: ('default', None) for l in labels},
                 'texts': {l: [] for l in labels},
                 'dyns': {l: [] for l in labels},
+                'wedges': {l: [] for l in labels},
                 'overlays': {l: [] for l in labels},
                 'lifts': {l: [] for l in labels},
                 'doubles': {}, 'cues': {}}
@@ -1669,6 +1713,7 @@ def build_plans(chart, band, groups, labels):
             fig_lifts, lyrics_text = [], None
             doubles, cues, detail_word = None, None, None
             every_artic, dyn_marks, scoops, doit = None, [], [], False
+            wedge_marks = []
             hits_map = {}
             # split on commas OUTSIDE quotes — groove "shuffle, ride
             # heavy" is one piece, and the old error blamed the writer
@@ -1899,6 +1944,20 @@ def build_plans(chart, band, groups, labels):
                     else:
                         anns.append((1, 'on cue'))
                     continue
+                m = re.match(r'(cresc(?:endo)?|dim(?:inuendo)?|'
+                             r'decresc(?:endo)?)\s+(?:from\s+)?'
+                             r'bars?\s+(\d+)\s*(?:-|to)\s*'
+                             r'(?:bar\s+)?(\d+)$', piece)
+                if m:
+                    # the hairpin the working books write on every page
+                    wa, wb = int(m.group(2)), int(m.group(3))
+                    if not 1 <= wa <= wb <= sec['bars']:
+                        fail(f"{loc}: the hairpin runs bars {wa}-{wb} "
+                             f"and {sec['name']} has {sec['bars']}")
+                    wedge_marks.append(
+                        ('crescendo' if piece.startswith('c')
+                         else 'diminuendo', wa, wb))
+                    continue
                 fail(f"{loc}: instruction '{piece}' is not built yet")
             for l in tgts:
                 if doubles:
@@ -1933,10 +1992,11 @@ def build_plans(chart, band, groups, labels):
                 plan['lifts'][l].extend(fig_lifts)
                 plan['texts'][l].extend(anns)
                 plan['dyns'][l].extend(dyn_marks)
+                plan['wedges'][l].extend(wedge_marks)
         for bar, kind, text in sec['events']:
-            if kind == 'meter':
-                continue    # the page shows a time signature, not words —
-                            # emission reads the meter map directly
+            if kind in ('meter', 'key'):
+                continue    # the page shows a signature, not words —
+                            # emission reads the meter and key maps
             if kind == 'build' and text not in groups \
                     and text not in labels:
                 fail(f"section {sec['name']}: build adds '{text}', which "
@@ -1985,6 +2045,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     horn_of = horn_of or {}
     realized_bars = {}          # label -> listening bars the band realized
     meters = chart.get('meters') or [(1, meter)]
+    keys_map = chart.get('keys') or [(1, (0, 'major'))]
     m_num, m_den = meter_at(meters, 1)
 
     # ---- emit one part's measures
@@ -2056,7 +2117,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
 
         need_attrs = source is None
         was_groove = False
-        was_swing = False
+        was_swing = (False, False)
         cur_div = div
         marks = div_marks.get(label, {})
         for plan in plans:
@@ -2087,6 +2148,18 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                   f'<beats>{bmeter[0]}</beats>'
                                   f'<beat-type>{bmeter[1]}</beat-type>'
                                   '</time></attributes>\n')
+                if not need_attrs and absbar > 1 and clef != 'percussion' \
+                        and key_at(keys_map, absbar) != \
+                        key_at(keys_map, absbar - 1):
+                    # the key changes here: every pitched part restates
+                    # its own written signature — concert fifths plus
+                    # the horn's offset, the same sum as bar one
+                    kf, kmode = key_at(keys_map, absbar)
+                    pieces.append('      <attributes><key>'
+                                  f'<fifths>{kf + (horn["foff"] if horn else 0)}'
+                                  '</fifths>'
+                                  f'<mode>{kmode}</mode></key>'
+                                  '</attributes>\n')
                 # slashes are instructions, not pitches: mute the part's
                 # playback through a groove region, restore after (the
                 # dynamics="0" note attribute alone is ignored by
@@ -2118,7 +2191,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     want = (not (bmeter[1] == 8 and bmeter[0] % 3 == 0)
                             and any(w in feel_now
                                     for w in ('swing', 'shuffle')))
-                    if want != was_swing:
+                    # "Swing 16ths" swings the half-beat — the 8-Bit
+                    # book's groove — and a flip between units re-emits
+                    unit16 = want and ('16' in feel_now
+                                       or 'sixteen' in feel_now)
+                    if (want, unit16) != was_swing:
                         # spec-correct MusicXML (first:second = 2:1 is
                         # triplet swing): only chartaudio plays this
                         # document now, and it reads the spec. The
@@ -2129,10 +2206,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             + ('Swing' if want else 'Straight')
                             + '</words></direction-type><sound><swing>'
                             + ('<first>2</first><second>1</second>'
-                               '<swing-type>eighth</swing-type>'
+                               '<swing-type>'
+                               + ('16th' if unit16 else 'eighth')
+                               + '</swing-type>'
                                if want else '<straight/>')
                             + '</swing></sound></direction>\n')
-                        was_swing = want
+                        was_swing = (want, unit16)
                 if with_directions and absbar == 1 and not chart['pickup']:
                     if hdr.get('feel'):
                         pieces.append(direction(hdr['feel'].capitalize()))
@@ -2192,6 +2271,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                 '</direction>\n')
                         else:
                             pieces.append(direction(text, 'above'))
+                for wtype, wa, wb in plan.get('wedges', {}).get(label, ()):
+                    if wa == off + 1:
+                        pieces.append(
+                            '      <direction placement="below">'
+                            '<direction-type><wedge type="'
+                            + wtype + '"/></direction-type>'
+                            '</direction>\n')
                 for dbar, dbeat, mark in plan.get('dyns', {}).get(label, ()):
                     if dbar == off + 1:
                         doff = int(round((dbeat - 1.0) * div))
@@ -2329,6 +2415,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                '</barline>\n')
                 # a right-hand barline may close a multirest; a repeat
                 # start may not hide inside one
+                for wtype, wa, wb in plan.get('wedges', {}).get(label, ()):
+                    if wb == off + 1:
+                        pieces.append(
+                            '      <direction placement="below">'
+                            '<direction-type><wedge type="stop"/>'
+                            '</direction-type></direction>\n')
                 pure_rest = (len(pieces) == 1 and not open_bl
                              and '<repeat' not in barline
                              and pieces[0] == rest_bar(div, staves,

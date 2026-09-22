@@ -127,6 +127,8 @@ def section_heading(sec):
         if kind == 'meter':
             bits.append(f"in {val}" if bar == 1 else
                         f"the meter changes to {val} at bar {bar}")
+        elif kind == 'key':
+            bits.append(f"the key changes to {val} at bar {bar}")
     return ", ".join(bits) + "."
 
 
