@@ -105,13 +105,19 @@ and range, and proposes octave corrections from register evidence.
 python3 prototype/chart.py yourtune.chart edit
 ```
 
-`edit` is the roadmap conversation: describe the tune in one breath — "8 bar
-intro, head is 32 AABA, solos over the head twice, out on the last A" — and it
-writes the sections, asking one question at a time about only the gaps. Chords
-arrive spoken the way you'd call them ("b flat seven 4 bars"), played (a MIDI
-file of the changes, named and read back for your yes), or lifted from the
-demo's comping. A word it doesn't know is asked about once, remembered in your
-own vocabulary file, and never guessed.
+`edit` is the roadmap conversation: describe the tune in one breath — "in the
+key of E flat, gospel at 72, intro 4, verse 16, chorus 16, tag 8 open" — and it
+writes the sections, asking one question at a time about only the gaps. It
+knows the common forms in any key (blues, minor blues, rhythm changes, which
+carves itself into A, A2, B, A3), speaks Nashville numbers ("two five one in
+C", "1, 4, 5, 1"), and understands the bandstand ("bass walks, piano comps",
+"voice sings the melody", "horns hits on 1, 2+, 4"). Chords also arrive played
+(a MIDI file of the changes, named and read back for your yes) or lifted from
+the demo's comping. On a chart that already has its form, `edit` opens the
+editing desk instead: change a section's chords or players, add or cut
+sections, set tempo and feel, or transpose the whole chart. A word it doesn't
+know is asked about once, remembered in your own vocabulary file, and never
+guessed.
 
 ```bash
 python3 prototype/chart.py yourtune.chart listen --from-bar 65 --solo "bari,trombone"

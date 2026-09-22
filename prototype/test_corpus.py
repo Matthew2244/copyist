@@ -1604,6 +1604,73 @@ def check_roadmap():
           not gaps and plans[0]["form"] == ("blues", "b flat")
           and plans[0]["bars"] == 12 and plans[1]["use"] == "blues")
 
+    t, g = chartedit.extract_globals(
+        "swing at 160, 8 bar intro, in the key of e flat minor")
+    check("tune-level words leave the breath",
+          g == {"tempo": "160", "key": "Eb minor", "feel": "swing"}
+          and "swing" not in t and "160" not in t, str((t, g)))
+    plans, gaps = chartedit.parse_form("i got rhythm, solos over "
+                                       "the form twice")
+    check("rhythm changes answers to its aliases",
+          not gaps and plans[0]["form"][0] == "rhythm changes"
+          and plans[0]["bars"] == 32)
+    secs, spoken = chartedit.form_carve_sections("rhythm changes",
+                                                 None, "Bb")
+    check("rhythm changes carves lettered eights",
+          [n for n, _ in secs] == ["A", "A2", "B", "A3"]
+          and secs[2][1] == "D7 x2, G7 x2, C7 x2, F7 x2")
+
+    check("degrees speak in the key",
+          sp("two five one in c") == "Dm7 G7 Cmaj7")
+    check("degrees follow the chart's key",
+          chartedit.parse_spoken_chords("1, 4, 5, 1", key="Eb") ==
+          "Ebmaj7, Abmaj7, Bb7, Ebmaj7")
+    check("minor keys get minor degrees",
+          chartedit.parse_spoken_chords("two five one",
+                                        key="Eb minor") ==
+          "Fm7b5 Bb7 Ebm7")
+    check("borrowed flat seven arrives dominant",
+          chartedit.parse_spoken_chords("one, flat seven", key="C") ==
+          "Cmaj7, Bb7")
+    check("a quality word overrides the diatonic default",
+          chartedit.parse_spoken_chords("four minor, one", key="C") ==
+          "Fm, Cmaj7")
+    check("triads speak", sp("C triad, F, G triad") == "C, F, G")
+
+    who2 = chartedit.parse_who(
+        "everybody in; bass walks, piano comps; trumpet lays out",
+        ["trumpet", "piano", "bass"], ["all"], {})
+    check("bandstand who-plays speaks",
+          who2 == ["all: groove", "bass: groove", "piano: groove",
+                   "trumpet: tacet"], str(who2))
+    who2 = chartedit.parse_who("horns hits on 1, 2+, 4; voice sings "
+                               "the melody", ["voice"], ["horns"], {},
+                               melody_range=(9, 20))
+    check("hits keep their commas, the melody knows its bars",
+          who2 == ["horns: hits on 1, 2+, 4",
+                   "voice: from demo bars 9-20"], str(who2))
+
+    tmp2 = tempfile.mkdtemp()
+    tpath = os.path.join(tmp2, "t.chart")
+    with open(tpath, "w", encoding="utf-8") as f:
+        f.write("title: T\nkey: Bb\nmeter: 4/4\n\nband:\n  piano\n\n"
+                "chords head: Bb7, Eb7\n\nsection head, 2 bars\n"
+                "  use chords head\n")
+    chartedit.transpose_chart(tpath, "c", "Bb")
+    moved = open(tpath, encoding="utf-8").read()
+    check("transpose moves key and every chords line",
+          "key: C" in moved and "chords head: C7, F7" in moved
+          and "use chords head" in moved, moved)
+    lines = chartedit._lines(tpath)
+    span = chartedit._section_span(lines, "head")
+    check("a section's span finds its block",
+          span is not None and "section head" in lines[span[0]])
+    chartedit._save_lines(
+        tpath, chartedit._set_section_chords(lines, span, "G7 x2"))
+    check("section chords replace in place",
+          "  chords: G7 x2" in open(tpath, encoding="utf-8").read())
+    shutil.rmtree(tmp2, ignore_errors=True)
+
     who = chartedit.parse_who("horns tacet; trumpet from demo bars "
                               "5-12, piano grooves",
                               ["trumpet", "piano"], ["horns"], {})

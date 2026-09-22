@@ -340,9 +340,40 @@ Chords go in three ways, and they mix freely:
 - **Lift them**: `from demo` names the changes from a comping track of
   the chart's own demo, same read-back, same yes.
 
+The breath can carry the tune itself, not just the sections: "in the
+key of E flat, gospel at 72, intro 4, verse 16, chorus 16, verse 16,
+chorus 16, tag 8 open" sets the key, the feel and the tempo in the
+header, numbers the repeated names (verse, verse 2) so the second
+verse can offer the first one's changes, and "waltz" or "in 6/8" sets
+the meter. It knows the common forms cold — "blues in F", "minor
+blues", "rhythm changes" (or "I Got Rhythm"), which carves itself into
+A, A2, B, A3 — transposed to any key, sharp keys spelled sharp, always
+read back for your yes. "Solos over the form" finds the form without
+you naming it.
+
+Chords speak in numbers too, the way a rehearsal is actually run:
+"two five one in C" is Dm7 G7 Cmaj7, "1, 4, 5, 1" lands in the chart's
+own key, "flat seven" arrives as the borrowed dominant, and "four
+minor" overrides the diatonic default. Minor keys get minor-key
+degrees. And who-plays understands the bandstand: "everybody in",
+"bass walks, piano comps", "trumpet lays out", "voice sings the
+melody" (a from-demo lift of that section's own bars), "horns hits on
+1, 2+, 4".
+
+Run `edit` on a chart that already has its form and you get the
+editing desk instead of a fresh interview: `chords of <section>`,
+`who plays in <section>`, `add shout 16 after B`, `cut <section>`
+(asked before it cuts), `tempo 116`, `feel latin`, `transpose to C`
+(the key and every chord symbol move; your played material stays as
+played, and it says so), `read it back`, or `replace the form` to
+start the roadmap over. Every move lands in the file at once and is
+checked by the same compiler as always.
+
 Words it doesn't know, it never guesses. It asks once what to read the
 word as, writes the answer to your own vocabulary file, and uses it
-forever after — your slang becomes part of your Copyist.
+forever after — your slang becomes part of your Copyist. That works
+for whole progressions too: teach it that "train changes" means your
+favorite line, and from then on it's one word at the chords question.
 
 ## The loop that replaces a copyist
 
