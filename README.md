@@ -78,6 +78,16 @@ the page still looked perfect.
 python3 prototype/chart.py yourtune.chart
 ```
 
+There is also **Copyist.app** — a real Mac app over the same engine, built
+from `app/` with `app/build.sh --install`. Two designed looks (Dark Stage
+and Manuscript, or match the system — the user decides), the same big
+actions as the CLI, a settings desk where every control states its value,
+and the roadmap conversation held in a chat view: the app and the terminal
+share one conversation engine over a JSON line protocol
+(`COPYIST_PORCELAIN=1`), so they can never drift apart. The engine and
+fonts are bundled inside the app, so it runs with nothing else installed;
+a checkout at `~/copyist` wins at runtime so development stays live.
+
 One command builds everything: the parts, the conductor score, a listening MP3,
 a read-aloud of every part, a findings file, and a written range report for each
 player. It also says what changed since your last build, by part and by bar, out

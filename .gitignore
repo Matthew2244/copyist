@@ -17,3 +17,4 @@ corpus/*/*.notated.mid
 
 # Session working notes — private, never commit
 HANDOFF.md
+app/build/
