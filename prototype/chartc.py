@@ -379,11 +379,15 @@ def parse_key(text):
     """'Eb minor' -> (fifths, mode); 'e flat minor' works too."""
     text = (text.strip().lower().replace(' flat', 'b')
             .replace(' sharp', '#'))
-    m = re.fullmatch(r'([A-Ga-g][b#]?)\s*(major|minor)?', text)
+    m = re.fullmatch(r'([A-Ga-g][b#]?)\s*'
+                     r'(major|minor|maj|min|mi|m)?', text)
     if not m:
         fail(f"cannot read key '{text}'")
     root = m.group(1).lower()
     mode = m.group(2) or 'major'
+    # the compact spellings every writer types: Bm, Ebmin, F#mi
+    mode = {'m': 'minor', 'mi': 'minor', 'min': 'minor',
+            'maj': 'major'}.get(mode, mode)
     if root not in KEY_FIFTHS:
         fail(f"cannot read key root '{m.group(1)}'")
     fifths = KEY_FIFTHS[root] + (-3 if mode == 'minor' else 0)
@@ -708,7 +712,7 @@ def parse_chart(path):
                                    'engraved': bool(m.group(2)),
                                    'texts': texts}
                 continue
-            m = re.match(r'section ([\w ]+?)'
+            m = re.match(r'section ([\w .-]+?)'
                          r'(?:,\s*(\d+) bars)?'
                          r'(?:,\s*label "([^"]*)")?'
                          r'(?:,\s*repeat (\d+)x)?'

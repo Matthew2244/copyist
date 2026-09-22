@@ -72,9 +72,14 @@ def ask(question, default=""):
     sys.stdout.flush()
     line = sys.stdin.readline()
     if not line:
+        # end of input: answer the default once, and let the retry
+        # loops know the writer is gone — a question asked forever
+        # into a closed pipe once wrote half a megabyte of itself
+        ask.eof = True
         return default
     line = line.strip()
     return line if line else default
+ask.eof = False
 
 
 # --------------------------------------------------------- vocabulary
@@ -299,23 +304,23 @@ def _clause_core(low, reps, open_):
             break
 
     # "8 bar intro" / "8 bars of intro"
-    m = re.fullmatch(r"(\d+)[- ]bars?(?:\s+of)?\s+([\w ]+)", low)
+    m = re.fullmatch(r"(\d+)[- ]bars?(?:\s+of)?\s+([\w -]+)", low)
     if m:
         return _mk(m.group(2).strip(), bars=int(m.group(1)),
                    repeat=reps, open_=open_, shape=shape)
     # "head is 32" / "the head is 32 bars"
-    m = re.fullmatch(r"(?:the\s+)?([\w ]+?)\s+is\s+(\d+)(?:\s+bars?)?",
+    m = re.fullmatch(r"(?:the\s+)?([\w -]+?)\s+is\s+(\d+)(?:\s+bars?)?",
                      low)
     if m:
         return _mk(m.group(1).strip(), bars=int(m.group(2)),
                    repeat=reps, open_=open_, shape=shape)
     # "intro 8" / "intro, 8 bars" (comma already split; "intro 8 bars")
-    m = re.fullmatch(r"(?:the\s+)?([\w ]+?)\s+(\d+)(?:\s+bars?)?", low)
+    m = re.fullmatch(r"(?:the\s+)?([\w -]+?)\s+(\d+)(?:\s+bars?)?", low)
     if m and num(m.group(2)) is not None:
         return _mk(m.group(1).strip(), bars=int(m.group(2)),
                    repeat=reps, open_=open_, shape=shape)
     # a bare name — bars become a gap question, not a guess
-    m = re.fullmatch(r"(?:an?\s+|the\s+)?([\w ]+)", low)
+    m = re.fullmatch(r"(?:an?\s+|the\s+)?([\w -]+)", low)
     if m and len(m.group(1).split()) <= 3:
         return _mk(m.group(1).strip(), repeat=reps, open_=open_,
                    shape=shape)
@@ -760,6 +765,14 @@ FEELS = ("swing", "shuffle", "bossa nova", "bossa", "latin", "funk",
          "gospel", "ballad", "rock", "samba", "afro-cuban", "second line")
 
 
+def _feelish(clause):
+    low = clause.lower()
+    return (any(re.search(r"\b" + re.escape(w) + r"\b", low)
+                for w in FEELS)
+            or low.endswith(("groove", "feel", "fusion", "bop",
+                             "disco", "ballad", "funk")))
+
+
 def extract_globals(text):
     """Pull the tune-level words out of a breath — feel, tempo, meter,
     key — so 'swing at 160, 8 bar intro' never becomes a 160-bar
@@ -787,10 +800,14 @@ def extract_globals(text):
     elif re.search(r"\bwaltz\b", text, re.I):
         g["meter"] = "3/4"
         text = re.sub(r"\bwaltz\b", "", text, flags=re.I)
+    # feel words stay in their clauses here: a whole feel-shaped
+    # clause becomes the header verbatim in _gather_plans ("heavy
+    # rock disco" must never lose its rock), and a lone word inside
+    # a section clause ("16 bar bossa intro") is claimed only when
+    # no fuller phrase did
     for f in FEELS:
         if re.search(r"\b" + f + r"\b", text, re.I):
-            g["feel"] = f
-            text = re.sub(r"\b" + f + r"\b", "", text, flags=re.I)
+            g["_feel_word"] = f
             break
     return text, g
 
@@ -1116,6 +1133,9 @@ def _ask_bars(plan):
         n = num(a)
         if n:
             plan["bars"] = n
+        elif ask.eof:
+            sys.exit(f"chart: the conversation ended before the "
+                     f"{plan['name']} got a length — nothing written.")
         else:
             say(f"I need a number of bars for the {plan['name']}.")
 
@@ -1155,7 +1175,7 @@ def _chords_for(plan, ctx):
         twin = next((p for p in ctx["done"]
                      if p.get("letter") == plan["letter"]
                      and p.get("nth") == 1), None)
-    if twin and twin.get("chords_text"):
+    if twin and twin.get("chords_text") and twin["bars"] == bars:
         a = ask(f"{name} — same changes as {twin['name']}? yes or no",
                 "yes")
         if not a.lower().startswith("n"):
@@ -1441,11 +1461,35 @@ def _gather_plans(ctx):
     hdr = {}
     if breath:
         breath, hdr = extract_globals(breath)
+        # a clause that names a groove and no section IS the feel,
+        # whole and verbatim — the books print "Heavy Rock/Disco",
+        # "Anthemic Power Ballad", "Modal Bop" as full phrases
+        kept = []
+        for clause in re.split(r",|\b(?:" + CONNECTORS + r")\b|\.|;",
+                               breath):
+            c = clause.strip()
+            if c and "feel" not in hdr and _feelish(c):
+                p = parse_clause(digitize(apply_vocab(c, vocab)))
+                if p is None or (p["kind"] == "plain"
+                                 and p["bars"] is None
+                                 and not p.get("form")
+                                 and not p["shape"]):
+                    hdr["feel"] = c
+                    say(f"Feel: {c}.")
+                    continue
+            kept.append(clause)
+        breath = ",".join(kept)
+        w = hdr.pop("_feel_word", None)
+        if w and "feel" not in hdr:
+            hdr["feel"] = w
+            breath = re.sub(r"\b" + re.escape(w) + r"\b", " ",
+                            breath, flags=re.IGNORECASE)
         if hdr:
             say("Tune-level: " +
                 "; ".join(f"{k} {v}" for k, v in hdr.items()) + ".")
     plans, gaps = (parse_form(breath, vocab) if breath.strip()
                    else ([], []))
+
     if plans:
         bits = []
         for p in plans:

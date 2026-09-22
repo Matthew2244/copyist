@@ -1607,8 +1607,9 @@ def check_roadmap():
     t, g = chartedit.extract_globals(
         "swing at 160, 8 bar intro, in the key of e flat minor")
     check("tune-level words leave the breath",
-          g == {"tempo": "160", "key": "Eb minor", "feel": "swing"}
-          and "swing" not in t and "160" not in t, str((t, g)))
+          g["tempo"] == "160" and g["key"] == "Eb minor"
+          and g["_feel_word"] == "swing"
+          and "swing" in t and "160" not in t, str((t, g)))
     plans, gaps = chartedit.parse_form("i got rhythm, solos over "
                                        "the form twice")
     check("rhythm changes answers to its aliases",
@@ -1724,6 +1725,27 @@ def check_roadmap():
 
     bars = _cc.parse_bars("D9, /C, Bmi9, Ami7, D7(#9) x2, "
                           "( F7, Bb7 ) x2", "the 8BBB spellings")
+    check("compact minor keys read",
+          _cc.parse_key("Bm") == (2, "minor")
+          and _cc.parse_key("Ebmin") == (-6, "minor"))
+    plans, gaps = chartedit.parse_form("intro 4, pre-chorus 4, "
+                                       "chorus 8")
+    check("hyphenated section names speak",
+          not gaps and plans[1]["name"] == "pre-chorus")
+    check("a groove phrase is feel-shaped",
+          chartedit._feelish("heavy rock disco")
+          and chartedit._feelish("modal bop")
+          and not chartedit._feelish("intro"))
+    tmp4 = tempfile.mkdtemp()
+    dpath = os.path.join(tmp4, "d.chart")
+    with open(dpath, "w", encoding="utf-8") as f:
+        f.write("title: D\nkey: Bm\nmeter: 4/4\n\nband:\n  piano\n\n"
+                "section P.C., 4 bars\n  chords: Bm x4\n")
+    dc = _cc.parse_chart(dpath)
+    check("P.C. is a legal section name in a Bm chart",
+          dc["sections"][0]["name"] == "P.C.")
+    shutil.rmtree(tmp4, ignore_errors=True)
+
     more = _cc.parse_bars("C7sus, Gb13(#11), Fmi11",
                           "the Life Will Change page")
     check("the P5 keyboard book's spellings parse",
