@@ -36,20 +36,21 @@ a barline is one true arc, and one broken at a system turn draws its outgoing
 half to the edge and an incoming half to the landing note. Mid-chart key changes
 restate each part's own written signature right where they land. Hairpins draw on
 the dynamics lane and break open-ended at a system turn, the way an engraver
-continues one. Fermatas sit over notes and rests alike, and hold time in
-playback — together, in every part.
+continues one. Fermatas sit over notes and rests alike, and playback holds time
+there for the whole band at once.
 
 **The conductor score reads like a working one.** Landscape, with consecutive
-parts of a family — winds, brass, strings, voices, rhythm — sharing a bracket
-and their barlines running through the group, staff names abbreviated after the
-first system, and a boxed bar number under every bar.
+parts of a family (winds, brass, strings, voices, rhythm) sharing a bracket and
+their barlines running through the group. Staff names print in full once, then
+abbreviate. Every bar carries a boxed number, so nobody has to count to 37.
 
 Pages are set in a real music font. Leland, MuseScore's OFL licensed SMuFL face,
 is embedded in every PDF Copyist draws. Jazz charts get MuseJazz Text,
-handwritten charts get Petaluma Script, everything else gets Edwin — and any
-character those faces can't draw (a singer's kana, a Japanese subtitle) falls
-back to Noto Sans JP mid-run, embedded only when a page actually needs it. A
-lyric must never silently vanish for being in the singer's own language.
+handwritten charts get Petaluma Script, everything else gets Edwin. Any
+character those faces can't draw, like a singer's kana or a Japanese subtitle,
+falls back to Noto Sans JP mid-run, and that font is embedded only when a page
+actually needs it. A lyric shouldn't vanish for being in the singer's own
+language.
 
 **The playback is Copyist's own too**, which means silence is genuinely silent.
 The old renderer had an audible noise floor under empty bars.
@@ -90,15 +91,15 @@ the page still looked perfect.
 python3 prototype/chart.py yourtune.chart
 ```
 
-There is also **Copyist.app** — a real Mac app over the same engine, built
-from `app/` with `app/build.sh --install`. Two designed looks (Dark Stage
-and Manuscript, or match the system — the user decides), the same big
-actions as the CLI, a settings desk where every control states its value,
-and the roadmap conversation held in a chat view: the app and the terminal
-share one conversation engine over a JSON line protocol
-(`COPYIST_PORCELAIN=1`), so they can never drift apart. The engine and
-fonts are bundled inside the app, so it runs with nothing else installed;
-a checkout at `~/copyist` wins at runtime so development stays live.
+There is also **Copyist.app**, a real Mac app over the same engine, built
+from `app/` with `app/build.sh --install`. It has two designed looks, Dark
+Stage and Manuscript, or it can match the system. Same big actions as the
+CLI, a settings desk where every control states its value, and the roadmap
+conversation held in a chat view. The app and the terminal share one
+conversation engine over a JSON line protocol (`COPYIST_PORCELAIN=1`), so
+they can't drift apart. The engine and fonts are bundled inside the app, so
+it runs with nothing else installed. A checkout at `~/copyist` wins at
+runtime, which keeps development live.
 
 One command builds everything: the parts, the conductor score, a listening MP3,
 a read-aloud of every part, a findings file, and a written range report for each
@@ -117,19 +118,19 @@ and range, and proposes octave corrections from register evidence.
 python3 prototype/chart.py yourtune.chart edit
 ```
 
-`edit` is the roadmap conversation: describe the tune in one breath — "in the
-key of E flat, gospel at 72, intro 4, verse 16, chorus 16, tag 8 open" — and it
-writes the sections, asking one question at a time about only the gaps. It
-knows the common forms in any key (blues, minor blues, rhythm changes, which
-carves itself into A, A2, B, A3), speaks Nashville numbers ("two five one in
-C", "1, 4, 5, 1"), and understands the bandstand ("bass walks, piano comps",
-"voice sings the melody", "horns hits on 1, 2+, 4"). Chords also arrive played
-(a MIDI file of the changes, named and read back for your yes) or lifted from
-the demo's comping. On a chart that already has its form, `edit` opens the
-editing desk instead: change a section's chords or players, add or cut
-sections, set tempo and feel, or transpose the whole chart. A word it doesn't
-know is asked about once, remembered in your own vocabulary file, and never
-guessed.
+`edit` is the roadmap conversation. Describe the tune in one breath, like "in
+the key of E flat, gospel at 72, intro 4, verse 16, chorus 16, tag 8 open",
+and it writes the sections, asking one question at a time about only the gaps.
+It knows the common forms in any key: blues, minor blues, rhythm changes
+(which carves itself into A, A2, B, A3). It speaks Nashville numbers, so "two
+five one in C" lands as Dm7, G7, Cmaj7. It understands the bandstand: "bass
+walks, piano comps", "voice sings the melody", "horns hits on 1, 2+, 4".
+Chords can also arrive played, as a MIDI file of the changes that it names
+and reads back for your yes, or lifted from the demo's comping. On a chart
+that already has its form, `edit` opens the editing desk instead: change a
+section's chords or players, add or cut sections, set tempo and feel, or
+transpose the whole chart. A word it doesn't know gets asked about once and
+remembered in your vocabulary file for good. It never guesses.
 
 ```bash
 python3 prototype/chart.py yourtune.chart listen --from-bar 65 --solo "bari,trombone"
@@ -149,14 +150,13 @@ a screen reader user should never have to change something to learn what it was.
 
 ## The apps
 
-**Copyist.app** (the `app` folder, described above) is the Mac front door: a
-real SwiftUI app over the same engine. Before it existed, the same brain
-answered to dialogs, and those doors still work: `CopyistApp.applescript`
-compiles into a menu-of-dialogs applet (the file's header has the one-line
-command), every dialog shaped for a screen reader with Escape working
-everywhere it can. On Windows, the `windows` folder holds `Copyist.bat`, the
-same menu in native Windows dialogs (written on a Mac, honestly untested on
-real Windows — the README in that folder says so too).
+**Copyist.app** (the `app` folder, described above) is the Mac front door.
+Two older doors still work. `CopyistApp.applescript` compiles into a
+menu-of-dialogs applet (the file's header has the one-line command), every
+dialog shaped for a screen reader, with Escape working everywhere it can. On
+Windows, the `windows` folder holds `Copyist.bat`, the same menu in native
+Windows dialogs. It was written on a Mac and is honestly untested on real
+Windows; the README in that folder says so too.
 
 The MIDI analysis underneath is still there and still standalone:
 

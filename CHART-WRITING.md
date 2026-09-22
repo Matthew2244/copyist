@@ -227,14 +227,16 @@ lists the band, `d` diffs, `l` bounces the listen, `n` interviews,
 
 ## The tune-level words a working book prints
 
-The header takes the credits a real book carries: `lyricist:` prints
+The header takes the credits a real book carries. `lyricist:` prints
 "Lyrics by ...", `from:` prints *from "..."* under the title, `rev:`
-a small revision date, `number:` the setlist number in brackets top
-right. Mid-tune, `at bar 12: key Eb` changes key — every part's page
-restates its own written signature right there, and the read-aloud
-says so. `at bar 8: fermata` is the phrase-end hold: the sign lands
-on that bar's last note or rest in every part, and the listen holds
-time there, together. On any part's line, `cresc bars 2-4` or
+adds the small revision date, and `number:` puts the setlist number
+in brackets top right. Mid-tune, `at bar 12: key Eb` changes key,
+and every part's page restates its own written signature right
+there. Your trumpet player gets the new key in trumpet, not in
+concert. `at bar 8: fermata` is the hold at the end of a phrase: the
+sign lands on that bar's last note or rest in every part, and the
+listen holds time there for everybody at once, which is the whole
+point of a fermata. On any part's line, `cresc bars 2-4` or
 `dim bars 6-8` draws the hairpin and plays the swell, and
 `dyn subito p` says it the way the page does. A `feel:` naming 16ths
 ("swing 16ths groove") swings the half-beat in the listen.
