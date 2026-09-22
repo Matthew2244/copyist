@@ -1799,6 +1799,12 @@ def check_roadmap():
 
     more = _cc.parse_bars("C7sus, Gb13(#11), Fmi11",
                           "the Life Will Change page")
+    pb = _cc.parse_bars("Db13sus, F7(#9b13), D/F",
+                        "the praise break")
+    check("the Grammy chart's spellings parse",
+          pb[0][0][1][2] == "13sus"
+          and pb[1][0][1][2] == "7#9b13"
+          and pb[2][0][1] == ("D", 0, "maj", "F"), str(pb))
     check("the P5 keyboard book's spellings parse",
           more[0][0][1][2] == "7sus4"
           and more[1][0][1][2] == "13#11"

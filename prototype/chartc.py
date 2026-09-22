@@ -417,6 +417,8 @@ CHORD_KINDS = {
     '7#9#11': ('dominant', '7#9#11', [(9, 1, 'add'), (11, 1, 'add')]),
     '7#11': ('dominant', '7#11', [(11, 1, 'add')]),
     '13#11': ('dominant-13th', '13#11', [(11, 1, 'add')]),
+    '13sus': ('dominant-13th', '13sus', [(4, -1, 'subtract')]),
+    '7#9b13': ('dominant', '7#9b13', [(9, 1, 'add'), (13, -1, 'add')]),
     '69': ('major-sixth', '69', [(9, 0, 'add')]),
     'm69': ('minor-sixth', 'm69', [(9, 0, 'add')]),
     'alt': ('dominant', 'alt'),
@@ -496,7 +498,7 @@ def parse_bars(text, where):
     text = re.sub(r'(?:(?<=^)|(?<=,))\s*\(\s*([^()]*?)\s*\)\s*x(\d+)',
                   lambda m: ", ".join([m.group(1)] * int(m.group(2))),
                   text)
-    bad = re.sub(r'\([b#]\d+\)', '', text)      # alterations are fine
+    bad = re.sub(r'\((?:[b#]\d+)+\)', '', text)  # alterations are fine
     if '(' in bad or ')' in bad:
         fail(f"unmatched parenthesis in {where} — a group is "
              "( chords ) xN, nothing nested")
