@@ -1953,6 +1953,42 @@ def _notes_for(path, ctx, chart, part_text, sec_text):
         if yn.lower().startswith("n"):
             continue
         lines = _lines(path)
+        # re-saying a line replaces it — the old placement and its
+        # figure go, unless another section still plays that figure
+        span = _section_span(lines, plan["name"])
+        pat = re.compile(re.escape(target)
+                         + r":\s*figure\s+([\w ]+?)(?:\s+at\s+bar\s+"
+                         r"\d+)?$")
+        old_figs, kept = [], []
+        for idx, l in enumerate(lines):
+            m = pat.match(l.strip()) if span[0] < idx < span[1] \
+                else None
+            if m:
+                old_figs.append(m.group(1).strip())
+                continue
+            kept.append(l)
+        lines = kept
+        for fig in old_figs:
+            still = sum(1 for l in lines
+                        if re.search(r":\s*figure\s+"
+                                     + re.escape(fig) + r"\b", l))
+            if still == 0:
+                fspan = None
+                fpat = re.compile(r"figure\s+" + re.escape(fig)
+                                  + r"\s*,")
+                for i, l in enumerate(lines):
+                    if l and l[0] not in " \t" and \
+                            fpat.match(l.strip()):
+                        j = i + 1
+                        while j < len(lines) and \
+                                (not lines[j] or
+                                 lines[j][0] in " \t"):
+                            j += 1
+                        fspan = (i, j)
+                        break
+                if fspan:
+                    lines = lines[:fspan[0]] + lines[fspan[1]:]
+            say(f"Replaced {target}'s old line ('{fig}').")
         at = next((i for i, l in enumerate(lines)
                    if l and l[0] not in " \t"
                    and l.strip().startswith("section ")), len(lines))

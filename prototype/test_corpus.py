@@ -1775,6 +1775,28 @@ def check_roadmap():
           [("trumpet", "solo"), ("piano", "solo")])
     check("the scaffold section is gone", "A, 40 bars" not in
           open(chart_path, encoding="utf-8").read())
+
+    # re-saying a line replaces the figure instead of stacking one
+    sys.stdin = io.StringIO(
+        "notes for piano in the intro\n"
+        "c4 quarter, d quarter, e quarter, f quarter, g whole\n"
+        "\n\n"          # bar 1, write it
+        "notes for piano in the intro\n"
+        "c3 quarter, d quarter, e quarter, f quarter, g whole\n"
+        "\n\n"          # bar 1, write it (replaces)
+        "\n")
+    try:
+        with redirect_stdout(io.StringIO()) as out:
+            chartedit.edit(chart_path)
+    finally:
+        sys.stdin = real_stdin
+    said = out.getvalue()
+    final = chartc.parse_chart(chart_path)
+    check("a re-said line replaces its figure",
+          "Replaced piano's old line" in said
+          and len(final["figures"]) == 1
+          and "C3 q" in open(chart_path, encoding="utf-8").read(),
+          said)
     shutil.rmtree(tmp, ignore_errors=True)
 
 
