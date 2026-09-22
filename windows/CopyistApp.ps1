@@ -47,8 +47,11 @@ function Run-Chart([string]$argline) {
     $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
     $psi.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
     $p = [System.Diagnostics.Process]::Start($psi)
+    # drain stderr in the background while stdout reads: two full
+    # pipes read one after the other is the classic deadlock
+    $errTask = $p.StandardError.ReadToEndAsync()
     $out = $p.StandardOutput.ReadToEnd()
-    $err = $p.StandardError.ReadToEnd()
+    $err = $errTask.Result
     $p.WaitForExit()
     return ($out + $err).Trim()
 }
@@ -135,7 +138,7 @@ function Do-Settings {
         $desk = Run-Chart 'settings'
         $c = Choose-FromList ($desk + "`nChange which one?") @(
             'composer', 'look', 'notify', 'open', 'sounds',
-            'sounds_dir', 'Back')
+            'sounds_dir', 'midi', 'quant', 'countin', 'Back')
         if (-not $c -or $c -eq 'Back') { return }
         if ($c -in @('notify', 'open')) {
             $v = Choose-FromList "Set $c to:" @('yes', 'no', 'Back')
@@ -151,6 +154,15 @@ function Do-Settings {
             if ($c -eq 'sounds_dir') {
                 $hint = ' Where sample libraries live and download; empty uses the standard spot.'
             }
+            if ($c -eq 'midi') {
+                $hint = ' The folder your DAW exports land in; play and the pickers start there.'
+            }
+            if ($c -eq 'quant') {
+                $hint = ' A standing feel for from-demo lifts: eighths, straight, sixteenths or triplets; empty lets each line decide.'
+            }
+            if ($c -eq 'countin') {
+                $hint = ' Count-in bars offered when a demo says nothing itself; any number, empty reads the demo.'
+            }
             $v = [Microsoft.VisualBasic.Interaction]::InputBox(
                 "New value for $c.$hint", 'Copyist', '')
         }
@@ -164,6 +176,7 @@ while ($true) {
         'Build - pages, listen MP3, findings',
         'Check - compile only, nothing rendered',
         'Read a part aloud',
+        'Tell me the tune - the roadmap conversation, in a console',
         'Sounds - the band''s sample shelf',
         'Settings - the defaults desk',
         'Help - what this is',
@@ -180,6 +193,15 @@ while ($true) {
         'Build*' { Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
         'Check*' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }
         'Read*' { Do-ReadPart }
+        'Tell me*' {
+            $p = Pick-Chart
+            if ($p) {
+                # a real console window: the conversation is
+                # interactive, and NVDA reads consoles natively
+                Start-Process -FilePath $py -ArgumentList @(
+                    ('"' + $chartPy + '"'), ('"' + $p + '"'), 'edit')
+            }
+        }
         'Sounds*' { Show-Info (Run-Chart 'sounds') }
         'Settings*' { Do-Settings }
         'Help*' {
