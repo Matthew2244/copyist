@@ -219,7 +219,9 @@ class Pdf:
              'HO': 'Helvetica-Oblique', 'TI': 'Times-Italic',
              'TB': 'Times-Bold', 'TBI': 'Times-BoldItalic'}
 
-    def __init__(self, scale=1.0, music=None, faces=None):
+    def __init__(self, scale=1.0, music=None, faces=None,
+                 page=(PAGE_W, PAGE_H)):
+        self.page = page
         self.pages = []
         self.buf = []
         self.scale = scale
@@ -399,7 +401,7 @@ class Pdf:
                       + "\nendstream")
             page_ids.append(add(
                 f"<< /Type /Page /Parent {kids_id} 0 R "
-                f"/MediaBox [0 0 {PAGE_W} {PAGE_H}] "
+                f"/MediaBox [0 0 {self.page[0]} {self.page[1]}] "
                 f"/Resources {res} /Contents {cid} 0 R >>"))
         pages_id = add("<< /Type /Pages /Kids ["
                        + " ".join(f"{i} 0 R" for i in page_ids)
@@ -1036,6 +1038,33 @@ SCORE_GAP = 9 * SP          # between one part's staff and the next
 SYS_HEAD = 7 * SP           # the top part's header band
 
 
+SCORE_FAMS = (('wind', 'winds'), ('brass', 'brass'),
+              ('strings', 'strings'), ('voice', 'voices'))
+
+
+def _score_family(sound):
+    s = (sound or '').lower()
+    for pre, fam in SCORE_FAMS:
+        if s.startswith(pre):
+            return fam
+    return 'rhythm'
+
+
+def _abbrev(name):
+    """A continuation-page staff name: 'bass trombone 2' -> 'Bass.
+    Trom. 2' — the full names live on page one, the way a working
+    score prints them."""
+    out = []
+    for w in name.split():
+        if w.isdigit():
+            out.append(w)
+        elif len(w) > 4:
+            out.append(w[:4].capitalize() + '.')
+        else:
+            out.append(w.capitalize())
+    return ' '.join(out)
+
+
 def engrave_score(xml, pids, names, pdf_path, look=None):
     """Every part, stacked and synchronized — the conductor's page,
     drawn at score size: the whole layout happens on a virtual page and
@@ -1048,6 +1077,21 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
             return False, f"{names.get(pid, pid)} needs {why}"
         staves = measures[0]['state']['staves'] if measures else 1
         parts.append((names.get(pid, pid), measures, staves))
+    sounds = {}
+    for pid, body in re.findall(r'<score-part id="([^"]+)">(.*?)'
+                                r'</score-part>', xml, re.S):
+        sn = re.search(r'<instrument-sound>([^<]*)</instrument-sound>',
+                       body)
+        sounds[pid] = sn.group(1) if sn else ''
+    fams = [_score_family(sounds.get(pid)) for pid in pids]
+    # consecutive same-family parts share a bracket and a barline
+    spans, i = [], 0
+    while i < len(fams):
+        j = i
+        while j + 1 < len(fams) and fams[j + 1] == fams[i]:
+            j += 1
+        spans.append((i, j))
+        i = j + 1
     counts = {len(m) for _, m, _ in parts}
     if len(counts) != 1:
         return False, "parts of different lengths (report that)"
@@ -1062,10 +1106,13 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
              + (len(parts) - 1) * SCORE_GAP)
     per_sys = sys_h + SYS_HEAD + 4 * SP
     want = 2 if len(parts) > 3 else 3
+    # a conductor's page is landscape — every working score is
+    pw, ph = PAGE_H, PAGE_W
     scale = max(0.38, min(0.75,
-                (PAGE_H - 2 * MARGIN - TITLE_H) / (want * per_sys)))
-    pdf = Pdf(scale=scale, music=music_font(), faces=text_faces(look))
-    W, H, M = PAGE_W / scale, PAGE_H / scale, MARGIN / scale
+                (ph - 2 * MARGIN - TITLE_H) / (want * per_sys)))
+    pdf = Pdf(scale=scale, music=music_font(), faces=text_faces(look),
+              page=(pw, ph))
+    W, H, M = pw / scale, ph / scale, MARGIN / scale
 
     title_block(pdf, xml, W, H, M, k=1 / scale)
     y = H - M - TITLE_H / scale - SYS_HEAD
@@ -1101,9 +1148,19 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
             if staves > 1:
                 draw_brace(pdf, M - 2, tops[0], tops[-1] - STAFF)
             pdf.text(M - (14 if staves > 1 else 4),
-                     (tops[0] + tops[-1] - STAFF) / 2 - 3, pname,
+                     (tops[0] + tops[-1] - STAFF) / 2 - 3,
+                     pname if si == 0 else _abbrev(pname),
                      size=8.5, font='H', right=True)
         pdf.line(M, part_tops[0][0], M, part_tops[-1][-1] - STAFF, w=1.4)
+        for i0, i1 in spans:
+            if i1 == i0:
+                continue
+            bt = part_tops[i0][0]
+            bb = part_tops[i1][-1] - STAFF
+            bx = M - 5
+            pdf.line(bx, bt + 1, bx, bb - 1, w=2.6)
+            pdf.line(bx - 3.5, bt + 1, bx, bt + 1, w=2.2)
+            pdf.line(bx - 3.5, bb - 1, bx, bb - 1, w=2.2)
         x0 = M
         lead = 0
         for (pname, measures, staves), tops in zip(parts, part_tops):
@@ -1119,8 +1176,10 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
         stretch = (W - M - x) / sum(widths[j] for j in cols)
         if si == len(systems) - 1:
             stretch = min(stretch, 1.15)
+        col_xs = []
         for mi, j in enumerate(cols):
             w = widths[j] * stretch
+            col_xs.append(x)
             for pi, ((pname, measures, staves), tops) in enumerate(
                     zip(parts, part_tops)):
                 draw_measure(pdf, measures[j], x, tops, w,
@@ -1128,6 +1187,20 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
                              carry=carries[pi],
                              wedge_run=wedge_runs[pi])
             x += w
+            for i0, i1 in spans:
+                if i1 > i0:
+                    pdf.line(x, part_tops[i0][0], x,
+                             part_tops[i1][-1] - STAFF, w=0.8)
+        # boxed bar numbers under every bar — the conductor's eye
+        # finds a bar by its box, not by counting
+        yb = part_tops[-1][-1] - STAFF - 2.6 * SP
+        for xj, j in zip(col_xs, cols):
+            num = str(parts[-1][1][j]['num'])
+            tw = max(pdf.tw(num, 7, 'H'), 7)
+            pdf.text(xj + 2.5, yb - 5, num, size=7, font='H')
+            pdf.poly([(xj, yb - 7.5), (xj + tw + 5, yb - 7.5),
+                      (xj + tw + 5, yb + 2.5), (xj, yb + 2.5)],
+                     close=True, fill=False, w=0.6)
         for c, wr, ptops in zip(carries, wedge_runs, part_tops):
             drain_ties(pdf, c, W - M - 0.5 * SP)
             if wr.get('open') and wr['open'][0] is not None:

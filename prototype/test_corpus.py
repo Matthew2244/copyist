@@ -1753,6 +1753,23 @@ def check_roadmap():
         _cc.compile_chart(dpath, tmp4)
     px = open(os.path.join(tmp4, "T — piano.musicxml"),
               encoding="utf-8").read()
+    import re
+    import chartengrave as _cg
+    sx = open(os.path.join(tmp4, "T — score.musicxml"),
+              encoding="utf-8").read()
+    spids = re.findall(r'<score-part id="([^"]+)"', sx)
+    spdf = os.path.join(tmp4, "score.pdf")
+    ok, why = _cg.engrave_score(sx, spids,
+                                {p: p for p in spids}, spdf)
+    whole = open(spdf, "rb").read().decode("latin-1", "replace")
+    check("a conductor's page is landscape",
+          ok and f"/MediaBox [0 0 {_cg.PAGE_H} {_cg.PAGE_W}]" in whole,
+          why or "no landscape MediaBox")
+    check("families and abbreviations read",
+          _cg._score_family("brass.trombone.bass") == "brass"
+          and _cg._score_family("pluck.bass.electric") == "rhythm"
+          and _cg._abbrev("bass trombone 2") == "Bass Trom. 2")
+
     check("the pro title block reaches the page's XML",
           "<work-number>5</work-number>" in px
           and '<creator type="lyricist">Linda Hennrick</creator>' in px
