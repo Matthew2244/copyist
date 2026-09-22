@@ -2150,7 +2150,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 for t in pk['texts']:
                     content = direction(t, 'below') + content
             out.append((f'    <measure implicit="yes" number="0">\n{content}'
-                        '    </measure>\n', False))
+                        '    </measure>\n', False, False))
 
         need_attrs = source is None
         was_groove = False
@@ -2274,8 +2274,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             '</direction>\n')
                 if with_directions and off == 0:
                     mark = sec['name']
-                    if re.fullmatch(r'[A-Z]|\d+', mark):
+                    if re.fullmatch(r'[A-Z]\d*|\d+', mark):
                         pieces.append(rehearsal(mark))
+                    else:
+                        # word marks box too, shouted the way a book
+                        # prints INTRO — 'intro' was silently losing
+                        # its box (found on Victory, 2026-09-22)
+                        pieces.append(rehearsal(mark.upper()))
                     if sec['label']:
                         pieces.append(direction(sec['label']))
                     if sec['feel']:
@@ -2477,9 +2482,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                              and '<repeat' not in barline
                              and pieces[0] == rest_bar(div, staves,
                                                        bmeter))
+                head_ok = (not pure_rest and not open_bl
+                           and '<repeat' not in barline
+                           and any(p == rest_bar(div, staves, bmeter)
+                                   for p in pieces)
+                           and all(p == rest_bar(div, staves, bmeter)
+                                   or p.lstrip().startswith('<direction')
+                                   for p in pieces))
                 out.append((f'    <measure number="{absbar}">\n' + open_bl +
                             "".join(pieces) + barline + '    </measure>\n',
-                            pure_rest))
+                            pure_rest, head_ok))
 
         # ---- multirests, parts only: a stretch of waiting prints as one
         # bar carrying its count. Runs break naturally at anything a
@@ -2488,26 +2500,29 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         if part_mode:
             i = 0
             while i < len(out):
-                if out[i][1]:
+                if out[i][1] or out[i][2]:
+                    # a run may START on a rest bar that carries only
+                    # directions — the mark and the words ride above
+                    # the count, the way a working book groups an
+                    # intro as 4 — but only PURE bars extend it
                     j = i
-                    # a double bar may close a multirest, never hide in one
                     while (j + 1 < len(out) and out[j + 1][1]
                            and '<barline' not in out[j][0]):
                         j += 1
                     n = j - i + 1
                     if n >= 2:
-                        content, _ = out[i]
+                        content = out[i][0]
                         content = content.replace(
                             '      <note>',
                             '      <attributes><measure-style>'
                             f'<multiple-rest>{n}</multiple-rest>'
                             '</measure-style></attributes>\n'
                             '      <note>', 1)
-                        out[i] = (content, True)
+                        out[i] = (content, True, False)
                     i = j + 1
                 else:
                     i += 1
-        return "".join(c for c, _ in out)
+        return "".join(t[0] for t in out)
 
     # ---- whole documents
     def document(part_labels, directions_on, harmony_on, listen=False,
