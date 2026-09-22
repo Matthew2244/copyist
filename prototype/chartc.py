@@ -412,6 +412,7 @@ CHORD_KINDS = {
     '7b9': ('dominant', '7b9', [(9, -1, 'add')]),
     '7#9#11': ('dominant', '7#9#11', [(9, 1, 'add'), (11, 1, 'add')]),
     '7#11': ('dominant', '7#11', [(11, 1, 'add')]),
+    '13#11': ('dominant-13th', '13#11', [(11, 1, 'add')]),
     '69': ('major-sixth', '69', [(9, 0, 'add')]),
     'm69': ('minor-sixth', 'm69', [(9, 0, 'add')]),
     'alt': ('dominant', 'alt'),
@@ -431,7 +432,8 @@ CHORD_KINDS = {
 QUAL_SYNONYMS = {'-': 'm', '-7': 'm7', '-9': 'm9', '-11': 'm11',
                  '-6': 'm6', 'min': 'm', 'min7': 'm7', 'min9': 'm9',
                  'mi': 'm', 'mi7': 'm7', 'mi9': 'm9', 'mi11': 'm11',
-                 'mi6': 'm6', 'sus': 'sus4', 'ma7': 'maj7',
+                 'mi6': 'm6', 'sus': 'sus4', '7sus': '7sus4',
+                 'ma7': 'maj7',
                  'M7': 'maj7', 'm(maj7)': 'mmaj7', 'aug7': '7#5',
                  '7alt': 'alt'}
 

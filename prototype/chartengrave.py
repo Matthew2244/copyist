@@ -230,14 +230,42 @@ class Pdf:
             if id(f) not in self.face_res:
                 self.face_res[id(f)] = f"FE{len(self.face_res)}"
 
+    _jp_cache = []          # loaded once per process, shared
+
+    def _jp(self):
+        """The CJK fallback face (Noto Sans JP, OFL, in fonts/) —
+        loaded only the first time a page actually needs it, so a
+        chart that never sings in kana never pays for it."""
+        if not Pdf._jp_cache:
+            Pdf._jp_cache.append(load_font('NotoSansJP-Regular.otf'))
+        return Pdf._jp_cache[0]
+
+    def _face_for(self, face, cp):
+        """The face that can draw this codepoint: the look's own face,
+        else the CJK fallback — a singer's kana must never silently
+        vanish from the page (the Baka Mitai lesson, 2026-09-22)."""
+        if face.cmap.get(cp):
+            return face
+        if cp >= 0x2E80:
+            jp = self._jp()
+            if jp and jp.cmap.get(cp):
+                if id(jp) not in self.face_res:
+                    self.face_res[id(jp)] = f"FE{len(self.face_res)}"
+                    self.faces['JPFALL'] = jp
+                return jp
+        return face
+
     def tw(self, s, size, font='H'):
         """The real width of s in the embedded face, or the built-in
         estimate."""
         face = self.faces.get(font)
         if face:
-            return sum(face.adv[min(face.cmap.get(ord(c), 0),
-                                    len(face.adv) - 1)]
-                       for c in s) * size / face.upem
+            total = 0.0
+            for c in s:
+                f = self._face_for(face, ord(c))
+                total += f.adv[min(f.cmap.get(ord(c), 0),
+                                   len(f.adv) - 1)] * size / f.upem
+            return total
         return 0.52 * size * len(s)
 
     def glyph(self, x, y, name, size):
@@ -286,9 +314,22 @@ class Pdf:
             est = self.tw(s, size, font)
             x -= est / 2 if center else est
         if face:
-            gids = "".join(f"{face.cmap.get(ord(c), 0):04X}" for c in s)
-            self._w(f"BT /{self.face_res[id(face)]} {size:.1f} Tf "
-                    f"{x:.2f} {y:.2f} Td <{gids}> Tj ET")
+            # runs by the face that can draw each character; a font
+            # switch inside one BT keeps the text point moving
+            runs = []
+            for c in s:
+                f = self._face_for(face, ord(c))
+                if runs and runs[-1][0] is f:
+                    runs[-1][1].append(c)
+                else:
+                    runs.append([f, [c]])
+            out = [f"BT {x:.2f} {y:.2f} Td"]
+            for f, chars in runs:
+                gids = "".join(f"{f.cmap.get(ord(c), 0):04X}"
+                               for c in chars)
+                out.append(f"/{self.face_res[id(f)]} {size:.1f} Tf "
+                           f"<{gids}> Tj")
+            self._w(" ".join(out) + " ET")
             return x
         s = s.replace('\\', r'\\').replace('(', r'\(').replace(')', r'\)')
         self._w(f"BT /{'F' + font} {size:.1f} Tf "

@@ -1724,6 +1724,22 @@ def check_roadmap():
 
     bars = _cc.parse_bars("D9, /C, Bmi9, Ami7, D7(#9) x2, "
                           "( F7, Bb7 ) x2", "the 8BBB spellings")
+    more = _cc.parse_bars("C7sus, Gb13(#11), Fmi11",
+                          "the Life Will Change page")
+    check("the P5 keyboard book's spellings parse",
+          more[0][0][1][2] == "7sus4"
+          and more[1][0][1][2] == "13#11"
+          and more[2][0][1][2] == "m11", str(more))
+
+    import chartengrave as _ce
+    faces = _ce.text_faces("")
+    if faces:
+        pdf = _ce.Pdf(faces=faces)
+        w = pdf.tw("ばか", 9, "H")
+        check("kana lyrics find the fallback face and a real width",
+              w > 5 and "JPFALL" in pdf.faces, str(w))
+    else:
+        skip("kana fallback face", "no embedded faces available")
     check("the working book's chord spellings parse",
           bars[1][0][1] == ("D", 0, "9", "C")
           and bars[2][0][1] == ("B", 0, "m9", None)

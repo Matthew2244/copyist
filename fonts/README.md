@@ -17,3 +17,12 @@ SIL Open Font License 1.1 and redistributed unmodified. Copyist embeds
 one per look: Edwin for the default and `look: engraved`, MuseJazz
 Text for `look: jazz`, Petaluma Script for `look: handwritten`;
 `look: plain` keeps the PDF's built-in Helvetica.
+
+**NotoSansJP-Regular.otf** — Noto Sans Japanese from the Noto CJK
+project (https://github.com/notofonts/noto-cjk), copyright Google and
+Adobe (Source Han Sans), licensed under the SIL Open Font License 1.1
+and redistributed unmodified. Copyist embeds it only when a page
+actually carries CJK text — a singer's kana lyrics must never
+silently vanish because the look's Latin face cannot draw them; the
+fallback covers kana, kanji and fullwidth forms, run by run, inside
+any look.

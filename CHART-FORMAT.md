@@ -200,11 +200,12 @@ Defined once, used by name — a solo form is written one time:
   source stays explicit and the page stays clean.
 - Chord spelling: root with `b` or `#`, then quality: `7 9 11 13 maj maj7
   maj9 maj7#11 m m7 m9 m11 m6 m69 m7b5 mmaj7 dim dim7 sus2 sus4 7sus4 aug
-  6 69 add9 madd9 7b5 7#5 7b9 7#9 7#11 7#9#11 7b13 13b9 alt`, plus slash
+  6 69 add9 madd9 7b5 7#5 7b9 7#9 7#11 13#11 7#9#11 7b13 13b9 alt`, plus slash
   bass (`C7/E`). Jazz shorthand normalizes: `C-7` is `Cm7`, `min` and
   `mi` are `m` (`Ami7`, `Bmi9` — the working big-band books write it
   that way), `sus` is `sus4`, `7alt` is `alt`, `aug7` is `7#5`, and an
-  alteration in engraver's parentheses reads plain: `D7(#9)` is `D7#9`.
+  alteration in engraver's parentheses reads plain: `D7(#9)` is
+  `D7#9`, and `7sus` is `7sus4`.
   A bare slash chord carries the previous chord over a new bass —
   `D9, /C` is D9 then D9 over C, the way a guitar book writes a bass
   walk-down. This list covers every quality in the measured corpus,
