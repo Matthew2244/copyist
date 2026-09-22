@@ -19,24 +19,13 @@ import sys
 
 import chartc
 import chartdemo
+from chartedit import ask, say
 
 NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
 
 
 def pname(p):
     return f"{NAMES[p % 12]}{p // 12 - 1}"
-
-
-def ask(question, default=""):
-    """One prompt, stating its default; Enter keeps it."""
-    suffix = f" (now: {default})" if default != "" else ""
-    sys.stdout.write(f"{question}{suffix}: ")
-    sys.stdout.flush()
-    line = sys.stdin.readline()
-    if not line:
-        return default
-    line = line.strip()
-    return line if line else default
 
 
 def sniff_octave(pitches, rng):
@@ -63,18 +52,25 @@ def spans(notes, barof):
     return ", ".join(f"{a}-{b}" if a != b else str(a) for a, b in runs)
 
 
-def interview(out_path, demo_path, composer=''):
+def interview(out_path, demo_path, composer='', cfg=None):
+    cfg = cfg or {}
     if os.path.exists(out_path):
         sys.exit(f"chart: {out_path} already exists — I will not write "
                  "over a chart. Pick a new name.")
     if not demo_path:
         demo_path = ask("Which MIDI file is the demo")
+    # a bare filename looks in the midi folder — the settings desk's
+    # 'midi' is where his DAW exports land
+    if demo_path and not os.path.exists(demo_path) and \
+            cfg.get('midi'):
+        cand = os.path.join(os.path.expanduser(cfg['midi']), demo_path)
+        if os.path.exists(cand):
+            demo_path = cand
     if not demo_path or not os.path.exists(demo_path):
         sys.exit("chart: the interview starts from a demo MIDI and that "
                  "one is not there. Export it, then come back.")
 
     dm = chartdemo.load_demo(demo_path)
-    say = print
     tracks = [(ti, dm.names.get(ti, f"track {ti}"), dm.tracks[ti])
               for ti in sorted(dm.tracks)]
     say(f"Read it: {len(tracks)} playing track(s) in "
@@ -124,7 +120,10 @@ def interview(out_path, demo_path, composer=''):
     barof = lambda tick: rawbar(tick + slack)
     first_bar = min(barof(n.on)
                     for ns in dm.tracks.values() for n in ns)
-    countin_default = "1" if first_bar > 1 else "0"
+    # the file's own evidence first; his standing countin setting
+    # speaks only when the file says nothing
+    countin_default = "1" if first_bar > 1 else \
+        (cfg.get('countin') or "0")
     tempo = ask("Tempo", tempo_default)
     countin = ask("Count-in bars in the demo", countin_default)
     dyn = ask("Dynamics: pedal reads your CC 11, by hand means you "

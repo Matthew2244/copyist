@@ -1589,6 +1589,21 @@ def check_roadmap():
     check("compress speaks runs",
           chartedit.compress(["Bb7", "Bb7", "Eb7"]) == "Bb7 x2, Eb7")
 
+    line, fb, spoken = chartedit.known_changes("blues", "f", "Bb")
+    check("it knows the blues, transposed",
+          fb == 12 and line.startswith("F7, Bb7") and
+          "Gm7, C7" in line, line)
+    check("sharp keys spell sharp",
+          "F#7" in chartedit.known_changes("blues", "b", "C")[0])
+    check("minor blues in the chart's own key",
+          chartedit.known_changes("minor blues", None,
+                                  "Eb minor")[0].startswith("Ebm7 x4"))
+    plans, gaps = chartedit.parse_form(
+        "12 bar blues in b flat, solos over the blues 5 times")
+    check("a blues clause arrives with its form",
+          not gaps and plans[0]["form"] == ("blues", "b flat")
+          and plans[0]["bars"] == 12 and plans[1]["use"] == "blues")
+
     who = chartedit.parse_who("horns tacet; trumpet from demo bars "
                               "5-12, piano grooves",
                               ["trumpet", "piano"], ["horns"], {})

@@ -44,16 +44,31 @@ VOCAB_PATH = os.path.join(CONFIG_DIR, "vocabulary.json")
 NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
 
 
+def porcelain():
+    """The machine door: with COPYIST_PORCELAIN=1 every say and ask is
+    one JSON line, so a real app can hold the same conversation the
+    terminal does — one engine, two front doors."""
+    return os.environ.get("COPYIST_PORCELAIN") == "1"
+
+
 def say(line):
     """One write per thing said — a screen reader restarts on every
     write."""
-    sys.stdout.write(line + "\n")
+    if porcelain():
+        sys.stdout.write(json.dumps({"type": "say", "text": line})
+                         + "\n")
+    else:
+        sys.stdout.write(line + "\n")
     sys.stdout.flush()
 
 
 def ask(question, default=""):
-    suffix = f" (now: {default})" if default != "" else ""
-    sys.stdout.write(f"{question}{suffix}: ")
+    if porcelain():
+        sys.stdout.write(json.dumps({"type": "ask", "text": question,
+                                     "default": default}) + "\n")
+    else:
+        suffix = f" (now: {default})" if default != "" else ""
+        sys.stdout.write(f"{question}{suffix}: ")
     sys.stdout.flush()
     line = sys.stdin.readline()
     if not line:
@@ -215,6 +230,20 @@ def parse_clause(c):
     if m:
         return _mk("out", kind="out", source=(m.group(1) or "").strip()
                    or None, repeat=reps, open_=open_)
+
+    # a form it knows by name — "12 bar blues in b flat" arrives with
+    # its changes already in hand, offered for a yes at chords time
+    if re.search(r"\bblues\b", low):
+        m = BLUES_RE.search(low)
+        bars = int(m.group(1)) if m.group(1) else 12
+        pre = re.sub(r"\b(is|the|a|an|of)\b", " ", low[:m.start()])
+        pre = re.sub(r"[^\w ]", " ", pre).split()
+        p = _mk(pre[0] if pre else "head", bars=bars, repeat=reps,
+                open_=open_)
+        if bars == 12:
+            p["form"] = ("minor blues" if m.group(2) else "blues",
+                         (m.group(3) or "").strip() or None)
+        return p
 
     shape = None
     for s in SHAPES:
@@ -553,6 +582,67 @@ def compress(bars):
     return ", ".join(b + (f" x{n}" if n > 1 else "") for b, n in out)
 
 
+# ------------------------------------------------- forms it knows
+#
+# "Train it to write more, smarter" (Matthew, 2026-09-22): the
+# conversation knows the common forms cold, transposed to any key —
+# and always reads them back for a yes, never written unasked.
+
+FORMS = {
+    "blues": ("Bb7, Eb7, Bb7 x2, Eb7 x2, Bb7, Dm7 G7@3, Cm7, F7, "
+              "Bb7, F7", "Bb", 12),
+    "minor blues": ("Cm7 x4, Fm7 x2, Cm7 x2, Ab7, G7, Cm7, G7",
+                    "C", 12),
+}
+
+_PC = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
+
+
+def key_pc(text):
+    """'b flat', 'F#', 'Eb minor' -> pitch class, else None."""
+    if not text:
+        return None
+    m = re.match(r"\s*([A-Ga-g])\s*(flat|sharp|b|#)?", text)
+    if not m:
+        return None
+    alt = {"flat": -1, "b": -1, "sharp": 1, "#": 1}.get(
+        (m.group(2) or "").lower(), 0)
+    return (_PC[m.group(1).upper()] + alt) % 12
+
+
+PC_SHARP = {0: "C", 1: "C#", 2: "D", 3: "D#", 4: "E", 5: "F",
+            6: "F#", 7: "G", 8: "G#", 9: "A", 10: "A#", 11: "B"}
+SHARP_KEYS = {7, 2, 9, 4, 11, 6}         # G D A E B F#
+
+
+def transpose_line(text, semis, names=PC_NAME):
+    """Move every chord letter in a bars-grammar line by semitones."""
+    def move(m):
+        pc = (_PC[m.group(1)] + {'b': -1, '#': 1, '': 0}[m.group(2)]
+              + semis) % 12
+        return names[pc] + m.group(3)
+    return re.sub(r"\b([A-G])([b#]?)([\w#@+.]*)", move, text)
+
+
+def known_changes(kind, key_text, default_key):
+    """A form name and a key -> (chords line, bars, spoken name).
+    Sharp-side keys spell sharp — a blues in B wants F#7, never Gb7."""
+    master, home, bars = FORMS[kind]
+    pc = key_pc(key_text)
+    if pc is None:
+        pc = key_pc(default_key) or 0
+    sharp = pc in SHARP_KEYS or "#" in (key_text or "") or \
+        "sharp" in (key_text or "").lower()
+    names = PC_SHARP if sharp else PC_NAME
+    line = transpose_line(master, (pc - key_pc(home)) % 12, names)
+    return line, bars, f"the 12-bar {kind} in {names[pc]}"
+
+
+BLUES_RE = re.compile(r"(?:(\d+)\s*bars?\s+)?(?:a\s+)?(minor\s+)?"
+                      r"blues(?:\s+in\s+([a-g](?:\s+(?:flat|sharp))?"
+                      r"))?\b")
+
+
 # ------------------------------------------------------- who plays
 
 def parse_who(text, labels, groups, vocab=None):
@@ -694,6 +784,14 @@ def _chords_for(plan, ctx):
                 "yes")
         if not a.lower().startswith("n"):
             return twin["chords_text"]
+    if plan.get("form"):
+        kind, keyword = plan["form"]
+        line, fbars, spoken = known_changes(kind, keyword, ctx["key"])
+        if fbars == bars:
+            say(f"I know {spoken}: {line}")
+            a = ctx["ask"]("Take those changes? yes or no", "yes")
+            if not a.lower().startswith("n"):
+                return line
     doors = "say them, 'play <midi file>', 'from demo'"
     if prior:
         doors += ", 'same as <section>'"
@@ -717,6 +815,22 @@ def _chords_for(plan, ctx):
                 say(f"No section called '{m.group(1).strip()}' has "
                     "chords yet.")
             continue
+        fm = re.fullmatch(r"(?:(\d+)\s*bars?\s+)?(?:a\s+)?(minor\s+)?"
+                          r"blues(?:\s+in\s+(.+))?", a.strip(),
+                          re.IGNORECASE)
+        if fm:
+            kind = "minor blues" if fm.group(2) else "blues"
+            line, fbars, spoken = known_changes(kind, fm.group(3),
+                                                ctx["key"])
+            if fbars != bars:
+                say(f"{spoken} is {fbars} bars and {name} is {bars} — "
+                    "another door, then.")
+                continue
+            say(f"I know {spoken}: {line}")
+            yn = ctx["ask"]("Take those changes? yes or no", "yes")
+            if yn.lower().startswith("n"):
+                continue
+            return line
         if a.lower().startswith("play "):
             text = _detect_from_file(a[5:].strip(), bars, ctx)
         elif a.lower().startswith("from demo"):
@@ -750,10 +864,14 @@ def _spoken(a, ctx):
 def _detect_from_file(fname, bars, ctx):
     """He played the changes into a MIDI file; name them and read them
     back for his yes."""
-    path = fname if os.path.exists(fname) else \
-        os.path.join(ctx["base"], fname)
-    if not os.path.exists(path):
-        say(f"No file at {fname}.")
+    tries = [fname, os.path.join(ctx["base"], fname)]
+    if ctx["cfg"].get("midi"):
+        tries.append(os.path.join(
+            os.path.expanduser(ctx["cfg"]["midi"]), fname))
+    path = next((t for t in tries if os.path.exists(t)), None)
+    if path is None:
+        where = " or the midi folder" if ctx["cfg"].get("midi") else ""
+        say(f"No file called {fname} beside the chart{where}.")
         return None
     dm = chartdemo.Demo(path)
     notes = [n for ns in dm.tracks.values() for n in ns]
@@ -848,8 +966,14 @@ def _who_for(plan, ctx):
             return []
         while True:
             try:
-                return parse_who(a, ctx["labels"], ctx["groupnames"],
-                                 ctx["vocab"])
+                lines = parse_who(a, ctx["labels"], ctx["groupnames"],
+                                  ctx["vocab"])
+                # his standing quant setting rides every from-demo lift
+                q = ctx["cfg"].get("quant")
+                if q:
+                    lines = [ln + f", {q}" if "from demo bars" in ln
+                             else ln for ln in lines]
+                return lines
             except SpokenError as e:
                 # a chords-shaped answer on a who question must not
                 # teach the vocabulary that 'b' means something
@@ -867,13 +991,14 @@ def _who_for(plan, ctx):
                     break
 
 
-def edit(path, demo=None, composer=""):
+def edit(path, demo=None, composer="", cfg=None):
     """The roadmap conversation, start to written chart."""
+    cfg = cfg or {}
     if not os.path.exists(path):
         import chartnew
         say("No chart there yet — the interview first, then the "
             "roadmap.")
-        chartnew.interview(path, demo, composer=composer)
+        chartnew.interview(path, demo, composer=composer, cfg=cfg)
     try:
         chart = chartc.parse_chart(path)
     except SystemExit as e:
@@ -893,7 +1018,8 @@ def edit(path, demo=None, composer=""):
     vocab = load_vocab()
     ctx = {"vocab": vocab, "labels": labels, "groupnames": groupnames,
            "demo": dm, "base": base, "ask": ask, "done": [],
-           "meter": meter,
+           "meter": meter, "cfg": cfg,
+           "key": chart["header"].get("key", "C"),
            # a two-chord bar's second chord lands mid-bar
            "half_beat": meter[0] // 2 + 1 if meter[0] >= 4 and
            meter[0] % 2 == 0 else None}
@@ -1034,6 +1160,11 @@ def _resolve_family(name, plans, named):
         return named[name]
     hit = next((p for p in plans if p["name"].lower() == name.lower()
                 and p["kind"] == "plain"), None)
+    if hit is None:
+        # "solos over the blues" reaches the section by its form
+        hit = next((p for p in plans
+                    if (p.get("form") or ("",))[0] == name.lower()),
+                   None)
     return [hit] if hit else None
 
 

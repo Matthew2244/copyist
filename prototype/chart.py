@@ -175,6 +175,14 @@ SETTINGS = (
     ('sounds_dir', '', "where sample libraries live and download; "
                        "empty uses the standard spot for this "
                        "computer"),
+    ('midi', '', "the folder your DAW exports land in — 'play "
+                 "changes.mid' and every file picker starts there"),
+    ('quant', '', "a standing feel for every from-demo lift — "
+                  "eighths, straight, sixteenths, triplets — empty "
+                  "lets each line decide"),
+    ('countin', '', "count-in bars offered whenever a demo comes in "
+                    "and nothing in the file says otherwise — any "
+                    "number you like"),
 )
 
 
@@ -257,6 +265,15 @@ def run_settings(argv):
             'jazz', 'handwritten', 'engraved', 'plain')):
         sys.exit("chart: the looks are jazz, handwritten, engraved "
                  "and plain (or empty to let each chart decide).")
+    if k == 'quant' and v and v.lower() not in (
+            'eighths', 'straight', 'sixteenths', 'triplets',
+            'eighth triplets', 'sixteenth triplets'):
+        sys.exit("chart: the feels are eighths, straight, sixteenths, "
+                 "triplets, eighth triplets and sixteenth triplets "
+                 "(or empty to let each line decide).")
+    if k == 'countin' and v and not v.isdigit():
+        sys.exit("chart: countin is a number of bars, like 1 or 2 "
+                 "(or empty for none).")
     cfg[k] = v
     import json
     os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
@@ -293,6 +310,25 @@ def run_settings(argv):
     if k == 'sounds_dir':
         lines[k] = (f"sounds_dir is now {v or 'the standard spot'} — "
                     f"libraries live in {sounds_home(cfg)}.")
+    if k == 'midi':
+        if not v:
+            lines[k] = ("midi is unset — files are looked for next "
+                        "to the chart.")
+        elif os.path.isdir(os.path.expanduser(v)):
+            lines[k] = (f"midi is now {v} — 'play' and the pickers "
+                        "start there.")
+        else:
+            lines[k] = (f"midi is now {v} — nothing at that path yet; "
+                        "it's used the moment the folder exists.")
+    if k == 'quant':
+        lines[k] = (f"quant is now {v} — every from-demo lift rides "
+                    "that feel unless its own line says otherwise."
+                    if v else "quant is unset — each line decides.")
+    if k == 'countin':
+        lines[k] = (f"countin is now {v} — offered whenever a demo "
+                    "comes in and the file itself doesn't say."
+                    if v else "countin is unset — read from each "
+                    "demo's own first bar.")
     say(lines[k])
 
 
@@ -618,13 +654,13 @@ def main():
     if args.command == 'new':
         import chartnew
         chartnew.interview(args.chart, args.demo,
-                           composer=cfg['composer'])
+                           composer=cfg['composer'], cfg=cfg)
         return
 
     if args.command == 'edit':
         import chartedit
         chartedit.edit(args.chart, demo=args.demo,
-                       composer=cfg['composer'])
+                       composer=cfg['composer'], cfg=cfg)
         return
 
     path = args.chart
