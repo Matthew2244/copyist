@@ -1452,7 +1452,20 @@ def compile_chart(chart_path, outdir):
     # what an arranger checks before any page reaches a player
     shift = int(hdr.get('countin', 0))
     for l in labels:
-        notes = [(p, item['res']['at'] + s // chartdemo.BAR + shift)
+        def bar_of_tick(start_bar, s):
+            # the range report speaks bar numbers, and a bar is as
+            # long as ITS meter says — a 12/8 chart once reported
+            # peaks at bar 311 of 213 (Victory, 2026-09-22)
+            b, t = start_bar, s
+            while True:
+                n_, d_ = meter_at(chart['meters'], b)
+                bl = chartdemo.DIV * 4 * n_ // d_
+                if t < bl:
+                    return b
+                t -= bl
+                b += 1
+
+        notes = [(p, bar_of_tick(item['res']['at'] + shift, s))
                  for item in resolved[l] if not item.get('cue')
                  and item['res'].get('detail') != 'rhythmic-slashes'
                  for s, e, ps in item['res']['timeline'] for p in ps]

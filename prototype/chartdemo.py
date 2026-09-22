@@ -63,6 +63,18 @@ class Demo:
         by_track = {}
         for n in ex["notes"]:
             by_track.setdefault(n.track, []).append(n)
+        # MuseScore exports a grand staff as two tracks with one name
+        # ("Piano", "Piano"); by-name resolution could only ever reach
+        # the first, and a piano line wants both hands anyway — the
+        # Hands physics re-splits them. Merge same-named tracks.
+        seen = {}
+        for ti in sorted(by_track):
+            nm = (self.names.get(ti) or '').strip().lower()
+            if nm and nm in seen:
+                by_track[seen[nm]].extend(by_track.pop(ti))
+                by_track[seen[nm]].sort(key=lambda n: n.on)
+            elif nm:
+                seen[nm] = ti
         self.tracks = by_track
         self.cc = {}                    # track -> [(tick, CC11 value)]
         for ti, trk in enumerate(mid["tracks"]):

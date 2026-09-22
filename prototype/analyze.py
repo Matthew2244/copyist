@@ -138,9 +138,20 @@ def extract(mid):
             if e[1] == "meta":
                 typ, payload = e[2], e[3]
                 if typ == 0x03 and ti not in names:
-                    names[ti] = payload.decode("latin-1", "replace").strip()
+                    # MuseScore writes UTF-8 track names ("Trumpet in
+                    # B\u266d"); latin-1 turns the flat into mojibake
+                    try:
+                        names[ti] = payload.decode("utf-8").strip()
+                    except UnicodeDecodeError:
+                        names[ti] = payload.decode("latin-1",
+                                                   "replace").strip()
                 elif typ == 0x06:
-                    markers.append((t, payload.decode("latin-1", "replace").strip()))
+                    try:
+                        mtext = payload.decode("utf-8").strip()
+                    except UnicodeDecodeError:
+                        mtext = payload.decode("latin-1",
+                                               "replace").strip()
+                    markers.append((t, mtext))
                 elif typ == 0x51 and len(payload) == 3:
                     tempos.append((t, int.from_bytes(payload, "big")))
                 elif typ == 0x58 and len(payload) >= 2:
