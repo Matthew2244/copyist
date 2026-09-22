@@ -110,12 +110,19 @@ def _near(pc, anchor):
 
 
 class Bar:
-    def __init__(self, div, bmeter, fifths, staves):
+    def __init__(self, div, bmeter, fifths, staves, shift=0):
         self.div = div
         self.num, self.den = bmeter
         self.barlen = div * 4 * self.num // self.den
         self.fifths = fifths
         self.staves = staves
+        # the groove thinks in SOUNDING pitches, but this bar lands in
+        # a part whose <transpose> the player applies — so pitches are
+        # written shifted up by the part's transposition, and playback
+        # brings them back down. Found by ear (Matthew, 2026-09-22):
+        # the realized bass sounded an octave low, because sounding
+        # pitches written into a transposing part transpose twice.
+        self.shift = shift
         self.onsets = {}                 # tick -> (ticks, [notes])
 
     def add(self, tick, ticks, note):
@@ -152,6 +159,7 @@ class Bar:
                        f'</display-step><display-octave>{oc}'
                        '</display-octave></unpitched>')
         else:
+            what = what + self.shift
             names = _FLAT if self.fifths < 0 else _SHARP
             nm = names[what % 12]
             al = -1 if nm.endswith('b') else (1 if nm.endswith('#')
@@ -421,20 +429,45 @@ def _comp(bar, state, absbar, feel, chords, sound_id):
             voicing(_chord_at(chords, b)), vel=72)
 
 
+def _horn_hits(bar, state, chords, hits, bmeter):
+    """A horn's kicks, sounding: short guide tones on the named
+    beats — a shout chorus must never be silent in the listen
+    (Matthew's ear, 2026-09-22: 'do not hear any horns')."""
+    if not chords or not hits:
+        return
+    beat = bar.div * 4 // bar.den
+    anchor = state.get('horn', 65)          # around F4, mid-horn
+    for b in hits:
+        c = _chord_at(chords, b)
+        midi = _near(_guide(c)[0], anchor)
+        midi = min(max(midi, 55), 79)
+        bar.add(int(round((b - 1) * beat)), beat // 2,
+                ('p', midi, 90))
+        state['horn'] = anchor = midi
+
+
 def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
-            absbar, bmeter, div, feel, state, governing):
+            absbar, bmeter, div, feel, state, governing,
+            written_shift=0):
     """One realized bar of the listening document, or None when this
     part has no rhythm-section role. state is per-part and mutable;
-    governing is the chord carried in from earlier bars."""
+    governing is the chord carried in from earlier bars.
+    written_shift is the part's transposition: the groove thinks in
+    sounding pitches, the bar is written for the part's player."""
     role = role_of(sound_id, clef)
-    if role is None:
+    if role is None and kind != 'hits':
         return None
     chords = _chords_in(sec, off, governing)
     state['hits'] = None
     if kind == 'hits':
         hmap, _words = arg
         state['hits'] = hmap.get(off + 1, hmap.get(None)) or []
-    bar = Bar(div, bmeter, fifths, staves)
+    bar = Bar(div, bmeter, fifths, staves, shift=written_shift)
+    if role is None:
+        # a horn with kicks: the kicks play
+        _horn_hits(bar, state, chords, state['hits'], bmeter)
+        state['hits'] = None
+        return bar.xml() if bar.onsets else None
     if role == 'drums':
         _drums(bar, absbar, feel, state['hits'])
     elif role == 'bass':

@@ -2213,7 +2213,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             'hits', arg, sound_id, clef, staves,
                             fifths, sec, off, absbar, bmeter, div,
                             sec['feel'] or hdr.get('feel') or '',
-                            groove_state, active_chord[0])
+                            groove_state, active_chord[0],
+                            written_shift=horn['transpose']
+                            if horn else 0)
                         pieces.append(made or rest_bar(div, staves,
                                                        bmeter))
                         if made:
@@ -2237,7 +2239,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             'groove', arg, sound_id, clef, staves,
                             fifths, sec, off, absbar, bmeter, div,
                             sec['feel'] or hdr.get('feel') or '',
-                            groove_state, active_chord[0])
+                            groove_state, active_chord[0],
+                            written_shift=horn['transpose']
+                            if horn else 0)
                         pieces.append(made or rest_bar(div, staves,
                                                        bmeter))
                         if made:
