@@ -1744,6 +1744,20 @@ def check_roadmap():
     dc = _cc.parse_chart(dpath)
     check("P.C. is a legal section name in a Bm chart",
           dc["sections"][0]["name"] == "P.C.")
+    with open(dpath, "w", encoding="utf-8") as f:
+        f.write("title: T\nlyricist: Linda Hennrick\n"
+                "from: Mother/Earthbound\nrev: 12/18/24\n"
+                "number: 5\nkey: C\nmeter: 4/4\n\nband:\n"
+                "  piano\n\nsection A, 2 bars\n  chords: C x2\n")
+    with redirect_stdout(io.StringIO()):
+        _cc.compile_chart(dpath, tmp4)
+    px = open(os.path.join(tmp4, "T — piano.musicxml"),
+              encoding="utf-8").read()
+    check("the pro title block reaches the page's XML",
+          "<work-number>5</work-number>" in px
+          and '<creator type="lyricist">Linda Hennrick</creator>' in px
+          and "<source>Mother/Earthbound</source>" in px
+          and '<creator type="revision">12/18/24</creator>' in px)
     shutil.rmtree(tmp4, ignore_errors=True)
 
     more = _cc.parse_bars("C7sus, Gb13(#11), Fmi11",

@@ -979,12 +979,7 @@ def engrave(xml_path, pdf_path, look=None):
         systems.append(cur)
 
     y = top_y
-    pdf.text(PAGE_W / 2, PAGE_H - MARGIN - 14,
-             title.group(1) if title else '', size=19, font='HB',
-             center=True)
-    if composer:
-        pdf.text(PAGE_W - MARGIN, PAGE_H - MARGIN - 32, composer.group(1),
-                 size=9.5, font='H', right=True)
+    title_block(pdf, xml, PAGE_W, PAGE_H, MARGIN)
     pname = names.get(pids[0], '')
     staves = measures[0]['state']['staves'] if measures else 1
     ph = part_height(staves)
@@ -1072,12 +1067,7 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
     pdf = Pdf(scale=scale, music=music_font(), faces=text_faces(look))
     W, H, M = PAGE_W / scale, PAGE_H / scale, MARGIN / scale
 
-    pdf.text(W / 2, H - M - 14 / scale,
-             title.group(1) if title else '', size=19 / scale, font='HB',
-             center=True)
-    if composer:
-        pdf.text(W - M, H - M - 32 / scale, composer.group(1),
-                 size=9.5 / scale, font='H', right=True)
+    title_block(pdf, xml, W, H, M, k=1 / scale)
     y = H - M - TITLE_H / scale - SYS_HEAD
 
     lead_guess = 12 * SP
@@ -1185,6 +1175,40 @@ def draw_brace(pdf, x, top, bottom_y):
                  ((x - 2.4 * SP, a - d * (a - b) * 0.32),
                   (x + 0.4 * SP, b + d * (a - b) * 0.45),
                   (x - 1.9 * SP, b))], w=1.8)
+
+
+def title_block(pdf, xml, w, h, m, k=1.0):
+    """The credits a working book prints: title, the from-line and
+    rev under it, the Music-by / Lyrics-by / arranger stack on the
+    right, and the setlist number in brackets top-right. Absent
+    fields draw nothing, so old pages stay old."""
+    title = re.search(r'<work-title>([^<]*)</work-title>', xml)
+    number = re.search(r'<work-number>([^<]*)</work-number>', xml)
+    frm = re.search(r'<source>([^<]*)</source>', xml)
+    creators = dict(re.findall(
+        r'<creator type="(\w+)">([^<]*)</creator>', xml))
+    pdf.text(w / 2, h - m - 14 * k, title.group(1) if title else '',
+             size=19 * k, font='HB', center=True)
+    suby = h - m - 27 * k
+    if frm:
+        pdf.text(w / 2, suby, 'from "%s"' % frm.group(1),
+                 size=8.5 * k, font='HO', center=True)
+        suby -= 10 * k
+    if creators.get('revision'):
+        pdf.text(w / 2, suby, 'rev. ' + creators['revision'],
+                 size=7.5 * k, font='HO', center=True)
+    if number:
+        pdf.text(w - m, h - m - 16 * k, '[%s]' % number.group(1),
+                 size=15 * k, font='HB', right=True)
+    ry = h - m - 32 * k
+    for line in (creators.get('composer'),
+                 ('Lyrics by ' + creators['lyricist'])
+                 if creators.get('lyricist') else None,
+                 creators.get('arranger')):
+        if line:
+            pdf.text(w - m, ry, line, size=9.5 * k, font='H',
+                     right=True)
+            ry -= 11 * k
 
 
 def draw_wedge(pdf, x1, x2, y, kind, open_left=False,

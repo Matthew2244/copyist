@@ -135,11 +135,20 @@ Key–value lines, one per line:
     title: Matt's Blues
     composer: Matthew Whitaker
     arranger: Jeremy Hegg
+    lyricist: Linda Hennrick
+    from: Mother/Earthbound
+    rev: 12/18/24
+    number: 5
     key: Bb
     meter: 4/4
     tempo: 132
     feel: swing
 
+- The last four are the working book's title block (the 8-Bit Big
+  Band audit): `lyricist` prints "Lyrics by ...", `from` prints
+  *from "..."* under the title, `rev` a small revision date, and
+  `number` the setlist number in brackets top right. All optional;
+  absent fields print nothing.
 - `key` is the concert key; written keys per part come from the instrument
   database (DESIGN.md §10). `tempo` is a number, or words (`rubato`,
   `Slow, freely` — both appear in *Lush Life*), or absent.

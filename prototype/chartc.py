@@ -730,7 +730,8 @@ def parse_chart(path):
             m = re.match(r'(\w+):\s*(.+)$', s)
             if m and m.group(1) in ('title', 'composer', 'arranger', 'key',
                                     'meter', 'tempo', 'feel', 'source',
-                                    'demo', 'countin', 'dynamics', 'look'):
+                                    'demo', 'countin', 'dynamics', 'look',
+                                    'lyricist', 'from', 'rev', 'number'):
                 chart['header'][m.group(1)] = m.group(2).strip().strip('"')
                 continue
             fail(f"{loc}: cannot read '{s}'")
@@ -2467,13 +2468,24 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     def document(part_labels, directions_on, harmony_on, listen=False,
                  part_mode=False):
         L = [XMLHEAD, '<score-partwise version="3.1">\n',
-             '  <work><work-title>%s</work-title></work>\n' %
+             '  <work>'
+             + ('<work-number>%s</work-number>' % hdr['number']
+                if hdr.get('number') else '')
+             + '<work-title>%s</work-title></work>\n' %
              hdr.get('title', 'Untitled'),
              '  <identification>']
         if hdr.get('composer'):
             L.append('<creator type="composer">%s</creator>' % hdr['composer'])
         if hdr.get('arranger'):
             L.append('<creator type="arranger">%s</creator>' % hdr['arranger'])
+        if hdr.get('lyricist'):
+            L.append('<creator type="lyricist">%s</creator>'
+                     % hdr['lyricist'])
+        if hdr.get('rev'):
+            L.append('<creator type="revision">%s</creator>'
+                     % hdr['rev'])
+        if hdr.get('from'):
+            L.append('<source>%s</source>' % hdr['from'])
         L.append('<encoding><software>Copyist chartc</software></encoding>'
                  '</identification>\n')
         L.append('  <part-list>\n')
