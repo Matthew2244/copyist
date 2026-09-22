@@ -360,14 +360,34 @@ degrees. And who-plays understands the bandstand: "everybody in",
 melody" (a from-demo lift of that section's own bars), "horns hits on
 1, 2+, 4".
 
+You can tell it the tune the way you'd tell a story: "it opens quiet
+with a 4 bar piano intro, then a blues in G, solos over the form
+twice, big shout 16, ends on the head." Openers ("it opens with",
+"starts on"), connectors ("then", "after that", "finally") and
+endings ("ends on the head") all read; a mood word — quiet, big,
+mellow, burning — prints as the section's label, the way a real chart
+says "(quiet)" beside the letter; and "bass in at 5" becomes the
+"+bass" entrance cue on the page.
+
 Run `edit` on a chart that already has its form and you get the
 editing desk instead of a fresh interview: `chords of <section>`,
-`who plays in <section>`, `add shout 16 after B`, `cut <section>`
-(asked before it cuts), `tempo 116`, `feel latin`, `transpose to C`
+`who plays in <section>`, `notes for <part> in <section>`,
+`add shout 16 after B`, `cut <section>` (asked before it cuts),
+`rename <section> to <name>`, `repeat <section> 3 times`,
+`make <section> open`, `tempo 116`, `feel latin`, `transpose to C`
 (the key and every chord symbol move; your played material stays as
 played, and it says so), `read it back`, or `replace the form` to
 start the roadmap over. Every move lands in the file at once and is
 checked by the same compiler as always.
+
+`notes for <part> in <section>` is the fix-it tool: say the line the
+way a player says it — "rest half, D5 eighth, E flat eighth, up G
+quarter tied to half" — and it becomes a real figure at the bar you
+name. Durations stick until you change them, octaves follow the line
+(say "up" or "down" to force the leap), a line that stops short of
+the barline offers to pad itself with rests, and "play lick.mid"
+brings the same lick in from a file you played instead. The typed
+notes grammar passes straight through if you'd rather write it.
 
 Words it doesn't know, it never guesses. It asks once what to read the
 word as, writes the answer to your own vocabulary file, and uses it

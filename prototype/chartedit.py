@@ -175,10 +175,21 @@ def digitize(text):
 SHAPES = ("aaba", "abac", "abab", "aab", "abca")
 
 
+# the words a story is told with — each one starts a new clause
+CONNECTORS = r"and then|after that|from there|then|finally|next"
+
+# a mood on a section prints as its label, the way a real chart says
+# "(quiet)" beside the letter
+MOODS = ("quiet", "soft", "gentle", "mellow", "easy", "big", "loud",
+         "burning", "greasy", "nasty", "floating", "driving",
+         "half-time", "double-time", "laid back", "in your face",
+         "building", "sparse", "full")
+
+
 def parse_form(text, vocab=None):
     text = apply_vocab(text, vocab or {})
     text = digitize(text)
-    clauses = re.split(r",|\bthen\b|\.|;", text)
+    clauses = re.split(r",|\b(?:" + CONNECTORS + r")\b|\.|;", text)
     plans, gaps = [], []
     for raw in clauses:
         c = raw.strip().strip(".").strip()
@@ -215,8 +226,39 @@ def _repeat_words(c):
 
 def parse_clause(c):
     low = c.lower()
+    # story openers fall away: "it opens with an 8 bar intro"
+    low = re.sub(r"^(?:it|we|the tune|the song)?\s*"
+                 r"(?:opens?|starts?|begins?|kicks?\s+off)\s+"
+                 r"(?:with\s+|on\s+|up\s+)?", "", low).strip()
+    # "ends on the head" is the out; "ends with an 8 bar tag" is a tag
+    m = re.match(r"^ends?\s+(?:with|on)\s+(?:the\s+)?(.+)$", low)
+    if m:
+        rest = m.group(1).strip()
+        p = parse_clause(rest)
+        if p and (p["bars"] or p.get("form")):
+            return p
+        return _mk("out", kind="out", source=rest)
     low, reps, open_ = _repeat_words(low)
+    # a mood prints as the section's label
+    mood = None
+    for w in MOODS:
+        if re.search(r"\b" + re.escape(w) + r"\b", low):
+            mood = w
+            low = re.sub(r"\b" + re.escape(w) + r"\b", " ",
+                         low).strip()
+            low = re.sub(r"\s{2,}", " ", low)
+            break
+    # the connective tissue after an opener and mood: "with a 4 bar
+    # piano intro" is a 4-bar piano intro
+    low = re.sub(r"^(?:with|on)\s+", "", low).strip()
+    low = re.sub(r"^(?:a|an|the)\s+", "", low).strip()
+    p = _clause_core(low, reps, open_)
+    if p is not None and mood:
+        p["mood"] = mood
+    return p
 
+
+def _clause_core(low, reps, open_):
     # "solos over the head", "solos on the blues"
     m = re.fullmatch(r"solos?(?:\s+(?:over|on)\s+(?:the\s+)?"
                      r"([\w ]+?))?(?:\s+form)?", low)
@@ -316,6 +358,8 @@ QUALITY_WORDS = [
     ("sus two", "sus2"),
     ("major triad", "maj"),
     ("minor triad", "m"),
+    ("dominant seven", "7"),
+    ("dominant", "7"),
     ("triad", "maj"),
     ("thirteen", "13"),
     ("eleven", "11"),
@@ -812,6 +856,130 @@ FORM_RE = re.compile(r"(?:(\d+)\s*bars?\s+)?(?:a\s+)?"
                      r"(?:\s+in\s+([a-g](?:\s+(?:flat|sharp))?))?\b")
 
 
+# ------------------------------------------------ notes, spoken
+#
+# The fix-it tool from the design: one lick, said the way a player
+# says it.  Durations stick until changed, octaves follow the line
+# (nearest to the previous note; "up" or "down" forces the leap),
+# and the output is the format's own notes: grammar — so the compiler
+# validates the exact line the writer heard read back.
+
+DUR_WORDS = {"whole": "w", "half": "h", "quarter": "q",
+             "eighth": "e", "eighths": "e", "8th": "e",
+             "sixteenth": "s", "sixteenths": "s", "16th": "s",
+             "quarters": "q", "halves": "h", "wholes": "w"}
+
+_NOTE_BASE = {'c': 0, 'd': 2, 'e': 4, 'f': 5, 'g': 7, 'a': 9, 'b': 11}
+
+
+def _dur_at(toks, i):
+    """A duration at toks[i]: 'quarter', 'dotted half', 'e', 'q.' ->
+    (dur string, tokens consumed), else (None, 0)."""
+    if i >= len(toks):
+        return None, 0
+    t = toks[i].lower().rstrip(",")
+    if t == "dotted" and i + 1 < len(toks):
+        d, used = _dur_at(toks, i + 1)
+        if d and not d.endswith("."):
+            return d + ".", used + 1
+        return None, 0
+    if t in DUR_WORDS:
+        return DUR_WORDS[t], 1
+    if re.fullmatch(r"[whqes]\.?", t):
+        return t, 1
+    return None, 0
+
+
+def notes_from_words(text):
+    """'F4 quarter, G eighth, rest eighth, up B flat half' -> notes:
+    grammar text.  Raises SpokenError on a word it cannot read."""
+    toks = [t for t in text.replace(",", " ").split() if t]
+    pieces = []
+    prev_midi = None
+    prev_dur = "q"
+    dirn = None
+    i = 0
+    while i < len(toks):
+        t = toks[i].lower()
+        if t in ("up", "down"):
+            dirn = t
+            i += 1
+            continue
+        if t in ("rest", "rests"):
+            i += 1
+            d, used = _dur_at(toks, i)
+            if d:
+                i += used
+            else:
+                d = prev_dur
+            prev_dur = d
+            pieces.append(f"rest {d}")
+            continue
+        # a note name: 'f4', 'bb3', 'b flat 4', 'c sharp', 'g'
+        m = re.fullmatch(r"([a-g])([b#]?)(-?\d)?", t)
+        if not m:
+            raise SpokenError(toks[i], text)
+        letter, acc = m.group(1), m.group(2)
+        octv = int(m.group(3)) if m.group(3) else None
+        i += 1
+        if not acc and i < len(toks) and \
+                toks[i].lower().rstrip(",") in ("flat", "sharp"):
+            acc = "b" if toks[i].lower().startswith("f") else "#"
+            i += 1
+        if octv is None and i < len(toks) and \
+                re.fullmatch(r"-?\d", toks[i].rstrip(",")):
+            octv = int(toks[i].rstrip(","))
+            i += 1
+        d, used = _dur_at(toks, i)
+        if d:
+            i += used
+        else:
+            d = prev_dur
+        # ties: 'tied [to] eighth' / 'plus eighth'
+        while i < len(toks) and toks[i].lower().rstrip(",") in \
+                ("tied", "plus", "held"):
+            j = i + 1
+            if j < len(toks) and toks[j].lower() == "to":
+                j += 1
+            d2, used2 = _dur_at(toks, j)
+            if not d2:
+                raise SpokenError(toks[i], text)
+            d += "+" + d2
+            i = j + used2
+        prev_dur = d.split("+")[-1].rstrip(".")
+        pc = _NOTE_BASE[letter] + {"b": -1, "#": 1, "": 0}[acc]
+        if octv is not None:
+            midi = pc + (octv + 1) * 12
+        elif prev_midi is None:
+            midi = pc + 60 - (_NOTE_BASE["c"])  # around middle C
+            midi = pc + 60 if pc <= 6 else pc + 48
+        else:
+            # nearest to the previous note; up/down force the leap
+            cands = [pc + 12 * k for k in range(0, 10)]
+            if dirn == "up":
+                cands = [c for c in cands if c > prev_midi]
+            elif dirn == "down":
+                cands = [c for c in cands if c < prev_midi]
+            midi = min(cands, key=lambda c: (abs(c - prev_midi), -c))
+        dirn = None
+        prev_midi = midi
+        octave = midi // 12 - 1
+        pieces.append(f"{letter.upper()}{acc}{octave} {d}")
+    if not pieces:
+        raise SpokenError(text.strip() or "(empty)", text)
+    return ", ".join(pieces)
+
+
+def notes_ticks(text):
+    """Total ticks of a notes: line, via the compiler's own parser —
+    or None with the error sentence when it refuses."""
+    try:
+        items, _, _ = chartc.parse_notes(text, "the line")
+        return sum(t for t, _ in items), None
+    except SystemExit as e:
+        return None, str(e.code)
+
+
 # ------------------------------------------------------- who plays
 
 WHO_TARGET_ALIASES = {"everybody": "all", "everyone": "all",
@@ -863,6 +1031,10 @@ def parse_who(text, labels, groups, vocab=None, melody_range=None):
         m = re.fullmatch(r"(?:hits|kicks)\s+on\s+(.+)", r)
         if m:
             lines.append(f"{target}: hits on {m.group(1)}")
+        elif re.fullmatch(r"(?:comes?\s+)?in\s+at\s+(?:bar\s+)?\d+",
+                          r):
+            n = re.search(r"(\d+)", r).group(1)
+            lines.append(f"build: add {target} at {n}")
         elif r in ("tacet", "out", "rests", "rest", "lays out",
                    "lay out", "sits out", "sit out", "sits this out"):
             lines.append(f"{target}: tacet")
@@ -1455,6 +1627,23 @@ def _new_form(path, ctx):
     _realize_plans(ctx, plans, named)
     prog_lines, section_lines = render(plans, named)
     splice(path, False, prog_lines, section_lines, header=hdr)
+    # a replaced form's named progressions may now reference nothing;
+    # stale changes on the page are worse than a clean drop
+    lines = _lines(path)
+    used = set(re.findall(r"^\s*use chords ([\w ]+?)(?:\s+x\d+)?\s*$",
+                          "\n".join(lines), re.MULTILINE))
+    kept, dropped = [], []
+    for l in lines:
+        m = re.match(r"chords ([\w ]+?):", l) \
+            if l and l[0] not in " \t" else None
+        if m and m.group(1).strip() not in used:
+            dropped.append(m.group(1).strip())
+            continue
+        kept.append(l)
+    if dropped:
+        _save_lines(path, kept)
+        say("Dropped old changes nothing uses now: "
+            + ", ".join(dropped) + ".")
     _report(path)
 
 
@@ -1639,6 +1828,150 @@ def _add_sections(path, ctx, text, after):
                               for p in plans) + ".")
 
 
+def _rest_pieces(ticks):
+    """Rests that fill this many ticks, or None when they can't."""
+    out = []
+    for letter, t in (("h", 48), ("q", 24), ("e", 12), ("s", 6)):
+        while ticks >= t:
+            out.append(f"rest {letter}")
+            ticks -= t
+    return ", ".join(out) if out and ticks == 0 else None
+
+
+def _figure_from_file(fname, ctx):
+    """A played lick from a MIDI file -> (figure source line, bars,
+    spoken description), or None."""
+    tries = [fname, os.path.join(ctx["base"], fname)]
+    if ctx["cfg"].get("midi"):
+        tries.append(os.path.join(
+            os.path.expanduser(ctx["cfg"]["midi"]), fname))
+    p = next((t for t in tries if os.path.exists(t)), None)
+    if p is None:
+        say(f"No file called {fname} beside the chart"
+            + (" or the midi folder" if ctx["cfg"].get("midi")
+               else "") + ".")
+        return None
+    dm = chartdemo.Demo(p)
+    names = [dm.names.get(ti, f"track {ti}").strip()
+             for ti in sorted(dm.tracks)]
+    track = None
+    if len(names) > 1:
+        say("That file has tracks: " + ", ".join(names) + ".")
+        want = ask("Which one")
+        track = next((n for n in names
+                      if n.lower() == want.lower()), None)
+        if track is None:
+            say("Didn't find that track.")
+            return None
+        notes = dm.tracks[[ti for ti in sorted(dm.tracks)
+                           if dm.names.get(ti, "").strip() == track][0]]
+    else:
+        notes = next(iter(dm.tracks.values()))
+    last = max((n.off or n.on) for n in notes)
+    bars = dm.bar_of(max(0, last - 1))
+    rel = os.path.relpath(p, ctx["base"])
+    line = f'  from midi "{rel}"'
+    if track:
+        line += f', track "{track}"'
+    line += f", bars 1-{bars}"
+    return line, bars, f"{bars} bar(s) played in " \
+        f"{os.path.basename(p)}"
+
+
+def _notes_for(path, ctx, chart, part_text, sec_text):
+    """One lick into a real figure — said, typed in the notes
+    grammar, or played into a MIDI file — placed at a bar of a
+    section."""
+    target = next((l for l in ctx["labels"] + ctx["groupnames"]
+                   if l.lower() == part_text.lower()), None)
+    if target is None:
+        say(f"'{part_text}' is not in this band — the band is: "
+            + ", ".join(ctx["labels"]) + ".")
+        return
+    plan = _sec_plan(chart, sec_text, ctx)
+    if plan is None:
+        say(f"No section called '{sec_text}'.")
+        return
+    nm, dn = ctx["meter"]
+    bar_ticks = 96 * nm // dn
+    while True:
+        a = ask(f"The line for {target} in {plan['name']} — like "
+                "'F4 quarter, G eighth, rest eighth, B flat half', "
+                "or 'play <file.mid>' (Enter to drop it)")
+        if not a:
+            return
+        if a.lower().startswith("play "):
+            got = _figure_from_file(a[5:].strip(), ctx)
+            if got is None:
+                continue
+            source_line, fig_bars, described = got
+        else:
+            text_out = a
+            total, err = notes_ticks(text_out)
+            if err is not None:
+                try:
+                    text_out = notes_from_words(
+                        apply_vocab(a, ctx["vocab"]))
+                except SpokenError as e:
+                    say(f"Couldn't read '{e.word}' — a note is like "
+                        "'B flat 3 quarter'; durations stick until "
+                        "you change them.")
+                    continue
+                total, err = notes_ticks(text_out)
+                if err is not None:
+                    say(err)
+                    continue
+            if total % bar_ticks:
+                rests = _rest_pieces(bar_ticks - total % bar_ticks)
+                if rests is None:
+                    say("That doesn't land on a barline and rests "
+                        "can't square it — check the durations.")
+                    continue
+                yn = ask(f"That's {total / 24:g} beats — pad with "
+                         "rests to the barline? yes or no", "yes")
+                if yn.lower().startswith("n"):
+                    continue
+                text_out += ", " + rests
+                total += bar_ticks - total % bar_ticks
+            fig_bars = total // bar_ticks
+            source_line = f"  notes: {text_out}"
+            described = text_out
+        start = ask(f"Starting at which bar of {plan['name']}? 1 to "
+                    f"{plan['bars']}", "1")
+        b0 = num(start) or 1
+        if b0 < 1 or b0 - 1 + fig_bars > plan["bars"]:
+            say(f"{fig_bars} bar(s) starting at bar {b0} runs past "
+                f"{plan['name']}'s {plan['bars']} — pick again.")
+            continue
+        name = f"{target} {plan['name']} bar {b0}"
+        k = 2
+        while name in chart["figures"]:
+            name = f"{target} {plan['name']} bar {b0} take {k}"
+            k += 1
+        say(f"{name}, {fig_bars} bar(s): {described}")
+        yn = ask("Write it? yes or no", "yes")
+        if yn.lower().startswith("n"):
+            continue
+        lines = _lines(path)
+        at = next((i for i, l in enumerate(lines)
+                   if l and l[0] not in " \t"
+                   and l.strip().startswith("section ")), len(lines))
+        lines[at:at] = [f"figure {name}, {fig_bars} bars:",
+                        source_line, ""]
+        span = _section_span(lines, plan["name"])
+        place = f"  {target}: figure {name}"
+        if b0 > 1:
+            place += f" at bar {b0}"
+        j = span[1]
+        while j > span[0] + 1 and not lines[j - 1].strip():
+            j -= 1
+        lines.insert(j, place)
+        _save_lines(path, lines)
+        say(f"{target} plays it in {plan['name']} — chart build to "
+            "hear it.")
+        return
+
+
 def run_commands(path, ctx):
     """The editing desk. Returns 'done', or 'replace' to hand the
     chart to the fresh-form road."""
@@ -1659,9 +1992,12 @@ def run_commands(path, ctx):
         if not shown:
             say(f"This chart has {len(secs)} section(s): {summary}.")
             say("Say what to do: chords of <section> / who plays in "
-                "<section> / add <new sections> / cut <section> / "
-                "tempo <number> / feel <words> / transpose to <key> "
-                "/ read it back / replace the form. Enter when done.")
+                "<section> / notes for <part> in <section> / add "
+                "<new sections> / cut <section> / rename <section> "
+                "to <name> / repeat <section> N times / make "
+                "<section> open / tempo <number> / feel <words> / "
+                "transpose to <key> / read it back / replace the "
+                "form. Enter when done.")
             shown = True
         a = ask("What are we doing").strip()
         if not a or a.lower() in ("done", "nothing", "quit", "stop"):
@@ -1765,6 +2101,65 @@ def run_commands(path, ctx):
                 rest = rest[:am.start()]
             _add_sections(path, ctx, rest, after)
             continue
+        m = re.fullmatch(r"notes\s+for\s+([\w ]+?)\s+in\s+"
+                         r"(?:the\s+)?(.+)", low)
+        if m:
+            _notes_for(path, ctx, chart, m.group(1).strip(),
+                       m.group(2).strip())
+            continue
+        m = re.fullmatch(r"rename\s+(?:the\s+)?([\w ]+?)\s+to\s+"
+                         r"([\w ]+)", low)
+        if m:
+            lines = _lines(path)
+            span = _section_span(lines, m.group(1).strip())
+            if not span:
+                say(f"No section called '{m.group(1).strip()}'.")
+                continue
+            hm = re.match(r"(\s*section\s+)[\w ]+?(\s*(?:,.*)?)$",
+                          lines[span[0]])
+            lines[span[0]] = hm.group(1) + m.group(2).strip() + \
+                hm.group(2)
+            _save_lines(path, lines)
+            say(f"{m.group(1).strip()} is called "
+                f"{m.group(2).strip()} now.")
+            continue
+        m = re.fullmatch(r"repeat\s+(?:the\s+)?([\w ]+?)\s+"
+                         r"(\d+)\s*(?:times|x)?", low)
+        if m:
+            lines = _lines(path)
+            span = _section_span(lines, m.group(1).strip())
+            if not span:
+                say(f"No section called '{m.group(1).strip()}'.")
+                continue
+            head_line = lines[span[0]]
+            if re.search(r"repeat \d+x", head_line):
+                head_line = re.sub(r"repeat \d+x",
+                                   f"repeat {m.group(2)}x", head_line)
+            else:
+                head_line = re.sub(r"(section [\w ]+?, \d+ bars)",
+                                   r"\1, repeat " + m.group(2) + "x",
+                                   head_line)
+            lines[span[0]] = head_line
+            _save_lines(path, lines)
+            say(f"{m.group(1).strip()} repeats {m.group(2)} times "
+                "now.")
+            continue
+        m = re.fullmatch(r"make\s+(?:the\s+)?([\w ]+?)\s+"
+                         r"(open|closed)", low)
+        if m:
+            lines = _lines(path)
+            span = _section_span(lines, m.group(1).strip())
+            if not span:
+                say(f"No section called '{m.group(1).strip()}'.")
+                continue
+            h = lines[span[0]]
+            if m.group(2) == "open" and ", open" not in h:
+                lines[span[0]] = h + ", open"
+            elif m.group(2) == "closed":
+                lines[span[0]] = h.replace(", open", "")
+            _save_lines(path, lines)
+            say(f"{m.group(1).strip()} is {m.group(2)} now.")
+            continue
         say("I didn't get that — 'help' lists what I can do here.")
 
 
@@ -1786,10 +2181,17 @@ def _resolve_family(name, plans, named):
                                         "the tune", "head",
                                         "the head", "it",
                                         "everything", "the changes"):
-        # "solos over the form" — the carved family if there is one,
-        # else the biggest section with real length
+        # "solos over the form": the carved family, else the section
+        # that carries a known form, else one named head, else the
+        # biggest — a 16-bar shout must never outrank a 12-bar blues
         if len(named) == 1:
             return next(iter(named.values()))
+        formed = [p for p in plans if p.get("form")]
+        if formed:
+            return [formed[0]]
+        heads = [p for p in plans if p["name"].lower() == "head"]
+        if heads:
+            return [heads[0]]
         plain = [p for p in plans
                  if p["kind"] == "plain" and p.get("bars")]
         if plain:
@@ -1826,6 +2228,8 @@ def render(plans, named):
             prog_lines.append(f"chords {fam_name}: " + ", ".join(texts))
     for p in plans:
         head = f"section {p['name']}, {p['bars']} bars"
+        if p.get("mood"):
+            head += f', label "{p["mood"]}"'
         if p["repeat"] > 1:
             head += f", repeat {p['repeat']}x"
         if p["open"]:

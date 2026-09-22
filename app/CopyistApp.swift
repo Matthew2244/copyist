@@ -133,6 +133,7 @@ final class AppModel: ObservableObject {
     @Published var runOutput = ""
     @Published var running = false
     @Published var flavor = ""
+    @Published var playURL: URL?
     private var flavorTimer: Timer?
     private var proc: Process?
 
@@ -207,6 +208,8 @@ final class AppModel: ObservableObject {
         runTitle = title
         runOutput = ""
         running = true
+        playURL = nil
+        let wantsPlay = args.contains("build") || args.contains("listen")
         screen = .run
         startFlavor()
         let p = Process()
@@ -231,9 +234,14 @@ final class AppModel: ObservableObject {
                 self.running = false
                 self.stopFlavor()
                 pipe.fileHandleForReading.readabilityHandler = nil
+                if wantsPlay {
+                    self.playURL = self.newestMP3()
+                }
                 let last = self.runOutput.split(separator: "\n")
                     .last.map(String.init) ?? "Done."
-                announce("\(title) finished. \(last)")
+                announce("\(title) finished. \(last)"
+                         + (self.playURL != nil
+                            ? " Play it is on screen." : ""))
             }
         }
         proc = p
@@ -249,6 +257,25 @@ final class AppModel: ObservableObject {
         proc?.terminate()
         running = false
         stopFlavor()
+    }
+
+    func newestMP3() -> URL? {
+        guard let c = chart else { return nil }
+        let dir = URL(fileURLWithPath: c).deletingLastPathComponent()
+            .appendingPathComponent("build")
+        guard let items = try? FileManager.default
+            .contentsOfDirectory(at: dir, includingPropertiesForKeys:
+                [.contentModificationDateKey]) else { return nil }
+        return items.filter { $0.pathExtension == "mp3" }
+            .max { a, b in
+                let da = (try? a.resourceValues(forKeys:
+                    [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast
+                let db = (try? b.resourceValues(forKeys:
+                    [.contentModificationDateKey])
+                    .contentModificationDate) ?? .distantPast
+                return da < db
+            }
     }
 
     private func startFlavor() {
@@ -669,6 +696,16 @@ struct RunView: View {
                         .accessibilityHidden(true)
                 }
                 Spacer()
+                if let u = model.playURL, !model.running {
+                    Button {
+                        NSWorkspace.shared.open(u)
+                    } label: {
+                        Label("Play it", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(pal.accent)
+                    .accessibilityLabel("Play the listen MP3")
+                }
                 if model.running {
                     Button("Stop") { model.stopRun() }
                         .buttonStyle(.bordered)
@@ -831,6 +868,7 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .tint(pal.accent)
                 }
                 group("The chart") {
                     HStack {

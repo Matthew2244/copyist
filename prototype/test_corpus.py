@@ -1650,6 +1650,39 @@ def check_roadmap():
           who2 == ["horns: hits on 1, 2+, 4",
                    "voice: from demo bars 9-20"], str(who2))
 
+    plans, gaps = chartedit.parse_form(
+        "it opens quiet with a 4 bar piano intro, then a blues in g, "
+        "big shout 16, ends on the head")
+    check("a story parses whole",
+          not gaps and [p["name"] for p in plans] ==
+          ["piano intro", "head", "shout", "out"], str(plans))
+    check("moods become labels",
+          plans[0].get("mood") == "quiet"
+          and plans[2].get("mood") == "big")
+    check("solos over the form prefer the form",
+          chartedit._resolve_family("form", plans, {})[0]["name"] ==
+          "head")
+
+    nl = chartedit.notes_from_words(
+        "c5 quarter, down a eighth, g eighth, e half tied to quarter")
+    check("a spoken line becomes the notes grammar",
+          nl == "C5 q, A4 e, G4 e, E4 h+q", nl)
+    ticks, err = chartedit.notes_ticks(nl)
+    check("the compiler's own parser counts it",
+          err is None and ticks == 120)
+    check("octaves follow the line",
+          chartedit.notes_from_words("f4 quarter, g eighth, "
+                                     "b flat half") ==
+          "F4 q, G4 e, Bb4 h")
+    check("rests square a line to the barline",
+          chartedit._rest_pieces(36) == "rest q, rest e")
+    check("dominant is a word",
+          chartedit.parse_spoken_chords("one dominant x4", key="G")
+          == "G7 x4")
+    who3 = chartedit.parse_who("bass in at 5", ["bass"], [], {})
+    check("a story entrance becomes a build cue",
+          who3 == ["build: add bass at 5"], str(who3))
+
     tmp2 = tempfile.mkdtemp()
     tpath = os.path.join(tmp2, "t.chart")
     with open(tpath, "w", encoding="utf-8") as f:
