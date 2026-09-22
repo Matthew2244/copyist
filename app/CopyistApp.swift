@@ -193,9 +193,9 @@ final class AppModel: ObservableObject {
     func run(_ title: String, args: [String], needsChart: Bool = true) {
         guard let tool = Tool.find() else {
             runTitle = title
-            runOutput = "I can't find the Copyist engine — neither a "
-                + "~/copyist checkout nor the copy inside the app. "
-                + "Reinstall with app/build.sh."
+            runOutput = "I can't find the Copyist engine. There's no "
+                + "~/copyist checkout and no copy inside the app, "
+                + "which shouldn't happen. Reinstall with app/build.sh."
             screen = .run
             return
         }
@@ -539,14 +539,14 @@ struct HomeView: View {
         [
             ActionSpec(id: "talk", icon: "bubble.left.and.bubble.right",
                        title: "Tell me the tune",
-                       line: "Describe it in one breath — I write the sections.",
+                       line: "Describe it in one breath. I write the sections.",
                        needsChart: false) { m in
                 if m.chart == nil && !newChart(m) { return }
                 m.startTalk(["edit"])
             },
             ActionSpec(id: "build", icon: "hammer",
                        title: "Build it",
-                       line: "Pages, read-alouds, findings — and the band plays it.",
+                       line: "Pages, read-alouds, findings, and the band plays it.",
                        needsChart: true) { $0.run("Build", args: ["build"]) },
             ActionSpec(id: "listen", icon: "headphones",
                        title: "Listen",
@@ -825,9 +825,18 @@ struct TalkView: View {
                         .foregroundStyle(pal.sub)
                 }
             } else {
-                Button("Back home") { model.screen = .home }
+                HStack(spacing: 10) {
+                    Button {
+                        model.run("Build", args: ["build"])
+                    } label: {
+                        Label("Build it and hear it",
+                              systemImage: "hammer")
+                    }
                     .buttonStyle(.borderedProminent)
                     .tint(pal.accent)
+                    Button("Back home") { model.screen = .home }
+                        .buttonStyle(.bordered)
+                }
             }
         }
         .padding(16)
@@ -914,6 +923,29 @@ struct SettingsView: View {
                 group("Sounds") {
                     pathRow("Where sample libraries live",
                             key: "sounds_dir")
+                }
+                group("Your words") {
+                    let vp = NSHomeDirectory()
+                        + "/.config/copyist/vocabulary.json"
+                    let count = (try? JSONSerialization.jsonObject(
+                        with: Data(contentsOf: URL(
+                            fileURLWithPath: vp))) as? [String: Any])
+                        .map { $0.count } ?? 0
+                    HStack {
+                        Text(count == 0
+                             ? "No words taught yet. When Copyist "
+                               + "doesn't know one, it asks once and "
+                               + "remembers forever."
+                             : "Words you've taught Copyist: \(count)."
+                               + " Your slang, its vocabulary.")
+                        Spacer()
+                        if count > 0 {
+                            Button("Open the list") {
+                                NSWorkspace.shared.open(
+                                    URL(fileURLWithPath: vp))
+                            }
+                        }
+                    }
                 }
                 Text(status)
                     .font(.system(size: 13))

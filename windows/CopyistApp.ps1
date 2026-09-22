@@ -175,6 +175,8 @@ while ($true) {
         'can read. What are we doing?') @(
         'Build - pages, listen MP3, findings',
         'Check - compile only, nothing rendered',
+        'Listen - just the MP3, straight to your ears',
+        'What changed - since the last build, by part and by bar',
         'Read a part aloud',
         'Tell me the tune - the roadmap conversation, in a console',
         'Sounds - the band''s sample shelf',
@@ -192,6 +194,8 @@ while ($true) {
     switch -Wildcard ($c) {
         'Build*' { Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
         'Check*' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }
+        'Listen*' { Do-Build 'l' 'Bouncing the listen. The band warms up; a dialog brings the news.' }
+        'What changed*' { Do-Build 'd' 'Reading the diff - what moved since your last build.' }
         'Read*' { Do-ReadPart }
         'Tell me*' {
             $p = Pick-Chart
