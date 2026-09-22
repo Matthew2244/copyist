@@ -33,11 +33,23 @@ ties, slurs, tuplets, articulations, ghost notes, slashes, rhythmic kicks, cues,
 lyrics with melisma lines, chord symbols, dynamics, rehearsal boxes, repeats,
 endings, and multirests that break wherever a player has to look up. A tie across
 a barline is one true arc, and one broken at a system turn draws its outgoing
-half to the edge and an incoming half to the landing note.
+half to the edge and an incoming half to the landing note. Mid-chart key changes
+restate each part's own written signature right where they land. Hairpins draw on
+the dynamics lane and break open-ended at a system turn, the way an engraver
+continues one. Fermatas sit over notes and rests alike, and hold time in
+playback — together, in every part.
+
+**The conductor score reads like a working one.** Landscape, with consecutive
+parts of a family — winds, brass, strings, voices, rhythm — sharing a bracket
+and their barlines running through the group, staff names abbreviated after the
+first system, and a boxed bar number under every bar.
 
 Pages are set in a real music font. Leland, MuseScore's OFL licensed SMuFL face,
 is embedded in every PDF Copyist draws. Jazz charts get MuseJazz Text,
-handwritten charts get Petaluma Script, everything else gets Edwin.
+handwritten charts get Petaluma Script, everything else gets Edwin — and any
+character those faces can't draw (a singer's kana, a Japanese subtitle) falls
+back to Noto Sans JP mid-run, embedded only when a page actually needs it. A
+lyric must never silently vanish for being in the singer's own language.
 
 **The playback is Copyist's own too**, which means silence is genuinely silent.
 The old renderer had an audible noise floor under empty bars.
