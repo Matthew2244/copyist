@@ -199,10 +199,16 @@ Defined once, used by name — a solo form is written one time:
 - Chord spelling: root with `b` or `#`, then quality: `7 9 11 13 maj maj7
   maj9 maj7#11 m m7 m9 m11 m6 m69 m7b5 mmaj7 dim dim7 sus2 sus4 7sus4 aug
   6 69 add9 madd9 7b5 7#5 7b9 7#9 7#11 7#9#11 7b13 13b9 alt`, plus slash
-  bass (`C7/E`). Jazz shorthand normalizes: `C-7` is `Cm7`, `min` is `m`,
-  `sus` is `sus4`, `7alt` is `alt`, `aug7` is `7#5`. This list covers
-  every quality in the measured corpus plus the working jazz set;
-  anything outside it is an error until added deliberately.
+  bass (`C7/E`). Jazz shorthand normalizes: `C-7` is `Cm7`, `min` and
+  `mi` are `m` (`Ami7`, `Bmi9` — the working big-band books write it
+  that way), `sus` is `sus4`, `7alt` is `alt`, `aug7` is `7#5`, and an
+  alteration in engraver's parentheses reads plain: `D7(#9)` is `D7#9`.
+  A bare slash chord carries the previous chord over a new bass —
+  `D9, /C` is D9 then D9 over C, the way a guitar book writes a bass
+  walk-down. This list covers every quality in the measured corpus,
+  the working jazz set, and the 8-Bit Big Band book's spellings
+  (audited 2026-09-22); anything outside it is an error until added
+  deliberately.
 
 ### 3.4 Figures — notated material
 
@@ -294,7 +300,8 @@ the conversion pipeline.
   pitch-bend data when in doubt. Instructions accept bandstand synonyms
   (falloff, housetop/daht, slide, spelled-out dynamics and note values),
   normalized before parsing: the format meets each writer's habit.
-- **`dyn <mark> [at bar N] [beat B]`** prints a dynamic (pp..ff and sfz;
+- **`dyn <mark> [at bar N] [beat B]`** prints a dynamic (pp..ff, sfz
+  and fp;
   B accepts `4+` spellings or decimals for tuplet positions). With
   **`dynamics: by hand`** in the header the pedal-derived marks switch
   off entirely: once the writer dictates, only the writer speaks.

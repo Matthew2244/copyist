@@ -426,11 +426,14 @@ CHORD_KINDS = {
     '7b13': ('dominant', '7b13', [(13, -1, 'add')]),
 }
 
-# jazz shorthand for qualities: the dash minor, min spellings, bare sus
+# jazz shorthand for qualities: the dash minor, min and mi spellings
+# (the 8-Bit Big Band books write Ami7 and Bmi9), bare sus
 QUAL_SYNONYMS = {'-': 'm', '-7': 'm7', '-9': 'm9', '-11': 'm11',
                  '-6': 'm6', 'min': 'm', 'min7': 'm7', 'min9': 'm9',
-                 'sus': 'sus4', 'ma7': 'maj7', 'M7': 'maj7',
-                 'm(maj7)': 'mmaj7', 'aug7': '7#5', '7alt': 'alt'}
+                 'mi': 'm', 'mi7': 'm7', 'mi9': 'm9', 'mi11': 'm11',
+                 'mi6': 'm6', 'sus': 'sus4', 'ma7': 'maj7',
+                 'M7': 'maj7', 'm(maj7)': 'mmaj7', 'aug7': '7#5',
+                 '7alt': 'alt'}
 
 STEP = set('ABCDEFG')
 
@@ -467,6 +470,12 @@ def split_chord(sym):
     step, acc, qual = m.groups()
     qual = qual or 'maj'
     qual = QUAL_SYNONYMS.get(qual, qual)
+    if qual not in CHORD_KINDS and '(' in qual:
+        # engravers parenthesize alterations — D7(#9) is D7#9
+        bare = qual.replace('(', '').replace(')', '')
+        bare = QUAL_SYNONYMS.get(bare, bare)
+        if bare in CHORD_KINDS:
+            qual = bare
     if qual not in CHORD_KINDS:
         fail(f"chord quality '{qual}' (in '{sym}') is not in the supported list")
     alter = {'b': -1, '#': 1, '': 0}[acc]
@@ -474,11 +483,15 @@ def split_chord(sym):
 
 
 def parse_bars(text, where):
-    # a parenthesized group repeats whole: ( F7, Bb7 ) x4 is eight bars
-    text = re.sub(r'\(\s*([^()]*?)\s*\)\s*x(\d+)',
+    parse_bars.prev_sym = None      # /C reaches back within one line
+    # a parenthesized group repeats whole: ( F7, Bb7 ) x4 is eight
+    # bars. A group stands at a bar boundary, so D7(#9) x2 — an
+    # alteration in engraver's parentheses — is never mistaken for one.
+    text = re.sub(r'(?:(?<=^)|(?<=,))\s*\(\s*([^()]*?)\s*\)\s*x(\d+)',
                   lambda m: ", ".join([m.group(1)] * int(m.group(2))),
                   text)
-    if '(' in text or ')' in text:
+    bad = re.sub(r'\([b#]\d+\)', '', text)      # alterations are fine
+    if '(' in bad or ')' in bad:
         fail(f"unmatched parenthesis in {where} — a group is "
              "( chords ) xN, nothing nested")
     bars = []
@@ -498,6 +511,19 @@ def parse_bars(text, where):
                 bar.append([parse_beat(beat), sym])
             else:
                 bar.append([None, tok])
+        # a bare slash chord carries the previous chord over a new
+        # bass — the guitar book's /C means "same chord, C in the
+        # bass"
+        for item in bar:
+            m2 = re.fullmatch(r'/([A-G][b#]?)', item[1])
+            if m2:
+                if parse_bars.prev_sym is None:
+                    fail(f"{where}: '{item[1]}' needs a chord before "
+                         "it to carry over that bass note")
+                item[1] = parse_bars.prev_sym.split('/')[0] \
+                    + '/' + m2.group(1)
+            elif item[1] != 'nc':
+                parse_bars.prev_sym = item[1]
         # unplaced chords keep beat None here; the spread against the
         # bar's own meter happens once the meter map exists (a two-chord
         # bar in 5/4 splits at beat 3.5, not 3)

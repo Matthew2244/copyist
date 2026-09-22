@@ -1683,6 +1683,16 @@ def check_roadmap():
     check("a story entrance becomes a build cue",
           who3 == ["build: add bass at 5"], str(who3))
 
+    import chartc as _cc
+    bars = _cc.parse_bars("D9, /C, Bmi9, Ami7, D7(#9) x2, "
+                          "( F7, Bb7 ) x2", "the 8BBB spellings")
+    check("the working book's chord spellings parse",
+          bars[1][0][1] == ("D", 0, "9", "C")
+          and bars[2][0][1] == ("B", 0, "m9", None)
+          and bars[3][0][1] == ("A", 0, "m7", None)
+          and bars[4][0][1] == ("D", 0, "7#9", None)
+          and len(bars) == 10, str(bars))
+
     tmp2 = tempfile.mkdtemp()
     tpath = os.path.join(tmp2, "t.chart")
     with open(tpath, "w", encoding="utf-8") as f:
