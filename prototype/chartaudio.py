@@ -261,7 +261,14 @@ def parse_score(path, only=None):
                     top = max(top, pos)
                 if '<rest' in t or '<cue/>' in t \
                         or '<notehead>slash</notehead>' in t:
-                    continue    # cues and slashes print; they never sound
+                    # cues and slashes print; they never sound — but a
+                    # fermata over a REST still holds time (the
+                    # phrase-end hold on an empty bar)
+                    if '<rest' in t and '<fermata' in t:
+                        hq = q0 + (on + dur) / div - 1e-6
+                        holds[hq] = max(holds.get(hq, 0.0),
+                                        min(dur / div, 2.0) * 0.9)
+                    continue
                 nd = re.search(r'dynamics="([\d.]+)"', t)
                 gain = (float(nd.group(1)) if nd else dyn_state) / 100.0
                 if gain <= 0:

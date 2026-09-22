@@ -312,8 +312,9 @@ the conversion pipeline.
   pitch-bend data when in doubt. Instructions accept bandstand synonyms
   (falloff, housetop/daht, slide, spelled-out dynamics and note values),
   normalized before parsing: the format meets each writer's habit.
-- **`dyn <mark> [at bar N] [beat B]`** prints a dynamic (pp..ff, sfz
-  and fp;
+- **`dyn [subito] <mark> [at bar N] [beat B]`** prints a dynamic
+  (pp..ff, sfz and fp, with `subito` printed as its word before the
+  glyph and spoken in the read-aloud;
   B accepts `4+` spellings or decimals for tuplet positions). With
   **`dynamics: by hand`** in the header the pedal-derived marks switch
   off entirely: once the writer dictates, only the writer speaks.
@@ -411,10 +412,13 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
       at bar 5: meter 5/4
       at bar 5: key D
       at bar 7: tempo 96
+      at bar 8: fermata
       build: add saxes at 3, add trombones at 11
 
   `build:` prints the "+saxes" style entrance cues *Jeannine*'s montuno
-  uses. `at bar N: key X` changes key mid-chart (the 8-Bit Big Band
+  uses. `at bar N: fermata` is the phrase-end hold every ballad page
+  carries: the sign lands on that bar's last note — or its rest — in
+  every part, and the listening document holds time there, together. `at bar N: key X` changes key mid-chart (the 8-Bit Big Band
   audit: working books modulate constantly): every pitched part
   restates its own written signature — concert fifths plus its
   transposition — right where the change lands, accidentals follow

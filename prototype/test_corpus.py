@@ -1753,6 +1753,26 @@ def check_roadmap():
         _cc.compile_chart(dpath, tmp4)
     px = open(os.path.join(tmp4, "T — piano.musicxml"),
               encoding="utf-8").read()
+    with open(dpath, "w", encoding="utf-8") as f:
+        f.write("title: H\nkey: C\nmeter: 4/4\ntempo: 120\n\n"
+                "band:\n  trumpet\n  piano\n\n"
+                "figure line, 1 bars:\n  notes: C5 w\n\n"
+                "section A, 2 bars\n  chords: C, G7\n"
+                "  at bar 2: fermata\n"
+                "  trumpet: figure line, dyn subito p\n")
+    with redirect_stdout(io.StringIO()):
+        _cc.compile_chart(dpath, tmp4)
+    hx = open(os.path.join(tmp4, "H — trumpet.musicxml"),
+              encoding="utf-8").read()
+    check("a fermata event lands on every part's last note",
+          hx.count("<fermata/>") == 1 and "subito" in hx)
+    import chartaudio as _ca2
+    hplan = _ca2.parse_score(
+        os.path.join(tmp4, "H — for listening.musicxml"))
+    check("the hold reaches playback, rests included",
+          hplan["holds"] and abs(hplan["holds"][0][0] - 8.0) < 0.01,
+          str(hplan["holds"]))
+
     import re
     import chartengrave as _cg
     sx = open(os.path.join(tmp4, "T — score.musicxml"),

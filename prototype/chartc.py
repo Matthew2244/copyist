@@ -855,6 +855,10 @@ def parse_chart(path):
             cur['events'].append((int(m.group(1)), 'key',
                                   m.group(2).strip()))
             continue
+        m = re.match(r'at bar (\d+):\s*fermata$', s)
+        if m:
+            cur['events'].append((int(m.group(1)), 'fermata', ''))
+            continue
         m = re.match(r'([\w ]+?):\s*(.+)$', s)
         if m:
             cur['directives'].append((m.group(1).strip(), m.group(2).strip(),
@@ -1867,19 +1871,20 @@ def build_plans(chart, band, groups, labels):
                 if piece == 'doit':
                     doit = True
                     continue
-                m = re.match(r'dyn (pp|p|mp|mf|f|ff|sfz|fp)'
+                m = re.match(r'dyn (?:(subito)\s+)?'
+                             r'(pp|p|mp|mf|f|ff|sfz|fp)'
                              r'(?:\s+at bar (\d+))?'
                              r'(?:\s+beat (\S+))?$', piece)
                 if m:
-                    if m.group(3):
+                    if m.group(4):
                         try:
-                            beat = float(m.group(3))
+                            beat = float(m.group(4))
                         except ValueError:
-                            beat = parse_beat(m.group(3))
+                            beat = parse_beat(m.group(4))
                     else:
                         beat = 1.0
-                    dyn_marks.append((int(m.group(2) or 1), beat,
-                                      m.group(1)))
+                    dyn_marks.append((int(m.group(3) or 1), beat,
+                                      m.group(2), bool(m.group(1))))
                     continue
                 m = re.match(r'groove(?:\s+"([^"]*)")?$', piece)
                 if m:
@@ -2001,9 +2006,9 @@ def build_plans(chart, band, groups, labels):
                 plan['dyns'][l].extend(dyn_marks)
                 plan['wedges'][l].extend(wedge_marks)
         for bar, kind, text in sec['events']:
-            if kind in ('meter', 'key'):
-                continue    # the page shows a signature, not words —
-                            # emission reads the meter and key maps
+            if kind in ('meter', 'key', 'fermata'):
+                continue    # signatures and holds are signs on the
+                            # page, never words — emission handles them
             if kind == 'build' and text not in groups \
                     and text not in labels:
                 fail(f"section {sec['name']}: build adds '{text}', which "
@@ -2041,6 +2046,16 @@ CLEF_XML = {'G': '<sign>G</sign><line>2</line>',
 
 SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
              'sfz': 112, 'fp': 98}
+
+
+def _inject_fermata(piece):
+    """A fermata on this bar's last note or rest — the phrase-end
+    hold every ballad page carries (Aria of the Soul, at every
+    cadence)."""
+    i = piece.rfind('</note>')
+    if i < 0:
+        return piece
+    return piece[:i] + '<notations><fermata/></notations>' + piece[i:]
 
 
 def _compile_rest(chart, band, groups, labels, plans, total,
@@ -2285,9 +2300,18 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             '<direction-type><wedge type="'
                             + wtype + '"/></direction-type>'
                             '</direction>\n')
-                for dbar, dbeat, mark in plan.get('dyns', {}).get(label, ()):
+                for dbar, dbeat, mark, sub in plan.get('dyns',
+                                                       {}).get(label, ()):
                     if dbar == off + 1:
                         doff = int(round((dbeat - 1.0) * div))
+                        if sub:
+                            pieces.append(
+                                '      <direction placement="below">'
+                                '<direction-type><words>subito</words>'
+                                '</direction-type>'
+                                + (f'<offset>{doff}</offset>'
+                                   if doff else '')
+                                + '</direction>\n')
                         pieces.append(
                             '      <direction placement="below">'
                             '<direction-type><dynamics>'
@@ -2422,6 +2446,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                '</barline>\n')
                 # a right-hand barline may close a multirest; a repeat
                 # start may not hide inside one
+                if any(b == off + 1 and k == 'fermata'
+                       for b, k, _ in sec['events']):
+                    for pi in range(len(pieces) - 1, -1, -1):
+                        if '</note>' in pieces[pi]:
+                            pieces[pi] = _inject_fermata(pieces[pi])
+                            break
                 for wtype, wa, wb in plan.get('wedges', {}).get(label, ()):
                     if wb == off + 1:
                         pieces.append(

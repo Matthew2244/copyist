@@ -63,6 +63,7 @@ SMUFL = {
     'flag32U': 0xE244, 'flag32D': 0xE245,
     'brace': 0xE000, 'dot': 0xE1E7,
     'marcato': 0xE4AC, 'accent': 0xE4A0, 'stacc': 0xE4A2,
+    'fermata': 0xE4C0,
     'tenuto': 0xE4A4,
     'dynP': 0xE520, 'dynF': 0xE522, 'dynMP': 0xE52C, 'dynMF': 0xE52D,
     'dynPP': 0xE52B, 'dynFF': 0xE52F, 'dynSFZ': 0xE539, 'dynFP': 0xE534,
@@ -647,6 +648,7 @@ class Note:
                  'rest', 'step', 'alter', 'octave', 'dur', 'ntype',
                  'dots', 'chord', 'tie_start', 'tie_stop', 'slur_start',
                  'slur_stop', 'artic', 'slash', 'parens', 'cue', 'lyric',
+                 'fermata',
                  'tmod', 'measure_rest')
 
 
@@ -671,6 +673,7 @@ def _parse_note(t):
     n.slur_start = 'slur number="1" type="start"' in t
     n.slur_stop = 'slur number="1" type="stop"' in t
     n.artic = None
+    n.fermata = '<fermata' in t
     for a in ('strong-accent', 'accent', 'staccato', 'tenuto',
               'falloff', 'doit', 'scoop', 'plop'):
         if f'<{a}/>' in t:
@@ -1513,6 +1516,13 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             for _ in range(n0.dots):
                 _dot(pdf, dot_x, mid + 0.5 * SP)
                 dot_x += 3.4
+            if getattr(n0, 'fermata', False):
+                # the phrase-end hold sits over the silence too
+                fy = top + 0.9 * SP
+                if not pdf.glyph(cx - 1.2 * SP, fy, 'fermata', 4 * SP):
+                    pdf.line(cx - 1.6 * SP, fy, cx, fy + 1.2 * SP, 0.9)
+                    pdf.line(cx, fy + 1.2 * SP, cx + 1.6 * SP, fy, 0.9)
+                    pdf.text(cx - 1, fy + 0.5, '.', size=8, font='HB')
             continue
         scale = 0.68 if n0.cue else 1.0
         ps = [step_pos(n.step, n.octave, clef) for n in notes]
@@ -1592,6 +1602,13 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                     for n in notes):
                 acx -= 1.9 * SP        # start left of the accidental
             draw_artic(pdf, acx, ay, n0.artic)
+        if getattr(n0, 'fermata', False):
+            fy = max(top + 0.9 * SP, max(ys) + 2.4 * SP)
+            if not pdf.glyph(cx - 1.2 * SP, fy, 'fermata', 4 * SP):
+                # no music font: a small arch and its dot
+                pdf.line(cx - 1.6 * SP, fy, cx, fy + 1.2 * SP, 0.9)
+                pdf.line(cx, fy + 1.2 * SP, cx + 1.6 * SP, fy, 0.9)
+                pdf.text(cx - 1, fy + 0.5, '.', size=8, font='HB')
         if n0.tie_stop or n0.slur_stop:
             if slur_open:
                 sx, sy, sup = slur_open.pop()
