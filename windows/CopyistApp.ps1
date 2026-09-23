@@ -202,7 +202,7 @@ function Do-ReadPart {
     }
     $files = Get-ChildItem -Path $dir -Filter '* read aloud.txt' -ErrorAction SilentlyContinue
     if (-not $files) {
-        Show-Info 'No read-alouds here yet - build or check the chart first; they land beside it.'
+        Show-Info 'No read-alouds here yet - build or check the chart first. They land next to the chart, or wherever your settings send them.'
         return
     }
     $c = Choose-FromList 'Which part should Notepad open? A screen reader reads it like a letter.' (
@@ -250,7 +250,7 @@ function Do-Settings {
                 $hint = ' The folder your DAW exports land in; play and the pickers start there.'
             }
             if ($c -eq 'quant') {
-                $hint = ' A standing feel for from-demo lifts: eighths, straight, sixteenths or triplets; empty lets each line decide.'
+                $hint = ' How Copyist reads the rhythms you played: eighths, straight, sixteenths or triplets; empty lets each chart decide.'
             }
             if ($c -eq 'countin') {
                 $hint = ' Count-in bars offered when a demo says nothing itself; any number, empty reads the demo.'
@@ -291,7 +291,7 @@ while ($true) {
         'Build*' { Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
         'Check*' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }
         'Listen*' { Do-Listen }
-        'What changed*' { Do-Build 'd' 'Reading the diff - what moved since your last build.' }
+        'What changed*' { Do-Build 'd' 'Reading what changed since your last build, part by part.' }
         'How is the build*' { Do-HowGoes }
         'Read*' { Do-ReadPart }
         'Tell me*' {

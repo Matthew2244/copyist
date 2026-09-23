@@ -202,9 +202,9 @@ SETTINGS = (
                        "computer"),
     ('midi', '', "the folder your DAW exports land in — 'play "
                  "changes.mid' and every file picker starts there"),
-    ('quant', '', "a standing feel for every from-demo lift — "
-                  "eighths, straight, sixteenths, triplets — empty "
-                  "lets each line decide"),
+    ('quant', '', "how Copyist reads the rhythms you played — "
+                  "eighths, straight, sixteenths or triplets; empty "
+                  "lets each chart decide"),
     ('countin', '', "count-in bars offered whenever a demo comes in "
                     "and nothing in the file says otherwise — any "
                     "number you like"),
@@ -346,9 +346,9 @@ def run_settings(argv):
             lines[k] = (f"midi is now {v} — nothing at that path yet; "
                         "it's used the moment the folder exists.")
     if k == 'quant':
-        lines[k] = (f"quant is now {v} — every from-demo lift rides "
-                    "that feel unless its own line says otherwise."
-                    if v else "quant is unset — each line decides.")
+        lines[k] = (f"quant is now {v} — Copyist reads your played "
+                    "rhythms that way unless a chart says otherwise."
+                    if v else "quant is unset — each chart decides.")
     if k == 'countin':
         lines[k] = (f"countin is now {v} — offered whenever a demo "
                     "comes in and the file itself doesn't say."

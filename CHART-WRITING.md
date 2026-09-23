@@ -268,7 +268,8 @@ to before you change it:
 chart without typing it. The notify ping is quiet, a note you can
 read later, not an alarm. The desk also holds `sounds_dir` (where the
 sample shelf lives), `midi` (the folder your played files start in),
-`quant` (a standing feel for from-demo lifts), and `countin` (offered
+`quant` (how Copyist reads the rhythms you played), and `countin`
+(offered
 when a demo says nothing itself). And it says where finished files
 go: `pages_to`, `listens_to` and `spoken_to` each name a folder for
 that kind of file, and empty keeps everything with the build. And every command has a one-letter

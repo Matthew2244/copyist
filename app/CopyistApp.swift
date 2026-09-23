@@ -264,7 +264,7 @@ final class AppModel: ObservableObject {
         do { try p.run() } catch {
             running = false
             stopFlavor()
-            runOutput = "The engine would not start: "
+            runOutput = "Copyist's engine would not start: "
                 + error.localizedDescription
         }
     }
@@ -1077,15 +1077,15 @@ struct SettingsView: View {
                     pathRow("Spoken read-alouds", key: "spoken_to")
                 }
                 group("MIDI and demos") {
-                    Text("Where your played files come from, and how "
-                         + "lifts read them.")
+                    Text("The folder your playing comes from, and how "
+                         + "Copyist reads its rhythms.")
                         .font(.system(size: 11))
                         .foregroundStyle(pal.sub)
                     pathRow("Your DAW's export folder", key: "midi")
-                    Picker("Feel for every from-demo lift",
+                    Picker("How Copyist reads your played rhythms",
                            selection: bind("quant")) {
                         ForEach(quants, id: \.self) {
-                            Text($0.isEmpty ? "each line decides" : $0)
+                            Text($0.isEmpty ? "the chart decides" : $0)
                         }
                     }
                     HStack {
