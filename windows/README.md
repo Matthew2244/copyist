@@ -20,6 +20,11 @@ The terminal works too, exactly like the Mac:
     python prototype\chart.py "My Tune.chart"
     python prototype\chart.py settings
 
+Everything the engine learned lately is here too, because both doors
+run the same engine: the roadmap conversation, played demos lifted
+into real parts, and drum charts that come out like drum books — two
+voices, x heads on the cymbals, repeat signs through the groove.
+
 **Honesty note:** this front end was written on a Mac and has not yet
 been run on a real Windows machine. It parses clean under PowerShell
 7, and the core compiler and engraver are plain Python, written

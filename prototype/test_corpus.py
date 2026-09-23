@@ -2058,6 +2058,8 @@ def check_drum_kit():
           "<tie " not in bars["1"] and "<tie " not in bars["2"])
     check("kit: short hat gates print as eighths",
           bars["1"].count("<type>eighth</type>") >= 8)
+    check("kit: a one-family bar folds to a single voice, no backup",
+          "<backup>" not in bars["2"])
     check("kit: a lone crash is a beat and rests, not a whole note",
           "<type>quarter</type>" in bars["2"]
           and "<type>whole</type>" not in bars["2"]

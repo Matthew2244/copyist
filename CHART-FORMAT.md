@@ -362,7 +362,11 @@ the conversion pipeline.
   closed hat"), the range report steps aside, and no transposition or
   key spelling ever touches a drum. Slurs never write on a kit; detail
   `rhythmic-slashes` still collapses it to slashes when that is the
-  page you want.
+  page you want. On any part, a bar musically identical to the one
+  before it engraves as the one-bar repeat sign with the count over
+  every fourth — only the repeating bar must be plain, the XML keeps
+  its real notes, and rests, ties, lyrics, cues and slashes never
+  qualify.
 
 ### 3.5 Pickup
 

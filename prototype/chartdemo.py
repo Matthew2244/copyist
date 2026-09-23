@@ -911,9 +911,12 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     if drums:
         # Two voices when both families play, the way drum books are
         # engraved: cymbals (x-family heads) stems up as voice one,
-        # kick, snare and toms stems down as voice two. Durations
-        # re-read spacing within each voice, so a kick on the beat
-        # prints its own value even under an eighth-note hat line.
+        # kick, snare and toms stems down as voice two — decided BAR BY
+        # BAR, so a stretch with no cymbals reads as one plain voice
+        # instead of resting a phantom line above it. Durations re-read
+        # spacing within each family, capped at a beat and chopped at
+        # the barline (a drum hit is its attack; what follows is
+        # silence either way).
         cyms, drms = [], []
         for s_, e_, ps_ in timeline:
             c = [p for p in ps_
@@ -929,45 +932,53 @@ def render_range(res, fifths_written, transpose_to_written, fall,
             ghost_on = ({res['timeline'][i][0] for i in res.get('ghosts')
                          or ()})
             nbars = n_units // bar_ticks
-            chunks = []
-            for voice_no, hits in ((1, cyms), (2, drms)):
-                outd = {b: [] for b in
-                        range(at_bar, at_bar + nbars)}
-                pos = 0
+            per_bar = {bi: ([], []) for bi in range(nbars)}
+            for fam, hits in ((0, cyms), (1, drms)):
                 for ti, (s_, ps_) in enumerate(hits):
                     nxt = (hits[ti + 1][0] if ti + 1 < len(hits)
                            else n_units)
-                    e_ = max(s_ + 1, min(nxt, s_ + cap, n_units))
-                    if s_ > pos:
-                        _emit(outd, at_bar, pos, s_, None, table,
-                              grids_chart, None, 0, bar=bar_ticks,
-                              voice=voice_no)
-                    _emit(outd, at_bar, s_, e_, ps_, table, grids_chart,
-                          (last_artic if (voice_no == 2
-                                          and ti == len(hits) - 1)
-                           else None) or every,
-                          0, bar=bar_ticks, voice=voice_no,
-                          ghost=voice_no == 2 and s_ in ghost_on,
-                          drums=True)
-                    pos = e_
-                if pos < n_units:
-                    _emit(outd, at_bar, pos, n_units, None, table,
-                          grids_chart, None, 0, bar=bar_ticks,
-                          voice=voice_no)
-                chunks.append(outd)
+                    wall = (s_ // bar_ticks + 1) * bar_ticks
+                    e_ = max(s_ + 1, min(nxt, s_ + cap, wall, n_units))
+                    per_bar[s_ // bar_ticks][fam].append((s_, e_, ps_))
             backup = (f'      <backup><duration>{bar_ticks}</duration>'
                       '</backup>\n')
             merged = {}
-            for b in range(at_bar, at_bar + nbars):
-                parts = ["".join(c[b]) for c in chunks if c.get(b)]
-                parts = [pp for pp in parts if pp]
-                if all(pp.count('<note>') == 1
-                       and '<rest measure="yes"/>' in pp
-                       for pp in parts):
-                    # a silent bar stays one plain bar rest, so the
-                    # multirest counting still sees it
-                    parts = parts[:1]
-                merged[b] = backup.join(parts)
+            for bi in range(nbars):
+                b = at_bar + bi
+                lo, hi = bi * bar_ticks, (bi + 1) * bar_ticks
+                lanes = [evs for evs in per_bar[bi] if evs]
+                if not lanes:
+                    outd = {b: []}
+                    _emit(outd, at_bar, lo, hi, None, table, grids_chart,
+                          None, 0, bar=bar_ticks)
+                    merged[b] = "".join(outd[b])
+                    continue
+                parts = []
+                last_ev = (drms[-1][0] if drms else -1)
+                for vno, evs in enumerate(lanes, 1):
+                    outd = {b: []}
+                    pos = lo
+                    for s_, e_, ps_ in evs:
+                        if s_ > pos:
+                            _emit(outd, at_bar, pos, s_, None, table,
+                                  grids_chart, None, 0, bar=bar_ticks,
+                                  voice=vno)
+                        drum_fam = ps_ and instruments.drum_position(
+                            ps_[0])[2] == 'normal'
+                        _emit(outd, at_bar, s_, e_, ps_, table,
+                              grids_chart,
+                              (last_artic if (drum_fam and s_ == last_ev)
+                               else None) or every,
+                              0, bar=bar_ticks, voice=vno,
+                              ghost=drum_fam and s_ in ghost_on,
+                              drums=True)
+                        pos = e_
+                    if pos < hi:
+                        _emit(outd, at_bar, pos, hi, None, table,
+                              grids_chart, None, 0, bar=bar_ticks,
+                              voice=vno)
+                    parts.append("".join(outd[b]))
+                merged[b] = backup.join(pp for pp in parts if pp)
             for t, k in res.get('dyns', []):
                 bar = at_bar + t // bar_ticks
                 if bar in merged:

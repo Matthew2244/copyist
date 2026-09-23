@@ -31,13 +31,26 @@ needs no other software installed.
 part and the conductor score straight to PDF. Staves, clefs, keys, meters, beams,
 ties, slurs, tuplets, articulations, ghost notes, slashes, rhythmic kicks, cues,
 lyrics with melisma lines, chord symbols, dynamics, rehearsal boxes, repeats,
-endings, and multirests that break wherever a player has to look up. A tie across
+endings, one-bar repeat signs with the count over every fourth, and
+multirests that break wherever a player has to look up. A tie across
 a barline is one true arc, and one broken at a system turn draws its outgoing
 half to the edge and an incoming half to the landing note. Mid-chart key changes
 restate each part's own written signature right where they land. Hairpins draw on
 the dynamics lane and break open-ended at a system turn, the way an engraver
 continues one. Fermatas sit over notes and rests alike, and playback holds time
 there for the whole band at once.
+
+**Drum parts read like drum books.** Point `from demo` at a played kit
+track and the page comes out in the two voices drummers expect: cymbals
+with x heads stems up, kick, snare and toms stems down. Open hats get the
+circle-x, the ride bell a diamond, ghost notes their parentheses, and
+durations read spacing rather than gate, so an eighth-note hat pattern
+prints as eighths and a lone crash gets a beat and rests. A bar identical
+to the one before it prints as the repeat sign. Hand percussion has its
+own staff dialect, from bongos and timbales to the shaker, and the
+read-aloud speaks drummer: "beat 3: eighth together, snare and closed
+hat." This was proved page against page with a professionally engraved
+drum book and a played take of the same music.
 
 **The conductor score reads like a working one.** Landscape, with consecutive
 parts of a family (winds, brass, strings, voices, rhythm) sharing a bracket and
