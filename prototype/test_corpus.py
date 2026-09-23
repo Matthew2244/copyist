@@ -2083,6 +2083,36 @@ def check_drum_kit():
         "<duration>12</duration><voice>1</voice><type>eighth</type>"
         "<notehead>circle-x</notehead></note>")
     check("engraver parses the head kind", n.head == "circle-x")
+
+    # identical groove bars earn the one-bar repeat sign
+    two = []
+    for b in range(4):
+        t0 = b * 1920
+        for i in range(4):
+            two.append((t0 + i * 480, t0 + i * 480 + 90, 42, 80))
+        two.append((t0, t0 + 100, 36, 96))
+        two.append((t0 + 960, t0 + 1060, 38, 92))
+    two.append((3 * 1920 + 1440, 3 * 1920 + 1540, 49, 100))  # bar 4 differs
+    smf.write(os.path.join(tmp, "g.mid"), two, div, 96)
+    open(os.path.join(tmp, "gv.chart"), "w").write(
+        "title: G\nkey: C\nmeter: 4/4\ntempo: 96\n\nband:\n"
+        '  drums = drum set, demo "g.mid"\n\n'
+        "section A, 4 bars\n  chords: nc x4\n"
+        "  drums: from demo bars 1-4\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "gv.chart"),
+                             os.path.join(tmp, "gb"))
+    gx = open(os.path.join(tmp, "gb", "G — drums.musicxml")).read()
+    pid = re.search(r'<score-part id="([^"]+)"', gx).group(1)
+    ms, why = chartengrave.parse_part(gx, pid)
+    sim = [m.get('simile') for m in ms]
+    check("simile: identical bars two and three take the repeat sign",
+          sim[1] == 2 and sim[2] == 3)
+    check("simile: a differing bar breaks the run",
+          sim[0] is None and sim[3] is None)
+    check("simile: a repeat bar is narrow",
+          chartengrave.measure_width(ms[1])
+          < chartengrave.measure_width(ms[0]) / 2)
     check("engraver's font table knows the kit heads",
           all(k in chartengrave.SMUFL for k in
               ("xHead", "circleXHead", "diamondHead", "triangleHead")))

@@ -63,7 +63,7 @@ SMUFL = {
     'flag8U': 0xE240, 'flag8D': 0xE241,
     'flag16U': 0xE242, 'flag16D': 0xE243,
     'flag32U': 0xE244, 'flag32D': 0xE245,
-    'brace': 0xE000, 'dot': 0xE1E7,
+    'brace': 0xE000, 'dot': 0xE1E7, 'repeat1Bar': 0xE500,
     'marcato': 0xE4AC, 'accent': 0xE4A0, 'stacc': 0xE4A2,
     'fermata': 0xE4C0,
     'tenuto': 0xE4A4,
@@ -865,6 +865,45 @@ def parse_part(xml, pid):
                          'time': state['time'], 'div': state['div']}
         meas['len'] = hi_pos
         measures.append(meas)
+
+    # The groove economy every drum book uses: a bar identical to the
+    # one before it prints as the one-bar repeat sign. Only plain bars
+    # qualify — nothing shown, said, tied or sung — and only real
+    # playing repeats, never rests or slash regions (those have their
+    # own economies).
+    def _content(meas):
+        # the bar's musical content alone — a rehearsal mark or shown
+        # clef on the SOURCE bar never stops the next bar repeating it
+        evs = []
+        playing = False
+        for pos, notes, staff, voice in meas['events']:
+            row = []
+            for n in notes:
+                if (n.tie_start or n.tie_stop or n.lyric or n.cue
+                        or n.slash):
+                    return None
+                if not n.rest:
+                    playing = True
+                row.append((n.rest, n.measure_rest, n.step, n.octave,
+                            n.alter, n.ntype, n.dots, n.head, n.parens,
+                            n.artic))
+            evs.append((pos, staff, voice, tuple(row)))
+        return tuple(evs) if playing else None
+
+    def _plain(meas):
+        # only the REPEATING bar must carry nothing of its own
+        return not (meas['show'] or meas['rehearsal'] or meas['texts']
+                    or meas['chords'] or meas['dyn'] or meas['wedges']
+                    or meas['metronome'] or meas['ending']
+                    or meas['multi'] or meas['left'] or meas['right'])
+    run = 1
+    for prev, meas in zip(measures, measures[1:]):
+        cb = _content(meas)
+        if cb is not None and cb == _content(prev) and _plain(meas):
+            run += 1
+            meas['simile'] = run
+        else:
+            run = 1
     return measures, None
 
 
@@ -924,6 +963,8 @@ def measure_width(meas):
     w = 3.2 * SP
     if meas['multi']:
         return 16 * SP
+    if meas.get('simile'):
+        return 9 * SP
     if 'clef' in meas['show']:
         w += 7 * SP
     if 'key' in meas['show']:
@@ -1474,6 +1515,26 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
                                open_left=o[2])
             else:
                 wedge_run['open'] = (xat(pos), wkind, False)
+
+    if meas.get('simile'):
+        mx = x0 + width / 2
+        for stop in tops:
+            my = stop - STAFF / 2
+            if not pdf.glyph(mx - pdf.gw('repeat1Bar', 4 * SP) / 2, my,
+                             'repeat1Bar', 4 * SP):
+                pdf.line(mx - 1.3 * SP, my - 1.1 * SP,
+                         mx + 1.3 * SP, my + 1.1 * SP, w=1.7)
+                _dot(pdf, mx - 1.7 * SP, my + 0.7 * SP)
+                _dot(pdf, mx + 1.7 * SP, my - 0.7 * SP)
+        if meas['simile'] % 4 == 0:
+            # the count over every fourth identical bar, the way
+            # drummers keep their place in a long stretch of time
+            pdf.text(mx, top + 1.6 * SP, f"({meas['simile']})",
+                     size=8.5, font='H', center=True)
+        draw_barline(pdf, meas, x0, tops, width)
+        draw_ending(pdf, meas, x0, top, width)
+        draw_measure_number(pdf, meas, x0, top)
+        return x0 + width
 
     beat_len = div * 4 // state['time'][1]
     streams = {}
