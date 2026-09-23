@@ -595,7 +595,8 @@ def draw_accidental(pdf, x, y, alter, scale=1.0):
                      x + 0.5 * s, y + dy + 0.15 * s, w=1.6)
 
 
-def draw_rest(pdf, x, top, rtype):
+def draw_rest(pdf, x, top, rtype, dy=0):
+    top = top + dy
     mid = top - STAFF / 2
     if pdf.music:
         name, yy = {'whole': ('restW', top - SP),
@@ -1526,8 +1527,13 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             pend_beam = []
             if n0.measure_rest and forced is False:
                 continue           # the second voice's filler rest
+            # paired voices keep their rests apart: the up-stem voice
+            # rests high, the down-stem voice low
+            rest_dy = 0 if forced is None else (
+                SP if forced else -1.5 * SP)
             draw_rest(pdf, cx, top,
-                      'measure' if n0.measure_rest else n0.ntype)
+                      'measure' if n0.measure_rest else n0.ntype,
+                      dy=rest_dy)
             dot_x = cx + 1.6 * SP
             for _ in range(n0.dots):
                 _dot(pdf, dot_x, mid + 0.5 * SP)

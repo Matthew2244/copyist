@@ -2021,6 +2021,7 @@ def check_drum_kit():
     kit.append((0, 100, 36, 96))
     kit.append((960, 1060, 36, 96))
     kit.append((480, 580, 38, 92))
+    kit.append((480, 580, 41, 92))       # snare + floor tom together
     kit.append((1440, 1540, 38, 92))
     # bar 2: one crash alone — prints a beat and rests, never a whole note
     kit.append((1920, 3800, 49, 100))
@@ -2045,7 +2046,12 @@ def check_drum_kit():
                            r'</measure>', xml, re.S))
     check("kit: unpitched heads, no written pitch",
           "<unpitched>" in bars["1"] and "<pitch>" not in bars["1"])
-    check("kit: kick and hat stack as a chord", "<chord/>" in bars["1"])
+    check("kit: two voices, cymbals over drums, stitched with a backup",
+          "<backup>" in bars["1"] and "<voice>2</voice>" in bars["1"])
+    check("kit: same-voice hits stack as a chord", "<chord/>" in bars["1"])
+    check("kit: the drum voice keeps its own duration under the hats",
+          re.search(r'<voice>2</voice>\s*<type>quarter</type>',
+                    bars["1"]))
     check("kit: cymbals wear x heads",
           "<notehead>x</notehead>" in bars["1"])
     check("kit: a drum hit never ties",

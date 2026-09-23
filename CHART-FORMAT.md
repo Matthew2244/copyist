@@ -346,11 +346,15 @@ the conversion pipeline.
   shared drum map — kick and snare normal heads, cymbals x, open hat
   circle-x, ride bell diamond, cowbell and triangle their own shapes —
   simultaneous hits stack as chords, and ghost notes print in
-  parentheses from the played velocities like any other part. Durations
-  read spacing, not gate: each attack extends to the next, capped at
-  one beat of the meter, so an eighth-note hat pattern prints as
-  eighths, a lone crash as a beat and rests, and a drum hit never
-  ties. Hand percussion has its own staff dialect (bongos, congas,
+  parentheses from the played velocities like any other part. When both
+  families play, the page splits into the two voices every drum book
+  uses — cymbals stems up, kick, snare and toms stems down, each
+  voice's rests kept out of the other's way, silent bars still
+  collapsing into multirests. Durations
+  read spacing, not gate — within each voice, so a kick on the beat
+  keeps its own value under an eighth-note hat line: hat patterns
+  print as eighths, a lone crash as a beat and rests, and a drum hit
+  never ties. Hand percussion has its own staff dialect (bongos, congas,
   timbales, agogo, shakers, claves, woodblocks, triangle), and the
   listening band reads the part name to know whose staff it is — a kit
   part's top-space x is a closed hat, a percussion part's is a shaker.

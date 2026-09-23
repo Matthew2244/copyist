@@ -676,6 +676,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             nxt = timeline[i + 1][0] if i + 1 < len(timeline) else n_units
             timeline[i] = (s_, max(s_ + 1, min(nxt, s_ + cap, n_units)),
                            ps_)
+        drum_cap = cap
 
     if detail == 'simplified':
         timeline, raw, dropped = _simplify(timeline, raw, n_units)
@@ -849,7 +850,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             'slurs': slurs, 'ghosts': ghosts, 'detail': detail,
             'spoken_shift': spoken_shift, 'staves': staves_out,
             'bar_ticks': bar_ticks, 'pulse_div': pulse_div,
-            'drums': drums}
+            'drums': drums, 'drum_cap': drum_cap if drums else None}
 
 
 def bend_indices(res, bends):
@@ -906,6 +907,77 @@ def render_range(res, fifths_written, transpose_to_written, fall,
                     f'<sound dynamics="{SOUND_DYN[k]}"/></direction>\n'
                     + out[bar])
         return out
+
+    if drums:
+        # Two voices when both families play, the way drum books are
+        # engraved: cymbals (x-family heads) stems up as voice one,
+        # kick, snare and toms stems down as voice two. Durations
+        # re-read spacing within each voice, so a kick on the beat
+        # prints its own value even under an eighth-note hat line.
+        cyms, drms = [], []
+        for s_, e_, ps_ in timeline:
+            c = [p for p in ps_
+                 if instruments.drum_position(p)[2] != 'normal']
+            d = [p for p in ps_
+                 if instruments.drum_position(p)[2] == 'normal']
+            if c:
+                cyms.append((s_, c))
+            if d:
+                drms.append((s_, d))
+        if cyms and drms:
+            cap = res.get('drum_cap') or DIV
+            ghost_on = ({res['timeline'][i][0] for i in res.get('ghosts')
+                         or ()})
+            nbars = n_units // bar_ticks
+            chunks = []
+            for voice_no, hits in ((1, cyms), (2, drms)):
+                outd = {b: [] for b in
+                        range(at_bar, at_bar + nbars)}
+                pos = 0
+                for ti, (s_, ps_) in enumerate(hits):
+                    nxt = (hits[ti + 1][0] if ti + 1 < len(hits)
+                           else n_units)
+                    e_ = max(s_ + 1, min(nxt, s_ + cap, n_units))
+                    if s_ > pos:
+                        _emit(outd, at_bar, pos, s_, None, table,
+                              grids_chart, None, 0, bar=bar_ticks,
+                              voice=voice_no)
+                    _emit(outd, at_bar, s_, e_, ps_, table, grids_chart,
+                          (last_artic if (voice_no == 2
+                                          and ti == len(hits) - 1)
+                           else None) or every,
+                          0, bar=bar_ticks, voice=voice_no,
+                          ghost=voice_no == 2 and s_ in ghost_on,
+                          drums=True)
+                    pos = e_
+                if pos < n_units:
+                    _emit(outd, at_bar, pos, n_units, None, table,
+                          grids_chart, None, 0, bar=bar_ticks,
+                          voice=voice_no)
+                chunks.append(outd)
+            backup = (f'      <backup><duration>{bar_ticks}</duration>'
+                      '</backup>\n')
+            merged = {}
+            for b in range(at_bar, at_bar + nbars):
+                parts = ["".join(c[b]) for c in chunks if c.get(b)]
+                parts = [pp for pp in parts if pp]
+                if all(pp.count('<note>') == 1
+                       and '<rest measure="yes"/>' in pp
+                       for pp in parts):
+                    # a silent bar stays one plain bar rest, so the
+                    # multirest counting still sees it
+                    parts = parts[:1]
+                merged[b] = backup.join(parts)
+            for t, k in res.get('dyns', []):
+                bar = at_bar + t // bar_ticks
+                if bar in merged:
+                    merged[bar] = (
+                        '      <direction placement="below">'
+                        '<direction-type>'
+                        f'<dynamics><{k}/></dynamics></direction-type>'
+                        f'<sound dynamics="{SOUND_DYN[k]}"/></direction>\n'
+                        + merged[bar])
+            return merged
 
     out = {b: [] for b in
            range(at_bar, at_bar + (n_units // bar_ticks))}
