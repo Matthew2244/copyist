@@ -118,6 +118,23 @@ function Do-Build([string]$mode, [string]$doing) {
     Show-Info (Tail $out 8)
 }
 
+function Do-Listen {
+    $p = Pick-Chart
+    if (-not $p) { return }
+    $bar = [Microsoft.VisualBasic.Interaction]::InputBox(
+        'Start at which bar? Your DAW number is fine. Empty means the top.',
+        'Copyist', '')
+    $solo = [Microsoft.VisualBasic.Interaction]::InputBox(
+        'Solo who? Name parts like: bari, bone. Empty means the whole band.',
+        'Copyist', '')
+    $mode = 'l'
+    if ($bar -match '^\d+$') { $mode += ' --from-bar ' + $bar }
+    if ($solo.Trim()) { $mode += ' --solo "' + $solo.Trim() + '"' }
+    Show-Info 'Bouncing the listen. The band warms up; a dialog brings the news.'
+    $out = Run-Chart ('"' + $p + '" ' + $mode)
+    Show-Info (Tail $out 8)
+}
+
 function Do-ReadPart {
     $p = Pick-Chart
     if (-not $p) { return }
@@ -175,7 +192,7 @@ while ($true) {
         'can read. What are we doing?') @(
         'Build - pages, listen MP3, findings',
         'Check - compile only, nothing rendered',
-        'Listen - just the MP3, straight to your ears',
+        'Listen - the whole band, or just your chair, from any bar',
         'What changed - since the last build, by part and by bar',
         'Read a part aloud',
         'Tell me the tune - the roadmap conversation, in a console',
@@ -194,7 +211,7 @@ while ($true) {
     switch -Wildcard ($c) {
         'Build*' { Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
         'Check*' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }
-        'Listen*' { Do-Build 'l' 'Bouncing the listen. The band warms up; a dialog brings the news.' }
+        'Listen*' { Do-Listen }
         'What changed*' { Do-Build 'd' 'Reading the diff - what moved since your last build.' }
         'Read*' { Do-ReadPart }
         'Tell me*' {

@@ -534,6 +534,9 @@ struct HomeView: View {
     let pal: Palette
     @State private var partAsk = false
     @State private var partName = ""
+    @State private var listenAsk = false
+    @State private var fromBar = ""
+    @State private var soloParts = ""
 
     var actions: [ActionSpec] {
         [
@@ -550,8 +553,8 @@ struct HomeView: View {
                        needsChart: true) { $0.run("Build", args: ["build"]) },
             ActionSpec(id: "listen", icon: "headphones",
                        title: "Listen",
-                       line: "Just the MP3, straight to your ears.",
-                       needsChart: true) { $0.run("Listen", args: ["listen"]) },
+                       line: "The whole band, or just your chair, from any bar.",
+                       needsChart: true) { _ in listenAsk = true },
             ActionSpec(id: "check", icon: "checkmark.seal",
                        title: "Check it",
                        line: "Prove every bar adds up. Nothing rendered.",
@@ -647,6 +650,29 @@ struct HomeView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 24)
         }
+        .sheet(isPresented: $listenAsk) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Return plays the whole thing from the top.")
+                    .font(.headline)
+                TextField("Start at bar (your DAW's number)",
+                          text: $fromBar)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { runListen() }
+                TextField("Solo who? Like bari, bone. Empty is everyone.",
+                          text: $soloParts)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { runListen() }
+                HStack {
+                    Spacer()
+                    Button("Back") { listenAsk = false }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Listen") { runListen() }
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(20)
+            .frame(width: 440)
+        }
         .sheet(isPresented: $partAsk) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Which part? Leave it empty for the whole chart.")
@@ -665,6 +691,23 @@ struct HomeView: View {
             .padding(20)
             .frame(width: 420)
         }
+    }
+
+    func runListen() {
+        listenAsk = false
+        var args = ["listen"]
+        var what = "Listen"
+        let b = fromBar.trimmingCharacters(in: .whitespaces)
+        if Int(b) != nil {
+            args += ["--from-bar", b]
+            what += " from bar \(b)"
+        }
+        let sp = soloParts.trimmingCharacters(in: .whitespaces)
+        if !sp.isEmpty {
+            args += ["--solo", sp]
+            what += ", just \(sp)"
+        }
+        model.run(what, args: args)
     }
 
     func readPart() {
