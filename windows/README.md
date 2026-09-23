@@ -24,6 +24,11 @@ Everything the engine learned lately is here too, because both doors
 run the same engine: the roadmap conversation, played demos lifted
 into real parts, and drum charts that come out like drum books — two
 voices, x heads on the cymbals, repeat signs through the groove.
+Builds run in the background, so the menu comes straight back while
+the band renders; "How is the build going" answers whenever you ask,
+on a button press, never a timer that talks over your screen reader.
+And settings can send finished files wherever you like — a folder
+each for pages, listens and read-alouds.
 
 **Honesty note:** this front end was written on a Mac and has not yet
 been run on a real Windows machine. It parses clean under PowerShell

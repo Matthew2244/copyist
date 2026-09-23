@@ -241,7 +241,10 @@ same engine, with two designed looks (Dark Stage and Manuscript) or
 the system's own. The big actions sit on cards: the roadmap
 conversation in a chat view, build, check, read a part, and Listen,
 which asks two optional questions, start at which bar and solo who,
-so proofing an ending never costs sitting through the tune. The
+so proofing an ending never costs sitting through the tune. A build
+shows a real progress bar, phase by phase, and you can walk away:
+Home keeps a live chip to come back to, and a new window works on a
+second chart while the first one renders. The
 settings desk states every value before you change it. On Windows,
 the `windows` folder holds **Copyist.bat**, the same menu in native
 Windows dialogs that NVDA and JAWS read well; its Listen asks the
@@ -266,7 +269,9 @@ chart without typing it. The notify ping is quiet, a note you can
 read later, not an alarm. The desk also holds `sounds_dir` (where the
 sample shelf lives), `midi` (the folder your played files start in),
 `quant` (a standing feel for from-demo lifts), and `countin` (offered
-when a demo says nothing itself). And every command has a one-letter
+when a demo says nothing itself). And it says where finished files
+go: `pages_to`, `listens_to` and `spoken_to` each name a folder for
+that kind of file, and empty keeps everything with the build. And every command has a one-letter
 shortcut: `chart tune.chart c` checks, `b` builds, `r` reads, `p`
 lists the band, `d` diffs, `l` bounces the listen, `n` interviews,
 `e` is the roadmap conversation.

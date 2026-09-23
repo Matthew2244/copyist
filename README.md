@@ -107,10 +107,15 @@ python3 prototype/chart.py yourtune.chart
 There is also **Copyist.app**, a real Mac app over the same engine, built
 from `app/` with `app/build.sh --install`. It has two designed looks, Dark
 Stage and Manuscript, or it can match the system. Same big actions as the
-CLI, a settings desk where every control states its value, and the roadmap
-conversation held in a chat view. The app and the terminal share one
-conversation engine over a JSON line protocol (`COPYIST_PORCELAIN=1`), so
-they can't drift apart. The engine and fonts are bundled inside the app, so
+CLI, a settings desk in plain groups where every control states its
+value, and the roadmap conversation held in a chat view. A build shows a
+real progress bar fed by the engine itself ("the band is playing it in,
+46%"), and you can walk away from it: Home shows a live chip that takes
+you back, and File > New Window opens a second chart while the first one
+renders. Settings also choose where finished files land, a folder each
+for PDF pages, listen MP3s and spoken read-alouds. The app and the
+terminal share one conversation engine over a JSON line protocol
+(`COPYIST_PORCELAIN=1`), so they can't drift apart. The engine and fonts are bundled inside the app, so
 it runs with nothing else installed. A checkout at `~/copyist` wins at
 runtime, which keeps development live.
 
