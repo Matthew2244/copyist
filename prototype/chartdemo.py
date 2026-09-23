@@ -22,6 +22,7 @@ import re
 
 import analyze
 import convert
+import instruments
 import tuplets
 from convert import spelling_table, decompose
 
@@ -483,7 +484,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   derive_dyns=True, short=False, spoken_shift=0,
                   poly=False, grand=False, reach=17, comfortable=14,
                   legato=False, ghost=False, detail=None, meter=(4, 4),
-                  window=None, part_label="", findings=None):
+                  window=None, part_label="", findings=None, drums=False):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
     into a quantized timeline of sounding pitches starting at absolute
@@ -635,7 +636,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     # subdivision — a note that exists in the playing should survive
     # quantization whenever there is room for it. A polyphonic
     # instrument (piano, guitar, vibes) keeps its chords instead.
-    for q_on in sorted(events) if not poly else ():
+    for q_on in sorted(events) if not (poly or drums) else ():
         lst = events[q_on]
         if len(lst) <= 1:
             continue
@@ -665,6 +666,16 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
 
     # ---- monophonic cleanup and legato gap-closing
     timeline = _mono_tl(events, n_units)
+
+    if drums:
+        # Kit notation reads spacing, not gate: each attack extends to
+        # the next, capped at one beat, so an eighth-note hat pattern
+        # prints as eighths and a lone crash as a beat and rests.
+        cap = 3 * pulse_div if (m_den == 8 and m_num % 3 == 0) else DIV
+        for i, (s_, e_, ps_) in enumerate(timeline):
+            nxt = timeline[i + 1][0] if i + 1 < len(timeline) else n_units
+            timeline[i] = (s_, max(s_ + 1, min(nxt, s_ + cap, n_units)),
+                           ps_)
 
     if detail == 'simplified':
         timeline, raw, dropped = _simplify(timeline, raw, n_units)
@@ -708,7 +719,9 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     # answer; when anything genuinely polyphonic is found, the page and
     # the prose read the voices instead.
     staves_out = None
-    if poly and detail in ('simplified', 'rhythmic-slashes'):
+    if drums:
+        pass                               # a kit is one staff of hits
+    elif poly and detail in ('simplified', 'rhythmic-slashes'):
         find.add(f"{part_label}: detail {detail} prints one line — "
                  "hands and held voices fold into it")
     elif poly:
@@ -764,7 +777,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     # played gates into slurs, `ghosts` reads the velocities into
     # parenthesized noteheads. Never unasked — a finished chart's pages
     # are the writer's, and phrase-end softness is not a ghost note.
-    slurs = _slur_runs(timeline, raw) if legato else []
+    slurs = (_slur_runs(timeline, raw)
+             if legato and not drums else [])
     ghosts = _ghosts(timeline, raw) if ghost else set()
     if staves_out:
         for st in staves_out:
@@ -834,7 +848,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             'bars': (bar_lo, bar_hi), 'dyns': dyns,
             'slurs': slurs, 'ghosts': ghosts, 'detail': detail,
             'spoken_shift': spoken_shift, 'staves': staves_out,
-            'bar_ticks': bar_ticks, 'pulse_div': pulse_div}
+            'bar_ticks': bar_ticks, 'pulse_div': pulse_div,
+            'drums': drums}
 
 
 def bend_indices(res, bends):
@@ -873,6 +888,9 @@ def render_range(res, fifths_written, transpose_to_written, fall,
 
     bar_ticks = res.get('bar_ticks', BAR)
     slash = res.get('detail') == 'rhythmic-slashes'
+    drums = bool(res.get('drums')) and not slash
+    if drums:
+        transpose_to_written = 0
     SOUND_DYN = {'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123}
 
     if res.get('staves'):
@@ -905,7 +923,8 @@ def render_range(res, fifths_written, transpose_to_written, fall,
               (last_artic if is_last else None) or every,
               transpose_to_written, bend=bends.get(ti), bar=bar_ticks,
               slur=(ti in slur_a, ti in slur_b), ghost=ti in ghosts,
-              lyric=lyr[ti] if lyr else None, cue=cue, slash=slash)
+              lyric=lyr[ti] if lyr else None, cue=cue, slash=slash,
+              drums=drums)
         pos = end
     if pos < n_units:
         _emit(out, at_bar, pos, n_units, None, table, grids_chart,
@@ -1068,7 +1087,7 @@ def _name(ticks, sub):
 
 def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
           bend=None, bar=BAR, voice=1, staff=0, slur=(False, False),
-          ghost=False, lyric=None, cue=False, slash=False):
+          ghost=False, lyric=None, cue=False, slash=False, drums=False):
     staff_xml = f'        <staff>{staff}</staff>\n' if staff else ''
     pieces = _pieces(start, end, grids, bar)
     for pi, (a, b) in enumerate(pieces):
@@ -1098,11 +1117,27 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                                 + staff_xml
                                 + '      </note>\n')
                 continue
+            if drums and not pfirst:
+                # a drum hit is its attack — what follows is silence on
+                # the page, never a tied note
+                out[bar_no].append('      <note>\n        <rest/>\n'
+                                f'        <duration>{plen}</duration>\n'
+                                f'        <voice>{voice}</voice>\n'
+                                f'        <type>{ptype}</type>\n'
+                                + '        <dot/>\n' * dots
+                                + staff_xml
+                                + '      </note>\n')
+                continue
             for ni, p in enumerate(pitches):
                 if slash and ni:
                     continue           # a slash speaks for the voicing
-                w = p + transpose
-                step, alter, octave = convert.spell(w, table)
+                if drums:
+                    pfirst = plast = True
+                    dstep, doct, dhead = instruments.drum_position(p)
+                    alter = 0
+                else:
+                    w = p + transpose
+                    step, alter, octave = convert.spell(w, table)
                 if slash:
                     step, alter, octave = 'B', 0, 4
                 lines = ['      <note>']
@@ -1112,10 +1147,17 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                     lines.append('        <cue/>')
                 if ni:
                     lines.append('        <chord/>')
-                lines.append('        <pitch>'
-                             f'<step>{step}</step>'
-                             + (f'<alter>{alter}</alter>' if alter else '')
-                             + f'<octave>{octave}</octave></pitch>')
+                if drums:
+                    lines.append('        <unpitched>'
+                                 f'<display-step>{dstep}</display-step>'
+                                 f'<display-octave>{doct}</display-octave>'
+                                 '</unpitched>')
+                else:
+                    lines.append('        <pitch>'
+                                 f'<step>{step}</step>'
+                                 + (f'<alter>{alter}</alter>' if alter
+                                    else '')
+                                 + f'<octave>{octave}</octave></pitch>')
                 lines.append(f'        <duration>{plen}</duration>')
                 if not pfirst and not cue:
                     lines.append('        <tie type="stop"/>')
@@ -1134,7 +1176,10 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                 if ghost:
                     # a ghost note prints in parentheses
                     lines.append('        <notehead parentheses="yes">'
-                                 'normal</notehead>')
+                                 f'{dhead if drums else "normal"}'
+                                 '</notehead>')
+                elif drums and dhead != 'normal':
+                    lines.append(f'        <notehead>{dhead}</notehead>')
                 if staff:
                     lines.append(f'        <staff>{staff}</staff>')
                 notations = []
@@ -1191,6 +1236,8 @@ DUR_WORD = {96: 'whole note', 84: 'double-dotted half', 72: 'dotted half',
 def _say_pitch(p, table):
     if p == 'slash':
         return "slash"
+    if table is None:
+        return instruments.drum_name(p)
     step, alter, octave = convert.spell(p, table)
     return f"{step}{ACC_WORD[alter]} {octave}"
 
@@ -1254,10 +1301,12 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
                               for o, t in enumerate(tl[i:j + 1]))
             clauses.append(f"from {where}, {_say_dur(dur)}s: {names}")
         else:
-            what = (" and ".join(_say_pitch(p, table) for p in pitches)
+            what = (" and ".join(dict.fromkeys(
+                        _say_pitch(p, table) for p in pitches))
                     + word(i))
             if len(pitches) > 1:
-                what = "chord " + what
+                what = (("together, " if table is None else "chord ")
+                        + what)
             held = ""
             if end // bar_ticks > start // bar_ticks and end % bar_ticks:
                 held = f", held into bar {at_bar + end // bar_ticks}"
@@ -1288,7 +1337,8 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
               doit=False, scoops=None):
     """Resolved timeline -> {abs_bar: prose}, spoken at concert pitch."""
     find = findings if findings is not None else Findings()
-    table = spelling_table(concert_fifths, find)
+    table = (None if res.get('drums')
+             else spelling_table(concert_fifths, find))
     at_bar = res['at'] + res.get('spoken_shift', 0)
     bar_ticks = res.get('bar_ticks', BAR)
     pulse = res.get('pulse_div', DIV)

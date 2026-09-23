@@ -112,8 +112,8 @@ HORNS = {
     'crotales':          _inst(-24, (84, 108), 'G', 0, (84, 108)),
     'steel pan':         _inst(0,   (57, 89),  'G', 0, (57, 89), poly=True),
     # drums, hand percussion and the aux cabinet: percussion clef, no
-    # key, grooves, kicks and words — notation from a played demo is
-    # future work for the whole unpitched family
+    # key — grooves, kicks and words, and `from demo` writes real kit
+    # notation (instruments.DRUM_MAP positions and noteheads)
     'drums':             _inst(0,  (0, 127),  'percussion', 0, (0, 127),
                                poly=True),
     'congas':            _inst(0,  (0, 127),  'percussion', 0, (0, 127),
@@ -1474,6 +1474,9 @@ def compile_chart(chart_path, outdir):
         if not notes or l not in horn_of:
             continue
         h = horn_of[l]
+        if h.get('clef') == 'percussion':
+            findings.add(f"{l}: lifted from the demo as kit notation")
+            continue
         tr, comf = h['transpose'], h['comf']
         hi = max(notes)
         lo = min(notes)
@@ -1632,7 +1635,8 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     ('by hand', 'manual'),
                     short=ref.get('short', False),
                     spoken_shift=int(hdr.get('countin', 0)),
-                    part_label=l, findings=findings)
+                    part_label=l, findings=findings,
+                    drums=h['clef'] == 'percussion')
                 chartdemo.attach_lyrics(
                     res, ref.get('lyrics') or ref.get('fig_lyrics'),
                     l, ref['loc'], findings)

@@ -340,6 +340,25 @@ the conversion pipeline.
   `countin:` set, findings and the read-aloud add the count-in back, so
   the writer hears the numbers their DAW shows; only the printed page
   counts from one.
+- **A percussion-clef part lifts as real kit notation** (built for the
+  *DC Show Intro* played take, proved against the *Jesus is My Help*
+  drum book). Every hit takes its staff position and notehead from the
+  shared drum map — kick and snare normal heads, cymbals x, open hat
+  circle-x, ride bell diamond, cowbell and triangle their own shapes —
+  simultaneous hits stack as chords, and ghost notes print in
+  parentheses from the played velocities like any other part. Durations
+  read spacing, not gate: each attack extends to the next, capped at
+  one beat of the meter, so an eighth-note hat pattern prints as
+  eighths, a lone crash as a beat and rests, and a drum hit never
+  ties. Hand percussion has its own staff dialect (bongos, congas,
+  timbales, agogo, shakers, claves, woodblocks, triangle), and the
+  listening band reads the part name to know whose staff it is — a kit
+  part's top-space x is a closed hat, a percussion part's is a shaker.
+  The read-aloud speaks drummer ("beat 3: eighth together, snare and
+  closed hat"), the range report steps aside, and no transposition or
+  key spelling ever touches a drum. Slurs never write on a kit; detail
+  `rhythmic-slashes` still collapses it to slashes when that is the
+  page you want.
 
 ### 3.5 Pickup
 

@@ -53,26 +53,39 @@ def _drum_decode():
               ('C', 5, 'x'): 37, ('A', 4, 'normal'): 43,
               ('D', 5, 'normal'): 47, ('E', 5, 'normal'): 48,
               ('A', 5, 'x'): 49, ('F', 5, 'x'): 51}
-    exact, by_pos = {}, {}
-    for midi, (st, oc, head) in sorted(instruments.DRUM_MAP.items()):
-        exact.setdefault((st, oc, head), prefer.get((st, oc, head), midi))
-        by_pos.setdefault((st, oc), []).append(
-            (head, prefer.get((st, oc, head), midi)))
-    return exact, by_pos
+    # a hand-percussion staff reads the same positions differently: its
+    # G5 x is a shaker, its C5 is the low bongo — never a snare
+    prefer_hand = {('G', 5, 'x'): 82, ('E', 5, 'normal'): 60,
+                   ('C', 5, 'normal'): 61, ('D', 5, 'normal'): 65,
+                   ('B', 4, 'normal'): 66, ('A', 4, 'normal'): 63,
+                   ('A', 4, 'x'): 62, ('F', 4, 'normal'): 64,
+                   ('E', 5, 'x'): 76, ('C', 5, 'x'): 77,
+                   ('D', 5, 'x'): 75}
+    out = []
+    for pref in (prefer, prefer_hand):
+        exact, by_pos = {}, {}
+        for midi, (st, oc, head) in sorted(instruments.DRUM_MAP.items()):
+            exact.setdefault((st, oc, head), pref.get((st, oc, head), midi))
+            by_pos.setdefault((st, oc), []).append(
+                (head, pref.get((st, oc, head), midi)))
+        out.append((exact, by_pos))
+    return out
 
 
-_DRUM_EXACT = _DRUM_BYPOS = None
+_DRUM_TABLES = None
 
 
-def drum_midi(step, octave, notehead):
-    """GM drum number for a staff position and notehead."""
-    global _DRUM_EXACT, _DRUM_BYPOS
-    if _DRUM_EXACT is None:
-        _DRUM_EXACT, _DRUM_BYPOS = _drum_decode()
+def drum_midi(step, octave, notehead, hand=False):
+    """GM drum number for a staff position and notehead. `hand` reads
+    the position as a hand-percussion staff instead of the kit's."""
+    global _DRUM_TABLES
+    if _DRUM_TABLES is None:
+        _DRUM_TABLES = _drum_decode()
+    exact, by_pos = _DRUM_TABLES[1 if hand else 0]
     key = (step, octave, notehead)
-    if key in _DRUM_EXACT:
-        return _DRUM_EXACT[key]
-    cands = _DRUM_BYPOS.get((step, octave))
+    if key in exact:
+        return exact[key]
+    cands = by_pos.get((step, octave))
     if cands:
         for head, midi in cands:
             if head == notehead:
@@ -292,8 +305,14 @@ def parse_score(path, only=None):
                                    t)
                     nh = re.search(r'<notehead[^>]*>([a-z-]+)</notehead>',
                                    t)
+                    hand = bool(re.search(
+                        r'percussion|conga|bongo|timbale|shaker|cowbell'
+                        r'|clave|guiro|maraca|tambourine|aux',
+                        m['name'], re.I)) and not re.search(
+                        r'drum|kit|batterie', m['name'], re.I)
                     midi = drum_midi(st.group(1), int(oc.group(1)),
-                                     nh.group(1) if nh else 'normal') \
+                                     nh.group(1) if nh else 'normal',
+                                     hand=hand) \
                         if st and oc else 38
                 else:
                     st = re.search(r'<step>(\w)</step>', t).group(1)

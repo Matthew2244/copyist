@@ -163,6 +163,13 @@ convention, not a voicing.
 - `from demo bars 2-9` lifts YOUR played line, bars 2 to 9 of your DAW,
   cleans it up (your lay-back is measured and kept as feel, not printed
   as wrong rhythms), and lands it at the same bars of the chart.
+- The same line on a drum or percussion part writes real kit notation:
+  kick and snare on their own lines, cymbals and shakers with x heads,
+  hits stacked as they were played, and durations the way drummers read
+  them — an eighth-note hat pattern prints as eighths, a lone crash as
+  a beat and rests, and nothing ever ties. The read-back speaks
+  drummer too: "beat 3, eighth together, snare and closed hat", never
+  a pile of note names.
 - `solo` prints "Solo" and puts slashes under the changes — the
   soloist reads slashes, never a page of empty bars, which look like
   unfinished engraving. Everyone else in the section just rests, and

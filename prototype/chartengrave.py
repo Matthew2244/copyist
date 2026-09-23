@@ -56,6 +56,8 @@ SMUFL = {
     'flat': 0xE260, 'natural': 0xE261, 'sharp': 0xE262,
     'dblSharp': 0xE263, 'dblFlat': 0xE264,
     'wholeHead': 0xE0A2, 'halfHead': 0xE0A3, 'blackHead': 0xE0A4,
+    'xHead': 0xE0A9, 'circleXHead': 0xE0B3, 'diamondHead': 0xE0DB,
+    'triangleHead': 0xE0BE,
     'restW': 0xE4E3, 'restH': 0xE4E4, 'restQ': 0xE4E5,
     'rest8': 0xE4E6, 'rest16': 0xE4E7, 'rest32': 0xE4E8,
     'flag8U': 0xE240, 'flag8D': 0xE241,
@@ -436,7 +438,9 @@ def notehead(pdf, x, y, kind='black', scale=1.0, parens=False):
     rx, ry = 1.28 * SP * scale, 0.92 * SP * scale
     if kind != 'slash' and pdf.music:
         name = {'black': 'blackHead', 'half': 'halfHead',
-                'whole': 'wholeHead'}.get(kind, 'blackHead')
+                'whole': 'wholeHead', 'x': 'xHead',
+                'circle-x': 'circleXHead', 'diamond': 'diamondHead',
+                'triangle': 'triangleHead'}.get(kind, 'blackHead')
         size = 4 * SP * scale
         hw = pdf.gw(name, size)
         if pdf.glyph(x - hw / 2, y, name, size):
@@ -647,8 +651,8 @@ class Note:
     __slots__ = ('show_acc',
                  'rest', 'step', 'alter', 'octave', 'dur', 'ntype',
                  'dots', 'chord', 'tie_start', 'tie_stop', 'slur_start',
-                 'slur_stop', 'artic', 'slash', 'parens', 'cue', 'lyric',
-                 'fermata',
+                 'slur_stop', 'artic', 'slash', 'head', 'parens', 'cue',
+                 'lyric', 'fermata',
                  'tmod', 'measure_rest')
 
 
@@ -680,6 +684,8 @@ def _parse_note(t):
             n.artic = a
             break
     n.slash = '<notehead>slash</notehead>' in t
+    m = re.search(r'<notehead[^>]*>([\w-]+)</notehead>', t)
+    n.head = m.group(1) if m else None
     n.parens = 'parentheses="yes"' in t
     n.cue = '<cue/>' in t
     m = re.search(r'<lyric><syllabic>(\w+)</syllabic>'
@@ -1570,7 +1576,11 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             prev_p = ps[i]
         for i, (n, yy) in enumerate(zip(notes, ys)):
             dx = 2.15 * SP * scale * (1 if up else -1) if side[i] else 0
-            notehead(pdf, cx + dx, yy, head, scale=scale, parens=n.parens)
+            h = head
+            if getattr(n, 'head', None) in ('x', 'circle-x', 'diamond',
+                                            'triangle'):
+                h = n.head
+            notehead(pdf, cx + dx, yy, h, scale=scale, parens=n.parens)
         dot_x = cx + 1.9 * SP
         for _ in range(n0.dots):
             for yy in ys:

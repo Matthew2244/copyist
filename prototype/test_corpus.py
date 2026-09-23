@@ -1998,6 +1998,90 @@ def run_fixture(name, key, expect_verdicts):
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_drum_kit():
+    """
+    Kit notation from a played demo: hits keep their chords, spacing
+    becomes the printed duration (capped at a beat), cymbals get their
+    x-family heads, nothing ever ties, and the read-aloud speaks
+    drummer — kick and snare, never F4 and C5.
+    """
+    import re
+    import chartc
+    import chartdemo
+    import smf
+    from chart import verify_measures
+    tmp = tempfile.mkdtemp()
+
+    div = 480
+    kit = []
+    # bar 1: eighth-note closed hats played short, kick on 1 and 3,
+    # snare on 2 and 4 — the classic page is eighths, not 16th+rest
+    for i in range(8):
+        kit.append((i * 240, i * 240 + 90, 42, 80))
+    kit.append((0, 100, 36, 96))
+    kit.append((960, 1060, 36, 96))
+    kit.append((480, 580, 38, 92))
+    kit.append((1440, 1540, 38, 92))
+    # bar 2: one crash alone — prints a beat and rests, never a whole note
+    kit.append((1920, 3800, 49, 100))
+    smf.write(os.path.join(tmp, "k.mid"), kit, div, 96)
+
+    open(os.path.join(tmp, "kit.chart"), "w").write(
+        "title: K\nkey: C\nmeter: 4/4\ntempo: 96\n\nband:\n"
+        '  drums = drum set, demo "k.mid"\n\n'
+        "section A, 2 bars\n  chords: nc x2\n"
+        "  drums: from demo bars 1-2\n")
+    out = os.path.join(tmp, "build")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        files = chartc.compile_chart(os.path.join(tmp, "kit.chart"), out)
+    log = buf.getvalue()
+    check("kit chart: measures sum", not verify_measures(files))
+    check("kit chart: the range report steps aside for the kit",
+          "kit notation" in log and "written peak" not in log)
+
+    xml = open(os.path.join(out, "K — drums.musicxml")).read()
+    bars = dict(re.findall(r'<measure [^>]*number="(\d+)"[^>]*>(.*?)'
+                           r'</measure>', xml, re.S))
+    check("kit: unpitched heads, no written pitch",
+          "<unpitched>" in bars["1"] and "<pitch>" not in bars["1"])
+    check("kit: kick and hat stack as a chord", "<chord/>" in bars["1"])
+    check("kit: cymbals wear x heads",
+          "<notehead>x</notehead>" in bars["1"])
+    check("kit: a drum hit never ties",
+          "<tie " not in bars["1"] and "<tie " not in bars["2"])
+    check("kit: short hat gates print as eighths",
+          bars["1"].count("<type>eighth</type>") >= 8)
+    check("kit: a lone crash is a beat and rests, not a whole note",
+          "<type>quarter</type>" in bars["2"]
+          and "<type>whole</type>" not in bars["2"]
+          and "<rest/>" in bars["2"])
+
+    # the spoken half: drummer words, no note names
+    d = chartdemo.load_demo(os.path.join(tmp, "k.mid"))
+    res = chartdemo.resolve_range(d, None, 1, 2, 1, meter=(4, 4),
+                                  drums=True, part_label="drums",
+                                  findings=chartdemo.Findings())
+    prose = " ".join(chartdemo.say_range(res, 0).values())
+    check("kit: the read-aloud says kick, snare and closed hat",
+          "kick" in prose and "snare" in prose and "closed hat" in prose)
+    check("kit: together, not chord, and no spelled pitches",
+          "together," in prose and "chord " not in prose
+          and not re.search(r'\b[A-G] [0-9]\b', prose))
+
+    # the drawn half: the engraver reads the head and knows the glyphs
+    import chartengrave
+    n = chartengrave._parse_note(
+        "<note><unpitched><display-step>G</display-step>"
+        "<display-octave>5</display-octave></unpitched>"
+        "<duration>12</duration><voice>1</voice><type>eighth</type>"
+        "<notehead>circle-x</notehead></note>")
+    check("engraver parses the head kind", n.head == "circle-x")
+    check("engraver's font table knows the kit heads",
+          all(k in chartengrave.SMUFL for k in
+              ("xHead", "circleXHead", "diamondHead", "triangleHead")))
+
+
 if __name__ == "__main__":
     print("\ninvariants")
     check_duration_algebra()
@@ -2016,6 +2100,7 @@ if __name__ == "__main__":
     check_engraver()
     check_settings()
     check_roadmap()
+    check_drum_kit()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

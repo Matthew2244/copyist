@@ -185,8 +185,40 @@ DRUM_MAP = {
     51: ("F", 5, "x"), 59: ("F", 5, "x"),                 # ride
     52: ("B", 5, "x"), 53: ("F", 5, "diamond"),           # china, bell
     54: ("E", 5, "x"), 56: ("B", 5, "triangle"),          # tambourine, cowbell
+    55: ("A", 5, "x"),                                    # splash
+    # hand percussion — a percussion part's own staff, higher = higher
+    60: ("E", 5, "normal"), 61: ("C", 5, "normal"),       # bongos
+    62: ("A", 4, "x"), 63: ("A", 4, "normal"),            # conga slap/open
+    64: ("F", 4, "normal"),                               # low conga
+    65: ("D", 5, "normal"), 66: ("B", 4, "normal"),       # timbales
+    67: ("A", 5, "triangle"), 68: ("F", 5, "triangle"),   # agogo
+    69: ("G", 5, "x"), 70: ("G", 5, "x"), 82: ("G", 5, "x"),  # shakers
+    75: ("D", 5, "x"),                                    # claves
+    76: ("E", 5, "x"), 77: ("C", 5, "x"),                 # woodblocks
+    80: ("B", 5, "x"), 81: ("B", 5, "triangle"),          # triangle
 }
 
 
 def drum_position(pitch):
     return DRUM_MAP.get(pitch, ("B", 4, "x"))
+
+
+# The same map's spoken half — what the read-aloud calls each hit.
+DRUM_NAMES = {
+    35: "kick", 36: "kick", 37: "side stick", 38: "snare", 40: "snare",
+    39: "clap", 41: "floor tom", 43: "floor tom", 45: "mid tom",
+    47: "mid tom", 48: "high tom", 50: "high tom", 42: "closed hat",
+    44: "pedal hat", 46: "open hat", 49: "crash", 57: "crash",
+    51: "ride", 59: "ride", 52: "china", 53: "ride bell",
+    54: "tambourine", 55: "splash", 56: "cowbell",
+    60: "high bongo", 61: "low bongo", 62: "conga slap",
+    63: "open conga", 64: "low conga", 65: "high timbale",
+    66: "low timbale", 67: "high agogo", 68: "low agogo",
+    69: "cabasa", 70: "maracas", 82: "shaker", 75: "claves",
+    76: "high woodblock", 77: "low woodblock",
+    80: "muted triangle", 81: "open triangle",
+}
+
+
+def drum_name(pitch):
+    return DRUM_NAMES.get(pitch, f"drum {pitch}")
