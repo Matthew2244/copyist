@@ -134,6 +134,9 @@ final class AppModel: ObservableObject {
     @Published var running = false
     @Published var flavor = ""
     @Published var playURL: URL?
+    @Published var progressPct: Double?
+    @Published var progressWhat = ""
+    private var runBuffer = ""
     private var flavorTimer: Timer?
     private var proc: Process?
 
@@ -199,6 +202,15 @@ final class AppModel: ObservableObject {
             screen = .run
             return
         }
+        if running {
+            screen = .run
+            announce("Still working on \(runTitle)"
+                     + (progressPct.map { " — \(Int($0)) percent" }
+                        ?? "")
+                     + ". To work on another chart meanwhile, open a "
+                     + "new window from the File menu.")
+            return
+        }
         var full = [tool.script]
         if needsChart {
             guard let c = chart else { return }
@@ -209,6 +221,9 @@ final class AppModel: ObservableObject {
         runOutput = ""
         running = true
         playURL = nil
+        progressPct = nil
+        progressWhat = ""
+        runBuffer = ""
         let wantsPlay = args.contains("build") || args.contains("listen")
         screen = .run
         startFlavor()
@@ -218,6 +233,7 @@ final class AppModel: ObservableObject {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:"
             + (env["PATH"] ?? "/usr/bin:/bin")
+        env["COPYIST_PROGRESS"] = "1"
         p.environment = env
         let pipe = Pipe()
         p.standardOutput = pipe
@@ -226,7 +242,7 @@ final class AppModel: ObservableObject {
             let d = h.availableData
             guard !d.isEmpty else { return }
             let s = String(decoding: d, as: UTF8.self)
-            DispatchQueue.main.async { self?.runOutput += s }
+            DispatchQueue.main.async { self?.take(s) }
         }
         p.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async {
@@ -257,6 +273,26 @@ final class AppModel: ObservableObject {
         proc?.terminate()
         running = false
         stopFlavor()
+        progressPct = nil
+    }
+
+    /// Split the engine's stream into lines; a "progress:" line moves
+    /// the bar and never clutters the transcript.
+    private func take(_ chunk: String) {
+        runBuffer += chunk
+        while let nl = runBuffer.firstIndex(of: "\n") {
+            let line = String(runBuffer[..<nl])
+            runBuffer = String(runBuffer[runBuffer.index(after: nl)...])
+            if line.hasPrefix("progress: ") {
+                let body = line.dropFirst("progress: ".count)
+                if let cut = body.range(of: "% — ") {
+                    progressPct = Double(body[..<cut.lowerBound])
+                    progressWhat = String(body[cut.upperBound...])
+                }
+                continue
+            }
+            runOutput += line + "\n"
+        }
     }
 
     func newestMP3() -> URL? {
@@ -309,6 +345,7 @@ final class AppModel: ObservableObject {
         env["COPYIST_PORCELAIN"] = "1"
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:"
             + (env["PATH"] ?? "/usr/bin:/bin")
+        env["COPYIST_PROGRESS"] = "1"
         p.environment = env
         let out = Pipe(), inp = Pipe()
         p.standardOutput = out
@@ -429,12 +466,12 @@ func pickFile(start: String?, dirs: Bool = false) -> String? {
 
 @main
 struct CopyistApp: App {
-    @StateObject private var model = AppModel()
-
     var body: some Scene {
+        // each window is its own desk: its own chart, its own build —
+        // File > New Window works on a second chart while the first
+        // one cooks
         WindowGroup("Copyist") {
             ContentView()
-                .environmentObject(model)
                 .frame(minWidth: 780, minHeight: 560)
         }
         .windowResizability(.contentMinSize)
@@ -442,7 +479,7 @@ struct CopyistApp: App {
 }
 
 struct ContentView: View {
-    @EnvironmentObject var model: AppModel
+    @StateObject private var model = AppModel()
     @Environment(\.colorScheme) var scheme
 
     var pal: Palette {
@@ -470,6 +507,7 @@ struct ContentView: View {
         .preferredColorScheme(model.vibe == .stage ? .dark :
                               model.vibe == .manuscript ? .light : nil)
         .foregroundStyle(pal.text)
+        .environmentObject(model)
     }
 }
 
@@ -489,12 +527,10 @@ struct HeaderBar: View {
                 .font(.system(size: 22, weight: .bold, design: .serif))
             Spacer()
             if model.screen != .home {
-                Button("Home") {
-                    if model.talking { model.stopTalk() }
-                    if model.running { model.stopRun() }
-                    model.screen = .home
-                }
-                .buttonStyle(.bordered)
+                // going Home leaves a build or conversation alive —
+                // Home shows a chip to come back to it
+                Button("Home") { model.screen = .home }
+                    .buttonStyle(.bordered)
             }
             Button {
                 pickChart(model)
@@ -527,6 +563,52 @@ struct ActionSpec: Identifiable {
     let line: String
     let needsChart: Bool
     let act: (AppModel) -> Void
+}
+
+struct RunChip: View {
+    @EnvironmentObject var model: AppModel
+    let pal: Palette
+
+    var body: some View {
+        let pct: Int? = model.progressPct.map { Int($0) }
+        let head: String = model.runTitle + " is still going"
+            + (pct.map { " — \($0)%" } ?? "") + ". Check on it."
+        let sub = "A new window (File menu) works on another chart "
+            + "meanwhile."
+        let spoken: String = model.runTitle + " is still going"
+            + (pct.map { ", \($0) percent, " + model.progressWhat }
+               ?? "")
+            + ". Check on it. A new window from the File menu works "
+            + "on another chart meanwhile."
+        Button {
+            model.screen = .run
+        } label: {
+            HStack(spacing: 10) {
+                if let p = model.progressPct {
+                    ProgressView(value: p, total: 100)
+                        .frame(width: 110)
+                        .tint(pal.accent)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(head)
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(sub)
+                        .font(.system(size: 11))
+                        .foregroundStyle(pal.sub)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 12)
+                .fill(pal.card))
+            .overlay(RoundedRectangle(cornerRadius: 12)
+                .stroke(pal.accent, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(spoken)
+    }
 }
 
 struct HomeView: View {
@@ -589,6 +671,26 @@ struct HomeView: View {
                     .font(.system(size: 17, design: .serif))
                     .foregroundStyle(pal.sub)
                     .padding(.top, 18)
+                if model.running {
+                    RunChip(pal: pal)
+                }
+                if model.talking {
+                    Button {
+                        model.screen = .talk
+                    } label: {
+                        Label("The conversation is waiting on you.",
+                              systemImage: "bubble.left.and.bubble.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .padding(12)
+                            .frame(maxWidth: .infinity,
+                                   alignment: .leading)
+                            .background(RoundedRectangle(
+                                cornerRadius: 12).fill(pal.card))
+                            .overlay(RoundedRectangle(cornerRadius: 12)
+                                .stroke(pal.accent, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 330),
                                              spacing: 14)],
                           spacing: 14) {
@@ -731,12 +833,26 @@ struct RunView: View {
                 Text(model.runTitle)
                     .font(.system(size: 18, weight: .bold, design: .serif))
                 if model.running {
-                    ProgressView().controlSize(.small)
-                        .padding(.leading, 6)
-                    Text(model.flavor)
-                        .font(.system(size: 12))
-                        .foregroundStyle(pal.sub)
-                        .accessibilityHidden(true)
+                    if let pct = model.progressPct {
+                        ProgressView(value: pct, total: 100)
+                            .frame(width: 150)
+                            .padding(.leading, 6)
+                            .tint(pal.accent)
+                            .accessibilityLabel(
+                                "\(Int(pct)) percent — "
+                                + model.progressWhat)
+                        Text("\(Int(pct))% — \(model.progressWhat)")
+                            .font(.system(size: 12))
+                            .foregroundStyle(pal.sub)
+                            .accessibilityHidden(true)
+                    } else {
+                        ProgressView().controlSize(.small)
+                            .padding(.leading, 6)
+                        Text(model.flavor)
+                            .font(.system(size: 12))
+                            .foregroundStyle(pal.sub)
+                            .accessibilityHidden(true)
+                    }
                 }
                 Spacer()
                 if let u = model.playURL, !model.running {
@@ -911,6 +1027,10 @@ struct SettingsView: View {
                 Text("Settings")
                     .font(.system(size: 18, weight: .bold, design: .serif))
                     .padding(.top, 16)
+                Text("Every control says what it is set to. Nothing "
+                     + "here needs saving twice.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(pal.sub)
                 group("The app") {
                     Picker("Appearance", selection: Binding(
                         get: { model.vibe },
@@ -922,7 +1042,11 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                     .tint(pal.accent)
                 }
-                group("The chart") {
+                group("Your charts") {
+                    Text("The name on every new chart, and how the "
+                         + "pages dress.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(pal.sub)
                     HStack {
                         TextField("Composer", text: $composer)
                             .textFieldStyle(.roundedBorder)
@@ -936,12 +1060,27 @@ struct SettingsView: View {
                             Text($0.isEmpty ? "each chart decides" : $0)
                         }
                     }
-                    Toggle("Phone ping when a build lands",
+                }
+                group("When a build lands") {
+                    Toggle("Ping my phone",
                            isOn: yesno("notify"))
-                    Toggle("Open the score when a build lands",
+                    Toggle("Pop the score open",
                            isOn: yesno("open"))
                 }
-                group("MIDI") {
+                group("Where finished files go") {
+                    Text("Empty keeps everything with the build, "
+                         + "next to the chart.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(pal.sub)
+                    pathRow("PDF pages", key: "pages_to")
+                    pathRow("Listen MP3s", key: "listens_to")
+                    pathRow("Spoken read-alouds", key: "spoken_to")
+                }
+                group("MIDI and demos") {
+                    Text("Where your played files come from, and how "
+                         + "lifts read them.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(pal.sub)
                     pathRow("Your DAW's export folder", key: "midi")
                     Picker("Feel for every from-demo lift",
                            selection: bind("quant")) {

@@ -544,7 +544,7 @@ def _add_click(L, R, t0, gain, panl, panr, seed=1234):
 
 
 def render(listen_path, wav_path, only=None, tail=1.5, count_in=None,
-           samples=None):
+           samples=None, on_progress=None):
     """The listening document -> a stereo WAV. `only` filters part
     names (lowercased); `count_in` prepends that many bars of click,
     high tick on one, like a session. `samples` names a sample library
@@ -559,7 +559,8 @@ def render(listen_path, wav_path, only=None, tail=1.5, count_in=None,
     if samples:
         import chartband
         return chartband.render_plan(plan, wav_path, samples,
-                                     tail=tail, count_in=count_in)
+                                     tail=tail, count_in=count_in,
+                                     on_progress=on_progress)
     scheduled = _seconds(plan)
     lead = 0.0
     if count_in:
@@ -583,6 +584,9 @@ def render(listen_path, wav_path, only=None, tail=1.5, count_in=None,
     n_parts = len(plan['parts'])
     notes = 0
     for idx, (part, ev) in enumerate(zip(plan['parts'], scheduled)):
+        if on_progress:
+            on_progress(idx / max(n_parts, 1),
+                        f"playing in {part['name']}")
         pan = (-0.6 + 1.2 * idx / max(n_parts - 1, 1)) if n_parts > 1 else 0
         panl = math.cos((pan + 1) * math.pi / 4) * 1.2
         panr = math.sin((pan + 1) * math.pi / 4) * 1.2

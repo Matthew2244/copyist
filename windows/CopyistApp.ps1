@@ -110,12 +110,41 @@ function Pick-Chart {
     return $dlg.FileName
 }
 
+$buildLog = Join-Path $env:APPDATA 'copyist-build.log'
+$buildState = Join-Path $env:APPDATA 'copyist-build.json'
+
 function Do-Build([string]$mode, [string]$doing) {
+    # the build runs in the background - the menu comes straight back,
+    # and 'How is the build going' answers whenever you ask. Never a
+    # timer: a dialog that talks over a screen reader is noise.
     $p = Pick-Chart
     if (-not $p) { return }
-    Show-Info "$doing Press OK and hold tight - the big charts take a minute, and a dialog will bring the news."
-    $out = Run-Chart ('"' + $p + '" ' + $mode)
-    Show-Info (Tail $out 8)
+    Do-BuildKnown $p $mode $doing
+}
+
+function Do-HowGoes {
+    if (-not (Test-Path $buildState)) {
+        Show-Info 'No build has been started from here yet.'
+        return
+    }
+    $st = Get-Content $buildState -Raw | ConvertFrom-Json
+    $log = if (Test-Path $buildLog) {
+        Get-Content $buildLog -Raw -ErrorAction SilentlyContinue } else { '' }
+    if (-not $log) { $log = '' }
+    $lines = ($log -split "`n") | Where-Object { $_.Trim() }
+    $prog = $lines | Where-Object { $_ -like 'progress:*' } |
+        Select-Object -Last 1
+    $plain = $lines | Where-Object { $_ -notlike 'progress:*' }
+    $running = Get-Process -Id $st.pid -ErrorAction SilentlyContinue
+    if ($running) {
+        $word = if ($prog) { ($prog -replace '^progress:\s*', '') }
+                else { 'warming up' }
+        Show-Info ("Still going: " + $st.name + " - " + $word)
+    } else {
+        $tail = if ($plain) {
+            ($plain | Select-Object -Last 8) -join "`n" } else { 'Done.' }
+        Show-Info ("Finished: " + $st.name + "`n`n" + $tail)
+    }
 }
 
 function Do-Listen {
@@ -130,15 +159,47 @@ function Do-Listen {
     $mode = 'l'
     if ($bar -match '^\d+$') { $mode += ' --from-bar ' + $bar }
     if ($solo.Trim()) { $mode += ' --solo "' + $solo.Trim() + '"' }
-    Show-Info 'Bouncing the listen. The band warms up; a dialog brings the news.'
-    $out = Run-Chart ('"' + $p + '" ' + $mode)
-    Show-Info (Tail $out 8)
+    Set-Content -Path $lastFile -Value $p
+    Do-BuildKnown $p $mode ('Bouncing the listen. The band warms up.')
+}
+
+function Do-BuildKnown([string]$p, [string]$mode, [string]$doing) {
+    # Do-Build without the chart question - the caller already asked
+    if (Test-Path $buildState) {
+        $st = Get-Content $buildState -Raw | ConvertFrom-Json
+        if (Get-Process -Id $st.pid -ErrorAction SilentlyContinue) {
+            Show-Info ("A build of '" + $st.name + "' is still going - " +
+                "check on it first.")
+            return
+        }
+    }
+    Set-Content -Path $buildLog -Value ''
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'cmd.exe'
+    $psi.Arguments = ('/c ' + $py + ' "' + $chartPy + '" "' + $p +
+        '" ' + $mode + ' > "' + $buildLog + '" 2>&1')
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
+    $psi.EnvironmentVariables['COPYIST_PROGRESS'] = '1'
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    @{ pid = $proc.Id; name = (Split-Path -Leaf $p) } |
+        ConvertTo-Json | Set-Content $buildState
+    Show-Info ("$doing It runs in the background - keep working, " +
+        "and pick 'How is the build going' whenever you want the news.")
 }
 
 function Do-ReadPart {
     $p = Pick-Chart
     if (-not $p) { return }
     $dir = Split-Path -Parent $p
+    # read-alouds live next to the chart, unless settings sent them
+    # somewhere else (spoken_to)
+    $cfgPath = Join-Path $env:USERPROFILE '.config\copyist\config.json'
+    if (Test-Path $cfgPath) {
+        $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
+        if ($cfg.spoken_to) { $dir = $cfg.spoken_to }
+    }
     $files = Get-ChildItem -Path $dir -Filter '* read aloud.txt' -ErrorAction SilentlyContinue
     if (-not $files) {
         Show-Info 'No read-alouds here yet - build or check the chart first; they land beside it.'
@@ -150,13 +211,27 @@ function Do-ReadPart {
     Start-Process notepad.exe -ArgumentList ('"' + (Join-Path $dir $c) + '"')
 }
 
+$settingGroups = [ordered]@{
+    'Your charts - name and look'        = @('composer', 'look')
+    'When a build lands - ping and open' = @('notify', 'open')
+    'Where finished files go'            = @('pages_to', 'listens_to',
+                                             'spoken_to')
+    'MIDI and demos'                     = @('midi', 'quant', 'countin')
+    'Sounds - the sample shelf'          = @('sounds', 'sounds_dir')
+}
+
 function Do-Settings {
     while ($true) {
+        $g = Choose-FromList ('The defaults desk. Which corner?') (
+            @($settingGroups.Keys) + @('Back'))
+        if (-not $g -or $g -eq 'Back') { return }
         $desk = Run-Chart 'settings'
-        $c = Choose-FromList ($desk + "`nChange which one?") @(
-            'composer', 'look', 'notify', 'open', 'sounds',
-            'sounds_dir', 'midi', 'quant', 'countin', 'Back')
-        if (-not $c -or $c -eq 'Back') { return }
+        $keys = $settingGroups[$g]
+        $shown = ($desk -split "`n") | Where-Object {
+            $line = $_; ($keys | Where-Object { $line -like "$_*" }) }
+        $c = Choose-FromList (($shown -join "`n") +
+            "`nChange which one?") ($keys + @('Back'))
+        if (-not $c -or $c -eq 'Back') { continue }
         if ($c -in @('notify', 'open')) {
             $v = Choose-FromList "Set $c to:" @('yes', 'no', 'Back')
             if (-not $v -or $v -eq 'Back') { continue }
@@ -180,6 +255,9 @@ function Do-Settings {
             if ($c -eq 'countin') {
                 $hint = ' Count-in bars offered when a demo says nothing itself; any number, empty reads the demo.'
             }
+            if ($c -like '*_to') {
+                $hint = ' A folder path; empty keeps these files with the build.'
+            }
             $v = [Microsoft.VisualBasic.Interaction]::InputBox(
                 "New value for $c.$hint", 'Copyist', '')
         }
@@ -194,6 +272,7 @@ while ($true) {
         'Check - compile only, nothing rendered',
         'Listen - the whole band, or just your chair, from any bar',
         'What changed - since the last build, by part and by bar',
+        'How is the build going - check in on a background build',
         'Read a part aloud',
         'Tell me the tune - the roadmap conversation, in a console',
         'Sounds - the band''s sample shelf',
@@ -213,6 +292,7 @@ while ($true) {
         'Check*' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }
         'Listen*' { Do-Listen }
         'What changed*' { Do-Build 'd' 'Reading the diff - what moved since your last build.' }
+        'How is the build*' { Do-HowGoes }
         'Read*' { Do-ReadPart }
         'Tell me*' {
             $p = Pick-Chart

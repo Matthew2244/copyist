@@ -320,7 +320,8 @@ def _variant(voice, art):
     return voice.get('sus')
 
 
-def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None):
+def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
+                on_progress=None):
     """The parsed plan -> a stereo WAV through the sample shelf.
     sf_path may be the shelf directory (SFZ voices per instrument,
     the GM SoundFont as the floor) or a single .sf2. Mirrors
@@ -413,7 +414,12 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None):
     # fraction of the time
     drum_cache = {}
     drum_turn = {}
-    for a, d, idx, key, vel, bright, bend, amps, fam, art in jobs:
+    step = max(len(jobs) // 50, 1)
+    for ji, (a, d, idx, key, vel, bright, bend, amps, fam, art) \
+            in enumerate(jobs):
+        if on_progress and ji % step == 0:
+            on_progress(ji / max(len(jobs), 1),
+                        "the band is playing it in")
         part = plan['parts'][idx]
         v = int(round(min(max(vel, 1.0), 127.0)))
         pieces = []

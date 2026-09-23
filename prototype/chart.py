@@ -160,6 +160,25 @@ def say(line):
     sys.stdout.flush()
 
 
+def progress(pct, what):
+    """A machine-readable pulse for the apps' progress bars. Only when
+    asked (COPYIST_PROGRESS=1), so the terminal stays a conversation."""
+    if os.environ.get('COPYIST_PROGRESS') == '1':
+        sys.stdout.write(f"progress: {int(pct)}% — {what}\n")
+        sys.stdout.flush()
+
+
+def dest_dir(cfg, key, default):
+    """Where a kind of finished file lands: the setting when given
+    (created if missing), else the build's own folder."""
+    d = (cfg.get(key) or '').strip()
+    if not d:
+        return default
+    d = os.path.expanduser(d)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 CONFIG = os.path.expanduser("~/.config/copyist/config.json")
 SETTINGS = (
     ('composer', '', "the name every new chart offers to put on the "
@@ -169,6 +188,12 @@ SETTINGS = (
     ('notify', 'no', "a phone ping when a build lands — for the long "
                      "ones you walk away from"),
     ('open', 'no', "pop the score PDF open the moment a build lands"),
+    ('pages_to', '', "a folder where finished PDF pages land — empty "
+                     "keeps them in the build folder"),
+    ('listens_to', '', "a folder where listen MP3s land — empty keeps "
+                       "them with the build"),
+    ('spoken_to', '', "a folder where the spoken read-alouds land — "
+                      "empty keeps them next to the chart"),
     ('sounds', '', "the sample library the listen plays on — a "
                    "library's name or an .sf2 file's path; empty "
                    "plays the plain built-in synth"),
@@ -431,7 +456,7 @@ def find_mscore():
 
 
 def render_listen(listen_src, mp3, say, only=None, count_in=None,
-                  lead=None, samples=None):
+                  lead=None, samples=None, on_progress=None):
     """Copyist synthesizes the listening document itself, then encodes.
     True with the MP3 in place (or, without ffmpeg, the WAV and a
     sentence). With a sample library the band plays real recorded
@@ -441,7 +466,8 @@ def render_listen(listen_src, mp3, say, only=None, count_in=None,
     try:
         _, _, _, lead_s = chartaudio.render(listen_src, wav, only=only,
                                             count_in=count_in,
-                                            samples=samples)
+                                            samples=samples,
+                                            on_progress=on_progress)
         if lead is not None:
             lead[0] = lead_s
     except SystemExit:
@@ -452,7 +478,8 @@ def render_listen(listen_src, mp3, say, only=None, count_in=None,
                 f"({os.path.basename(samples)}: {e}) — the plain synth "
                 "is covering this one.")
             return render_listen(listen_src, mp3, say, only=only,
-                                 count_in=count_in, lead=lead)
+                                 count_in=count_in, lead=lead,
+                                 on_progress=on_progress)
         say(f"Copyist hit a wall rendering its own audio: {e}")
         return False
     if chartaudio.to_mp3(wav, mp3):
@@ -668,6 +695,9 @@ def main():
         sys.exit(f"chart: no file at '{path}'.")
     base_dir = os.path.dirname(os.path.abspath(path))
     title_dir = args.outdir or os.path.join(base_dir, "build")
+    spoken_dir = dest_dir(cfg, 'spoken_to', base_dir)
+    pages_dir = dest_dir(cfg, 'pages_to', title_dir)
+    listen_dir = dest_dir(cfg, 'listens_to', title_dir)
 
     if args.command == 'parts':
         chart = chartc.parse_chart(path)
@@ -744,7 +774,8 @@ def main():
         say("The chart compiles and every measure adds up. Nothing "
             "rendered — that was a check.")
         stale = [f for f in glob.glob(
-                     os.path.join(base_dir, f"{title} — *read aloud.txt"))
+                     os.path.join(dest_dir(cfg, 'spoken_to', base_dir),
+                                  f"{title} — *read aloud.txt"))
                  if os.path.getmtime(f) < os.path.getmtime(path)]
         if stale:
             say("Heads up: the saved read-alouds are older than this "
@@ -758,16 +789,20 @@ def main():
     os.makedirs(prev_dir, exist_ok=True)
     if do_reads:
         for label in labels:
-            cur = os.path.join(base_dir,
+            cur = os.path.join(spoken_dir,
                                f"{title} — {label} part, read aloud.txt")
             if os.path.exists(cur):
                 shutil.copy2(cur, prev_dir)
 
-    for label in (labels + [None] if do_reads else []):
+    read_list = labels + [None] if do_reads else []
+    for ri, label in enumerate(read_list):
+        progress(2 + 10 * ri / max(len(read_list), 1),
+                 f"speaking the {label} part" if label
+                 else "speaking the form")
         argv = [path] + (['--part', label] if label else [])
         name = (f"{title} — {label} part, read aloud.txt" if label
                 else f"{title} — form, read aloud.txt")
-        out = os.path.join(base_dir, name)
+        out = os.path.join(spoken_dir, name)
         old_stdout, sys.stdout = sys.stdout, open(out, 'w', encoding='utf-8')
         try:
             sys.argv = ['chartread'] + argv
@@ -780,7 +815,8 @@ def main():
             "form.")
 
     # ---- the blast radius: what did this build change?
-    sentences, had = ((diff_readalouds(prev_dir, base_dir, title, labels))
+    sentences, had = ((diff_readalouds(prev_dir, spoken_dir, title,
+                                       labels))
                       if do_reads else ([], False))
     if had:
         if not sentences:
@@ -809,6 +845,8 @@ def main():
     borrowed = []
     failed = []
     listen_src = None
+    to_draw = [w for w in written if w.endswith('.musicxml')
+               and '— for listening' not in w]
     for src in written:
         if not src.endswith('.musicxml'):
             continue
@@ -817,7 +855,12 @@ def main():
             continue
         if args.no_pages or args.command == 'listen':
             continue
-        dst = src[:-len('.musicxml')] + '.pdf'
+        progress(12 + 13 * pages / max(len(to_draw), 1),
+                 "drawing " + os.path.basename(src)
+                 .replace('.musicxml', ''))
+        dst = os.path.join(pages_dir,
+                           os.path.basename(src)[:-len('.musicxml')]
+                           + '.pdf')
         why = None
         try:
             ok, why = chartengrave.engrave(src, dst, look=look)
@@ -846,16 +889,18 @@ def main():
 
     if not args.no_listen and listen_src:
         band = resolve_sounds(cfg)
-        robot = os.path.join(title_dir,
+        robot = os.path.join(listen_dir,
                              f"{title} — chart as written "
                              "(robot horns).mp3")
-        played = os.path.join(title_dir,
+        played = os.path.join(listen_dir,
                               f"{title} — chart as written.mp3")
         mp3 = played if band else robot
         stale = robot if band else played
         lead = [0.0]
         if render_listen(listen_src, mp3, say, count_in=args.count_in,
-                         lead=lead, samples=band):
+                         lead=lead, samples=band,
+                         on_progress=lambda f, w:
+                         progress(25 + 70 * f, w)):
             if os.path.exists(stale) and os.path.exists(mp3):
                 os.remove(stale)       # the other band's old take
             countin_words = (f", after {args.count_in} bar(s) of "
@@ -901,7 +946,7 @@ def main():
                         "the full MP3 stands.")
                     return
                 cut = os.path.join(
-                    title_dir, f"{title} — listen from bar "
+                    listen_dir, f"{title} — listen from bar "
                                f"{args.from_bar}.mp3")
                 subprocess.run(['ffmpeg', '-y', '-hide_banner',
                                 '-ss', f'{seconds:.2f}', '-i', mp3, cut],
@@ -915,7 +960,8 @@ def main():
     if args.solo and listen_src:
         wanted = [w.strip() for w in args.solo.split(',') if w.strip()]
         nice = " + ".join(wanted)
-        mp3 = os.path.join(title_dir, f"{title} — listen, {nice}.mp3")
+        mp3 = os.path.join(listen_dir,
+                           f"{title} — listen, {nice}.mp3")
         try:
             if render_listen(listen_src, mp3, say, only=wanted,
                              samples=resolve_sounds(cfg)):
@@ -929,8 +975,9 @@ def main():
     if cfg['notify'] == 'yes':
         notify_build(tname, f"{pages} page(s) built, listen ready."
                      if pages else "Built — listen ready.")
+    progress(100, "done")
     if cfg['open'] == 'yes' and pages:
-        open_pages(title_dir)
+        open_pages(pages_dir)
     marker = os.path.expanduser("~/.config/copyist/welcomed")
     if args.command == 'build' and not os.path.exists(marker):
         try:
