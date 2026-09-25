@@ -1942,6 +1942,35 @@ def check_roadmap():
           and len(final["figures"]) == 1
           and "C3 q" in open(chart_path, encoding="utf-8").read(),
           said)
+    # a stdin that answers forever without ever ending: on 2026-09-25
+    # this exact shape wrote 2.4 TB of one prompt into a log and
+    # filled the disk, because ask.eof only ever catches a real end
+    class _Endless:
+        def readline(self):
+            return "\n"
+
+    sys.stdin = _Endless()
+    chartedit.ask.same, chartedit.ask.repeats = None, 0
+    chartedit.ask.eof = False
+    try:
+        with redirect_stdout(io.StringIO()) as out:
+            try:
+                chartedit._ask_bars({"name": "heavy disco",
+                                     "bars": None})
+                ended = "it kept going"
+            except SystemExit as e:
+                ended = str(e)
+    finally:
+        sys.stdin = real_stdin
+        chartedit.ask.same, chartedit.ask.repeats = None, 0
+    said = out.getvalue()
+    check("a question that never gets through stops the run",
+          "runs away" in ended and "nothing written" in ended, ended)
+    check("and it stops after a handful of tries, not a terabyte",
+          said.count("heavy disco") <=
+          2 * (chartedit.ASK_REPEAT_LIMIT + 1)
+          and len(said) < 4000, f"{len(said)} bytes")
+
     shutil.rmtree(tmp, ignore_errors=True)
 
 

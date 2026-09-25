@@ -62,6 +62,30 @@ def say(line):
     sys.stdout.flush()
 
 
+# A retry loop only moves forward when an answer changes something.
+# On 2026-09-25 a run met a stdin that handed back blank lines and
+# never ended, so ask.eof stayed False, the bars question came round
+# again, and the pair repeated at 21 MB a second until 2.4 TB of the
+# same sentence had filled the disk. The same question answered the
+# same way this many times running has stopped being a conversation.
+ASK_REPEAT_LIMIT = 12
+
+
+def _answer(question, line):
+    """Hand an answer back, and end the run if this exact question has
+    come back with this exact answer too many times over."""
+    if (question, line) == ask.same:
+        ask.repeats += 1
+    else:
+        ask.same, ask.repeats = (question, line), 1
+    if ask.repeats > ASK_REPEAT_LIMIT:
+        sys.exit(f"chart: '{question}' came back the same "
+                 f"{ask.repeats} times running, so the answer is not "
+                 f"getting through. Stopping before this runs away — "
+                 f"nothing written.")
+    return line
+
+
 def ask(question, default=""):
     if porcelain():
         sys.stdout.write(json.dumps({"type": "ask", "text": question,
@@ -76,10 +100,12 @@ def ask(question, default=""):
         # loops know the writer is gone — a question asked forever
         # into a closed pipe once wrote half a megabyte of itself
         ask.eof = True
-        return default
+        return _answer(question, default)
     line = line.strip()
-    return line if line else default
+    return _answer(question, line if line else default)
 ask.eof = False
+ask.same = None
+ask.repeats = 0
 
 
 # --------------------------------------------------------- vocabulary
