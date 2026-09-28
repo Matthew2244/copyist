@@ -365,6 +365,38 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Where the PDF pages land: the "pages_to" setting, else the
+    /// chart's own build folder — the same rule the engine follows.
+    func pagesFolder() -> URL? {
+        guard let c = chart else { return nil }
+        let cfgURL = URL(fileURLWithPath: NSHomeDirectory()
+            + "/.config/copyist/config.json")
+        if let d = try? Data(contentsOf: cfgURL),
+           let j = try? JSONSerialization.jsonObject(with: d)
+                as? [String: Any],
+           let to = (j["pages_to"] as? String)?
+                .trimmingCharacters(in: .whitespaces), !to.isEmpty {
+            return URL(fileURLWithPath:
+                (to as NSString).expandingTildeInPath)
+        }
+        return URL(fileURLWithPath: c).deletingLastPathComponent()
+            .appendingPathComponent("build")
+    }
+
+    /// The conductor score this chart's last build drew, if any.
+    func scorePDF() -> URL? {
+        guard let dir = pagesFolder(), let c = chart else { return nil }
+        let title = chartName
+        let items = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil)) ?? []
+        return items.first { $0.lastPathComponent.hasSuffix(
+            "— score.pdf") && $0.lastPathComponent.hasPrefix(
+                title.replacingOccurrences(of: "/", with: " - ")) }
+            ?? items.first { $0.lastPathComponent.hasSuffix(
+                "— score.pdf") && c.contains(dir.deletingLastPathComponent()
+                    .path) }
+    }
+
     func newestMP3() -> URL? {
         guard let c = chart else { return nil }
         let dir = URL(fileURLWithPath: c).deletingLastPathComponent()
@@ -985,6 +1017,39 @@ struct RunView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(pal.accent)
                     .accessibilityLabel("Play the listen MP3")
+                }
+                if !model.running && model.chart != nil {
+                    if model.runTitle == "Bring in a file" {
+                        Button {
+                            model.run("Build", args: ["build"])
+                        } label: {
+                            Label("Build it now", systemImage: "hammer")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    if model.playURL != nil || model.runTitle == "Build",
+                       let score = model.scorePDF() {
+                        Button {
+                            NSWorkspace.shared.open(score)
+                        } label: {
+                            Label("Open the score",
+                                  systemImage: "doc.richtext")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    if model.runTitle == "Build",
+                       let dir = model.pagesFolder(),
+                       FileManager.default.fileExists(atPath: dir.path) {
+                        Button {
+                            NSWorkspace.shared.activateFileViewerSelecting(
+                                [dir])
+                        } label: {
+                            Label("Show the pages", systemImage: "folder")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("Opens the folder with every "
+                                           + "part's PDF in Finder")
+                    }
                 }
                 if model.running {
                     Button("Stop") { model.stopRun() }

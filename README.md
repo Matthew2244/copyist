@@ -175,6 +175,16 @@ default look, a phone ping when a build lands, whether the score pops open.
 Every setting states what it is currently set to before you change it, because
 a screen reader user should never have to change something to learn what it was.
 
+## Bring in what you have
+
+`chart import FILE`, or the app's Bring in a file card (drop anything on
+the window): a MusicXML or .mxl score becomes a chart with its band,
+sections, chords, key and tempo, every part's bars lifted exactly; a
+MIDI demo goes to the interview; words and chord sheets come in from
+any text format. On the author's own book, 27 of 27 scores import and
+compile clean, and 25 of 25 of the Sibelius example scores. Formats
+it can't read yet are refused in one sentence naming the way in.
+
 ## The apps
 
 **Copyist.app** (the `app` folder, described above) is the Mac front door.

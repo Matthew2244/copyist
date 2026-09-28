@@ -380,6 +380,32 @@ All of these ride on a `from demo` line, after commas:
   commas out of quoted text (use a dash). The comma is how instructions
   are separated.
 
+## Bringing in what you have
+
+    python3 prototype/chart.py import "Blue Rondo.mxl"
+
+In the app it's the first card, Bring in a file, or drop the file on
+the window. Whatever you're holding:
+
+- **A score** (MusicXML, or the compressed .mxl most programs export)
+  becomes a chart in its own folder in Copyist Charts, the score copied
+  beside it. The band comes from its parts, the sections from its
+  rehearsal marks (or the section words written over a bar, like
+  "Intro" or "vamp 1"), the changes from its chord symbols, and the
+  key, meter, tempo and credits from the score. Every part's bars are
+  lifted exactly, so nothing is retyped. The key is the concert key
+  even when the first part is an alto. It compiles the first time:
+  every score in the author's own book does.
+- **A MuseScore file** goes through MuseScore if it's installed.
+- **A MIDI demo** goes to the interview below.
+- **Words and chords** in any text format: see the next section.
+- **Anything it can't read** (Sibelius, Finale, Dorico, Guitar Pro, a
+  DAW project, audio, a picture) gets one sentence naming the way in,
+  usually "export MusicXML" or "export the MIDI".
+
+It never writes over a chart. A second version of a tune gets its
+file's name, or a number.
+
 ## Starting from nothing
 
     python3 prototype/chart.py "Uptown Local.chart" new --demo horns.mid
