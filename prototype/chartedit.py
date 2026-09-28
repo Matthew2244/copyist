@@ -933,6 +933,49 @@ def _dur_at(toks, i):
     return None, 0
 
 
+def _ornament_at(toks, i, text):
+    """'trill', 'trill half step', 'trill minor third', 'trill to G5',
+    'tremolo', 'roll', 'tremolo to E5' after a spoken note -> the notes
+    grammar suffix (' tr minor 3rd'), and where reading stops."""
+    if i >= len(toks):
+        return "", i
+    w = toks[i].lower()
+    if w not in ("trill", "tr", "tremolo", "trem", "roll"):
+        return "", i
+    head = "tr" if w in ("trill", "tr") else "trem"
+    i += 1
+    nxt = [t.lower() for t in toks[i:i + 2]]
+    words = {("half",): "half", ("whole",): "whole",
+             ("minor", "third"): "minor 3rd", ("minor", "3rd"): "minor 3rd",
+             ("major", "third"): "major 3rd", ("major", "3rd"): "major 3rd",
+             ("augmented", "second"): "aug 2nd", ("aug", "2nd"): "aug 2nd",
+             ("fourth",): "4th", ("4th",): "4th"}
+    if head == "tr":
+        for key, val in words.items():
+            if tuple(nxt[:len(key)]) == key:
+                i += len(key)
+                if i < len(toks) and toks[i].lower() == "step":
+                    i += 1
+                return f" tr {val}", i
+    if i < len(toks) and toks[i].lower() == "to" and i + 1 < len(toks):
+        m = re.fullmatch(r"([a-g])([b#]?)(-?\d)?", toks[i + 1].lower())
+        if not m:
+            raise SpokenError(toks[i + 1], text)
+        acc, octv, j = m.group(2), m.group(3), i + 2
+        if not acc and j < len(toks) and toks[j].lower() in ("flat",
+                                                            "sharp"):
+            acc = "b" if toks[j].lower() == "flat" else "#"
+            j += 1
+        if octv is None and j < len(toks) and \
+                re.fullmatch(r"-?\d", toks[j]):
+            octv = toks[j]
+            j += 1
+        if octv is None:
+            raise SpokenError(toks[i + 1] + " (which octave?)", text)
+        return f" {head} to {m.group(1).upper()}{acc}{octv}", j
+    return f" {head}", i
+
+
 def notes_from_words(text):
     """'F4 quarter, G eighth, rest eighth, up B flat half' -> notes:
     grammar text.  Raises SpokenError on a word it cannot read."""
@@ -1007,7 +1050,8 @@ def notes_from_words(text):
         dirn = None
         prev_midi = midi
         octave = midi // 12 - 1
-        pieces.append(f"{letter.upper()}{acc}{octave} {d}")
+        orn, i = _ornament_at(toks, i, text)
+        pieces.append(f"{letter.upper()}{acc}{octave} {d}{orn}")
     if not pieces:
         raise SpokenError(text.strip() or "(empty)", text)
     return ", ".join(pieces)
@@ -1018,7 +1062,7 @@ def notes_ticks(text):
     or None with the error sentence when it refuses."""
     try:
         items, _, _ = chartc.parse_notes(text, "the line")
-        return sum(t for t, _ in items), None
+        return sum(it[0] for it in items), None
     except SystemExit as e:
         return None, str(e.code)
 

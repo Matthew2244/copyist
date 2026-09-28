@@ -66,6 +66,8 @@ SMUFL = {
     'brace': 0xE000, 'dot': 0xE1E7, 'repeat1Bar': 0xE500,
     'marcato': 0xE4AC, 'accent': 0xE4A0, 'stacc': 0xE4A2,
     'fermata': 0xE4C0,
+    'ornamentTrill': 0xE566, 'wiggleTrill': 0xEAA4,
+    'tremolo1': 0xE220, 'tremolo2': 0xE221, 'tremolo3': 0xE222,
     'tenuto': 0xE4A4,
     'dynP': 0xE520, 'dynF': 0xE522, 'dynMP': 0xE52C, 'dynMF': 0xE52D,
     'dynPP': 0xE52B, 'dynFF': 0xE52F, 'dynSFZ': 0xE539, 'dynFP': 0xE534,
@@ -655,7 +657,9 @@ class Note:
                  'slur_stop', 'artic', 'slash', 'head', 'parens', 'cue',
                  'lyric', 'fermata',
                  'tmod', 'measure_rest',
-                 'grace', 'grace_slash', 'graces')
+                 'grace', 'grace_slash', 'graces',
+                 'trill', 'trill_acc', 'trill_to', 'wavy', 'trem',
+                 'trem2')
 
 
 def _parse_note(t):
@@ -695,6 +699,20 @@ def _parse_note(t):
     n.lyric = (m.group(1), m.group(2), bool(m.group(3))) if m else None
     m = re.search(r'<actual-notes>(\d+)</actual-notes>', t)
     n.tmod = int(m.group(1)) if m else None
+    n.trill = '<trill-mark' in t
+    m = re.search(r'<accidental-mark[^>]*>([\w-]+)</accidental-mark>', t)
+    n.trill_acc = ({'sharp': 1, 'flat': -1, 'natural': 0,
+                    'double-sharp': 2, 'sharp-sharp': 2,
+                    'flat-flat': -2}.get(m.group(1)) if m else None)
+    m = re.search(r'<other-ornament[^>]*>\(([A-G])(bb|b|#|x)?(\d)\)', t)
+    n.trill_to = ((m.group(1), {'bb': -2, 'b': -1, '#': 1,
+                                'x': 2}.get(m.group(2), 0),
+                   int(m.group(3))) if m else None)
+    n.wavy = '<wavy-line' in t
+    m = re.search(r'<tremolo type="single">(\d)', t)
+    n.trem = int(m.group(1)) if m else 0
+    m = re.search(r'<tremolo type="(start|stop)">(\d)', t)
+    n.trem2 = (m.group(1), int(m.group(2))) if m else None
     n.grace = '<grace' in t
     n.grace_slash = bool(re.search(r'<grace[^>]*slash="yes"', t))
     n.graces = []
@@ -912,7 +930,9 @@ def parse_part(xml, pid):
                             n.alter, n.ntype, n.dots, n.head, n.parens,
                             n.artic, tuple((g.step, g.octave, g.alter)
                                            for grp in n.graces
-                                           for g in grp)))
+                                           for g in grp),
+                            n.trill, n.trill_acc, n.trill_to, n.wavy,
+                            n.trem, n.trem2))
             evs.append((pos, staff, voice, tuple(row)))
         return tuple(evs) if playing else None
 
@@ -978,6 +998,8 @@ def ink_needs(meas):
             r = max(r, (1.9 + 0.7 * n0.dots) * SP)
         if n0.graces:
             l += grace_room(n0)
+        if getattr(n0, 'trill_to', None):
+            r = max(r, 4.2 * SP)
         if n0.artic in ('scoop', 'plop'):
             l += 3.6 * SP
         elif n0.artic in ('falloff', 'doit'):
@@ -996,6 +1018,43 @@ def grace_room(n0):
     accs = sum(1 for grp in n0.graces for g in grp
                if g.show_acc is not None)
     return len(n0.graces) * GRACE_STEP + accs * 1.2 * SP + 0.6 * SP
+
+
+def draw_trill(pdf, n0, cx, ys, top, clef, end_x):
+    """tr over the note (an accidental above it when the upper note
+    leaves the key), a wavy line to the note's end, and — for a trill
+    wider than a second — its target as a small head in parentheses
+    just after the note."""
+    ty = max(top + 1.4 * SP, max(ys) + 2.8 * SP)
+    if n0.artic in ('strong-accent', 'accent'):
+        ty += 2.0 * SP
+    x = cx - 1.0 * SP
+    if n0.trill:
+        if not pdf.glyph(x, ty, 'ornamentTrill', 4 * SP):
+            pdf.text(x, ty, 'tr', size=11, font='HB')
+        if n0.trill_acc is not None:
+            draw_accidental(pdf, cx + 0.2 * SP, ty + 2.6 * SP,
+                            n0.trill_acc, scale=0.6)
+        x += 3.0 * SP
+    # the wavy line runs on to the note's end, ties included
+    if end_x - x > 2.0 * SP:
+        wy = ty + 0.5 * SP
+        pts, k, xx = [], 0, x
+        while xx < end_x - 2.4 * SP:
+            pts.append((xx, wy + (0.35 * SP if k % 2 else -0.35 * SP)))
+            xx += 0.55 * SP
+            k += 1
+        if len(pts) > 1:
+            for a, b in zip(pts, pts[1:]):
+                pdf.line(a[0], a[1], b[0], b[1], w=0.9)
+    if n0.trill_to:
+        st, al, oc = n0.trill_to
+        yy = top - STAFF + step_pos(st, oc, clef) * SP / 2
+        hx = cx + 3.0 * SP
+        if al:
+            draw_accidental(pdf, hx - 1.3 * SP, yy, al, scale=0.62)
+            hx += 0.4 * SP
+        notehead(pdf, hx, yy, 'black', scale=0.62, parens=True)
 
 
 def draw_graces(pdf, n0, right_x, top, clef):
@@ -1707,6 +1766,7 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
     arc across a barline is one true curve, not a hint."""
     mid = top - STAFF / 2
     pend_beam = []
+    trem_open = []
     slur_open = opens if opens is not None else []
     drawn = []
     # notes that will beam together share one stem direction, decided
@@ -1866,7 +1926,53 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                          bottom_y - 4.6 * SP,
                          xat(pos + n0.dur * 0.9),
                          bottom_y - 4.6 * SP, w=0.8)
-        if n0.tmod and (not drawn or drawn[-1] != pos // beat_len):
+        if n0.trill or n0.wavy:
+            draw_trill(pdf, n0, cx, ys, top, clef,
+                       xat(pos + n0.dur) if n0.dur else cx + 3 * SP)
+        if n0.trem and n0.ntype != 'whole':
+            # strokes across the stem, halfway along it
+            sy = (tip + (min(ys) if up else max(ys))) / 2
+            for k in range(n0.trem):
+                yk = sy + (k - (n0.trem - 1) / 2) * 0.9 * SP
+                pdf.poly([(stem_x - 1.1 * SP, yk - 0.45 * SP),
+                          (stem_x + 1.1 * SP, yk + 0.15 * SP),
+                          (stem_x + 1.1 * SP, yk + 0.55 * SP),
+                          (stem_x - 1.1 * SP, yk - 0.05 * SP)], fill=True)
+        elif n0.trem:
+            for k in range(n0.trem):
+                yk = max(ys) + 2.2 * SP + k * 0.9 * SP
+                pdf.poly([(cx - 1.1 * SP, yk - 0.45 * SP),
+                          (cx + 1.1 * SP, yk + 0.15 * SP),
+                          (cx + 1.1 * SP, yk + 0.55 * SP),
+                          (cx - 1.1 * SP, yk - 0.05 * SP)], fill=True)
+        if n0.trem2:
+            kind, nb = n0.trem2
+            ym = sum(ys) / len(ys)
+            if kind == 'start':
+                trem_open[:] = [cx, ym]
+            elif trem_open:
+                # the fingered tremolo: beams floating between the two
+                # heads, the way the orchestral books print it
+                x1, y1 = trem_open
+                trem_open[:] = []
+                xa, xb = x1 + 1.8 * SP, cx - 1.8 * SP
+                if xb - xa > 6 * SP:
+                    # short and centred, however far apart the heads
+                    # sit — engravers never stretch these across a bar
+                    mid_x, span = (xa + xb) / 2, 3 * SP
+                    frac_a = (mid_x - span - x1) / max(cx - x1, 1)
+                    frac_b = (mid_x + span - x1) / max(cx - x1, 1)
+                    y1, ym = (y1 + (ym - y1) * frac_a,
+                              y1 + (ym - y1) * frac_b)
+                    xa, xb = mid_x - span, mid_x + span
+                lift = 1.2 * SP
+                for k in range(nb):
+                    dy = lift - k * 0.9 * SP
+                    pdf.poly([(xa, y1 + dy), (xb, ym + dy),
+                              (xb, ym + dy - 0.5 * SP),
+                              (xa, y1 + dy - 0.5 * SP)], fill=True)
+        if n0.tmod and not n0.trem2 \
+                and (not drawn or drawn[-1] != pos // beat_len):
             pdf.text(xat(pos + beat_len / 2 - n0.dur / 2),
                      (tip + (1.6 * SP if up else -2.6 * SP)),
                      str(n0.tmod), size=8, font='HO', center=True)

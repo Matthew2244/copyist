@@ -166,6 +166,79 @@ def load_demo(path):
     return _DEMOS[path]
 
 
+def find_trills(notes, beat):
+    """Played ornaments in raw notes [(on, off, pitch, vel)], sorted by
+    onset, each collapsed to one written note:
+
+      trill    a fast strict back-and-forth a half step to a major third
+               apart (a fourth or wider is a fingered tremolo instead,
+               the way the orchestral books write it)
+      ftrem    that back-and-forth a fourth to an octave apart
+      trem     one pitch re-struck fast — a bowed tremolo, a mallet
+               roll, a piano's repeated note
+
+    Faster than sixteenths, four alternations (six re-strikes) are an
+    ornament; at sixteenth speed an alternation takes eight and a
+    re-strike never counts, so measured sixteenths stay notes. Other
+    pitches (the other hand, a held chord) are looked past. Returns
+    (kept notes, [(on, off, main, aux, vel, count, kind)]); main is the
+    lower pitch, aux the upper (equal for a tremolo)."""
+    six = beat / 4
+    gap = beat * 0.3
+    used, found = set(), []
+    for i, (on0, _off0, a, _v) in enumerate(notes):
+        if i in used:
+            continue
+        best = None
+        for same in (False, True):
+            chain, other, last = [i], (a if same else None), on0
+            k = i + 1
+            while k < len(notes):
+                on, _off, p, _v2 = notes[k]
+                if on - last > gap:
+                    break
+                if k in used or on <= last:
+                    k += 1
+                    continue
+                if other is None and 1 <= abs(p - a) <= 12:
+                    other = p
+                expect = other if len(chain) % 2 else a
+                if p == expect and other is not None:
+                    chain.append(k)
+                    last = on
+                k += 1
+            if len(chain) < 4:
+                continue
+            ons = [notes[c][0] for c in chain]
+            mean = (ons[-1] - ons[0]) / (len(ons) - 1)
+            if same:
+                ok = mean < six * 0.8 and len(chain) >= 6
+            else:
+                ok = (mean < six * 0.9) or (mean <= six * 1.1
+                                            and len(chain) >= 8)
+            if ok and (best is None or len(chain) > len(best[0])):
+                best = (chain, other, same)
+        if best is None:
+            continue
+        chain, other, same = best
+        used.update(chain)
+        span = abs(other - a)
+        kind = 'trem' if same else ('trill' if span <= 4 else 'ftrem')
+        found.append((notes[chain[0]][0],
+                      max(notes[c][1] for c in chain),
+                      min(a, other), max(a, other),
+                      max(notes[c][3] for c in chain), len(chain), kind))
+    kept = [n for i, n in enumerate(notes) if i not in used]
+    kept += [(on, off, main, vel) for on, off, main, _aux, vel, _n, _k
+             in found]
+    return sorted(kept), found
+
+
+INTERVAL_WORD = {1: 'a half step', 2: 'a whole step',
+                 3: 'a minor third', 4: 'a major third',
+                 5: 'a fourth', 6: 'a tritone', 7: 'a fifth'}
+
+
 def _mono_tl(events, n_units):
     """One voice's cleanup: truncate at the voice's next onset, close
     slivers of daylight, cap at the figure's end."""
@@ -447,7 +520,33 @@ def attach_lyrics(res, text, part_label, loc, find=None):
     res['lyrics_text'] = text
 
 
-def inline_res(ref, meter, spoken_shift):
+def trill_target(midi, spec, fifths):
+    """A written trill spec on a concert note -> the concert target.
+    ('key',): the next letter up with the key's accidental on it — E in
+    C trills to F (a half step), D to E (a whole step)."""
+    kind = spec[0]
+    if kind == 'ftrem':
+        return (spec[1], 'trem')
+    if kind == 'to':
+        return (spec[1], spec[2])          # the writer's own letter
+    if kind == 'second' or (kind == 'up' and spec[1] <= 2):
+        return (midi + spec[1], 'second')
+    if kind == 'up':
+        return (midi + spec[1], 'auto')
+    step, _alter, octave = convert.spell(midi,
+                                         spelling_table(fifths, Findings()))
+    letters = 'CDEFGAB'
+    nat = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
+    i = letters.index(step)
+    up = letters[(i + 1) % 7]
+    oct_up = octave + (1 if up == 'C' else 0)
+    sharps, flats = 'FCGDAEB', 'BEADGCF'
+    kalt = (1 if fifths > 0 and up in sharps[:fifths] else
+            -1 if fifths < 0 and up in flats[:-fifths] else 0)
+    return (nat[up] + kalt + (oct_up + 1) * 12, 'second')
+
+
+def inline_res(ref, meter, spoken_shift, fifths=0):
     """A hand-written figure (CHART-FORMAT.md 3.4 notes:), shaped exactly
     like a resolved demo range so the page, the prose and the player need
     nothing new. Notes are concert pitch, like everything spoken."""
@@ -461,10 +560,15 @@ def inline_res(ref, meter, spoken_shift):
             f"chartc: {ref['loc']}: the figure's notes fill "
             f"{ref['ticks'] / DIV:g} beats but {bars} bar(s) of "
             f"{m_num}/{m_den} hold {n_units / DIV:g}")
-    timeline, pos = [], 0
-    for ticks, midi in ref['inline']:
+    timeline, pos, trills, trems = [], 0, {}, {}
+    for item in ref['inline']:
+        ticks, midi = item[0], item[1]
         if midi is not None:
             timeline.append((pos, pos + ticks, [midi]))
+            if len(item) > 2 and item[2][0] == 'trem':
+                trems[(pos, midi)] = 3
+            elif len(item) > 2:
+                trills[(pos, midi)] = trill_target(midi, item[2], fifths)
         pos += ticks
     if ref.get('short') and timeline:
         s, e, ps = timeline[-1]
@@ -475,7 +579,8 @@ def inline_res(ref, meter, spoken_shift):
     return ({'timeline': timeline, 'grids': grids, 'n_units': n_units,
              'at': ref['at'], 'bars': (1, bars), 'dyns': [],
              'slurs': [], 'ghosts': set(), 'staves': None,
-             'spoken_shift': spoken_shift,
+             'spoken_shift': spoken_shift, 'trills': trills,
+             'trems': trems,
              'bar_ticks': bar_ticks, 'pulse_div': pulse_div}, raw)
 
 
@@ -484,7 +589,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   derive_dyns=True, short=False, spoken_shift=0,
                   poly=False, grand=False, reach=17, comfortable=14,
                   legato=False, ghost=False, detail=None, meter=(4, 4),
-                  window=None, part_label="", findings=None, drums=False):
+                  window=None, part_label="", findings=None, drums=False,
+                  trills=True):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
     into a quantized timeline of sounding pitches starting at absolute
@@ -543,6 +649,27 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     moved = [(on - lag - lo_t, off - lag - lo_t, p, v)
              for on, off, p, v in picked]
 
+    # ---- a played trill is one note with a trill on it, not a pile of
+    # thirty-seconds: collapse it before the grid is chosen, and keep
+    # the exact upper note the fingers went to
+    trill_on = {}
+    if trills and not drums and detail != 'rhythmic-slashes':
+        moved, found = find_trills(sorted(moved), beat)
+        for on, _off, main, aux, _v, count, kind in found:
+            trill_on[on] = (main, aux, kind)
+            fb = bar_lo + int(max(on, 0) // tick_bar) + spoken_shift
+            gap_w = INTERVAL_WORD.get(aux - main,
+                                      f"{aux - main} semitones")
+            find.add(f"{part_label}: bar {fb}: " + (
+                f"a played tremolo, one note struck {count} times — "
+                "written as one note with tremolo strokes"
+                if kind == 'trem' else
+                f"a played trill, {count} notes {gap_w} apart — "
+                "written as one note with a trill"
+                if kind == 'trill' else
+                f"a played tremolo between two notes {gap_w} apart — "
+                "written as a fingered tremolo"))
+
     # ---- per-beat grid, then snap. A `quant` hint from the writer beats
     # any statistics: "eighths" means these bars are eighth notes, full stop.
     allow = ALLOW
@@ -581,9 +708,14 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     default_sub = {'quarters': 1, 'eighths': 2, 'grid8': 2, 'triplet8': 3,
                    'triplet16': 6}.get(quant, 4)
 
+    trill_map = {}       # (chart onset, sounding pitch) -> trill target
+    trem_map = {}        # (chart onset, sounding pitch) -> strokes
     events = {}          # chart-tick onset -> [(pitch, q_off, raw_on,
                          #                        raw_off, velocity)]
     for on, off, p, v in moved:
+        trill_here = trill_on.get(on)
+        if trill_here and trill_here[0] != p:
+            trill_here = None              # a chord tone sharing the onset
         on = max(0, on)
         b = int(on // beat)
         sub = grids.get(b, default_sub)
@@ -630,6 +762,14 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                          f"{abs(folded - p) // 12} octave(s) into range")
                 p = folded
         events.setdefault(q_on, []).append((p, q_off, on, off, v))
+        if trill_here and trill_here[2] == 'trem':
+            trem_map[(q_on, p)] = 3
+        elif trill_here:
+            # the target moves with the note: octave shift and folding
+            aux = trill_here[1] + (p - trill_here[0])
+            trill_map[(q_on, p)] = (aux, 'trem' if trill_here[2] ==
+                                    'ftrem' else 'second' if aux - p <= 2
+                                    else 'auto')
 
     # A horn is one voice: when several played notes land on one slot,
     # the latest-played keeps it and earlier ones step back one free
@@ -850,7 +990,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             'slurs': slurs, 'ghosts': ghosts, 'detail': detail,
             'spoken_shift': spoken_shift, 'staves': staves_out,
             'bar_ticks': bar_ticks, 'pulse_div': pulse_div,
-            'drums': drums, 'drum_cap': drum_cap if drums else None}
+            'drums': drums, 'drum_cap': drum_cap if drums else None,
+            'trills': trill_map, 'trems': trem_map}
 
 
 def bend_indices(res, bends):
@@ -883,6 +1024,24 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     timeline = res['timeline']
     grids_chart = res['grids']
     table = spelling_table(fifths_written, find)
+    trills = res.get('trills') or {}
+
+    def trill_of(start, pitches):
+        for p in pitches:
+            if (start, p) in trills:
+                aux, form = trills[(start, p)]
+                return {'main': p, 'aux': aux, 'form': form,
+                        'fifths': fifths_written}
+        return None
+    res['_trill_of'] = trill_of
+    trems = res.get('trems') or {}
+
+    def trem_of(start, pitches):
+        for p in pitches:
+            if (start, p) in trems:
+                return trems[(start, p)]
+        return None
+    res['_trem_of'] = trem_of
     last_artic = ('falloff' if fall else 'doit' if doit else
                   'staccato' if short else None)
     bends = bend_indices(res, scoops)
@@ -1007,7 +1166,8 @@ def render_range(res, fifths_written, transpose_to_written, fall,
               transpose_to_written, bend=bends.get(ti), bar=bar_ticks,
               slur=(ti in slur_a, ti in slur_b), ghost=ti in ghosts,
               lyric=lyr[ti] if lyr else None, cue=cue, slash=slash,
-              drums=drums)
+              drums=drums, trill=trill_of(start, pitches),
+              trem=trem_of(start, pitches))
         pos = end
     if pos < n_units:
         _emit(out, at_bar, pos, n_units, None, table, grids_chart,
@@ -1064,7 +1224,9 @@ def _render_voices(res, table, transpose, every, last_artic):
                           transpose, bar=bar_ticks,
                           voice=voice_no, staff=staff_no,
                           slur=(ti in slur_a, ti in slur_b),
-                          ghost=ti in gset)
+                          ghost=ti in gset,
+                          trill=res['_trill_of'](s, ps),
+                          trem=res['_trem_of'](s, ps))
                     pos = e
                 if pos < n_units:
                     _emit(outd, at_bar, pos, n_units, None, table, grids,
@@ -1094,7 +1256,9 @@ def _render_voices(res, table, transpose, every, last_artic):
                                   voice=voice_no, staff=staff_no)
                         _emit(outd, at_bar, s, e, ps, table, grids, None,
                               transpose, bar=bar_ticks,
-                              voice=voice_no, staff=staff_no)
+                              voice=voice_no, staff=staff_no,
+                              trill=res['_trill_of'](s, ps),
+                              trem=res['_trem_of'](s, ps))
                         pos = e
                         idx += 1
                     if pos < r1:
@@ -1170,9 +1334,17 @@ def _name(ticks, sub):
 
 def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
           bend=None, bar=BAR, voice=1, staff=0, slur=(False, False),
-          ghost=False, lyric=None, cue=False, slash=False, drums=False):
+          ghost=False, lyric=None, cue=False, slash=False, drums=False,
+          trill=None, trem=None):
     staff_xml = f'        <staff>{staff}</staff>\n' if staff else ''
     pieces = _pieces(start, end, grids, bar)
+    if trill and trill.get('form') == 'trem' and pitches \
+            and len(pitches) == 1 and not (slash or drums or cue):
+        if _emit_ftrem(out, at_bar, pieces, grids, bar, pitches[0],
+                       trill, table, transpose, voice, staff_xml, artic,
+                       lyric):
+            return
+        trill = dict(trill, form='auto')   # tied or odd: tr to (note)
     for pi, (a, b) in enumerate(pieces):
         bar_no = at_bar + a // bar
         if bar_no not in out:
@@ -1282,6 +1454,24 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                 if arts:
                     notations.append('<articulations>' + ''.join(arts)
                                      + '</articulations>')
+                if trem and not slash and not drums and ni == 0:
+                    notations.append('<ornaments><tremolo type="single">'
+                                     f'{trem}</tremolo></ornaments>')
+                if trill and not slash and not drums \
+                        and p == trill['main']:
+                    orn = []
+                    if pfirst:
+                        orn += trill_marks(step, alter, octave,
+                                           trill['aux'] + transpose,
+                                           trill['fifths'], table,
+                                           trill.get('form', 'auto'),
+                                           transpose)
+                        orn.append('<wavy-line type="start"/>')
+                    if plast:
+                        orn.append('<wavy-line type="stop"/>')
+                    if orn:
+                        notations.append('<ornaments>' + ''.join(orn)
+                                         + '</ornaments>')
                 if notations:
                     lines.append('        <notations>' + ''.join(notations)
                                  + '</notations>')
@@ -1294,6 +1484,137 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                                  + '</lyric>')
                 lines.append('      </note>')
                 out[bar_no].append("\n".join(lines) + "\n")
+
+
+def _emit_ftrem(out, at_bar, pieces, grids, bar, main, trill, table,
+                transpose, voice, staff_xml, artic, lyric):
+    """A fingered tremolo: the note's time shared by two notes, each
+    printed at the full value (a half-note tremolo shows two half
+    notes), 2:1 in the time, three floating beams between them — how
+    the orchestral books print a wide shake. Only a note that is one
+    plain piece of a quarter or longer can wear it; anything else says
+    no and becomes a trill to its note."""
+    if len(pieces) != 1:
+        return False
+    a, b = pieces[0]
+    parts = _name(b - a, grids.get(a // DIV, 4))
+    if len(parts) != 1:
+        return False
+    plen, ptype, dots, mod = parts[0]
+    if mod or dots or plen % 2 or ptype not in ('whole', 'half',
+                                                'quarter'):
+        return False
+    bar_no = at_bar + a // bar
+    if bar_no not in out:
+        return True
+    for k, midi in enumerate((main, trill['aux'])):
+        step, alter, octave = convert.spell(midi + transpose, table)
+        lines = ['      <note>',
+                 '        <pitch>' f'<step>{step}</step>'
+                 + (f'<alter>{alter}</alter>' if alter else '')
+                 + f'<octave>{octave}</octave></pitch>',
+                 f'        <duration>{plen // 2}</duration>',
+                 f'        <voice>{voice}</voice>',
+                 f'        <type>{ptype}</type>']
+        if alter:
+            lines.append(f'        <accidental>{ACC_NAME[alter]}'
+                         '</accidental>')
+        lines.append('        <time-modification><actual-notes>2'
+                     '</actual-notes><normal-notes>1</normal-notes>'
+                     '</time-modification>')
+        if staff_xml:
+            lines.append(staff_xml.rstrip())
+        nots = ['<ornaments><tremolo type="'
+                + ('start' if k == 0 else 'stop') + '">3</tremolo>'
+                '</ornaments>']
+        if artic and k == 1:
+            nots.append(f'<articulations><{artic}/></articulations>')
+        lines.append('        <notations>' + ''.join(nots)
+                     + '</notations>')
+        if lyric and k == 0:
+            syl, txt, ext = lyric
+            lines.append('        <lyric>'
+                         f'<syllabic>{syl}</syllabic><text>{txt}</text>'
+                         + ('<extend/>' if ext else '') + '</lyric>')
+        lines.append('      </note>')
+        out[bar_no].append("\n".join(lines) + "\n")
+    return True
+
+
+def key_alter(letter, fifths):
+    sharps, flats = 'FCGDAEB', 'BEADGCF'
+    return (1 if fifths > 0 and letter in sharps[:fifths] else
+            -1 if fifths < 0 and letter in flats[:-fifths] else 0)
+
+
+ACC_TEXT = {-2: 'bb', -1: 'b', 0: '', 1: '#', 2: 'x'}
+
+
+def spell_trill(step, alter, octave, aux_written, fifths, table,
+                form='auto', transpose=0):
+    """Where a trill's target sits on the page: (letter, alter, octave,
+    second). A half or whole step, and an augmented second, stay on the
+    next letter up; `tr to D#5` keeps the writer's letter through the
+    horn's transposition; anything else takes the key's spelling."""
+    nat = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
+    letters = 'CDEFGAB'
+    up = letters[(letters.index(step) + 1) % 7]
+    oct_up = octave + (1 if up == 'C' else 0)
+    diff = aux_written - (nat[up] + (oct_up + 1) * 12)
+    if len(form) == 1:
+        shift = {0: 0, 2: 1, -10: 1, 3: 2, 5: 3, 7: 4, 9: 5, -3: 5,
+                 -5: 4, -7: 3, -9: 2, 14: 1, 21: 5, 12: 0, -12: 0,
+                 -24: 0, 24: 0}.get(transpose)
+        if shift is not None:
+            lw = letters[(letters.index(form) + shift) % 7]
+            oc = (aux_written // 12) - 1
+            for o in (oc - 1, oc, oc + 1):
+                al = aux_written - (nat[lw] + (o + 1) * 12)
+                if -2 <= al <= 2:
+                    return (lw, al, o, lw == up and o == oct_up)
+        form = 'auto'
+    if form == 'second' and -2 <= diff <= 2:
+        return (up, diff, oct_up, True)
+    st, al, oc = convert.spell(aux_written, table)
+    return (st, al, oc, st == up and oc == oct_up)
+
+
+def trill_marks(step, alter, octave, aux_written, fifths, table,
+                form='auto', transpose=0):
+    """The ornament children for a trill: the mark, an accidental over
+    it when a second's target leaves the key, or — for anything wider —
+    the target named in parentheses, the small note an engraver draws
+    after the head and the exact pitch our player alternates with."""
+    lw, al, oc, second = spell_trill(step, alter, octave, aux_written,
+                                     fifths, table, form, transpose)
+    out = ['<trill-mark/>']
+    if second:
+        if al != key_alter(lw, fifths):
+            out.append(f'<accidental-mark>{ACC_NAME[al]}'
+                       '</accidental-mark>')
+        return out
+    out.append(f'<other-ornament>({lw}{ACC_TEXT[al]}{oc})'
+               '</other-ornament>')
+    return out
+
+
+INTERVAL_NAME = {(1, 0): 'a unison', (1, 1): 'a half step',
+                 (1, 2): 'a whole step', (1, 3): 'an augmented second',
+                 (2, 2): 'a diminished third', (2, 3): 'a minor third',
+                 (2, 4): 'a major third', (3, 4): 'a diminished fourth',
+                 (3, 5): 'a fourth', (3, 6): 'an augmented fourth',
+                 (4, 6): 'a diminished fifth', (4, 7): 'a fifth',
+                 (4, 8): 'an augmented fifth', (5, 8): 'a minor sixth',
+                 (5, 9): 'a major sixth', (6, 10): 'a minor seventh',
+                 (6, 11): 'a major seventh', (0, 12): 'an octave'}
+
+
+def name_interval(step, octave, lw, oc, semis):
+    letters = 'CDEFGAB'
+    steps = (letters.index(lw) + 7 * oc) - (letters.index(step)
+                                            + 7 * octave)
+    return INTERVAL_NAME.get((steps % 7 if steps < 7 else 0, semis),
+                             f"{semis} semitones")
 
 
 def _mod_xml(mod):
@@ -1349,13 +1670,14 @@ def _say_dur(ticks):
 
 def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
             fall=False, doit=False, short=False, slurs=(), ghosts=(),
-            lyrics=None):
+            lyrics=None, orn=None):
     """One voice's timeline -> {abs_bar: [clauses]} — the run-grouping
     prose, shared by the flat path and each voice of a polyphonic part."""
     out = {}
     slur_a = {a for a, _ in slurs}
     slur_end = {a: b for a, b in slurs}
     ghosts = set(ghosts)
+    orn = orn or {}
     i = 0
     while i < len(tl):
         start, end, pitches = tl[i]
@@ -1369,6 +1691,7 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
                and len(tl[j + 1][2]) == 1 and len(pitches) == 1
                and j not in bends and (j + 1) not in bends
                and (j + 1) not in slur_a
+               and tl[j][0] not in orn and tl[j + 1][0] not in orn
                and ((j + 1) in ghosts) == (i in ghosts)):
             j += 1
         bar = at_bar + start // bar_ticks
@@ -1394,6 +1717,8 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
             if end // bar_ticks > start // bar_ticks and end % bar_ticks:
                 held = f", held into bar {at_bar + end // bar_ticks}"
             clauses.append(f"{where}: {_say_dur(end - start)} {what}{held}")
+        if i == j and start in orn:
+            clauses[-1] += ", " + orn[start]
         if i in ghosts:
             clauses[-1] += ", ghosted"
         if i in slur_a:
@@ -1416,12 +1741,37 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
     return out
 
 
+def say_ornaments(res, table, fifths=0):
+    """{onset: words} for every trill and tremolo — spelled exactly as
+    the page spells it, the interval named from the letters the way a
+    player names it (G up to D-sharp is an augmented fifth)."""
+    words = {}
+    if table is None:
+        return words
+    for (s_, p), val in (res.get('trills') or {}).items():
+        aux, form = val if isinstance(val, tuple) else (val, 'auto')
+        step, alter, octave = convert.spell(p, table)
+        lw, al, oc, _second = spell_trill(
+            step, alter, octave, aux, fifths, table,
+            'auto' if form == 'trem' else form)
+        gap = name_interval(step, octave, lw, oc, aux - p)
+        target = lw + ACC_WORD[al]
+        if form == 'trem':
+            words[s_] = f"fingered tremolo with {target}, {gap} up"
+        else:
+            words[s_] = f"trill {gap} up, to {target}"
+    for (s_, p), n in (res.get('trems') or {}).items():
+        words[s_] = "tremolo"
+    return words
+
+
 def say_range(res, concert_fifths, fall=False, findings=None, short=False,
               doit=False, scoops=None):
     """Resolved timeline -> {abs_bar: prose}, spoken at concert pitch."""
     find = findings if findings is not None else Findings()
     table = (None if res.get('drums')
              else spelling_table(concert_fifths, find))
+    orn = say_ornaments(res, table, concert_fifths)
     at_bar = res['at'] + res.get('spoken_shift', 0)
     bar_ticks = res.get('bar_ticks', BAR)
     pulse = res.get('pulse_div', DIV)
@@ -1453,7 +1803,7 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
                     tl, table, at_bar, bar_ticks, pulse,
                     bends if first else {},
                     fall and first, doit and first, short and first,
-                    slurs=runs, ghosts=gset)))
+                    slurs=runs, ghosts=gset, orn=orn)))
         out = {}
         for label, by_bar in ordered:
             for bar, clauses in by_bar.items():
@@ -1473,7 +1823,7 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
                   bends, fall, doit, short,
                   slurs=res.get('slurs', ()),
                   ghosts=res.get('ghosts', ()),
-                  lyrics=res.get('lyrics'))
+                  lyrics=res.get('lyrics'), orn=orn)
     DYN_WORD = {'p': 'piano', 'mp': 'mezzo piano', 'mf': 'mezzo forte',
                 'f': 'forte', 'ff': 'fortissimo'}
     for t, k in res.get('dyns', []):

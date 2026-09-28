@@ -245,9 +245,10 @@ def _shape(art, d, vel, fam):
     elif 'ten' not in art and 'leg' not in art and fam in _BREATHERS:
         d = max(d * 0.93, 0.05)         # air between unslurred notes
     if 'trill' in art:
-        # alternate with the upper neighbor, easing in like a player:
-        # whole step unless the mark carries an accidental
-        step = 1.0 if 'trill_half' in art else 2.0
+        # alternate with the note the page names (chartaudio reads the
+        # key, the accidental over the mark, or the target in
+        # parentheses), easing in like a player
+        step = float(art.get('trill_step', 2))
         bend, t, up, period = [(0.0, 0.0)], 0.12, False, 0.075
         while t < d - 0.02:
             up = not up
@@ -255,6 +256,15 @@ def _shape(art, d, vel, fam):
             bend.append((min(t + period, d), step if up else 0.0))
             t += period
         bend.append((d, 0.0))
+    if art.get('trem'):
+        # a measured-fast reiteration: the bow (or tongue) re-strikes,
+        # so the level pulses rather than the pitch moving
+        amps, t, on = [(0.0, 1.0)], 0.0, True
+        period = 0.055
+        while t < d - 0.01:
+            t += period
+            on = not on
+            amps.append((min(t, d), 1.0 if on else 0.35))
     if 'slide_to' in art and ('gliss' in art or 'port' in art):
         delta = float(art['slide_to'])
         if 'port' in art:               # the whole note leans over

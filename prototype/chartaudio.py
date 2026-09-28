@@ -147,6 +147,42 @@ def _expand_repeats(ms):
 
 
 
+_NAT = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
+_ACC_MARK = {'sharp': 1, 'flat': -1, 'natural': 0, 'double-sharp': 2,
+             'sharp-sharp': 2, 'flat-flat': -2}
+
+
+def trill_step(t, fifths):
+    """How far above its note a trill goes, in semitones, read the way
+    a player reads the page: a target named in parentheses is exact; an
+    accidental over the mark alters the next letter up; a bare mark
+    takes the next letter up in the key — E in C trills a half step,
+    D a whole step."""
+    st = re.search(r'<step>(\w)</step>', t)
+    if not st:
+        return 2
+    step = st.group(1)
+    al = re.search(r'<alter>(-?\d+)</alter>', t)
+    oc = int(re.search(r'<octave>(\d+)</octave>', t).group(1))
+    main = _NAT[step] + (int(al.group(1)) if al else 0) + (oc + 1) * 12
+    to = re.search(r'<other-ornament[^>]*>\(([A-G])(bb|b|#|x)?(\d)\)', t)
+    if to:
+        acc = {'bb': -2, 'b': -1, '#': 1, 'x': 2}.get(to.group(2), 0)
+        aux = _NAT[to.group(1)] + acc + (int(to.group(3)) + 1) * 12
+        return aux - main
+    letters = 'CDEFGAB'
+    up = letters[(letters.index(step) + 1) % 7]
+    oct_up = oc + (1 if up == 'C' else 0)
+    am = re.search(r'<accidental-mark[^>]*>([\w-]+)</accidental-mark>', t)
+    if am and am.group(1) in _ACC_MARK:
+        alt = _ACC_MARK[am.group(1)]
+    else:
+        sharps, flats = 'FCGDAEB', 'BEADGCF'
+        alt = (1 if fifths > 0 and up in sharps[:fifths] else
+               -1 if fifths < 0 and up in flats[:-fifths] else 0)
+    return _NAT[up] + alt + (oct_up + 1) * 12 - main
+
+
 def _note_midi(t, m, transpose):
     """One <note>'s sounding key: a percussion head decoded through the
     kit or hand-percussion table (chosen by the part's name), anything
@@ -209,6 +245,9 @@ def parse_score(path, only=None):
         wedge_open = None
         slur_depth = 0
         pend_grace = {}                 # voice -> grace <note> texts
+        pend_trem = {}                  # voice -> event index of a
+                                        # two-note tremolo's first note
+        fifths = 0
         for num, meas in _expand_repeats(_measures(body)):
             if num.isdigit():
                 bars.setdefault(int(num), q0)
@@ -221,6 +260,9 @@ def parse_score(path, only=None):
                 tnum, tden = int(ts.group(1)), int(ts.group(2))
                 if meter0 is None:
                     meter0 = (tnum, tden)
+            kf = re.search(r'<fifths>(-?\d+)</fifths>', meas)
+            if kf:
+                fifths = int(kf.group(1))
             tr = re.search(r'<transpose>.*?</transpose>', meas, re.S)
             if tr:
                 ch = re.search(r'<chromatic>(-?\d+)</chromatic>', tr.group(0))
@@ -323,8 +365,11 @@ def parse_score(path, only=None):
                 for pat, flag in _ART_MARKS:
                     if pat in t:
                         art[flag] = True
-                if 'trill' in art and '<accidental-mark' in t:
-                    art['trill_half'] = True   # marked neighbor: a step
+                if 'trill' in art:
+                    art['trill_step'] = trill_step(t, fifths)
+                ts1 = re.search(r'<tremolo type="single">(\d)', t)
+                if ts1:
+                    art['trem'] = int(ts1.group(1))
                 if '<notehead parentheses="yes"' in t:
                     art['ghost'] = True
                 starts = len(re.findall(r'<slur [^>]*type="start"', t))
@@ -358,6 +403,17 @@ def parse_score(path, only=None):
                         events.append((g_on, gq * 0.9,
                                        _note_midi(gt, m, transpose),
                                        gain * 0.85, {}))
+                if '<tremolo type="stop"' in t and voice in pend_trem:
+                    # the second note of a fingered tremolo: the first
+                    # note alternates with it for both notes' time
+                    i = pend_trem.pop(voice)
+                    q1, d1, m1, g1, a1 = events[i]
+                    events[i] = (q1, d1 + q_dur, m1, g1,
+                                 {**a1, 'trill': True,
+                                  'trill_step': midi - m1})
+                    continue
+                if '<tremolo type="start"' in t:
+                    pend_trem[voice] = len(events)
                 events.append((q_on, q_dur, midi, gain, art))
                 if '<tie type="start"/>' in t:
                     carry[key] = len(events) - 1

@@ -331,7 +331,24 @@ All of these ride on a `from demo` line, after commas:
   lengths stay yours (`eighths` is different: it means the line IS
   eighth notes, and will shorten longer values to say so). None of
   this happens unasked, and if you ask for phrasing your take doesn't
-  support, the findings say so instead of guessing. And when your
+  support, the findings say so instead of guessing.
+- **Trills and tremolos, played or written.** Play a trill into your
+  demo and it comes out as one note with "tr" over it, going to the
+  exact note your fingers went to: half step, whole step, a third,
+  whatever you played. Play one note fast and repeated and it comes out
+  as a tremolo; shake between two notes a fourth or more apart and it
+  comes out as a fingered tremolo, the way string and keyboard parts
+  write it. Sixteenth notes you meant as sixteenths stay sixteenths.
+  This one does happen without asking, because it's how the notes you
+  played are written, not phrasing added on top; the findings name
+  every one, and `no trills` on the line turns it off. Typing notes,
+  put the ornament after the duration: `E5 h tr` (the next note up in
+  your key), `C5 h tr half`, `tr whole`, `tr minor 3rd`, `tr major
+  3rd`, `tr 4th`, `tr to D#5`, `A4 h trem` (or `roll` for mallets),
+  `F4 w trem to C5`. At the editing desk you can say it: "e5 half
+  trill", "c quarter trill minor third", "a4 half tremolo". The
+  read-aloud names each one: "trill a half step up, to F".
+- **Swing plays.** When your
   `feel:` says swing or shuffle, the listen MP3 actually swings;
   the pages keep the straight-eighth convention with the feel marked
   in words, the way players expect.

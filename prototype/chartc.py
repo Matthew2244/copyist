@@ -566,14 +566,19 @@ def parse_notes(text, loc):
         m = re.fullmatch(r'rest ([whqes.+]+)', tok)
         if m:
             return (dur_of(m.group(1), sn, sd), None)
-        m = re.fullmatch(r'([A-Ga-g])([b#]?)(-?\d)\s+([whqes.+]+)', tok)
+        m = re.fullmatch(r'([A-Ga-g])([b#]?)(-?\d)\s+([whqes.+]+)'
+                         r'(?:\s+((?:tr|trill|trem|tremolo|roll)\b.*))?',
+                         tok)
         if not m:
             fail(f"{loc}: cannot read note '{tok}' — like Bb4 q, "
-                 "rest e, or C5 q+e")
+                 "rest e, C5 q+e, or E5 h tr")
         base = {'c': 0, 'd': 2, 'e': 4, 'f': 5, 'g': 7,
                 'a': 9, 'b': 11}[m.group(1).lower()]
         alt = {'b': -1, '#': 1, '': 0}[m.group(2)]
         midi = base + alt + (int(m.group(3)) + 1) * 12
+        if m.group(5):
+            return (dur_of(m.group(4), sn, sd), midi,
+                    trill_spec(m.group(5), midi, loc))
         return (dur_of(m.group(4), sn, sd), midi)
 
     items, grids, pos = [], {}, 0
@@ -601,10 +606,65 @@ def parse_notes(text, loc):
             for b in range(start // 24, pos // 24):
                 grids[b] = sub
             continue
-        ticks, midi = one(tok)
-        items.append((ticks, midi))
-        pos += ticks
+        item = one(tok)
+        items.append(item)
+        pos += item[0]
     return items, grids, pos
+
+
+TRILL_WORDS = {'half': 1, 'half step': 1, 'semitone': 1, 'm2': 1,
+               'whole': 2, 'whole step': 2, 'tone': 2, 'M2': 2,
+               'aug 2nd': 3, 'augmented 2nd': 3, 'augmented second': 3,
+               'minor 3rd': 3, 'minor third': 3, 'm3': 3,
+               'major 3rd': 4, 'major third': 4, 'M3': 4,
+               '4th': 5, 'fourth': 5, 'perfect 4th': 5, 'P4': 5,
+               'tritone': 6, 'aug 4th': 6, '5th': 7, 'fifth': 7,
+               'P5': 7}
+
+
+def trill_spec(text, midi, loc):
+    """'tr' / 'tr half' / 'tr minor 3rd' / 'tr to G5' -> the trill's
+    target: ('key',) for the next note up in the key, ('up', n) for n
+    semitones (an augmented second stays a second on the page), or
+    ('to', midi) for an exact note. Every word states its interval, so
+    nothing is guessed."""
+    word = re.match(r'(tr|trill|trem|tremolo|roll)\b', text.strip()).group(1)
+    rest = re.sub(r'^(tr|trill|trem|tremolo|roll)\b\s*', '', text.strip())
+    if word in ('trem', 'tremolo', 'roll'):
+        # a bowed or mallet tremolo on one note, or a fingered tremolo
+        # between two: `trem`, `roll`, `trem to E5`
+        if not rest:
+            return ('trem',)
+        m = re.fullmatch(r'to ([A-Ga-g])([b#]?)(-?\d)', rest)
+        if not m:
+            fail(f"{loc}: cannot read the tremolo '{text}' — trem, "
+                 "roll, or trem to E5")
+        base = {'c': 0, 'd': 2, 'e': 4, 'f': 5, 'g': 7,
+                'a': 9, 'b': 11}[m.group(1).lower()]
+        alt = {'b': -1, '#': 1, '': 0}[m.group(2)]
+        to = base + alt + (int(m.group(3)) + 1) * 12
+        if to == midi:
+            return ('trem',)
+        return ('ftrem', to, m.group(1).upper())
+    if not rest:
+        return ('key',)
+    m = re.fullmatch(r'to ([A-Ga-g])([b#]?)(-?\d)', rest)
+    if m:
+        base = {'c': 0, 'd': 2, 'e': 4, 'f': 5, 'g': 7,
+                'a': 9, 'b': 11}[m.group(1).lower()]
+        alt = {'b': -1, '#': 1, '': 0}[m.group(2)]
+        to = base + alt + (int(m.group(3)) + 1) * 12
+        if to == midi:
+            fail(f"{loc}: a trill to the note itself is no trill")
+        return ('to', to, m.group(1).upper())
+    n = TRILL_WORDS.get(rest) or TRILL_WORDS.get(rest.lower())
+    if n:
+        if rest.lower() in ('aug 2nd', 'augmented 2nd',
+                            'augmented second'):
+            return ('second', n)
+        return ('up', n)
+    fail(f"{loc}: cannot read the trill '{text}' — tr, tr half, "
+         "tr whole, tr minor 3rd, tr major 3rd, tr 4th, or tr to G5")
 
 
 def key_at(keys, bar):
@@ -1567,7 +1627,10 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                  f"bar {pb} — split it there")
                     res, rawmap = chartdemo.inline_res(
                         dict(ref, short=ref.get('short', False)),
-                        fig_meter, int(hdr.get('countin', 0)))
+                        fig_meter, int(hdr.get('countin', 0)),
+                        fifths=key_at(chart.get('keys')
+                                      or [(1, (fifths, mode))],
+                                      fig_lo)[0])
                     if ref.get('legato'):
                         res['slurs'] = chartdemo._slur_runs(
                             res['timeline'], rawmap)
@@ -1637,6 +1700,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     poly=h['poly'],
                     legato=ref.get('legato', False),
                     ghost=ref.get('ghost', False),
+                    trills=not ref.get('no_trills', False),
                     derive_dyns=hdr.get('dynamics', '') not in
                     ('by hand', 'manual'),
                     short=ref.get('short', False),
@@ -1747,6 +1811,7 @@ def build_plans(chart, band, groups, labels):
             solo_slashes = False
             demo_refs, fall, quant, short = [], False, None, False
             legato, ghost = False, False
+            no_trills = False
             fig_lifts, lyrics_text = [], None
             doubles, cues, detail_word = None, None, None
             every_artic, dyn_marks, scoops, doit = None, [], [], False
@@ -1868,6 +1933,12 @@ def build_plans(chart, band, groups, labels):
                     continue
                 if piece in ('ghosts', 'ghost notes', 'ghosted'):
                     ghost = True
+                    continue
+                if piece in ('no trills', 'trills as played',
+                             'no trill'):
+                    # the writer's word: fast alternations here are
+                    # written-out notes, not trills
+                    no_trills = True
                     continue
                 if piece in ('marcato', 'short and fat'):
                     every_artic = 'strong-accent'
@@ -2022,6 +2093,7 @@ def build_plans(chart, band, groups, labels):
                                                     short=short,
                                                     legato=legato,
                                                     ghost=ghost,
+                                                    no_trills=no_trills,
                                                     lyrics=lyrics_text,
                                                     detail=detail_word,
                                                     every=every_artic,

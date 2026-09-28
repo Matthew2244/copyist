@@ -73,6 +73,13 @@ before their note, a slash through a crushed one, a run of them beamed, and in
 the listen a quick pickup landing on the beat. Nothing in a chart still needs
 MuseScore.
 
+Trills and tremolos work for every instrument that plays them. Play a trill into
+your demo and the page writes one note with "tr" going to the exact note you
+played, half step to a major third; a fast repeated note becomes a tremolo, and
+a wide shake between two notes becomes a fingered tremolo. Typed, it's
+`E5 h tr`, `tr minor 3rd`, `tr to D#5`, `trem` or `trem to C5`. The page, the
+read-aloud and the listen all go to the same upper note.
+
 ## What makes it different
 
 **The output is a chart, not a transcription.** Every other tool in this space

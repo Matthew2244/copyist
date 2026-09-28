@@ -1289,6 +1289,185 @@ def check_build_entrance():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_trills_and_tremolos():
+    """
+    Trills of every size and tremolos of both kinds, for any instrument
+    that can play them: typed (`E5 h tr`, `tr minor 3rd`, `tr to D#5`,
+    `trem`, `roll`, `trem to C5`), spoken at the desk, and PLAYED — a
+    fast alternation or re-strike in the demo becomes one note with its
+    ornament. The page, the read-aloud and the listen agree on the
+    exact upper note; a bare `tr` follows the key (E in C is a half
+    step), and a transposing part spells its own written target.
+    """
+    import re
+    import chartaudio
+    import chartc
+    import chartedit
+    import chartengrave
+    import smf
+    tmp = tempfile.mkdtemp()
+    cp = os.path.join(tmp, "t.chart")
+    open(cp, "w").write(
+        'title: T\nkey: C\nmeter: 4/4\ntempo: 80\n\nband:\n'
+        '  flute\n  trumpet\n  violin\n\n'
+        'figure all, 5 bars:\n'
+        '  notes: E5 h tr, D5 h tr, C5 h tr half, C5 h tr whole, '
+        'C5 h tr aug 2nd, C5 h tr minor 3rd, C5 h tr major 3rd, '
+        'G4 h tr to D#5, C5 h trem, A4 h trem to C5\n\n'
+        'section A, 5 bars\n  chords: C x5\n'
+        '  flute: figure all\n  trumpet: figure all\n'
+        '  violin: figure all\n')
+    out = os.path.join(tmp, "b")
+    with redirect_stdout(io.StringIO()):
+        files = chartc.compile_chart(cp, out)
+    from chart import verify_measures
+    check("trills and tremolos keep the measures whole",
+          not verify_measures(files))
+
+    def orns(name):
+        x = open(os.path.join(out, f"T — {name}.musicxml")).read()
+        return [re.sub(r'<wavy-line[^>]*/>', '', o) for o in
+                re.findall(r'<ornaments>(.*?)</ornaments>', x)]
+    fl = orns("flute")
+    check("a bare tr follows the key; half, whole and augmented stay "
+          "seconds with their accidental",
+          fl[:5] == ['<trill-mark/>', '<trill-mark/>',
+                     '<trill-mark/><accidental-mark>flat</accidental-mark>',
+                     '<trill-mark/>',
+                     '<trill-mark/><accidental-mark>sharp'
+                     '</accidental-mark>'], str(fl[:5]))
+    check("wider trills name their target, spelled as asked",
+          fl[5:8] == ['<trill-mark/><other-ornament>(Eb5)'
+                      '</other-ornament>',
+                      '<trill-mark/><other-ornament>(E5)'
+                      '</other-ornament>',
+                      '<trill-mark/><other-ornament>(D#5)'
+                      '</other-ornament>'], str(fl[5:8]))
+    check("tremolo strokes and a fingered tremolo pair",
+          '<tremolo type="single">3</tremolo>' in fl
+          and '<tremolo type="start">3</tremolo>' in fl
+          and '<tremolo type="stop">3</tremolo>' in fl, str(fl[8:]))
+    tp = orns("trumpet")
+    check("a Bb trumpet spells its own written targets",
+          '<trill-mark/><other-ornament>(F5)</other-ornament>' in tp
+          and '<trill-mark/><other-ornament>(E#5)</other-ornament>'
+          in tp, str(tp))
+    plan = chartaudio.parse_score(
+        os.path.join(out, "T — for listening.musicxml"))
+    for part in plan['parts']:
+        steps = [e[4].get('trill_step') for e in part['events']]
+        check(f"the {part['name']} plays every trill to its exact note",
+              steps == [1, 2, 1, 2, 3, 3, 4, 8, None, 3]
+              and part['events'][8][4].get('trem') == 3, str(steps))
+    said = subprocess.run(
+        [sys.executable, os.path.join(HERE, "chartread.py"), cp,
+         "--part", "violin"], capture_output=True, text=True).stdout
+    for phrase in ("trill a half step up, to F",
+                   "trill a half step up, to D flat",
+                   "trill an augmented second up, to D sharp",
+                   "trill a minor third up, to E flat",
+                   "trill an augmented fifth up, to D sharp",
+                   "tremolo", "fingered tremolo with C, a minor third up"):
+        check(f"the read-aloud says '{phrase}'", phrase in said, said)
+    pdf = os.path.join(tmp, "v.pdf")
+    ok, why = chartengrave.engrave(
+        os.path.join(out, "T — violin.musicxml"), pdf)
+    ms, _ = chartengrave.parse_part(
+        open(os.path.join(out, "T — violin.musicxml")).read(),
+        re.search(r'<part id="([^"]+)"', open(
+            os.path.join(out, "T — violin.musicxml")).read()).group(1))
+    check("the page engraves, and bars that differ only in their "
+          "trills never print as a repeat sign",
+          ok and not any(m.get('simile') for m in ms), str(why))
+
+    # played: a trill, a measured figure that must stay notes, a bowed
+    # tremolo and a fingered one, all on the same violin line
+    d, n, t32 = 480, [], 60
+    for i in range(16):
+        n.append((i * t32, i * t32 + 55, 64 if i % 2 == 0 else 65, 90))
+    n.append((2 * d, 3 * d - 20, 67, 90))
+    b2 = 4 * d
+    for i in range(4):
+        n.append((b2 + i * 120, b2 + i * 120 + 110,
+                  72 if i % 2 == 0 else 74, 90))
+    n.append((b2 + d, b2 + 2 * d - 20, 72, 90))
+    for i in range(16):
+        n.append((b2 + 2 * d + i * t32, b2 + 2 * d + i * t32 + 55, 69, 85))
+    b3 = 8 * d
+    for i in range(32):
+        n.append((b3 + i * t32, b3 + i * t32 + 55,
+                  65 if i % 2 == 0 else 72, 80))
+    smf.write(os.path.join(tmp, "p.mid"), n, d, 72)
+    for word, want in (("", True), (", no trills", False)):
+        pc = os.path.join(tmp, "p.chart")
+        open(pc, "w").write(
+            'title: P\nkey: C\nmeter: 4/4\ntempo: 72\n\nband:\n'
+            '  violin, demo "p.mid"\n\nsection A, 3 bars\n'
+            f'  chords: C x3\n  violin: from demo bars 1-3{word}\n')
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(pc, os.path.join(tmp, "pb"))
+        vx = open(os.path.join(tmp, "pb", "P — violin.musicxml")).read()
+        fnd = open(os.path.join(tmp, "pb", "P — findings.txt")).read()
+        if want:
+            check("a played trill becomes one note with a trill",
+                  'a played trill, 16 notes a half step apart' in fnd
+                  and vx.count('<trill-mark/>') == 1, fnd)
+            check("a played re-strike becomes a tremolo, a wide "
+                  "alternation a fingered tremolo",
+                  'one note struck 16 times' in fnd
+                  and 'two notes a fifth apart' in fnd
+                  and '<tremolo type="single">' in vx
+                  and '<tremolo type="start">' in vx, fnd)
+            check("measured sixteenths stay notes",
+                  vx.count('<type>16th</type>') == 4)
+        else:
+            check("`no trills` keeps the played notes",
+                  '<trill-mark' not in vx and '<tremolo' not in vx)
+
+    lx = os.path.join(tmp, "lift.musicxml")
+    open(lx, "w").write(
+        '<score-partwise><part-list><score-part id="P1"><part-name>cl'
+        '</part-name></score-part></part-list><part id="P1">'
+        '<measure number="1"><attributes><divisions>256</divisions>'
+        '<key><fifths>-2</fifths></key><time><beats>4</beats>'
+        '<beat-type>4</beat-type></time><clef><sign>G</sign>'
+        '<line>2</line></clef></attributes>'
+        '<note><pitch><step>B</step><alter>-1</alter><octave>4</octave>'
+        '</pitch><duration>512</duration><voice>1</voice><type>whole'
+        '</type><time-modification><actual-notes>2</actual-notes>'
+        '<normal-notes>1</normal-notes></time-modification><notations>'
+        '<ornaments><tremolo type="start">2</tremolo></ornaments>'
+        '</notations></note>'
+        '<note><pitch><step>E</step><alter>-1</alter><octave>5</octave>'
+        '</pitch><duration>512</duration><voice>1</voice><type>whole'
+        '</type><time-modification><actual-notes>2</actual-notes>'
+        '<normal-notes>1</normal-notes></time-modification><notations>'
+        '<ornaments><tremolo type="stop">2</tremolo></ornaments>'
+        '</notations></note></measure>'
+        '<measure number="2"><note><pitch><step>D</step><octave>5'
+        '</octave></pitch><duration>1024</duration><voice>1</voice>'
+        '<type>whole</type><notations><ornaments><trill-mark/>'
+        '<wavy-line type="start"/></ornaments></notations></note>'
+        '</measure></part></score-partwise>')
+    lev = chartaudio.parse_score(lx)['parts'][0]['events']
+    check("a lifted fingered tremolo plays as one alternation for "
+          "both notes' time",
+          len(lev) == 2 and abs(lev[0][1] - 4.0) < 1e-6
+          and lev[0][4].get('trill_step') == 5, str(lev))
+    check("a lifted bare trill reads the key: D in B-flat trills to "
+          "E-flat, a half step",
+          lev[1][4].get('trill_step') == 1, str(lev[1]))
+    ok, why = chartengrave.engrave(lx, os.path.join(tmp, "l.pdf"))
+    check("and the lifted tremolo engraves with no tuplet number",
+          ok, str(why))
+    check("the desk hears trills and tremolos spoken",
+          chartedit.notes_from_words(
+              "e5 half trill, c quarter trill minor third, "
+              "a4 half tremolo, g4 half trill to d sharp 5") ==
+          "E5 h tr, C5 q tr minor 3rd, A4 h trem, G4 h tr to D#5")
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_detail_and_look():
     """
     DESIGN.md 11's last two levels through the chart door — `simplified`
@@ -2294,6 +2473,7 @@ if __name__ == "__main__":
     check_lyrics()
     check_directive_family()
     check_build_entrance()
+    check_trills_and_tremolos()
     check_detail_and_look()
     check_user_chair()
     check_engraver()

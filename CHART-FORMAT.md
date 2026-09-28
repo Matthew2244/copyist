@@ -249,6 +249,34 @@ three sources, in descending order of preference:
   `triplet( F4 e, A4 e, C5 e )`. Deliberately minimal: anything long or
   intricate should come in by reference, where the engine's machinery and
   verification already work.
+- **Trills and tremolos ride on a note** (2026-09-27), for any pitched
+  instrument — strings, winds, brass, keys, mallets, voice:
+
+  | After the duration | Means | Page |
+  |---|---|---|
+  | `tr` | trill to the next note up in the key (E in C: a half step) | tr, wavy line |
+  | `tr half` / `tr whole` / `tr aug 2nd` | a second of that size | tr, accidental above when the target leaves the key |
+  | `tr minor 3rd` / `tr major 3rd` / `tr 4th` | a wider trill | tr, target small in parentheses |
+  | `tr to D#5` | to exactly that note, spelled as written | as above; a horn spells its own written target |
+  | `trem` / `roll` | bowed tremolo, mallet or drum roll, repeated note | three strokes through the stem |
+  | `trem to C5` | fingered tremolo between two notes | both notes at full value, beams between |
+
+  A target a whole step or less, or an augmented second, stays on the
+  next letter; everything else takes the key's spelling. The encoding is
+  standard MusicXML (`trill-mark`, `accidental-mark`, `wavy-line`,
+  `tremolo`), plus `<other-ornament>(Eb5)</other-ornament>` naming a
+  wide trill's target. Copyist's player alternates with exactly that
+  note, and the read-aloud names the interval from the letters ("trill
+  an augmented fifth up, to D sharp"). A fingered tremolo that would
+  have to cross a barline or tie becomes a trill to its note instead.
+- **Played trills and tremolos are read from the demo.** A strict fast
+  alternation between two pitches (faster than sixteenths, four notes;
+  at sixteenth speed, eight) is one note: a trill up to a major third,
+  a fingered tremolo from a fourth to an octave. One pitch re-struck
+  faster than sixteenths, six times or more, is a tremolo. Measured
+  sixteenths stay notes. Each one found is named in the findings; the
+  directive word `no trills` keeps a figure's notes exactly as played.
+  Lifted engravings' trills and tremolos draw and play too.
 - **A figure is one line — one part's material.** When a whole ensemble
   should play its *own* engraved lines (a thirteen-horn soli is thirteen
   different parts, not one line in unison), use the `as engraved` directive
