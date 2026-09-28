@@ -650,8 +650,9 @@ def score_to_chart(xml, score_file, title_hint):
             reach = bar_reach(m)
             want = dvv * 4 * mtr[0] // mtr[1]
             if reach and reach != want:
+                bar_no = re.search(r'number="([^"]+)"', attrs)
                 flaws.append(f"{meta[pid]['name'] or pid} bar "
-                             f"{re.search(r'number="([^"]+)"', attrs).group(1)}")
+                             f"{bar_no.group(1) if bar_no else i + 1}")
     if flaws:
         find.append("the score itself has bars that do not add up ("
                     + ", ".join(flaws[:4])
