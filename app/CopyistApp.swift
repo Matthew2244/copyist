@@ -165,6 +165,14 @@ struct TalkLine: Identifiable, Equatable {
 
 final class AppModel: ObservableObject {
     @Published var tab: Tab = .chart
+    /// bumps on every tab key press, even for the tab already showing,
+    /// so the heading can take VoiceOver back to the top of it
+    @Published var tabPing = 0
+
+    func go(_ t: Tab) {
+        tab = t
+        tabPing += 1
+    }
     /// which tab the current run's transcript belongs on
     @Published var runTab: Tab = .build
     @Published var parts: [String] = []
@@ -724,7 +732,7 @@ struct DeskCommands: Commands {
         }
         CommandGroup(before: .toolbar) {
             ForEach(Tab.allCases) { t in
-                Button(t.title) { model?.tab = t }
+                Button(t.title) { model?.go(t) }
                     .keyboardShortcut(t.key, modifiers: .command)
                     .disabled(model == nil)
             }
@@ -912,7 +920,7 @@ struct TabStrip: View {
             ForEach(Tab.allCases) { t in
                 let on = model.tab == t
                 Button {
-                    model.tab = t
+                    model.go(t)
                 } label: {
                     HStack(spacing: 7) {
                         Image(systemName: t.icon)
@@ -954,6 +962,7 @@ struct TabStrip: View {
 /// Every tab opens on its heading. VoiceOver lands there on arrival,
 /// so switching tabs always says where you are.
 struct TabHeading: View {
+    @EnvironmentObject var model: AppModel
     let tab: Tab
     let pal: Palette
     @AccessibilityFocusState private var here: Bool
@@ -973,6 +982,13 @@ struct TabHeading: View {
         .padding(.top, 16)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                here = true
+            }
+        }
+        .onChange(of: model.tabPing) { _ in
+            // the key for the tab already showing: back to its top
+            here = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 here = true
             }
         }
@@ -1253,7 +1269,9 @@ struct RunPanel: View {
                 if !model.running { ResultButtons(pal: pal) }
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 3) {
+                        // a plain stack, not a lazy one: VoiceOver cannot
+                        // move into a lazy list's lines (measured 2026-09-28)
+                        VStack(alignment: .leading, spacing: 3) {
                             if model.runLines.isEmpty {
                                 Text(model.running ? "On it…" : "Done.")
                                     .foregroundStyle(pal.sub)
@@ -1407,7 +1425,9 @@ struct ListenTab: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 TabHeading(tab: .listen, pal: pal)
-                HStack(alignment: .top, spacing: 14) {
+                // one card above the other: side by side, VoiceOver reads
+                    // across them row by row and the two interleave
+                VStack(alignment: .leading, spacing: 14) {
                     Card(title: "Listen", pal: pal) {
                         HStack {
                             Text("Start at bar")
@@ -1431,18 +1451,28 @@ struct ListenTab: View {
                                 .font(.system(size: 12))
                                 .foregroundStyle(pal.sub)
                         }
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120),
-                                                     spacing: 6)],
-                                  alignment: .leading, spacing: 6) {
-                            ForEach(model.parts, id: \.self) { p in
-                                Toggle(p, isOn: Binding(
-                                    get: { solo.contains(p) },
-                                    set: { on in
-                                        if on { solo.insert(p) }
-                                        else { solo.remove(p) }
-                                    }))
-                                    .toggleStyle(.checkbox)
-                                    .accessibilityLabel("Solo \(p)")
+                        // plain rows, not a grid: a grid is a container
+                        // VoiceOver makes you interact with first
+                        let rows = stride(from: 0, to: model.parts.count,
+                                          by: 5).map {
+                            Array(model.parts[$0..<min($0 + 5,
+                                                       model.parts.count)])
+                        }
+                        ForEach(rows, id: \.self) { row in
+                            HStack(spacing: 14) {
+                                ForEach(row, id: \.self) { p in
+                                    Toggle(p, isOn: Binding(
+                                        get: { solo.contains(p) },
+                                        set: { on in
+                                            if on { solo.insert(p) }
+                                            else { solo.remove(p) }
+                                        }))
+                                        .toggleStyle(.checkbox)
+                                        .accessibilityLabel("Solo \(p)")
+                                        .frame(minWidth: 110,
+                                               alignment: .leading)
+                                }
+                                Spacer(minLength: 0)
                             }
                         }
                         HStack {
@@ -1510,7 +1540,6 @@ struct ListenTab: View {
                         .buttonStyle(.bordered)
                         .accessibilityHint("What the band plays on")
                     }
-                    .frame(maxWidth: 320)
                 }
                 RunPanel(pal: pal, tab: .listen)
                     .frame(minHeight: model.runTab == .listen ? 260 : 0)
@@ -1574,6 +1603,7 @@ struct TalkView: View {
                     }
                 }
             }
+            if !model.talk.isEmpty || model.talking {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
@@ -1608,6 +1638,9 @@ struct TalkView: View {
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
                 }
+            }
+            } else {
+                Spacer()
             }
             if !model.question.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
