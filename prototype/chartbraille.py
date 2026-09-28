@@ -373,9 +373,15 @@ def _dia(n):
     return n.octave * 7 + _DIA[n.step]
 
 
+_SHAPES = {}          # id(note) -> the sign for its note head (34.4 b)
+
+
 def _acc_of(n, voice):
     """The accidental a note shows: print's, or one the braille needs
-    that print did not (11.2), after dot 5."""
+    that print did not (11.2), after dot 5 — or, for an unpitched note,
+    the sign that stands for its note head (34.4 b)."""
+    if id(n) in _SHAPES:
+        return _SHAPES[id(n)]
     if getattr(n, 'show_acc', None) is not None:
         return ACC[n.show_acc]
     if id(n) in voice.added:
@@ -566,8 +572,9 @@ def measure_units(meas, slurs, staff=1, down=None, words=True):
 
 def _down(meas):
     """9.2: treble and alto parts write a chord's top note and read
-    down; bass and tenor parts write the bottom note and read up."""
-    return meas['state']['clefs'].get(1, 'G') != 'F'
+    down; bass and tenor parts write the bottom note and read up;
+    percussion reads up (34.2.3)."""
+    return meas['state']['clefs'].get(1, 'G') not in ('F', 'percussion')
 
 
 def _bar_length(meas):
@@ -600,7 +607,8 @@ class _Gap:
     """A rest print leaves implied, added by the transcriber."""
     __slots__ = ('rest', 'ntype', 'dots', 'dur', 'tmod', 'slash', 'cue',
                  'fermata', 'marks', 'artic', 'added', 'tie_start',
-                 'tie_stop', 'step', 'octave', 'alter')
+                 'tie_stop', 'step', 'octave', 'alter', 'measure_rest',
+                 'lyric', 'grace', 'head', 'slur_start', 'slur_stop')
 
     def __init__(self, ntype, dur):
         self.rest, self.ntype, self.dots, self.dur = True, ntype, 0, dur
@@ -609,6 +617,9 @@ class _Gap:
         self.marks, self.artic, self.added = [], None, True
         self.tie_start = self.tie_stop = False
         self.step, self.octave, self.alter = 'B', 4, 0
+        self.measure_rest = False
+        self.lyric = self.grace = self.head = None
+        self.slur_start = self.slur_stop = False
 
 
 def _fill(evs, full, div):
@@ -998,19 +1009,26 @@ def _part_to_brf(xml, pid, title, part_name, chords=True):
             unsupported.append("a third staff, like an organ's pedal "
                                "line, is still to come")
             break
-        if 'percussion' in m['state']['clefs'].values():
-            unsupported.append("percussion is still to come")
-            break
     if unsupported:
         return None, unsupported
 
     pager = Pager(title)
     pager.add(_center(literary(part_name)))
-    has_slash = chords and any(n.slash for m in measures for _p, ns, _s, _v in
-                    m['events'] for n in ns)
+    _SHAPES.clear()
+    perc = any(m['state']['clefs'].get(1) == 'percussion' for m in measures)
+    comps = []
+    if perc:
+        comps, perc_of, shapes = _perc_plan(measures, xml, pid)
+        _SHAPES.update(shapes)
+        if len(comps) > 1:
+            for ln in _instrument_table(comps):          # 33.2, 34.2 (b)
+                pager.add(ln)
+    has_slash = (chords or perc) and any(
+        n.slash for m in measures for _p, ns, _s, _v in m['events']
+        for n in ns)
     keys = any(m['state'].get('staves', 1) > 1 for m in measures)
     # 29.2: in keyboard music the hand signs say which way intervals read
-    has_chords = not keys and any(
+    has_chords = not keys and not perc and any(
         sum(1 for x in ns if not x.rest) > 1
         for m in measures for _p, ns, st, _v in m['events'] if st == 1)
     notes = []
@@ -1020,12 +1038,28 @@ def _part_to_brf(xml, pid, title, part_name, chords=True):
                      "intervals reading downward." if _down(measures[0])
                      else "Chords are written from the bottom note, the "
                      "intervals reading upward.")
-    if has_slash:
+    if has_slash and perc:
+        notes.append("Where the word slashes appears, the rests that "
+                     "follow it, up to the next note, stand for print "
+                     "slashes: keep time in the style of the chart. A rest "
+                     "anywhere else is a real rest.")
+    elif has_slash:
         notes.append("Where the word slashes appears, the rests that "
                      "follow it, up to the next note, stand for print "
                      "slashes: play or improvise on the chord symbols in "
                      "the line below. A rest anywhere else is a real rest.")
     paras = [' '.join(notes)] if notes else []
+    legend = [c for c in comps if c['legend']]
+    if legend:
+        # 34.2.1, 34.4: what each note name and head sign stands for
+        head = ("The notes name staff positions, read as in bass clef; "
+                "intervals read upward.")
+        if len(comps) == 1:
+            paras.append(head + " " + "; ".join(comps[0]['legend']) + ".")
+        else:
+            paras.append(head + " " + " ".join(
+                f"{c['abbr']}: " + "; ".join(c['legend']) + "."
+                for c in legend))
     if chords and _sings(measures) and any(m['chords'] for m in measures):
         # 36.1.1: the notes a reader needs for chords set against words
         paras += [
@@ -1072,6 +1106,9 @@ def _part_to_brf(xml, pid, title, part_name, chords=True):
     if any(m['state'].get('staves', 1) > 1 for m in measures):
         _keyboard(pager, measures, tied, chords)
         return pager.text(), _later(measures)
+    if len(comps) > 1:
+        _perc_score(pager, measures, comps, perc_of, tied, chords)
+        return pager.text(), []
     if _sings(measures):
         _vocal(pager, measures, tied, chords)
         body = re.search(r'<part id="%s">(.*?)</part>' % re.escape(pid),
@@ -1443,6 +1480,8 @@ def score_notes(xml, pid):
     and slashes are left out; cue notes stay."""
     ms, _ = ce.parse_part(xml, pid)
     out = []
+    if ms and any(m['state']['clefs'].get(1) == 'percussion' for m in ms):
+        return _perc_notes(ms, xml, pid)
     keys = any(m['state'].get('staves', 1) > 1 for m in ms or [])
     # keyboard braille is read hand by hand: the right hand's whole
     # part, intervals down, then the left's, intervals up (29.2)
@@ -2032,3 +2071,463 @@ def _music_lines(text):
         return ['  ' + text]
     pieces = _split_music(text, LINE - 2, LINE - 4)
     return ['  ' + pieces[0]] + ['    ' + x for x in pieces[1:]]
+
+
+
+# ------------------------------------------------------------ percussion
+
+# The kit, top of the staff to the bottom (34.7), by staff position and
+# note head as Copyist writes them (instruments.DRUM_MAP): abbreviation,
+# name, the positions it owns, and what a second note head means there.
+KIT = [
+    ('CR', 'Crash cymbal', {('A', 5, 'x'): None}),
+    ('HH', 'Hi-hat', {('G', 5, 'x'): None, ('G', 5, 'circle-x'): 'open'}),
+    ('RC', 'Ride cymbal', {('F', 5, 'x'): None,
+                           ('F', 5, 'diamond'): 'on the bell'}),
+    ('CH', 'China cymbal', {('B', 5, 'x'): None}),
+    ('CB', 'Cowbell', {('B', 5, 'triangle'): None}),
+    ('TBR', 'Tambourine', {('E', 5, 'x'): None}),
+    ('TT', 'Toms', {('E', 5, 'normal'): None, ('D', 5, 'normal'): None,
+                    ('A', 4, 'normal'): None}),
+    ('SD', 'Snare drum', {('C', 5, 'normal'): None,
+                          ('C', 5, 'x'): 'side stick'}),
+    ('BD', 'Bass drum', {('F', 4, 'normal'): None, ('E', 4, 'normal'): None}),
+    ('HP', 'Hi-hat pedal', {('D', 4, 'x'): None}),
+]
+HAND = {
+    'conga': ('CGA', 'Congas'), 'bongo': ('BGO', 'Bongos'),
+    'timbale': ('TIM', 'Timbales'), 'cowbell': ('CB', 'Cowbell'),
+    'triangle': ('TRI', 'Triangle'), 'agogo': ('AGO', 'Agogo bells'),
+    'claves': ('CLV', 'Claves'), 'guiro': ('GUI', 'Guiro'),
+    'woodblock': ('WB', 'Woodblocks'), 'shaker': ('SHK', 'Shaker'),
+    'tambourine': ('TBR', 'Tambourine')}
+SHAPE_SIGNS = [ACC[1], ACC[-1], ACC[0]]       # 34.4 (b): % < *
+
+
+def _bass_name(step, octave):
+    """34.2.1: a percussion staff's positions named as in bass clef —
+    the same line or space, twelve steps below the treble's name."""
+    d = octave * 7 + _DIA[step] - 12
+    return 'CDEFGAB'[d % 7], d // 7
+
+
+def _perc_instrument(xml, pid):
+    body = re.search(r'<score-part id="%s">(.*?)</score-part>'
+                     % re.escape(pid), xml, re.S)
+    names = re.findall(r'<instrument-name>([^<]*)', body.group(1)) \
+        if body else []
+    return (names[0] if names else '').lower()
+
+
+def _perc_plan(measures, xml, pid):
+    """Which component each unpitched note belongs to, the braille
+    shape sign for a note head that carries meaning, and the legend a
+    reader needs. Renames the notes to their bass-clef positions.
+    Returns (components, of, shapes): components as dicts in reading
+    order (abbr, name, legend lines), of = id(note) -> component index,
+    shapes = id(note) -> sign."""
+    import chartgroove
+    inst = _perc_instrument(xml, pid)
+    notes = [n for m in measures for _p, ns, _s, _v in m['events']
+             for n in ns if not n.rest]
+    kit = any(w in inst for w in ('drum set', 'drum kit', 'drums', 'kit'))
+    kind = next((k for k in HAND if k in inst), None)
+    comps, of = [], {}
+
+    def comp(key, abbr, name):
+        for i, c in enumerate(comps):
+            if c['key'] == key:
+                return i
+        comps.append({'key': key, 'abbr': abbr, 'name': name,
+                      'pos': {}, 'order': len(comps)})
+        return len(comps) - 1
+    for n in notes:
+        pos = (n.step, n.octave, n.head or 'normal')
+        if n.slash:
+            i = comp('time', 'TM', 'Time (the slashes)')
+        elif kit:
+            k = next((j for j, (_a, _n, ps) in enumerate(KIT) if pos in ps),
+                     None)
+            i = (comp(('kit', k), KIT[k][0], KIT[k][1]) if k is not None
+                 else comp('other', 'PC', 'Other percussion'))
+        elif kind:
+            i = comp(kind, *HAND[kind])
+        else:
+            hit = next((k for k, sounds in chartgroove._PERC_SOUNDS.items()
+                        if pos in sounds.values()), None)
+            i = (comp(hit, *HAND[hit]) if hit in HAND
+                 else comp('other', 'PC', 'Other percussion'))
+        of[id(n)] = i
+        comps[i]['pos'].setdefault(pos, 0)
+        comps[i]['pos'][pos] += 1
+    # reading order: the kit's own, top to bottom, time first
+    rank = {('kit', j): j for j in range(len(KIT))}
+    order = sorted(range(len(comps)), key=lambda i: (
+        -1 if comps[i]['key'] == 'time' else rank.get(comps[i]['key'],
+                                                      50 + i)))
+    remap = {old: new for new, old in enumerate(order)}
+    comps = [comps[i] for i in order]
+    of = {k: remap[v] for k, v in of.items()}
+    # a note head carries meaning where one position has two heads
+    shapes, legend_sign = {}, {}
+    for c in comps:
+        by_spot = {}
+        for (st, oc, head) in c['pos']:
+            by_spot.setdefault((st, oc), []).append(head)
+        c['legend'] = []
+        for (st, oc), heads in sorted(by_spot.items(),
+                                      key=lambda x: -(x[0][1] * 7 +
+                                                      _DIA[x[0][0]])):
+            if c['key'] == 'time':
+                continue
+            bn = _bass_name(st, oc)
+            what = _sound_name(c, (st, oc), heads)
+            line = f"{bn[0]}{bn[1]} {what}"
+            heads = sorted(heads, key=lambda h: h != 'normal')
+            for k, h in enumerate(heads[1:] if len(heads) > 1 else []):
+                sign = SHAPE_SIGNS[min(k, 2)]
+                legend_sign[(c['key'], st, oc, h)] = sign
+                line += (f"; {'a sharp' if sign == ACC[1] else 'a flat' if sign == ACC[-1] else 'a natural'} "
+                         f"before it, {_head_word(c, (st, oc, h))}")
+            c['legend'].append(line)
+    for n in notes:
+        c = comps[of[id(n)]]
+        sign = legend_sign.get((c['key'], n.step, n.octave,
+                                n.head or 'normal'))
+        if sign:
+            shapes[id(n)] = sign
+        if not n.slash:
+            n.step, n.octave = _bass_name(n.step, n.octave)
+            n.alter = 0
+    return comps, of, shapes
+
+
+def _sound_name(c, spot, heads):
+    """What sounds at this position, in words."""
+    import chartgroove
+    key = c['key']
+    if isinstance(key, tuple) and key[0] == 'kit':
+        if c['abbr'] == 'TT':
+            return {('E', 5): 'high tom', ('D', 5): 'middle tom',
+                    ('A', 4): 'floor tom'}.get(spot, 'tom')
+        return c['name'].lower()
+    if key in chartgroove._PERC_SOUNDS:
+        found = [snd for snd, (st, oc, h) in
+                 chartgroove._PERC_SOUNDS[key].items()
+                 if (st, oc) == spot and (h == 'normal' or
+                                          len(heads) == 1)]
+        if found:
+            return _say_sound(c['name'], found[0])
+    return c['name'].lower()
+
+
+def _say_sound(name, sound):
+    name = name.lower()
+    single = {'congas': 'conga', 'bongos': 'bongo', 'timbales': 'timbale',
+              'woodblocks': 'woodblock', 'agogo bells': 'agogo bell'}
+    one = single.get(name, name)
+    word = {'hi': 'high', 'lo': 'low'}.get(sound, sound)
+    if sound == 'main':
+        return name
+    if word in ('high', 'low'):
+        return f"{word} {one}"
+    return f"{one}, {word}"
+
+
+def _head_word(c, pos):
+    """A second note head's meaning, in words."""
+    import chartgroove
+    key = c['key']
+    if isinstance(key, tuple) and key[0] == 'kit':
+        k = key[1]
+        return KIT[k][2].get(pos) or f"{pos[2]} note head"
+    if key in chartgroove._PERC_SOUNDS:
+        for sound, p in chartgroove._PERC_SOUNDS[key].items():
+            if p == pos:
+                return sound
+    return f"{pos[2]} note head"
+
+
+
+def _abbr(c):
+    """33.2.2: word sign, the letters, dot 3."""
+    return WORD + literary(c['abbr'].lower(), caps=False) + cell(3)
+
+
+def _instrument_table(comps):
+    """33.2 and 34.2 (b): each instrument's name, its abbreviation two
+    cells past the longest name (dot-5 guide dots where a name is three
+    or more cells short), and the notes it is written on."""
+    names = [literary(c['name']) for c in comps]
+    width = max(len(n) for n in names)
+    out = ['']
+    for c, name in zip(comps, names):
+        pad = width - len(name)
+        name = name + (' ' + cell(5) * (pad - 1) if pad >= 3
+                       else ' ' * pad)
+        notes = []
+        for (st, oc, _h) in c['pos']:
+            bn = _bass_name(st, oc)
+            cellq = cell(*(PITCH[bn[0]] + VALUE['quarter']))
+            sign = octave_sign(bn[1]) + cellq
+            if c['key'] != 'time' and sign not in notes:
+                notes.append(sign)
+        line = name + '  ' + _abbr(c)
+        if notes:
+            line = line.ljust(width + 2 + 7) + ' '.join(notes)
+        for ln in _wrap(line, LINE):
+            out.append(ln)
+    return out
+
+
+def _perc_score(pager, measures, comps, of, tied, chords_on):
+    """A kit or a set of instruments as an ensemble score (33, 34.7):
+    one braille line per instrument, each opening with its abbreviation,
+    only the instruments that play in a parallel's bars shown, the bars
+    aligned across the lines. Where an instrument is silent inside a bar
+    the others play, a transcriber's rest (after dot 5) keeps its line
+    whole. Every line's first note takes its octave mark. A blank line
+    comes before each parallel, and a free line carries its bar number
+    or rehearsal letter."""
+    import copy
+    voices = [Voice() for _ in comps]
+    for v in voices:
+        v.tied = tied
+    abbrs = [_abbr(c) for c in comps]
+    nums = [int(m['num']) if str(m['num']).isdigit() else i + 1
+            for i, m in enumerate(measures)]
+    par = {'bars': [], 'first': None, 'label': None}
+    state = {'first_par': True, 'in_slash': {}}
+
+    def texts_of(m, i, trial):
+        """Each playing instrument's braille for this bar."""
+        full = _bar_length(m)
+        by = {}
+        for pos, ns, st, _v in m['events']:
+            if st != 1:
+                continue
+            for n in ns:
+                if n.rest:
+                    continue
+                by.setdefault(of[id(n)], {}).setdefault(pos, []).append(n)
+        if not by:
+            return None
+        top = min(by)
+        right = m['right'] or {}
+        end = (REPEAT_BACK if right.get('repeat') == 'backward' else
+               FINAL_BAR if right.get('style') == 'light-heavy' else
+               SECTION_BAR if right.get('style') == 'light-light' else '')
+        attach = ''
+        if (m['left'] or {}).get('repeat') == 'forward':
+            attach += REPEAT_FWD
+        for enum, etype, _l in m.get('ending') or []:
+            if etype == 'start':
+                attach += NUM + ''.join(LOWER[d] for d in str(enum))
+        st_ = m['state']
+        sig = ''
+        if i > 0 and 'key' in m['show']:
+            sig += _key_sign(st_['fifths'])
+        if i > 0 and 'time' in m['show']:
+            sig += _time_sign(st_['time'])
+        road = [t for _p, t in m['texts'] if _is_road(t)]
+        post = ''
+        for t in road:
+            w = expression(t)
+            w = w if w.endswith(WORD) else w + WORD
+            post += ' ' + ((CODA + ' ') if t.lower().startswith('to coda')
+                           else '') + w
+        out = {}
+        raw = {}
+        state['raw'] = raw
+        for ci, spots in by.items():
+            evs = [(pos, ns, 1, 1) for pos, ns in sorted(spots.items())]
+            evs = _fill(evs, full, m['state']['div'])
+            pseudo = dict(m)
+            pseudo['events'] = evs
+            pseudo['multi'] = 0
+            pseudo['texts'] = [(p_, t) for p_, t in m['texts']
+                               if not _is_road(t)] if ci == top else []
+            if ci != top:
+                pseudo['dyn'] = []
+            units, slashed = measure_units(pseudo, {}, staff=1, down=False,
+                                           words=(ci == top))
+            if slashed and state['in_slash'].get(ci):
+                wn = len(pseudo['texts']) + 1
+                units = units[:wn - 1] + units[wn:]
+            state['in_slash'][ci] = slashed
+            v = trial[ci]
+            raw[ci] = (units, copy.deepcopy(v))
+            text = _run(units, v)
+            head = ''
+            if ci == top and m['signs']:
+                head = ' '.join(SEGNO if x == 'segno' else CODA
+                                for x in m['signs']) + ' '
+            if sig:
+                head += sig + ' '
+            if attach:
+                v.fresh()
+                text = (HYPHEN + ' ' + text if _starts_longer(text) else
+                        cell(3) + text if needs_dot3(text) and
+                        attach[-1] in LOWER.values() else text)
+            out[ci] = head + attach + text + end + (post if ci == top
+                                                    else '')
+            raw[ci] = raw[ci] + (head + attach, end + (post if ci == top
+                                                        else ''))
+        return out, end
+
+    def assemble(bars):
+        active = sorted({ci for b in bars for ci in b['t']})
+        w = max(len(abbrs[ci]) for ci in active) + 1
+        lines = {ci: abbrs[ci].ljust(w) for ci in active}
+        col = w
+        for b in bars:
+            for ci in active:
+                t = b['t'].get(ci)
+                if t is None:
+                    t = ADDED + REST['whole'] + b['end']   # 33.4, 34.7
+                gap = col - len(lines[ci])
+                lines[ci] += (' ' + cell(3) * (gap - 2) + ' '
+                              if gap > 6 else ' ' * gap)   # guide dots
+                lines[ci] += t
+            col = max(len(l) for l in lines.values()) + 1
+        return [lines[ci] for ci in active], w
+
+    def flush():
+        if not par['bars']:
+            return
+        lines, w = assemble(par['bars'])
+        active = sorted({ci for b in par['bars'] for ci in b['t']})
+        out = []
+        for ci, ci_line in zip(active, lines):
+            if len(ci_line) <= LINE:
+                out.append(ci_line)
+            else:                                   # 33.4.7 run-over
+                out += _runover(ci, abbrs[ci].ljust(w), w, par['bars'])
+        free = par['label'] or number(par['first'])
+        head = [] if state['first_par'] else ['']
+        pager.add(*(head + [' ' * (w + 1) + free] + out))
+        state['first_par'] = False
+        par.update(bars=[], first=None, label=None)
+        for v in voices:
+            v.fresh()
+
+    skip = 0
+    for i, m in enumerate(measures):
+        if skip:
+            skip -= 1
+            continue
+        if m['multi'] and m['multi'] > 1:
+            skip = m['multi'] - 1
+        if m['rehearsal'] or m['signs']:
+            flush()
+        trial = copy.deepcopy(voices)
+        if not par['bars']:
+            for v in trial:
+                v.fresh()
+        got = texts_of(m, i, trial)
+        if got is None:
+            # nobody plays: a bar of rest in the top line of whoever
+            # is on, or a line of its own when nothing is
+            n = m['multi'] if m['multi'] and m['multi'] > 1 else 1
+            tok = (REST['whole'] * n) if n <= 3 else number(n) + REST['whole']
+            ci = min(i_ for b in par['bars'] for i_ in b['t']) \
+                if par['bars'] else 0
+            got = ({ci: tok}, '')
+        texts, end = got
+        bar = {'t': texts, 'end': end, 'raw': dict(state.get('raw') or {})}
+        if par['bars']:
+            lines, _w = assemble(par['bars'] + [bar])
+            if max(len(l) for l in lines) > LINE:
+                flush()
+                trial = copy.deepcopy(voices)
+                for v in trial:
+                    v.fresh()
+                got = texts_of(m, i, trial) or got
+                texts, end = got
+                bar = {'t': texts, 'end': end,
+                       'raw': dict(state.get('raw') or {})}
+        if not par['bars']:
+            par['first'] = nums[i]
+            if m['rehearsal']:
+                par['label'] = WORD + literary(m['rehearsal'],
+                                               music=True) + WORD
+        par['bars'].append(bar)
+        for ci in texts:
+            voices[ci].__dict__.update(trial[ci].__dict__)
+    flush()
+
+
+
+def _perc_notes(ms, xml, pid):
+    """A percussion part's notes as its braille gives them: each
+    instrument's line in the table's order (one line when there is one
+    instrument), chords from the bottom note up, a note head's sign
+    standing where an accidental would."""
+    comps, of, shapes = _perc_plan(ms, xml, pid)
+    alter_of = {ACC[1]: 1, ACC[-1]: -1, ACC[0]: 0}
+    streams = [[] for _ in comps]
+    for m in ms:
+        for pos, ns, st, _v in sorted(m['events'], key=lambda e: e[0]):
+            if st != 1:
+                continue
+            by = {}
+            for n in ns:
+                if not n.rest and not n.slash:
+                    by.setdefault(of[id(n)], []).append(n)
+            for ci, group in by.items():
+                w = min(group, key=_dia)
+                rest = sorted((x for x in group if x is not w),
+                              key=lambda x: abs(_dia(x) - _dia(w)))
+                for x in [w] + rest:
+                    a = alter_of.get(shapes.get(id(x)), 0)
+                    streams[ci].append(
+                        (x.step + ('#' if a > 0 else 'b' if a < 0 else '')
+                         + str(x.octave), _PAIR.get(x.ntype, x.ntype),
+                         x.dots))
+    if len(comps) <= 1:
+        return [x for s_ in streams for x in s_]
+    return [x for s_ in streams for x in s_]
+
+
+
+def _runover(ci, head, w, bars):
+    """One instrument's line too long for the page, written again unit
+    by unit and carried into run-over lines two cells in from the
+    music (33.4.7), each new line's first note taking its octave mark
+    (33.4)."""
+    import copy
+    lines, cur = [], head
+    voice = None
+    for b in bars:
+        if ci not in b['raw']:
+            tok = ADDED + REST['whole'] + b['end']
+            if len(cur) + 1 + len(tok) > LINE:
+                lines.append(cur.rstrip())
+                cur = ' ' * (w + 2)
+            cur += ('' if cur.endswith(' ') else ' ') + tok
+            continue
+        units, snap, lead, tail = b['raw'][ci]
+        if voice is None:
+            voice = copy.deepcopy(snap)
+        if not cur.endswith(' '):
+            cur += ' '
+        cur += lead
+        after_word = False
+        for k, (render, _ch) in enumerate(units):
+            keep = copy.deepcopy(voice)
+            t = render(voice)
+            if after_word and t and not t.startswith(WORD) and \
+                    not t.startswith(' ') and needs_dot3(t):
+                t = cell(3) + t
+            room = LINE - (1 if k < len(units) - 1 else len(tail))
+            if len(cur) + len(t) > room and cur.strip():
+                lines.append(cur.rstrip() + HYPHEN)          # 1.11
+                cur = ' ' * (w + 2)
+                voice.__dict__.update(keep.__dict__)
+                voice.fresh()
+                t = render(voice)
+            after_word = _ends_in_word(t)
+            cur += t
+        cur += tail
+    lines.append(cur.rstrip())
+    return lines

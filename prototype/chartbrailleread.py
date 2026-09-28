@@ -62,6 +62,7 @@ class Reader:
         self.errors = []
         self.event_notes = []
         self.keyboard = False      # 29.3 (a): every bar marks its octave
+        self.perc = False          # 34.4 (b): a head sign is the note's own
         self.link = False          # the next note is bound to the last
         self.double = False        # a doubled slur is running (35.2)
         self.joins = []            # per note: sung on the last syllable?
@@ -103,7 +104,8 @@ class Reader:
         k = (step, octave)
         if acc is not None:
             alter = acc
-            self.carry[k] = acc
+            if not self.perc:
+                self.carry[k] = acc
         elif self.held.get(k):
             alter = self.held[k].pop(0)
         else:
@@ -184,6 +186,9 @@ def decode(brf):
             if all(re.match(r',[A-Z]', w) for w in t.split()):
                 continue                          # chord symbols (27)
             lines.append(re.sub(r'^#[A-J]+ ', '', t))
+    perc = 'STAFF POSITIONS' in ' '.join(brf.split())
+    if any(re.match(r">[A-Z0-9]+' ", l) for l in raw):
+        return _ensemble(raw, head, brf)
     if any(re.match(r"\s*[A-J]+[ ']\.>", l) for l in lines):
         return _keyboard(lines, head)
     if _is_vocal(raw):
@@ -199,7 +204,9 @@ def decode(brf):
     m = re.match(r'(#[A-J][%<]|[%<*]*)#', head)
     r = Reader(parse_key(m.group(1)) if m else 0)
     # 9.2: the transcriber's note says which way intervals read
-    r.down = 'READING UPWARD' not in ' '.join(brf.split())
+    r.down = not ('READING UPWARD' in ' '.join(brf.split())
+                  or 'READ UPWARD' in ' '.join(brf.split()))
+    r.perc = perc
     for li, line in enumerate(lines):
         r.fresh()                                  # 3.2.1: a new line
         cont = li > 0 and lines[li - 1].endswith('"')
@@ -592,3 +599,49 @@ def back_translate(text):
             out.append('?')
         i += 1
     return ''.join(out)
+
+
+
+def _ensemble(raw, head, brf):
+    """An ensemble score (33), as a percussion part is written: each
+    instrument's lines, found by the abbreviation at the margin, read as
+    one stream in the table's order; free lines, guide dots and the
+    transcriber's rests pass by."""
+    table = []
+    for l in brf.replace('\r\n', '\n').split('\n'):
+        if l.startswith('@.<'):
+            break
+        m = re.search(r">([A-Z0-9]+)'", l)
+        if m and m.group(1) not in table:
+            table.append(m.group(1))
+    streams, last = {}, None
+    for l in raw:
+        m = re.match(r">([A-Z0-9]+)' +(.*)$", l)
+        if m:
+            last = m.group(1)
+            streams.setdefault(last, []).append(m.group(2))
+            continue
+        t = l.strip()
+        if not t or re.fullmatch(r'#[A-J]+|>,.*>', t):
+            continue
+        if last and l.startswith(' '):
+            prev = streams[last][-1]
+            streams[last][-1] = (prev[:-1] + '\n' + t if prev.endswith('"')
+                                 else prev + '\n ' + t)  # a run-over
+    notes, errors = [], []
+    km = re.match(r'(#[A-J][%<]|[%<*]*)#', head or '')
+    for ab in table or list(streams):
+        for line in streams.get(ab, []):
+            line = re.sub(r"(?<= )'{3,}(?= )", '', line)   # guide dots
+            r = Reader(parse_key(km.group(1)) if km else 0)
+            r.down = False
+            r.perc = True
+            # each braille line, run-overs too, marks its first octave
+            for k, part in enumerate(line.split('\n')):
+                r.fresh()
+                if not part.startswith(' '):
+                    r.bar()
+                read_line(r, part.strip())
+            notes += r.notes
+            errors += [f"{ab}: {e}" for e in r.errors]
+    return notes, errors

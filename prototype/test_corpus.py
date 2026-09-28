@@ -3265,7 +3265,7 @@ _TYPE = {'w': 'whole', 'h': 'half', 'q': 'quarter', 'e': 'eighth',
          's': '16th', 't': '32nd'}
 
 
-def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test'):
+def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test', perc=None):
     """A one-part MusicXML score from compact bars, for the braille tests
     (made-up material; nobody's music). A bar is a list of tokens, or a
     tuple of two lists for two voices on the staff. Tokens:
@@ -3278,7 +3278,9 @@ def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test'):
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<score-partwise version="3.1"><part-list>',
            '<score-part id="P1"><part-name>Test part</part-name>'
-           '</score-part></part-list><part id="P1">']
+           + (f'<score-instrument id="P1-I1"><instrument-name>{perc}'
+              '</instrument-name></score-instrument>' if perc else '')
+           + '</score-part></part-list><part id="P1">']
     beats, unit = time
     full = beats * 96 // unit
     held = {}
@@ -3286,7 +3288,8 @@ def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test'):
     for bi, bar in enumerate(bars):
         out.append(f'<measure number="{bi + 1}">')
         if bi == 0:
-            sign, line = ('G', 2) if clef == 'G' else ('F', 4)
+            sign, line = (('percussion', 2) if perc else
+                          ('G', 2) if clef == 'G' else ('F', 4))
             clefs = (f'<clef><sign>{sign}</sign><line>{line}</line></clef>'
                      if not grand else
                      '<staves>2</staves><clef number="1"><sign>G</sign>'
@@ -3387,15 +3390,22 @@ def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test'):
                         word, _, kind = ly[0][3:].partition('/')
                         lyric = (f'<lyric><syllabic>{kind or "single"}'
                                  f'</syllabic><text>{word}</text></lyric>')
+                    head = next((f[2:] for f in flags if f.startswith('h=')),
+                                None) if k == 0 else None
+                    where = (f'<unpitched><display-step>{step}</display-step>'
+                             f'<display-octave>{octv}</display-octave>'
+                             '</unpitched>' if perc else
+                             f'<pitch><step>{step}</step>' +
+                             (f'<alter>{alter}</alter>' if alter else '') +
+                             f'<octave>{octv}</octave></pitch>')
                     out.append(
                         '<note>' + ('<cue/>' if 'cue' in flags else '') +
-                        ('<chord/>' if k else '') +
-                        f'<pitch><step>{step}</step>' +
-                        (f'<alter>{alter}</alter>' if alter else '') +
-                        f'<octave>{octv}</octave></pitch><duration>{d}'
+                        ('<chord/>' if k else '') + where +
+                        f'<duration>{d}'
                         f'</duration>{ties}<voice>{vi + 1}</voice>{stf}<type>'
                         f'{_TYPE[dur[0]]}</type>{"<dot/>" * dots}{tm}' +
                         ('<notehead>slash</notehead>' if 'slash' in flags
+                         else f'<notehead>{head}</notehead>' if head
                          else '') +
                         (f'<notations>{tied}</notations>' if tied else '') +
                         lyric + '</note>')
@@ -3650,6 +3660,38 @@ def check_braille():
     check("braille: chords with lyrics read back",
           not cb.proofread(_mx(chord_song), 'P1', text),
           cb.proofread(_mx(chord_song), 'P1', text))
+
+    # 34: percussion — a kit as an ensemble score, a hand drum single-line
+    kit = [['G5+F4 e h=x', 'G5 e h=x', 'G5+C5 e h=x', 'G5 e h=x',
+            'G5+F4 e h=x', 'G5 e h=x', 'G5+C5 e h=x', 'G5 e h=circle-x'],
+           ['F5 q h=x', 'F5 q h=diamond', 'C5 q h=x', 'C5 q'],
+           ['A5+F4 w h=x', '|]']]
+    text = brf(kit, perc='Drum Set')
+    flat = ' '.join(text.split())
+    check("braille: a kit lists its instruments with their notes (33.2)",
+          ">HH'" in text and ">SD'" in text and ">BD'" in text, text)
+    check("braille: each kit instrument has its own line (34.7)",
+          any(l.startswith(">HH'") for l in text.split('\r\n')) and
+          any(l.startswith(">BD'") for l in text.split('\r\n')), text)
+    check("braille: a meaningful note head gets its sign and a key "
+          "(34.4)", 'SIDE STICK' in flat and 'OPEN' in flat, flat)
+    check("braille: the kit reads back instrument by instrument",
+          not cb.proofread(_mx(kit, perc='Drum Set'), 'P1', text),
+          cb.proofread(_mx(kit, perc='Drum Set'), 'P1', text))
+    congas = [['A4 q h=x', 'A4 e', 'A4 e', 'F4 q', 'A4 q h=x'],
+              ['A4 e', 'A4 e h=x', 'F4 h', 'r q', '|]']]
+    text = brf(congas, perc='Congas')
+    flat = ' '.join(text.split())
+    check("braille: congas read single-line with a key to the drums",
+          'LOW CONGA' in flat and 'MUTE' in flat and ">CGA'" not in text,
+          flat)
+    check("braille: congas read back",
+          not cb.proofread(_mx(congas, perc='Congas'), 'P1', text))
+    time_ = [['B4 q slash', 'B4 q slash', 'B4 q slash', 'B4 q slash'],
+             ['B4 q slash', 'B4 q slash', 'B4 q slash', 'B4 q slash', '|]']]
+    text = brf(time_, perc='Drum Set')
+    check("braille: time slashes on drums say keep time",
+          'KEEP TIME' in ' '.join(text.split()), text)
 
     # everything above, read back by the proofreader, note for note
     cases = {

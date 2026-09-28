@@ -860,8 +860,21 @@ octave, accidental, value and dot. The build says so when every part
 agrees and names the note when one does not. For a sung part it also
 translates the words back to print and checks them against the lyrics,
 and checks that every note is paired with the right syllable.
-Percussion, an organ's third staff (the pedal line) and verses after
-the first are not brailled yet; the build names each one.
+An organ's third staff (the pedal line) and verses after the first
+are not brailled yet; the build names each one.
+
+Percussion comes out too. A hand drum, a bell or a set of like drums
+reads single-line, its notes named by where they sit on the staff as
+if in bass clef, with a transcriber's note saying which note is which
+drum. A drum kit, or a part mixing several instruments, is written as
+a small ensemble score: a table of the instruments with their
+abbreviations and notes, then one line per instrument, each opening
+with its abbreviation, only the instruments that play in those bars
+shown, the bars aligned, and a transcriber's rest (after dot 5) where
+one instrument waits while the others play. Where a note head means
+something (the open hi-hat, the ride's bell, a side stick, a muted
+conga), a sign before the note carries it and the note at the top
+explains it. Time slashes on a drum part say to keep time.
 
 The braille page is standard braille paper, 11 by 11.5 inches, 40
 cells by 25 lines, unless you say otherwise: `chart set
