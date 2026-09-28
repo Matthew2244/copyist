@@ -1460,6 +1460,10 @@ def check_trills_and_tremolos():
     ok, why = chartengrave.engrave(lx, os.path.join(tmp, "l.pdf"))
     check("and the lifted tremolo engraves with no tuplet number",
           ok, str(why))
+    check("a drum note off the map finds its nearest neighbour, not a "
+          "crash", isinstance(chartaudio.drum_midi('G', 3, 'normal'), int)
+          and isinstance(chartaudio.drum_midi('B', 6, 'x', hand=True),
+                         int))
     check("the desk hears trills and tremolos spoken",
           chartedit.notes_from_words(
               "e5 half trill, c quarter trill minor third, "

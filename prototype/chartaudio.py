@@ -111,7 +111,10 @@ def drum_midi(step, octave, notehead, hand=False):
         return cands[0][1]
     want = 'CDEFGAB'.index(step) + 7 * octave
     best, best_key = 38, (99, 2)
-    for (st, oc), cands in _DRUM_BYPOS.items():
+    # nearest staff position (the Sept 22 table split left this loop
+    # reading a name that no longer existed; every engraved drum note
+    # off the map crashed the band back to MuseScore)
+    for (st, oc), cands in by_pos.items():
         d = abs('CDEFGAB'.index(st) + 7 * oc - want)
         for head, midi in cands:
             key = (d, 0 if head == notehead else 1)
