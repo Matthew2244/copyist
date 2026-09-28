@@ -2238,6 +2238,63 @@ def check_keyswitches():
                   hits == [('F', False), ('C', False), ('C', True),
                            ('F', False), ('C', True), ('C', False)],
                   str(hits))
+            # every named stroke, on the page and in the read-aloud
+            sn = [(i * 240, i * 240 + 100, 42, 80) for i in range(8)]
+            sn += [(0, 200, 36, 100), (480, 680, 102, 100),
+                   (960, 1160, 103, 100), (1440, 1640, 104, 100),
+                   (1680, 1780, 105, 100)]
+            _smg.write(os.path.join(tmp, "s.mid"), sn, 480, 100)
+            open(os.path.join(chartdrums.DRUM_DIR, "Stroke Kit.txt"),
+                 "w").write("102 snare flam\n103 snare rim shot\n"
+                            "104 snare drag\n105 crash choke\n")
+            sc = os.path.join(tmp, "s.chart")
+            open(sc, "w").write(
+                'title: S\nmeter: 4/4\ntempo: 100\n\nband:\n  drums, '
+                'demo "s.mid", drummap "Stroke Kit"\n\nsection A, 1 bars\n'
+                '  chords: C\n  drums: from demo bar 1\n')
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(sc, os.path.join(tmp, "sb"))
+            sx = open(os.path.join(tmp, "sb", "S — drums.musicxml")).read()
+            check("flam, drag, rimshot and choke print as drum books do",
+                  sx.count('<grace slash="yes"/>') == 1
+                  and sx.count('<grace/>') == 2
+                  and '>slashed</notehead>' in sx
+                  and sx.count('<breath-mark/>') == 1, sx[-300:])
+            fh = os.path.join(tmp, "fh", ".config", "copyist",
+                              "drummaps")
+            os.makedirs(fh, exist_ok=True)
+            shutil.copy(os.path.join(chartdrums.DRUM_DIR, "Stroke Kit.txt"),
+                        fh)
+            ssaid = subprocess.run(
+                [sys.executable, os.path.join(HERE, "chartread.py"), sc,
+                 "--part", "drums"], capture_output=True, text=True,
+                env=dict(os.environ, HOME=os.path.join(tmp, "fh"))).stdout
+            check("the read-aloud names each stroke the way a drummer does",
+                  all(w in ssaid for w in ("flam on the snare",
+                                           "rimshot on the snare",
+                                           "drag on the snare",
+                                           "crash choked")), ssaid)
+            import chartengrave as _ceg
+            nn = _ceg._parse_note('<note><unpitched><display-step>C'
+                                  '</display-step><display-octave>5'
+                                  '</display-octave></unpitched></note>')
+            check("the engraver puts a drum note where display-step says "
+                  "(it had piled every kit piece on the middle line)",
+                  (nn.step, nn.octave) == ('C', 5))
+            import chartdemo as _cdm
+            check("drum lanes keep the beat: an offbeat hit stops at it",
+                  [_cdm._beat_end(t_, 24, 96) for t_ in (0, 12, 36, 90)]
+                  == [24, 24, 48, 96]
+                  and _cdm._beat_end(84, 24, 60) == 108
+                  and _cdm._beat_end(108, 24, 60) == 120)
+            check("bar ranges as people write them",
+                  [chartc.bar_words(t_) for t_ in (
+                      'from demo bar 3', 'from demo bars 1 to 4',
+                      'from demo bars 2\u20135 at bar 9',
+                      'from demo "Take 2 to 3" bars 1 through 2')]
+                  == ['from demo bars 3', 'from demo bars 1-4',
+                      'from demo bars 2-5 at bars 9',
+                      'from demo "Take 2 to 3" bars 1-2'])
             check("a drummer's words for strokes and hand percussion",
                   [_ig.gm_for_words(w) for w in
                    ("rim shot", "snare flam", "conga slap", "low bongo",

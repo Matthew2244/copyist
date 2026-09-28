@@ -487,6 +487,15 @@ def _slur_runs(tl, raw):
     return runs
 
 
+def _beat_end(s, cap, bar_ticks):
+    """Where a drum hit at `s` may ring to on the page: the end of its
+    beat. An offbeat hit never crosses into the next beat (the and of 2
+    is an eighth and a rest, not a quarter over beat 3) - how drum
+    books keep the beat visible."""
+    b0 = s - s % bar_ticks
+    return min(b0 + ((s - b0) // cap + 1) * cap, b0 + bar_ticks)
+
+
 def _ghosts(tl, raw):
     """Indices of notes played well under their neighbours — ghost
     notes, printed in parentheses. Same relative-velocity judgment as
@@ -822,14 +831,14 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     slack = beat // 8
     picked = [(n.on, n.off or n.on, n.pitch, n.vel) for n in src
               if lo_t - slack <= n.on < hi_t]
-    named_ghost = set()
+    named_art = {}
     if drums and drum_map:
         # another maker's kit layout, read as the GM piece it plays;
-        # a stroke the drummer NAMED a ghost stays one, whatever the
-        # velocity says
+        # a stroke the drummer NAMED (ghost, flam, rimshot, choke,
+        # drag) stays that stroke, whatever the velocity says
         dart = getattr(drum_map, 'artic', None) or {}
-        named_ghost = {(on, drum_map.get(p, p)) for on, _f, p, _v
-                       in picked if dart.get(p) == 'ghost'}
+        named_art = {(on, drum_map.get(p, p)): dart[p] for on, _f, p, _v
+                     in picked if dart.get(p)}
         picked = [(on, off, drum_map.get(p, p), v)
                   for on, off, p, v in picked]
     elif drums:
@@ -869,7 +878,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         lag = 0
     moved = [(on - lag - lo_t, off - lag - lo_t, p, v)
              for on, off, p, v in picked]
-    named_ghost = {(max(0, on - lag - lo_t), g) for on, g in named_ghost}
+    named_art = {(max(0, on - lag - lo_t), g): a
+                 for (on, g), a in named_art.items()}
 
     # ---- keyswitches: keys pressed to change the patch's articulation
     # are not music. They leave the notes here (a C0 must never print
@@ -1064,10 +1074,13 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     raw = {q: (min(t[2] for t in lst), max(t[3] for t in lst),
                max(t[4] for t in lst))
            for q, lst in events.items()}
-    # onset -> the pitches there the drummer named ghosts
-    named_ghosts = {q: {t[0] for t in lst if (t[2], t[0]) in named_ghost}
-                    for q, lst in events.items()} if named_ghost else {}
-    named_ghosts = {q: ps for q, ps in named_ghosts.items() if ps}
+    # onset -> {pitch: the stroke the drummer named for it}
+    named_strokes = {}
+    for q, lst in events.items() if named_art else ():
+        got = {t[0]: named_art[(t[2], t[0])] for t in lst
+               if (t[2], t[0]) in named_art}
+        if got:
+            named_strokes[q] = got
 
     # ---- monophonic cleanup and legato gap-closing
     timeline = _mono_tl(events, n_units)
@@ -1079,8 +1092,9 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         cap = 3 * pulse_div if (m_den == 8 and m_num % 3 == 0) else DIV
         for i, (s_, e_, ps_) in enumerate(timeline):
             nxt = timeline[i + 1][0] if i + 1 < len(timeline) else n_units
-            timeline[i] = (s_, max(s_ + 1, min(nxt, s_ + cap, n_units)),
-                           ps_)
+            timeline[i] = (s_, max(s_ + 1, min(nxt, _beat_end(s_, cap,
+                                                              bar_ticks),
+                                               n_units)), ps_)
         drum_cap = cap
 
     if detail == 'simplified':
@@ -1253,7 +1267,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             'n_units': n_units, 'at': at_bar,
             'bars': (bar_lo, bar_hi), 'dyns': dyns,
             'slurs': slurs, 'ghosts': ghosts, 'detail': detail,
-            'named_ghosts': named_ghosts,
+            'named_strokes': named_strokes,
             'spoken_shift': spoken_shift, 'staves': staves_out,
             'bar_ticks': bar_ticks, 'pulse_div': pulse_div,
             'drums': drums, 'drum_cap': drum_cap if drums else None,
@@ -1380,7 +1394,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
             cap = res.get('drum_cap') or DIV
             ghost_on = ({res['timeline'][i][0] for i in res.get('ghosts')
                          or ()})
-            named_g = res.get('named_ghosts') or {}
+            named_s = res.get('named_strokes') or {}
             nbars = n_units // bar_ticks
             per_bar = {bi: ([], []) for bi in range(nbars)}
             for fam, hits in ((0, cyms), (1, drms)):
@@ -1388,7 +1402,9 @@ def render_range(res, fifths_written, transpose_to_written, fall,
                     nxt = (hits[ti + 1][0] if ti + 1 < len(hits)
                            else n_units)
                     wall = (s_ // bar_ticks + 1) * bar_ticks
-                    e_ = max(s_ + 1, min(nxt, s_ + cap, wall, n_units))
+                    e_ = max(s_ + 1, min(nxt, _beat_end(s_, cap,
+                                                        bar_ticks),
+                                         wall, n_units))
                     per_bar[s_ // bar_ticks][fam].append((s_, e_, ps_))
             backup = (f'      <backup><duration>{bar_ticks}</duration>'
                       '</backup>\n')
@@ -1420,9 +1436,8 @@ def render_range(res, fifths_written, transpose_to_written, fall,
                               (last_artic if (drum_fam and s_ == last_ev)
                                else None) or every,
                               0, bar=bar_ticks, voice=vno,
-                              ghost=(drum_fam and s_ in ghost_on)
-                              or named_g.get(s_, False),
-                              drums=True)
+                              ghost=drum_fam and s_ in ghost_on,
+                              drums=True, strokes=named_s.get(s_))
                         pos = e_
                     if pos < hi:
                         _emit(outd, at_bar, pos, hi, None, table,
@@ -1465,8 +1480,9 @@ def render_range(res, fifths_written, transpose_to_written, fall,
               or every,
               transpose_to_written, bend=bends.get(ti), bar=bar_ticks,
               slur=(ti in slur_a, ti in slur_b),
-              ghost=(ti in ghosts) or (drums and (res.get('named_ghosts')
-                                                  or {}).get(start, False)),
+              ghost=ti in ghosts,
+              strokes=((res.get('named_strokes') or {}).get(start)
+                       if drums else None),
               lyric=lyr[ti] if lyr else None, cue=cue, slash=slash,
               drums=drums, trill=trill_of(start, pitches),
               trem=trem_of(start, pitches))
@@ -1637,8 +1653,9 @@ def _name(ticks, sub):
 def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
           bend=None, bar=BAR, voice=1, staff=0, slur=(False, False),
           ghost=False, lyric=None, cue=False, slash=False, drums=False,
-          trill=None, trem=None):
+          trill=None, trem=None, strokes=None):
     staff_xml = f'        <staff>{staff}</staff>\n' if staff else ''
+    strokes = strokes or {}
     pieces = _pieces(start, end, grids, bar)
     if trill and trill.get('form') == 'trem' and pitches \
             and len(pitches) == 1 and not (slash or drums or cue):
@@ -1694,6 +1711,31 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                     pfirst = plast = True
                     dstep, doct, dhead = instruments.drum_position(p)
                     alter = 0
+                    if strokes.get(p) == 'rimshot' and dhead == 'normal':
+                        dhead = 'slashed'     # Weinberg: slash through
+                    if ni == 0:
+                        # flams and drags: small notes leaning on the
+                        # stroke, before the first note of the chord
+                        for gp in pitches:
+                            n_g = {'flam': 1, 'drag': 2}.get(
+                                strokes.get(gp), 0)
+                            gs, go, gh = instruments.drum_position(gp)
+                            for _k in range(n_g):
+                                out[bar_no].append(
+                                    '      <note>\n'
+                                    + ('        <grace slash="yes"/>\n'
+                                       if n_g == 1 else
+                                       '        <grace/>\n')
+                                    + '        <unpitched><display-step>'
+                                    f'{gs}</display-step><display-octave>'
+                                    f'{go}</display-octave></unpitched>\n'
+                                    f'        <voice>{voice}</voice>\n'
+                                    '        <type>'
+                                    + ('eighth' if n_g == 1 else '16th')
+                                    + '</type>\n'
+                                    + (f'        <notehead>{gh}</notehead>\n'
+                                       if gh != 'normal' else '')
+                                    + staff_xml + '      </note>\n')
                 else:
                     w = p + transpose
                     step, alter, octave = convert.spell(w, table)
@@ -1732,7 +1774,8 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                     lines.append('        <notehead>slash</notehead>')
                 if mod:
                     lines.append(_mod_xml(mod).rstrip())
-                if ghost is True or (ghost and p in ghost):
+                if ghost is True or (ghost and p in ghost) \
+                        or strokes.get(p) == 'ghost':
                     # a ghost note prints in parentheses
                     lines.append('        <notehead parentheses="yes">'
                                  f'{dhead if drums else "normal"}'
@@ -1755,6 +1798,8 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                     arts.append(f'<{bend}/>')
                 if artic and plast and ni == len(pitches) - 1:
                     arts.append(f'<{artic}/>')
+                if drums and strokes.get(p) == 'choke':
+                    arts.append('<breath-mark/>')   # the choke comma
                 if arts:
                     notations.append('<articulations>' + ''.join(arts)
                                      + '</articulations>')
@@ -2102,6 +2147,15 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
     if isinstance(table, KeyedTable):
         table.shift = res.get('spoken_shift', 0)
     orn = say_ornaments(res, table, concert_fifths)
+    for q, got in (res.get('named_strokes') or {}).items():
+        # the strokes the drummer named, said the way a drummer says them
+        said = []
+        for p_, art in sorted(got.items()):
+            piece = instruments.drum_name(p_)
+            said.append(f"{piece} ghosted" if art == 'ghost' else
+                        f"{piece} choked" if art == 'choke' else
+                        f"{art} on the {piece}")
+        orn[q] = ", ".join(([orn[q]] if q in orn else []) + said)
     at_bar = res['at'] + res.get('spoken_shift', 0)
     bar_ticks = res.get('bar_ticks', BAR)
     pulse = res.get('pulse_div', DIV)

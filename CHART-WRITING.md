@@ -115,6 +115,10 @@ recording convention, not a voicing.
       tenor: solo
       all: groove "greasy - stay out of the way"
 
+- **Write bar ranges however you'd say them.** `bars 2-9`, `bars 2 to
+  9`, `bars 2 through 9` and a typed dash all work, and one bar is just
+  `bar 5`.
+
 - **A lick you'll use more than once gets a name.** Define it up top,
   place it anywhere by name:
 
@@ -347,8 +351,10 @@ stick, ride bell, china, and Enter keeps the General MIDI name. The
 answers are saved as that library's drum map and the part uses it from
 then on. Name the stroke along with the piece when the kit has one: a
 note you call "snare ghost" prints in parentheses every time, whatever
-its velocity, and only that note, never the kick beside it. Rim shot,
-flam, drag, brushes and choke read as the piece they're played on.
+its velocity, and only that note, never the kick beside it. A flam
+prints a slashed grace note, a drag two small ones, a rim shot a
+slashed notehead, and a choke the comma after the cymbal. The
+read-aloud says each one ("flam on the snare", "crash choked").
 Hand percussion counts too: conga (open, slap, low), bongo, timbale,
 shaker, cabasa, woodblock, claves, triangle, agogo and guiro. A drum
 take that uses notes General MIDI doesn't have gets a

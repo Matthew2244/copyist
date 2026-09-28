@@ -890,7 +890,7 @@ def parse_chart(path):
                      f"has its {cur_fig['kind']}")
             m = re.match(r'from midi "([^"]+)"'
                          r'(?:,\s*track "([^"]+)")?'
-                         r',\s*bars (\d+)-(\d+)$', s)
+                         r',\s*bars (\d+)-(\d+)$', bar_words(s))
             if m:
                 lo, hi = int(m.group(3)), int(m.group(4))
                 if hi - lo + 1 != cur_fig['bars']:
@@ -900,7 +900,7 @@ def parse_chart(path):
                                track=m.group(2), lo=lo, hi=hi, loc=loc)
                 continue
             m = re.match(r'from xml "([^"]+)",\s*part "([^"]+)"'
-                         r',\s*bars (\d+)-(\d+)$', s)
+                         r',\s*bars (\d+)-(\d+)$', bar_words(s))
             if m:
                 lo, hi = int(m.group(3)), int(m.group(4))
                 if hi - lo + 1 != cur_fig['bars']:
@@ -1357,6 +1357,18 @@ def keyswitch_map(chart, name, loc='band'):
 
 class DrumMap(dict):
     artic = {}
+
+
+def bar_words(s):
+    """A bar range as people write it -> the form the rules read:
+    "bar 5" is "bars 5", and 1 to 4, 1 through 4, 1 thru 4, a typed
+    en or em dash or spaced hyphen all mean 1-4."""
+    bits = s.split('"')          # a quoted name is left exactly alone
+    for i in range(0, len(bits), 2):
+        t = re.sub(r'\bbar (\d)', r'bars \1', bits[i])
+        bits[i] = re.sub(r'(?<=\d)\s*(?:\u2013|\u2014|-|\s(?:to|through'
+                         r'|thru)\s)\s*(?=\d)', '-', t)
+    return '"'.join(bits)
 
 
 def drum_map_for(name, loc):
@@ -2153,15 +2165,16 @@ def build_plans(chart, band, groups, labels):
                 if m and piece.startswith('figure '):
                     fail(f"{loc}: figure '{m.group(1).strip()}' is not "
                          "defined")
-                m = re.match(r'as engraved bars (\d+)-(\d+)'
-                             r'(?:\s+at bar (\d+))?$', piece)
+                m = re.match(r'as engraved bars (\d+)(?:-(\d+))?'
+                             r'(?:\s+at bars (\d+))?$', bar_words(piece))
                 if m:
-                    engraved = (int(m.group(1)), int(m.group(2)),
+                    engraved = (int(m.group(1)),
+                                int(m.group(2) or m.group(1)),
                                 int(m.group(3) or 1))
                     continue
                 m = re.match(r'from demo(?:\s+"([^"]+)")?'
                              r'\s+bars (\d+)(?:-(\d+))?'
-                             r'(?:\s+at bar (\d+))?$', piece)
+                             r'(?:\s+at bars (\d+))?$', bar_words(piece))
                 if m:
                     lo = int(m.group(2))
                     hi = int(m.group(3) or lo)

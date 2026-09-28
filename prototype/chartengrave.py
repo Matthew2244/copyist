@@ -57,7 +57,7 @@ SMUFL = {
     'dblSharp': 0xE263, 'dblFlat': 0xE264,
     'wholeHead': 0xE0A2, 'halfHead': 0xE0A3, 'blackHead': 0xE0A4,
     'xHead': 0xE0A9, 'circleXHead': 0xE0B3, 'diamondHead': 0xE0DB,
-    'triangleHead': 0xE0BE,
+    'triangleHead': 0xE0BE, 'slashedHead': 0xE0CF,
     'restW': 0xE4E3, 'restH': 0xE4E4, 'restQ': 0xE4E5,
     'rest8': 0xE4E6, 'rest16': 0xE4E7, 'rest32': 0xE4E8,
     'flag8U': 0xE240, 'flag8D': 0xE241,
@@ -452,7 +452,8 @@ def notehead(pdf, x, y, kind='black', scale=1.0, parens=False):
         name = {'black': 'blackHead', 'half': 'halfHead',
                 'whole': 'wholeHead', 'x': 'xHead',
                 'circle-x': 'circleXHead', 'diamond': 'diamondHead',
-                'triangle': 'triangleHead'}.get(kind, 'blackHead')
+                'triangle': 'triangleHead',
+                'slashed': 'slashedHead'}.get(kind, 'blackHead')
         size = 4 * SP * scale
         hw = pdf.gw(name, size)
         if pdf.glyph(x - hw / 2, y, name, size):
@@ -677,11 +678,13 @@ def _parse_note(t):
     n.rest = '<rest' in t
     n.measure_rest = 'rest measure="yes"' in t
     n.chord = bool(re.search(r'<chord\s*/>', t))
-    m = re.search(r'<step>(\w)</step>', t)
+    # a drum note sits where its display-step says: kick low, snare
+    # third space, cymbals on top - read as one line, a kit is a pile
+    m = re.search(r'<(?:display-)?step>(\w)</(?:display-)?step>', t)
     n.step = m.group(1) if m else 'B'
     m = re.search(r'<alter>(-?\d+)</alter>', t)
     n.alter = int(m.group(1)) if m else 0
-    m = re.search(r'<octave>(\d+)</octave>', t)
+    m = re.search(r'<(?:display-)?octave>(\d+)</(?:display-)?octave>', t)
     n.octave = int(m.group(1)) if m else 4
     m = re.search(r'<duration>(\d+)</duration>', t)
     n.dur = int(m.group(1)) if m else 0
@@ -2009,7 +2012,7 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             dx = 2.15 * SP * scale * (1 if up else -1) if side[i] else 0
             h = head
             if getattr(n, 'head', None) in ('x', 'circle-x', 'diamond',
-                                            'triangle'):
+                                            'triangle', 'slashed'):
                 h = n.head
             notehead(pdf, cx + dx, yy, h, scale=scale, parens=n.parens)
         dot_x = cx + 1.9 * SP
@@ -2042,7 +2045,10 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
         else:
             flush_beam(pdf, pend_beam)
             pend_beam = []
-        marks = list(n0.marks) or ([n0.artic] if n0.artic else [])
+        # a chord's marks are the chord's: the writer puts an accent
+        # on its last note, a choke rides the cymbal wherever it sits
+        marks = list(dict.fromkeys(m for n in notes for m in n.marks)) \
+            or next(([n.artic] for n in notes if n.artic), [])
         for mk in marks:
             if mk in BEND_MARKS:
                 ay = (min(ys) - 2.2 * SP) if up else (max(ys) + 1.6 * SP)
