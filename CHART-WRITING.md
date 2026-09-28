@@ -863,6 +863,28 @@ and checks that every note is paired with the right syllable.
 Percussion, an organ's third staff (the pedal line) and verses after
 the first are not brailled yet; the build names each one.
 
+The braille page is standard braille paper, 11 by 11.5 inches, 40
+cells by 25 lines, unless you say otherwise: `chart set
+braille_page=letter` (34 by 25), `a4` (35 by 28), or any cells x lines
+like `32x25`; `--paper` changes it for one build. Everything reflows to
+fit and is proofread the same way.
+
+To emboss, add the embosser in System Settings, Printers and Scanners,
+then tell Copyist which printer it is:
+
+    chart embossers                      # the printers this Mac knows
+    chart set embosser=Index_Everest
+    chart tune.chart emboss              # every part's braille
+    chart tune.chart emboss --parts "trumpet 1"
+
+`emboss` makes the braille, proofreads it, and sends each file to the
+embosser as raw braille, the form BRF embossers take; anything the
+proofreader disagrees with is held back rather than wasting paper.
+Single or double-sided is the embosser's own setting. In the Mac app,
+**Emboss** on the Build tab asks before it sends, and Settings has the
+paper and the embosser under **Braille**. On Windows, open the .brf
+files in the embosser's own software.
+
 **Braille pages** draws the braille as dots, one PDF page for every
 braille page, raised dots solid and the empty places in each cell
 faint, with each cell's braille ASCII beneath it. It is for sighted

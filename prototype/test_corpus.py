@@ -3738,6 +3738,32 @@ def check_export_picker():
         bad = True
     check("parts: an ambiguous name refuses and lists the band", bad)
 
+    # braille paper: the layout reflows to the page it is given
+    check("paper: letter is 34 by 25", cb.paper('letter') == (34, 25))
+    check("paper: cells x lines", cb.paper('32x25') == (32, 25))
+    bad = False
+    try:
+        cb.paper('napkin')
+    except ValueError:
+        bad = True
+    check("paper: an unknown size refuses", bad)
+    long = [['C5 e', 'D5 e', 'E5 e', 'F5 e', 'G5 e', 'A5 e', 'B5 e',
+             'C6 e']] * 60 + [['C5 w', '|]']]
+    x = _mx(long)
+    for size in ((34, 25), (28, 20)):
+        text, _ = cb.part_to_brf(x, 'P1', 'T', 'Test part', page=size)
+        pages = text.split('\f')
+        lines = [l for p_ in pages for l in p_.split('\r\n')]
+        check(f"paper {size[0]}x{size[1]}: every line fits",
+              max(len(l) for l in lines) <= size[0])
+        check(f"paper {size[0]}x{size[1]}: every page fits",
+              all(len([l for l in p_.split('\r\n') if l]) <= size[1]
+                  for p_ in pages))
+        check(f"paper {size[0]}x{size[1]}: reads back",
+              not cb.proofread(x, 'P1', text))
+    check("the standard page is back after a narrow one",
+          cb.LINE == 40 and cb.PAGE == 25)
+
 
 def check_drum_kit():
     """

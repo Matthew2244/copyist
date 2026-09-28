@@ -169,8 +169,14 @@ def decode(brf):
             if in_tn:
                 in_tn = not t.endswith('@.>')
                 continue
-            if head is None:
-                head = t.split()[-1]
+            if head is None or head == '':
+                # 1.7 (c): a heading too wide for one line puts its
+                # metronome and signatures on a second; it ends at the
+                # time signature
+                if _signatures(t) or head == '':
+                    head = t.split()[-1]
+                else:
+                    head = ''
                 continue
             raw.append(l.rstrip())
             if re.fullmatch(r'>,.*>', t):
@@ -213,9 +219,10 @@ def _open_expr(line):
             else:
                 j = line.find('>', i + 1)
                 rest = line[i + 1:] if j == -1 else line[i + 1:j]
-                if ' ' in rest and re.fullmatch(r"[A-Z0-9#',.\-7 ;]+", rest):
-                    if j == -1:
-                        return True
+                words = re.fullmatch(r"[A-Z0-9#',.\-7 ;]+", rest)
+                if j == -1 and words:
+                    return True           # still running at the line end
+                if ' ' in rest and words:
                     inside = True
         i += 1
     return False
@@ -408,6 +415,12 @@ def read_line(r, s):
 
 
 
+def _signatures(t):
+    """Does this heading line end with the key and time signatures?"""
+    return bool(re.fullmatch(r'(?:[%<*]*|#[A-J]+[%<])#[A-J]+[0-9]+',
+                             t.split()[-1]))
+
+
 def _keyboard(lines, head):
     """Bar-over-bar keyboard braille (29.3): each parallel's right-hand
     line (and its run-overs) joins one stream, the left hand's another;
@@ -522,8 +535,11 @@ def decode_words(brf):
             if in_tn:
                 in_tn = not t.endswith('@.>')
                 continue
-            if head is None:
-                head = t
+            if head is None or head == '':
+                if _signatures(t) or head == '':
+                    head = t.split()[-1]
+                else:
+                    head = ''
                 continue
             raw.append(l.rstrip())
     return _vocal(raw, head)[2] if _is_vocal(raw) else ''

@@ -890,7 +890,8 @@ class Line:
 
 # ---------------------------------------------------------------- pages
 
-def _center(text, width=LINE):
+def _center(text, width=None):
+    width = width or LINE
     pad = max(0, (width - len(text)) // 2)
     return ' ' * pad + text
 
@@ -952,7 +953,36 @@ def _heading(measures, xml):
     return [_center(line)], words[1:]
 
 
-def part_to_brf(xml, pid, title, part_name, chords=True):
+PAPER = {'standard': (40, 25), 'letter': (34, 25), 'a4': (35, 28)}
+
+
+def paper(text):
+    """'standard', 'letter', 'a4' or '32x25' -> (cells, lines)."""
+    t = (text or 'standard').strip().lower().replace(' ', '')
+    if t in PAPER:
+        return PAPER[t]
+    m = re.fullmatch(r'(\d+)(?:x|by)(\d+)', t)
+    if m and 20 <= int(m.group(1)) <= 60 and 10 <= int(m.group(2)) <= 40:
+        return int(m.group(1)), int(m.group(2))
+    raise ValueError(f"'{text}' is not a braille page — standard (40 "
+                     "cells by 25 lines, 11 by 11.5 inch paper), letter "
+                     "(34 by 25), a4 (35 by 28), or cells x lines like "
+                     "32x25")
+
+
+def part_to_brf(xml, pid, title, part_name, chords=True, page=None):
+    """The braille for one part, on a page of `page` = (cells, lines),
+    standard 40 by 25 when not given."""
+    global LINE, PAGE
+    keep = LINE, PAGE
+    LINE, PAGE = page or (40, 25)
+    try:
+        return _part_to_brf(xml, pid, title, part_name, chords)
+    finally:
+        LINE, PAGE = keep
+
+
+def _part_to_brf(xml, pid, title, part_name, chords=True):
     """A part of a Copyist MusicXML document -> (BRF text, notes about
     anything the braille could not carry). chords=False leaves out the
     chord-symbol lines: the melody alone, for a reader who wants it."""
@@ -1356,13 +1386,14 @@ def _disc(pdf, x, y, r, gray):
            f"{x + r:.2f} {y:.2f} c f 0 g")
 
 
-def brf_pages_pdf(brf_text, path, caption):
+def brf_pages_pdf(brf_text, path, caption, page=None):
     """The braille drawn for sighted eyes: each embossed page as a page
     of dots — 40 cells by 25 lines, raised dots solid, the empty places
     of each cell faint so the grid reads — with the Braille ASCII
     beneath each line in small gray type for a transcriber. A teacher,
     a sighted bandmate or a proofreader sees exactly what the reader's
     fingers meet."""
+    LINE, PAGE = page or (40, 25)
     pdf = ce.Pdf()
     pw, ph = ce.PAGE_W, ce.PAGE_H
     left, top = 36.0, ph - 54.0

@@ -271,7 +271,7 @@ function Do-ReadPart {
 $settingGroups = [ordered]@{
     'Your charts - name and look'        = @('composer', 'look')
     'When a build lands - ping and open' = @('notify', 'open')
-    'What a build makes'                 = @('exports')
+    'What a build makes'                 = @('exports', 'braille_page')
     'Where finished files go'            = @('pages_to', 'listens_to',
                                              'spoken_to', 'braille_to')
     'MIDI and demos'                     = @('midi', 'quant', 'countin')
@@ -312,6 +312,9 @@ function Do-Settings {
             }
             if ($c -eq 'countin') {
                 $hint = ' Count-in bars offered when a demo says nothing itself; any number, empty reads the demo.'
+            }
+            if ($c -eq 'braille_page') {
+                $hint = ' Standard (40 cells by 25 lines, 11 by 11.5 inch paper), letter (34 by 25), a4 (35 by 28), or cells x lines like 32x25.'
             }
             if ($c -eq 'exports') {
                 $hint = ' Any mix of pages, listen, braille, braille pages and read-alouds, separated by commas - or all.'

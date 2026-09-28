@@ -184,6 +184,19 @@ final class AppModel: ObservableObject {
     @Published var runTab: Tab = .build
     @Published var parts: [String] = []
     @Published var showExport = false
+    @Published var askEmboss = false
+
+    /// The embosser setting, if one is chosen.
+    func embosser() -> String {
+        let cfgURL = URL(fileURLWithPath: NSHomeDirectory()
+            + "/.config/copyist/config.json")
+        if let d = try? Data(contentsOf: cfgURL),
+           let j = try? JSONSerialization.jsonObject(with: d)
+                as? [String: Any], let e = j["embosser"] as? String {
+            return e
+        }
+        return ""
+    }
     @AppStorage("speakSteps") var speakSteps: Bool = true
     @AppStorage("speakTabs") var speakTabs: Bool = true
     private var lastSpokenStep = ""
@@ -1351,6 +1364,20 @@ struct BuildTab: View {
                              enabled: model.chart != nil) {
                     model.showExport = true
                 }
+                ActionButton(icon: "printer",
+                             title: "Emboss",
+                             line: "Send the braille to your embosser, "
+                                 + "after you say yes.",
+                             keys: "", pal: pal,
+                             enabled: model.chart != nil) {
+                    if model.embosser().isEmpty {
+                        announce("Pick your embosser in Settings first, "
+                                 + "under Braille.")
+                        model.tab = .settings
+                    } else {
+                        model.askEmboss = true
+                    }
+                }
                 ActionButton(icon: "hand.point.up.braille",
                              title: "Braille",
                              line: "Just the braille: a file for each "
@@ -1368,6 +1395,16 @@ struct BuildTab: View {
         .padding(.bottom, 20)
         .sheet(isPresented: $model.showExport) {
             ExportSheet(pal: pal).environmentObject(model)
+        }
+        .confirmationDialog("Emboss every part's braille on "
+                            + model.embosser() + "?",
+                            isPresented: $model.askEmboss) {
+            Button("Emboss") { model.run("Emboss", args: ["emboss"]) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Each part the braille covers goes to the embosser, "
+                 + "on the paper size in Settings. Anything the "
+                 + "proofreader disagrees with is held back.")
         }
     }
 }
@@ -2167,6 +2204,7 @@ struct SettingsView: View {
     @State private var status = "Every setting says what it is set to."
     @State private var composer = ""
     @State private var countin = ""
+    @State private var printers: [String] = []
 
     let looks = ["", "jazz", "handwritten", "engraved", "plain"]
     let quants = ["", "eighths", "straight", "sixteenths", "triplets"]
@@ -2220,6 +2258,22 @@ struct SettingsView: View {
                     ForEach(exportChoices, id: \.0) { key, label in
                         Toggle(label, isOn: export(key))
                     }
+                }
+                group("Braille") {
+                    Picker("Braille paper", selection: bind("braille_page")) {
+                        Text("Standard, 40 cells by 25 lines "
+                             + "(11 by 11.5 inch)").tag("standard")
+                        Text("Letter, 34 by 25").tag("letter")
+                        Text("A4, 35 by 28").tag("a4")
+                    }
+                    Picker("Embosser", selection: bind("embosser")) {
+                        Text("None chosen").tag("")
+                        ForEach(printers, id: \.self) { Text($0).tag($0) }
+                    }
+                    Text("An embosser shows up here once it is added in "
+                         + "System Settings, Printers and Scanners.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(pal.sub)
                 }
                 group("When a build lands") {
                     Toggle("Ping my phone",
@@ -2302,6 +2356,19 @@ struct SettingsView: View {
             cfg = loadConfig()
             composer = cfg["composer"] ?? ""
             countin = cfg["countin"] ?? ""
+            if cfg["braille_page"] == nil { cfg["braille_page"] = "standard" }
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/lpstat")
+            p.arguments = ["-e"]
+            let pipe = Pipe()
+            p.standardOutput = pipe
+            p.standardError = Pipe()
+            if (try? p.run()) != nil {
+                p.waitUntilExit()
+                printers = String(decoding: pipe.fileHandleForReading
+                    .readDataToEndOfFile(), as: UTF8.self)
+                    .split(separator: "\n").map(String.init)
+            }
         }
     }
 

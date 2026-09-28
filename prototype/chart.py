@@ -219,6 +219,11 @@ SETTINGS = (
      "braille drawn as dots, for sighted eyes), read-alouds — or all"),
     ('braille_to', '', "a folder where braille files land — empty keeps "
                        "them with the build"),
+    ('braille_page', 'standard', "the braille paper: standard (40 cells "
+                     "by 25 lines, 11 by 11.5 inch), letter (34 by 25), "
+                     "a4 (35 by 28), or cells x lines like 32x25"),
+    ('embosser', '', "the embosser emboss sends to — a printer name "
+                     "from 'chart embossers'"),
 )
 
 EXPORTS = (('pages', 'the PDF charts'), ('listen', 'the listen MP3'),
@@ -235,19 +240,20 @@ _EXPORT_WORDS = {
     'spoken': 'read-alouds', 'text': 'read-alouds'}
 
 
-def make_braille(sources, title, where, ex):
+def make_braille(sources, title, where, ex, page=None):
     """A braille file (BRF, BANA music code) for every part that can be
     brailled, and/or the braille drawn as dots; each one read back by
     the proofreader and compared with the score before it is kept."""
     import chartbraille
-    made, notyet, doubts = [], [], []
+    made, notyet, doubts, made_files = [], [], [], []
     for src in sources:
         base = os.path.basename(src)[:-len('.musicxml')]
         if is_score(src):
             continue
         xml = open(src, encoding='utf-8').read()
         for pid, pname in chartbraille.document_parts(xml)[:1]:
-            text, why = chartbraille.part_to_brf(xml, pid, title, pname)
+            text, why = chartbraille.part_to_brf(xml, pid, title, pname,
+                                                 page=page)
             if text is None:
                 notyet.append((pname, '; '.join(why)))
                 continue
@@ -262,8 +268,9 @@ def make_braille(sources, title, where, ex):
             if 'braille pages' in ex:
                 chartbraille.brf_pages_pdf(
                     text, os.path.join(where, base + ' (braille view).pdf'),
-                    f"{title} - {pname}")
+                    f"{title} - {pname}", page=page)
             made.append(pname)
+            made_files.append(os.path.join(where, base + '.brf'))
     if made:
         what = {frozenset({'braille'}): "Braille files",
                 frozenset({'braille pages'}): "Braille views (the dots "
@@ -284,6 +291,44 @@ def make_braille(sources, title, where, ex):
         say("No braille yet for " + "; ".join(
             (", ".join(n[:-1]) + " and " + n[-1] if len(n) > 1 else n[0])
             + f" — {why}" for why, n in by.items()) + ".")
+    return made_files, doubts
+
+
+def embossers():
+    """The printers this computer knows (CUPS), by name."""
+    from shutil import which
+    if not which('lpstat'):
+        return None
+    r = subprocess.run(['lpstat', '-e'], capture_output=True, text=True)
+    return [l.strip() for l in r.stdout.splitlines() if l.strip()]
+
+
+def emboss(files, printer, title):
+    """Each BRF to the embosser as raw braille — the form Index,
+    Enabling Technologies and other BRF embossers take — through the
+    computer's own print system."""
+    names = embossers()
+    if names is None:
+        sys.exit("chart: embossing from here needs the Mac's print system "
+                 "(lp); on Windows, open the .brf files in the embosser's "
+                 "own software.")
+    if printer not in names:
+        sys.exit(f"chart: no printer called '{printer}' — this computer "
+                 "has " + (", ".join(names) or "none") + ".")
+    sent = 0
+    for f in files:
+        r = subprocess.run(['lp', '-d', printer, '-o', 'raw', '-t',
+                            os.path.basename(f)[:-4], f],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            sent += 1
+        else:
+            say(f"The embosser refused {os.path.basename(f)}: "
+                + (r.stderr.strip() or 'no reason given') + ".")
+    if sent:
+        say(f"Sent {sent} braille file(s) to {printer}. The embosser "
+            "takes it from there; its own settings decide single or "
+            "double-sided.")
 
 
 def select_parts(text, labels):
@@ -520,6 +565,12 @@ def run_settings(argv):
         if not v:
             sys.exit("chart: exports needs at least one of "
                      + ", ".join(k2 for k2, _ in EXPORTS) + ".")
+    if k == 'braille_page':
+        import chartbraille
+        try:
+            chartbraille.paper(v)
+        except ValueError as e:
+            sys.exit(f"chart: {e}")
     if k == 'countin' and v and not v.isdigit():
         sys.exit("chart: countin is a number of bars, like 1 or 2 "
                  "(or empty for none).")
@@ -1038,6 +1089,19 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] in ('import', 'i'):
         run_import(sys.argv[2:])
         return
+    if len(sys.argv) > 1 and sys.argv[1] == 'embossers':
+        names = embossers()
+        if names is None:
+            say("Embossing from Copyist needs the Mac's print system; on "
+                "Windows, use the embosser's own software with the .brf.")
+        elif not names:
+            say("No printers on this computer yet. Add the embosser in "
+                "System Settings, Printers and Scanners, then set it with "
+                "chart set embosser=its name.")
+        else:
+            say("Printers this computer knows: " + ", ".join(names)
+                + ". Pick the embosser with chart set embosser=its name.")
+        return
     if len(sys.argv) > 1 and sys.argv[1] in ('keyswitches', 'ks'):
         run_keyswitches(sys.argv[2:])
         return
@@ -1047,7 +1111,8 @@ def main():
     ap.add_argument('chart', help="the .chart file")
     ap.add_argument('command', nargs='?', default='build',
                     choices=['build', 'check', 'read', 'parts', 'diff',
-                             'listen', 'braille', 'preview', 'new', 'edit',
+                             'listen', 'braille', 'emboss', 'preview',
+                             'new', 'edit',
                              'keys',
                              'drums',
                              'b', 'c', 'r', 'p', 'd', 'l', 'n', 'e'],
@@ -1072,6 +1137,12 @@ def main():
                     help='how the pages dress for this build: jazz, '
                          'handwritten, engraved or plain, plus any '
                          'adjustments a look: line takes')
+    ap.add_argument('--paper',
+                    help='braille paper for this build: standard, letter, '
+                         'a4, or cells x lines like 32x25')
+    ap.add_argument('--printer',
+                    help='with emboss: the embosser, overriding the '
+                         'setting')
     ap.add_argument('--bars',
                     help='only these bars, as printed: e.g. --bars 9-24; '
                          'all (the default) is the whole song')
@@ -1191,6 +1262,12 @@ def main():
     elif args.command == 'braille':
         ex = {'braille'} | ({'braille pages'} & parse_exports(
             args.exports or cfg['exports']))
+    elif args.command == 'emboss':
+        if not (args.printer or cfg['embosser']):
+            sys.exit("chart: which embosser? 'chart embossers' lists the "
+                     "printers; set one with chart set embosser=NAME, or "
+                     "pass --printer.")
+        ex = {'braille'}
     do_reads = 'read-alouds' in ex
 
     # remember which chart text produced the previous build, so a source
@@ -1390,8 +1467,23 @@ def main():
         return
 
     if ex & {'braille', 'braille pages'}:
-        make_braille(to_draw, title, dest_dir(cfg, 'braille_to', title_dir),
-                     ex)
+        import chartbraille
+        try:
+            page = chartbraille.paper(args.paper or cfg['braille_page'])
+        except ValueError as e:
+            sys.exit(f"chart: {e}")
+        made, doubts = make_braille(to_draw, title,
+                                    dest_dir(cfg, 'braille_to', title_dir),
+                                    ex, page=page)
+        if args.command == 'emboss':
+            bad = {d.split(':')[0] for d in doubts}
+            if bad:
+                say("Holding back from the embosser what the proofreader "
+                    "disagrees with — no wasted paper.")
+            emboss([f for f in made if not any(
+                        os.path.basename(f).endswith(f' — {b}.brf')
+                        for b in bad)],
+                   args.printer or cfg['embosser'], title)
 
     if 'listen' in ex and listen_src and (rng or sel['labels']):
         listen_excerpt(listen_src, title, listen_dir, rng, sel, cfg,
