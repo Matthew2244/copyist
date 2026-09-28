@@ -124,7 +124,8 @@ the page still looked perfect.
 **Every part comes out in braille too.** A `.brf` file per part, in
 BANA's *Music Braille Code 2015*, 40 cells by 25 lines, with chord
 symbols on their own line under the notes; piano and organ in the
-bar-over-bar keyboard layout. A separate reader
+bar-over-bar keyboard layout; sung parts in line-by-line format, words
+over music. A separate reader
 reads each file back by the code's rules and checks it against the
 score, note by note, before the build keeps it. The braille can also
 be drawn as dots in a PDF for a sighted teacher or bandmate. The

@@ -704,6 +704,8 @@ def _side_units(events, texts, dyns, chords, slurs, added, down,
                 body = note_braille(n, voice)
             if slurs.get(id(n)) == 'short':
                 body += SLUR
+            if slurs.get(id(n)) == 'double':
+                body += SLUR + SLUR                        # 35.2
             if slurs.get(id(n)) == 'close':
                 body += SLUR_CLOSE
             # 29.10: pedal down before the note, up after it
@@ -993,13 +995,35 @@ def part_to_brf(xml, pid, title, part_name, chords=True):
                      "follow it, up to the next note, stand for print "
                      "slashes: play or improvise on the chord symbols in "
                      "the line below. A rest anywhere else is a real rest.")
-    if notes:
+    paras = [' '.join(notes)] if notes else []
+    if chords and _sings(measures) and any(m['chords'] for m in measures):
+        # 36.1.1: the notes a reader needs for chords set against words
+        paras += [
+            "The chord symbols in this song relate to the words; where "
+            "each chord's first capital sign sits says whether it is "
+            "played before, with, during, or after its word or syllable.",
+            "Punctuation in the word line has no bearing on where a chord "
+            "sits. When a word is capitalized, the capital sign is its "
+            "first character.",
+            "Some words are spaced unusually, or split between syllables, "
+            "to make room for the chord symbols.",
+            "A chord played before a syllable starts two cells to the left "
+            "of the syllable's first character.",
+            "A chord played with a syllable starts under its first "
+            "character.",
+            "A chord played during a syllable starts with a hyphen; the "
+            "first hyphen sits under the syllable's first character.",
+            "A chord played after a syllable is released starts one cell "
+            "to the right of its last letter."]
+    if paras:
         # 1.4: a transcriber's note, in UEB transcriber's-note indicators
         tn_open = cell(4) + cell(4, 6) + cell(1, 2, 6)
         tn_close = cell(4) + cell(4, 6) + cell(3, 4, 5)
-        for ln in _wrap(tn_open + literary(' '.join(notes)) + tn_close,
-                        LINE):
-            pager.add(ln)
+        for k, para in enumerate(paras):
+            text = ((tn_open if k == 0 else '') + literary(para) +
+                    (tn_close if k == len(paras) - 1 else ''))
+            for ln in _wrap(text, LINE):
+                pager.add(ln)
     pager.add('')
     head, extra_words = _heading(measures, xml)
     for ln in head:
@@ -1018,6 +1042,13 @@ def part_to_brf(xml, pid, title, part_name, chords=True):
     if any(m['state'].get('staves', 1) > 1 for m in measures):
         _keyboard(pager, measures, tied, chords)
         return pager.text(), _later(measures)
+    if _sings(measures):
+        _vocal(pager, measures, tied, chords)
+        body = re.search(r'<part id="%s">(.*?)</part>' % re.escape(pid),
+                         xml, re.S)
+        more = body and re.search(r'<lyric[^>]*number="[2-9]"', body.group(1))
+        return pager.text(), (["verses after the first are still to come"]
+                              if more else [])
     voice = Voice()
     voice.tied = tied
     voice.loose_ties = _loose_ties(measures)
@@ -1063,71 +1094,10 @@ def part_to_brf(xml, pid, title, part_name, chords=True):
             flush()
             state['lines_in_seg'] = 0
             new_line(number(num) + ' ')            # 24.1.1
-        # signs before the measure. Segno, coda and signatures stand
-        # apart, spaced (20.2, 6.5, 7.1; a key runs straight into a
-        # time signature); the repeat and the volta belong to the
-        # measure and touch its first sign (17.1, 17.1.1)
-        pre = [SEGNO if sgn == 'segno' else CODA for sgn in m['signs']]
-        st = m['state']
-        sig = ''
-        if i > 0 and 'key' in m['show']:
-            sig += _key_sign(st['fifths'])
-        if i > 0 and 'time' in m['show']:
-            sig += _time_sign(st['time'])
-        if sig:
-            pre.append(sig)
-        attach, volta = '', False
-        if (m['left'] or {}).get('repeat') == 'forward':
-            attach += REPEAT_FWD
-        for enum, etype, _left in m.get('ending') or []:
-            if etype == 'start':                         # table 17
-                attach += NUM + ''.join(LOWER[d] for d in str(enum))
-                volta = True
-        # 20.2: the road map follows the measure it closes — "To Coda"
-        # as the coda sign and its words after the music, D.S., D.C.
-        # and Fine after the bar line, each a closed word-sign group
-        road = [t for _p, t in m['texts'] if _is_road(t)]
-        m['texts'] = [(p, t) for p, t in m['texts'] if not _is_road(t)]
-        post = ''
-        for t in road:
-            w = expression(t)
-            w = w if w.endswith(WORD) else w + WORD
-            post += ' ' + ((CODA + ' ') if t.lower().startswith('to coda')
-                           else '') + w
-        units, slashed = measure_units(m, slurs)
-        if slashed and in_slash:
-            # "slashes" is said once a passage; later bars keep only
-            # their own words
-            nw = len(m['texts']) + 1
-            units = units[:nw - 1] + units[nw:]
+        units, slashed, tail = _measure_frame(m, i, slurs, in_slash)
         in_slash = slashed
-        if pre or attach:
-            head = ' '.join(pre) + (' ' if pre else '') + attach
-            first_render, first_ch = units[0]
-
-            def joined(v, head=head, r=first_render, attach=attach,
-                       volta=volta):
-                v.fresh()                         # 6.5, 7.1, 17.1
-                text = r(v)
-                keep = Words if isinstance(text, Words) else str
-                if not attach:
-                    return keep(head + text)
-                if _starts_longer(text):
-                    return keep(head + HYPHEN + ' ' + text)  # 17.1
-                if volta and needs_dot3(text):
-                    return keep(head + cell(3) + text)       # 17.1.1
-                return keep(head + text)
-            units[0] = (joined, first_ch)
-        right = m['right'] or {}
-        end = ''
-        if right.get('repeat') == 'backward':
-            end = REPEAT_BACK
-        elif right.get('style') == 'light-heavy':
-            end = FINAL_BAR
-        elif right.get('style') == 'light-light':
-            end = SECTION_BAR
-        _lay(state, units, end + post, voice, new_line)
-        if end or post:
+        _lay(state, units, tail, voice, new_line)
+        if tail:
             voice.fresh()                          # 1.10.3, 22.3 (e)
     flush()
     return pager.text(), _later(measures)
@@ -1140,6 +1110,75 @@ def _later(measures):
         later.append("its lyrics are still to come; the notes are all "
                      "there")
     return later
+
+
+def _measure_frame(m, i, slurs, in_slash):
+    """One measure's units with the signs that frame it, and what
+    follows its music: (units, slashed, tail)."""
+    # signs before the measure. Segno, coda and signatures stand
+    # apart, spaced (20.2, 6.5, 7.1; a key runs straight into a
+    # time signature); the repeat and the volta belong to the
+    # measure and touch its first sign (17.1, 17.1.1)
+    pre = [SEGNO if sgn == 'segno' else CODA for sgn in m['signs']]
+    st = m['state']
+    sig = ''
+    if i > 0 and 'key' in m['show']:
+        sig += _key_sign(st['fifths'])
+    if i > 0 and 'time' in m['show']:
+        sig += _time_sign(st['time'])
+    if sig:
+        pre.append(sig)
+    attach, volta = '', False
+    if (m['left'] or {}).get('repeat') == 'forward':
+        attach += REPEAT_FWD
+    for enum, etype, _left in m.get('ending') or []:
+        if etype == 'start':                         # table 17
+            attach += NUM + ''.join(LOWER[d] for d in str(enum))
+            volta = True
+    # 20.2: the road map follows the measure it closes — "To Coda"
+    # as the coda sign and its words after the music, D.S., D.C.
+    # and Fine after the bar line, each a closed word-sign group
+    road = [t for _p, t in m['texts'] if _is_road(t)]
+    m['texts'] = [(p, t) for p, t in m['texts'] if not _is_road(t)]
+    post = ''
+    for t in road:
+        w = expression(t)
+        w = w if w.endswith(WORD) else w + WORD
+        post += ' ' + ((CODA + ' ') if t.lower().startswith('to coda')
+                       else '') + w
+    units, slashed = measure_units(m, slurs)
+    if slashed and in_slash:
+        # "slashes" is said once a passage; later bars keep only
+        # their own words
+        nw = len(m['texts']) + 1
+        units = units[:nw - 1] + units[nw:]
+    in_slash = slashed
+    if pre or attach:
+        head = ' '.join(pre) + (' ' if pre else '') + attach
+        first_render, first_ch = units[0]
+
+        def joined(v, head=head, r=first_render, attach=attach,
+                   volta=volta):
+            v.fresh()                         # 6.5, 7.1, 17.1
+            text = r(v)
+            keep = Words if isinstance(text, Words) else str
+            if not attach:
+                return keep(head + text)
+            if _starts_longer(text):
+                return keep(head + HYPHEN + ' ' + text)  # 17.1
+            if volta and needs_dot3(text):
+                return keep(head + cell(3) + text)       # 17.1.1
+            return keep(head + text)
+        units[0] = (joined, first_ch)
+    right = m['right'] or {}
+    end = ''
+    if right.get('repeat') == 'backward':
+        end = REPEAT_BACK
+    elif right.get('style') == 'light-heavy':
+        end = FINAL_BAR
+    elif right.get('style') == 'light-light':
+        end = SECTION_BAR
+    return units, slashed, end + post
 
 
 _ROAD = ('d.s', 'd. s', 'd.c', 'd. c', 'dal segno', 'da capo', 'fine',
@@ -1414,7 +1453,49 @@ def proofread(xml, pid, brf_text):
     if len(want) != len(got):
         out.append(f"the score has {len(want)} notes and the braille "
                    f"reads {len(got)}")
+    ms, _ = ce.parse_part(xml, pid)
+    if ms and _sings(ms):
+        sung = score_words(ms)
+        read = chartbrailleread.decode_words(brf_text)
+        if read != sung:
+            k = next((i for i, (a, b) in enumerate(zip(sung, read))
+                      if a != b), min(len(sung), len(read)))
+            out.append(f"the words read '{read[max(0, k - 12):k + 12]}' "
+                       f"where the score sings '{sung[max(0, k - 12):k + 12]}'")
+        want_j = score_joins(ms)
+        got_j = chartbrailleread.decode_joins(brf_text)
+        if want_j != got_j:
+            k = next((i for i, (a, b) in enumerate(zip(want_j, got_j))
+                      if a != b), min(len(want_j), len(got_j)))
+            out.append(f"note {k + 1} is paired with the wrong syllable "
+                       "(a slur or tie where the words need a new one, or "
+                       "the other way round)")
     return out
+
+
+def score_joins(measures):
+    """Per sung note: bound to the syllable before it (a melisma note
+    or a tied-on note) rather than starting its own."""
+    out, in_group = [], False
+    for n in _lead_seq(measures):
+        if n.rest or n.slash:
+            in_group = False
+            continue
+        if n.lyric:
+            out.append(False)
+            in_group = True
+        else:
+            out.append(in_group or bool(n.tie_stop))
+    return out
+
+
+def score_words(measures):
+    """The sung text, syllables joined into words."""
+    out = ''
+    for m in measures:
+        for text, joins in _syllables(m):
+            out += text + ('' if joins else ' ')
+    return ' '.join(out.split())
 
 
 
@@ -1625,3 +1706,298 @@ def _split_music(text, first, rest):
     out.append(cur)
     return out
 
+
+
+
+# ------------------------------------------------------------ voice
+
+def _sings(measures):
+    return any(n.lyric for m in measures for _p, ns, st, _v in m['events']
+               if st == 1 for n in ns[:1])
+
+
+def _lead_seq(measures):
+    return [ns[0] for m in measures
+            for _p, ns, st, _v in sorted(m['events'], key=lambda e: e[0])
+            if st == 1]
+
+
+def _syllabic_slurs(measures):
+    """35.2: the notes sung to one syllable are slurred — a single slur
+    after each but the last, or for more than four notes a doubled slur
+    after the first and a single one after the next to last. A note
+    tied on needs no slur beside its tie."""
+    plan, group = {}, []
+
+    def close():
+        notes = [x for x in group]
+        if len(notes) >= 2:
+            if len(notes) > 4:
+                plan[id(notes[0])] = 'double'
+                if not notes[-2].tie_start:
+                    plan[id(notes[-2])] = 'short'
+            else:
+                for x in notes[:-1]:
+                    if not x.tie_start:
+                        plan[id(x)] = 'short'
+        group.clear()
+    for n in _lead_seq(measures):
+        if n.rest or n.slash:
+            close()
+        elif n.lyric:
+            close()
+            group.append(n)
+        elif group:
+            group.append(n)
+    close()
+    return plan
+
+
+def _syllables(m):
+    """The measure's sung syllables in time order: (text, joins on)."""
+    out = []
+    for _p, ns, st, _v in sorted(m['events'], key=lambda e: e[0]):
+        n = ns[0]
+        if st == 1 and n.lyric:
+            kind, text, _ext = n.lyric
+            out.append((text, kind in ('begin', 'middle')))
+    return out
+
+
+def _spans(measures):
+    """Every sung syllable with its time: {id(note): (start, end)}, the
+    end running through its melisma and ties up to the next syllable or
+    rest; times count from the top of the part in divisions."""
+    out, at, cur = {}, 0, None
+    for m in measures:
+        for pos, ns, st, _v in sorted(m['events'], key=lambda e: e[0]):
+            if st != 1:
+                continue
+            n, t = ns[0], at + pos
+            if cur is not None and (n.rest or n.slash or n.lyric):
+                out[cur[0]] = (cur[1], t)
+                cur = None
+            if n.lyric and not n.rest:
+                cur = (id(n), t)
+        at += max(m.get('len') or 0, 1) or _bar_length(m)
+    if cur is not None:
+        out[cur[0]] = (cur[1], at)
+    return out
+
+
+def _vocal(pager, measures, tied, chords_on=True):
+    """Line-by-line format (35.1): each parallel is a line of words at
+    the margin and, beneath it from the third cell, the music they are
+    sung to, the syllables and notes paired exactly. Words are written
+    whole, uncontracted; a word carried into the next parallel ends its
+    line with a hyphen. Every music line's first note takes its octave
+    mark. Parallels break where a phrase ends when there is a choice,
+    so a phrase of words stays together for memorizing (35.1.3). With
+    chord symbols the parallel grows a chord line between the words
+    and the music, each chord placed by when it sounds (36)."""
+    import copy
+    voice = Voice()
+    voice.tied = tied
+    voice.loose_ties = _loose_ties(measures)
+    slurs = _syllabic_slurs(measures)
+    spans = _spans(measures)
+    nums = [int(m['num']) if str(m['num']).isdigit() else i + 1
+            for i, m in enumerate(measures)]
+    starts, at = [], 0
+    for m in measures:
+        starts.append(at)
+        at += max(m.get('len') or 0, 1) or _bar_length(m)
+    par = {'syl': [], 'ch': [], 'm': '', 'first': None}
+    pending = []
+
+    def layout(syl, chs, split):
+        if chs:
+            return _lay_words(syl, chs, split, number(par['first'] or 1))
+        if not syl:
+            return [number(par['first'] or 1)], None
+        text = words_line(syl, split)
+        return _prose_lines(text, LINE, 4), None
+
+    def flush():
+        if par['first'] is None:
+            return
+        syl = par['syl']
+        split = bool(syl) and syl[-1]['joins']
+        words, chord = layout(syl, par['ch'], split)
+        music = _music_lines(par['m'].rstrip())
+        pager.add(*(pending + words + ([chord] if chord else []) + music))
+        pending.clear()
+        par.update(syl=[], ch=[], m='', first=None)
+
+    in_slash = False
+    skip = 0
+    for i, m in enumerate(measures):
+        if skip:
+            skip -= 1
+            continue
+        if m['multi'] and m['multi'] > 1:
+            skip = m['multi'] - 1
+        if m['rehearsal']:
+            flush()
+            pending.append(WORD + literary(m['rehearsal'], music=True) + WORD)
+        units, slashed, tail = _measure_frame(m, i, slurs, in_slash)
+        in_slash = slashed
+        syl = []
+        for pos, ns, st, _v in sorted(m['events'], key=lambda e: e[0]):
+            n = ns[0]
+            if st == 1 and n.lyric and not n.rest:
+                kind, text, _ext = n.lyric
+                a, b = spans.get(id(n), (starts[i] + pos, starts[i] + pos))
+                syl.append({'t': text, 'joins': kind in ('begin', 'middle'),
+                            'start': a, 'end': b})
+        chs = ([(starts[i] + p_, c) for p_, c in sorted(m['chords'])]
+               if chords_on else [])
+        trial = copy.deepcopy(voice)
+        if par['first'] is None:
+            trial.fresh()
+        mtext = _run(units, trial) + tail
+        room_m = LINE - 2 - (len(par['m']) + 1 if par['m'] else 0)
+        if par['first'] is not None:
+            w, c = layout(par['syl'] + syl, par['ch'] + chs, False)
+            too_wide = (len(w) > 1 or max(len(x) for x in w) > LINE or
+                        (c is not None and len(c) > LINE))
+            if too_wide or len(mtext) > room_m:
+                flush()
+        if par['first'] is None:
+            par['first'] = nums[i]
+            voice.fresh()                               # 35.1.2
+            first = _lead_seq([m])
+            if first and first[0].tie_stop:
+                par['m'] = TIE                          # 35.3.2
+        text = _run(units, voice) + tail
+        if tail:
+            voice.fresh()
+        par['m'] += (' ' if par['m'] and par['m'] != TIE else '') + text
+        par['syl'] += syl
+        par['ch'] += chs
+        # a phrase ends here: words that end with punctuation, or the
+        # bar ends in a rest after singing — break if the line is full
+        # enough to be worth it
+        seq = _lead_seq([m])
+        ends = (syl and syl[-1]['t'][-1:] in ',.;:!?') or \
+            (syl and seq and seq[-1].rest)
+        if ends and len(words_line(par['syl'], False)) >= LINE // 2:
+            flush()
+    flush()
+
+
+def words_line(syl, split):
+    out = ''
+    for k, s_ in enumerate(syl):
+        out += s_['t']
+        if not s_['joins'] and k < len(syl) - 1:
+            out += ' '
+    return literary(' '.join(out.split())) + ('-' if split else '')
+
+
+DOTS36 = cell(3, 6) * 2                    # 36.1, 36.2: the spacer
+
+
+def _lay_words(syl, chs, split, num):
+    """36.3: the words and, beneath, each chord's capital placed by when
+    it sounds — under the syllable's first cell when with it, two cells
+    left when before it, after a hyphen under the syllable when during
+    it, one cell past the syllable's last letter when after it. The
+    words spread where chords need room (36.2): a word split between
+    syllables takes a hyphen, and a gap of four cells or more carries a
+    run of dots 3-6."""
+    plan = []                                   # (syllable index, kind)
+    for t, sym in chs:
+        kind, k = None, None
+        for j, s_ in enumerate(syl):
+            if s_['start'] == t:
+                kind, k = 'with', j
+                break
+            if s_['start'] < t < s_['end']:
+                kind, k = 'during', j
+                break
+        if kind is None:
+            later = [j for j, s_ in enumerate(syl) if s_['start'] > t]
+            if later:
+                kind, k = 'before', later[0]
+            elif syl:
+                kind, k = 'after', len(syl) - 1
+            else:
+                kind, k = 'bare', None
+        plan.append((kind, k, chord_braille(sym)))
+    words, chord = '', ''
+    placed = 0
+    if not syl:
+        words = num
+        for kind, k, cb_ in plan:
+            chord = chord.ljust(max(len(chord) + (1 if chord else 0), 0))
+            chord += cb_
+        return [words], chord
+    for j, s_ in enumerate(syl):
+        text = literary(s_['t']) if j == 0 or not syl[j - 1]['joins'] \
+            else literary(s_['t'], caps=True)
+        here = [(kind, cb_) for kind, k, cb_ in plan if k == j]
+        need = len(words) + (0 if j == 0 or syl[j - 1]['joins'] else 1)
+        natural = need
+        for kind, cb_ in here:
+            lead = {'with': 0, 'during': 0, 'before': 2, 'after': 0}[kind]
+            if kind == 'after':
+                continue
+            need = max(need, len(chord) + (1 if chord else 0) + lead)
+        if j == 0 and need >= 2 and need > natural:
+            words = DOTS36.ljust(need)             # 36.1 opening spacer
+        elif need > natural:
+            gap = need - len(words)
+            if j and syl[j - 1]['joins']:
+                words += '-'                        # 36.2 split word
+                gap -= 1
+                need = max(need, len(words))
+            if gap >= 4:
+                words += ' ' + DOTS36 + ' ' * (gap - len(DOTS36) - 1)
+            else:
+                words += ' ' * max(gap, 0)
+        else:
+            words += ' ' if j and not syl[j - 1]['joins'] else ''
+        col = len(words)
+        words += text
+        during = False
+        for kind, cb_ in here:
+            if kind == 'with':
+                chord = chord.ljust(col) + cb_
+            elif kind == 'before':
+                chord = chord.ljust(col - 2) + cb_
+            elif kind == 'during':
+                if not during:
+                    chord = chord.ljust(col) + '-' + cb_
+                    during = True
+                else:
+                    chord += ' -' + cb_
+            else:                                   # after
+                chord = chord.ljust(max(len(words) + 1,
+                                        len(chord) + 1)) + cb_
+    if split:
+        words += '-'
+    return _prose_lines(words, 10 ** 6, 4), chord
+
+
+def _prose_lines(text, width, indent):
+    """Words at the margin, run over from cell 5 when too long (35.1)."""
+    out, cur = [], ''
+    for w in text.split(' '):
+        lim = width if not out else width - indent
+        if cur and len(cur) + 1 + len(w) > lim:
+            out.append(cur)
+            cur = w
+        else:
+            cur = (cur + ' ' + w) if cur else w
+    out.append(cur)
+    return [out[0]] + [' ' * indent + x for x in out[1:]]
+
+
+def _music_lines(text):
+    """Music from cell 3, run over from cell 5 at a space or, inside a
+    bar, with the music hyphen (35.1, 1.11)."""
+    if 2 + len(text) <= LINE:
+        return ['  ' + text]
+    pieces = _split_music(text, LINE - 2, LINE - 4)
+    return ['  ' + pieces[0]] + ['    ' + x for x in pieces[1:]]

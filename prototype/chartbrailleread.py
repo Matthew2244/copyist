@@ -62,6 +62,9 @@ class Reader:
         self.errors = []
         self.event_notes = []
         self.keyboard = False      # 29.3 (a): every bar marks its octave
+        self.link = False          # the next note is bound to the last
+        self.double = False        # a doubled slur is running (35.2)
+        self.joins = []            # per note: sung on the last syllable?
         self.down = True           # intervals read downward (9.2)
         self.event = None          # (step, octave, cls, dots) written
         self.cprev = None          # (step, octave) last note of chord
@@ -139,6 +142,8 @@ class Reader:
                     octave = po            # an unmarked 4th or 5th
         self.held, self.pending = self.pending, {}
         self.event_notes = []
+        self.joins.append(self.link)
+        self.link = self.double
         self._record(step, octave, cls, dots, acc)
         self.prev = (step, octave)
         self.event = (step, octave, cls, dots)
@@ -150,7 +155,7 @@ def decode(brf):
     pitch like 'Bb4'; the value pair a letter: W (whole or 16th),
     H (half or 32nd), Q (quarter or 64th), E (eighth or 128th)."""
     pages = brf.replace('\r\n', '\n').split('\f')
-    lines, in_tn, head = [], False, None
+    lines, in_tn, head, raw = [], False, None, []
     for pi, page in enumerate(pages):
         ls = page.split('\n')[1:]
         if pi == 0:
@@ -167,6 +172,7 @@ def decode(brf):
             if head is None:
                 head = t.split()[-1]
                 continue
+            raw.append(l.rstrip())
             if re.fullmatch(r'>,.*>', t):
                 continue                          # a rehearsal letter
             if all(re.match(r',[A-Z]', w) for w in t.split()):
@@ -174,6 +180,8 @@ def decode(brf):
             lines.append(re.sub(r'^#[A-J]+ ', '', t))
     if any(re.match(r"\s*[A-J]+[ ']\.>", l) for l in lines):
         return _keyboard(lines, head)
+    if _is_vocal(raw):
+        return _vocal(raw, head)[:2]
     # a longer expression broken between lines runs on (22.3.8)
     joined = []
     for l in lines:
@@ -293,6 +301,7 @@ def read_line(r, s):
             continue
         if two == '@C':                            # tie
             r.tie()
+            r.link = True
             i += 2
             continue
         if s.startswith(',<1', i) or s.startswith('^<1', i):
@@ -358,7 +367,13 @@ def read_line(r, s):
         if c == '2':                               # triplet
             i += 1
             continue
+        if two == 'CC':                            # doubled slur (35.2)
+            r.double = r.link = True
+            i += 2
+            continue
         if c == 'C':                               # short slur
+            r.link = True
+            r.double = False
             i += 1
             continue
         if c in ACCS:
@@ -370,6 +385,7 @@ def read_line(r, s):
             i += 1
             continue
         if c in RESTS:
+            r.link = r.double = False
             i += 1
             while s[i:i + 1] == "'":
                 i += 1
@@ -428,3 +444,135 @@ def _keyboard(lines, head):
         errors += [f"{'right' if down else 'left'} hand: {e}"
                    for e in r.errors]
     return notes, errors
+
+
+
+def _chordline(t):
+    return all(re.match(r'-?,[A-Z]', w) for w in t.split())
+
+
+def _is_vocal(raw):
+    """Line-by-line vocal format (35.1): word lines at the margin. A
+    single-line part's margin lines always open with a measure number."""
+    for l in raw:
+        if not l or l[0] == ' ' or re.fullmatch(r'>,.*>', l) or \
+                _chordline(l):
+            continue
+        if not re.match(r'#[A-J]+( |$)', l):
+            return True
+    return False
+
+
+def _vocal(raw, head):
+    """Words and music in parallels: the music read line by line, each
+    line's first note needing its mark; the words gathered whole."""
+    km = re.match(r'(#[A-J][%<]|[%<*]*)#', head or '')
+    r = Reader(parse_key(km.group(1)) if km else 0)
+    r.down = 'READING UPWARD' not in ' '.join(raw)
+    words, kind, music = [], None, []
+    for l in raw:
+        if re.fullmatch(r'>,.*>', l) or (l.strip() and _chordline(l)):
+            continue
+        if not l.startswith(' '):
+            kind = 'w'
+            words.append(('new', l))
+        elif l.startswith('    '):
+            if kind == 'w':
+                words.append(('run', l.strip()))
+            elif music[-1].endswith('"'):
+                music[-1] = music[-1][:-1] + l.strip()   # 1.11 hyphen
+            else:
+                music[-1] += ' ' + l.strip()
+        else:
+            kind = 'm'
+            music.append(l.strip())
+    for li, line in enumerate(music):
+        r.fresh()                                  # 35.1.2
+        r.bar()
+        if line.startswith('@C'):                  # 35.3.2 restated tie
+            line = line[2:]
+        read_line(r, line)
+    text = ''
+    for how, w in words:
+        if re.fullmatch(r'#[A-J]+', w):
+            continue                               # a bar number
+        if text.endswith('-'):
+            text = text[:-1] + w                   # a word carried over
+        else:
+            text += (' ' if text else '') + w
+    r.errors += []
+    _vocal.joins = r.joins
+    return r.notes, r.errors, back_translate(text)
+
+
+def decode_words(brf):
+    """The words of a vocal part, back in print."""
+    pages = brf.replace('\r\n', '\n').split('\f')
+    raw, in_tn, head = [], False, None
+    for pi, page in enumerate(pages):
+        ls = page.split('\n')[1:]
+        if pi == 0:
+            ls = ls[ls.index('') + 1:] if '' in ls else ls
+        for l in ls:
+            t = l.strip()
+            if not t:
+                continue
+            if t.startswith('@.<'):
+                in_tn = True
+            if in_tn:
+                in_tn = not t.endswith('@.>')
+                continue
+            if head is None:
+                head = t
+                continue
+            raw.append(l.rstrip())
+    return _vocal(raw, head)[2] if _is_vocal(raw) else ''
+
+
+def decode_joins(brf):
+    """For each note of a vocal part: is it sung on the syllable before
+    (bound by a slur or tie) rather than starting a new one?"""
+    decode_words(brf)
+    return list(getattr(_vocal, 'joins', []))
+
+
+_PUNCT_BACK = {'1': ',', '4': '.', '8': '?', '6': '!', '2': ';', '3': ':',
+               "'": "'", '-': '-'}
+
+
+def back_translate(text):
+    """Uncontracted UEB back to print: letters, the capital signs, the
+    numeric indicator, the common punctuation."""
+    out, i, word_caps, num = [], 0, False, False
+    while i < len(text):
+        c = text[i]
+        if c == ' ':
+            out.append(' ')
+            word_caps = num = False
+            i += 1
+            continue
+        if text.startswith(',,', i):
+            word_caps = True
+            i += 2
+            continue
+        if c == ',' and i + 1 < len(text) and text[i + 1].isalpha():
+            out.append(text[i + 1].upper())
+            i += 2
+            continue
+        if c == '#':
+            num = True
+            i += 1
+            continue
+        if num and c in UPPER:
+            out.append(str(UPPER.index(c)))
+            i += 1
+            continue
+        num = False
+        if c.isalpha():
+            out.append(c.upper() if word_caps else c.lower())
+        elif c in _PUNCT_BACK:
+            out.append(_PUNCT_BACK[c])
+        else:
+            out.append('?')
+        i += 1
+    return ''.join(out)

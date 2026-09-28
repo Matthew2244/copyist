@@ -3381,6 +3381,12 @@ def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test'):
                         ('<tie type="start"/>' if start else '')
                     tied = ('<tied type="stop"/>' if stop else '') + \
                         ('<tied type="start"/>' if start else '')
+                    ly = [f for f in flags if f.startswith('ly=')]
+                    lyric = ''
+                    if ly and k == 0:
+                        word, _, kind = ly[0][3:].partition('/')
+                        lyric = (f'<lyric><syllabic>{kind or "single"}'
+                                 f'</syllabic><text>{word}</text></lyric>')
                     out.append(
                         '<note>' + ('<cue/>' if 'cue' in flags else '') +
                         ('<chord/>' if k else '') +
@@ -3392,7 +3398,7 @@ def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test'):
                         ('<notehead>slash</notehead>' if 'slash' in flags
                          else '') +
                         (f'<notations>{tied}</notations>' if tied else '') +
-                        '</note>')
+                        lyric + '</note>')
         if right == ':|':
             out.append('<barline location="right"><bar-style>light-heavy'
                        '</bar-style><repeat direction="backward"/></barline>')
@@ -3608,6 +3614,43 @@ def check_braille():
     check("braille: no interval note for keyboard (the hand signs say it)",
           'READING' not in ' '.join(brf(kbars).split()))
 
+    # 35: words over music, syllabic slurs; 36: chords placed by time
+    song = [['r h', 'C5 q ly=Twin/begin', 'C5 q ly=kle/end'],
+            ['G5 q ly=lit/begin', 'A5 e ly=tle/end', 'B5 e', 'C6 e', 'B5 e',
+             'A5 e', 'G5 e'],
+            ['F5 q ly=star,', 'F5 q ly=how', 'E5 h ly=I ~'],
+            ['E5 h', 'D5 q ly=won/begin', 'E5 e ly=der/end', 'D5 e'],
+            ['r w'], ['r w'],
+            ['C5 w ly=Up/begin'], ['D5 w ly=above/end'],
+            ['G4 w ly=the ~'], ['G4 h', 'r h', '|]']]
+    text = brf(song)
+    lines = music(text)
+    check("braille: a song's words sit at the margin, music from cell 3",
+          lines[0].startswith(',TWINKLE') and lines[1].startswith('  '),
+          lines)
+    m = ' '.join(lines)
+    check("braille: a short melisma takes single slurs (35.2)",
+          'C' in m.split('"')[1] if '"' in m else False, m)
+    check("braille: a long melisma takes the doubled slur (35.2)",
+          'CC' in m, m)
+    got = cb.proofread(_mx(song), 'P1', text)
+    check("braille: the song's words, notes and syllables read back",
+          not got, got)
+    chord_song = [['{C}', 'C5 q ly=Twin/begin', 'C5 q ly=kle/end',
+                   '{G}', 'G5 q ly=twin/begin', 'G5 q ly=kle/end'],
+                  ['A5 q ly=lit/begin', '{F}', 'A5 q', 'G5 h ly=tle/end'],
+                  ['F5 h ly=star', 'r q', '{C}', 'r q', '|]']]
+    text = brf(chord_song)
+    lines = music(text)
+    check("braille: chords with lyrics form a three-line parallel (36.1)",
+          any(l.startswith(',C') or l.startswith(' ,C') for l in lines[:3])
+          and lines[2].startswith('  '), lines)
+    check("braille: a chord during a syllable takes a hyphen (36.3.3)",
+          '-,F' in ' '.join(lines), lines)
+    check("braille: chords with lyrics read back",
+          not cb.proofread(_mx(chord_song), 'P1', text),
+          cb.proofread(_mx(chord_song), 'P1', text))
+
     # everything above, read back by the proofreader, note for note
     cases = {
         'rests': (bars, {'time': (3, 4), 'clef': 'F'}),
@@ -3625,6 +3668,8 @@ def check_braille():
                    ['Gb4 w', '|]']], {'fifths': -6}),
         'long': (long_bars, {}),
         'keyboard': (kbars, {}),
+        'song': (song, {}),
+        'song with chords': (chord_song, {}),
         'keyboard, long': ([{'r': ['C5+E5+G5 e', 'D5+F5 e'] * 4,
                              'l': ['C3+G3 q'] * 4}] * 40 +
                            [{'r': ['C5 w', '|]'], 'l': ['C3 w', '|]']}], {}),

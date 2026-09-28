@@ -814,6 +814,19 @@ signs say which way intervals read (down in the right hand, up in the
 left), every bar's first note in each hand carries its octave mark,
 and the pedal marks ride in the left hand.
 
+A part with lyrics comes out line by line, the way a singer reads:
+a line of words at the margin, and under it, from the third cell, the
+music those words are sung to. The words are whole words in
+uncontracted braille, a word carried to the next line ends with a
+hyphen, and notes sung to one syllable are joined by syllabic slurs.
+Lines break where a phrase of words ends when there is a choice, so a
+phrase stays together to memorize. When the part carries chord
+symbols, they take a line of their own between the words and the
+music, each chord placed by when it sounds: under its syllable when
+played with it, two cells left when before it, after a hyphen when
+during it, one cell past it when after it; a transcriber's note at
+the top explains this.
+
 Print slashes have no sign in braille music. Copyist writes the word
 *slashes*, then a rest for each slash, with the changes underneath,
 and a transcriber's note at the top of the part says so. When a part
@@ -823,10 +836,11 @@ Before a build keeps any braille, a separate reader, written apart
 from the braille writer on purpose, reads every file back by the
 code's rules and compares it with the score note by note: pitch,
 octave, accidental, value and dot. The build says so when every part
-agrees and names the note when one does not. Percussion and an organ's
-third staff (the pedal line) are not brailled yet, and a vocal part's
-braille carries its notes but not yet its lyrics; the build names each
-one.
+agrees and names the note when one does not. For a sung part it also
+translates the words back to print and checks them against the lyrics,
+and checks that every note is paired with the right syllable.
+Percussion, an organ's third staff (the pedal line) and verses after
+the first are not brailled yet; the build names each one.
 
 **Braille pages** draws the braille as dots, one PDF page for every
 braille page, raised dots solid and the empty places in each cell
