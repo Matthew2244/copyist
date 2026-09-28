@@ -1675,6 +1675,47 @@ def check_score_import():
             got = str(e)
         check(f"a {ext} file is refused in a sentence naming the way in",
               word in got and "\n" not in got, got)
+    # what building his own "Never Be Defeated" from its score taught
+    check("'trumpet in bb' finds 'Trumpet in Bb' (transposition words "
+          "drop from both sides)",
+          chartc.match_part("trumpet in bb", ["Trumpet in Bb", "Alto"])
+          == "Trumpet in Bb")
+    check("a lifted bar of nothing but rests can join a multirest",
+          chartc.lifted_rest('<note default-x="1"><rest/><duration>1024'
+                             '</duration><voice>1</voice></note>')
+          and not chartc.lifted_rest('<direction><direction-type><words>'
+                                     'x</words></direction-type>'
+                                     '</direction><note><rest/></note>'))
+    import chartengrave as _ce
+    def _width(div):
+        m = {'multi': 0, 'show': {}, 'chords': [], 'texts': [], 'dyn': [],
+             'metronome': None, 'rehearsal': None, 'events': [],
+             'state': {'div': div}}
+        n = _ce.Note()
+        for a in _ce.Note.__slots__:
+            setattr(n, a, None)
+        n.dur, n.rest, n.ntype, n.dots, n.cue, n.artic = \
+            div * 3, True, 'half', 1, False, None
+        n.graces, n.marks, n.slash, n.trill_to = [], [], False, None
+        n.step, n.octave, n.alter = 'B', 4, 0
+        m['events'] = [(0, [n], 1, 1)]
+        return _ce.measure_width(m)
+    check("a bar's width does not depend on the file's resolution "
+          "(256 a quarter spaced ten times too wide)",
+          abs(_width(256) - _width(24)) < 1.0, f"{_width(256)} {_width(24)}")
+    class _P:
+        def __init__(self):
+            self.drawn = []
+        def tw(self, s_, size, font):
+            return 0.55 * size * len(s_)
+        def text(self, x, y, s_, size=9, font='H', right=False):
+            self.drawn.append((x, s_, size))
+    pp = _P()
+    _ce.draw_part_name(pp, 42, 100, "Trumpet in Bb")
+    check("a long part name wraps inside the margin, 'in Bb' together",
+          [d[1] for d in pp.drawn] == ["Trumpet", "in Bb"]
+          and all(pp.tw(d[1], d[2], 'H') <= 36 for d in pp.drawn),
+          str(pp.drawn))
     midi = os.path.join(tmp, "d.mid")
     open(midi, "wb").write(b"MThd")
     check("a MIDI demo goes to the interview",

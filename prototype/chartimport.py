@@ -343,12 +343,7 @@ def score_to_chart(xml, score_file, title_hint):
         if not b:
             continue
         bodies[pid] = b.group(1)
-        pname = (one(r'<part-name[^>]*>([^<]*)</part-name>', sp)
-                 or one(r'<part-abbreviation[^>]*>([^<]*)'
-                        r'</part-abbreviation>', sp)
-                 or re.sub(r'\s*\(\d+\)$', '', one(
-                     r'<instrument-name>([^<]*)</instrument-name>', sp))
-                 or '')
+        pname = chartc.source_part_name(xml, pid)
         meta[pid] = {
             'name': pname,
             'sound': one(r'<instrument-sound>([^<]*)</instrument-sound>',
@@ -441,13 +436,19 @@ def score_to_chart(xml, score_file, title_hint):
             r'^(intro|verse|pre-?chorus|chorus|bridge|vamp|solos?|head|'
             r'outro|coda|interlude|shout|send-?off|tag|ending|break|'
             r'a section|b section|letter [a-z])\b', re.I)
-        for i, (attrs, m) in enumerate(re.findall(
-                r'<measure ([^>]*)>(.*?)</measure>', first, re.S)):
-            head = re.split(r'<note[ >]', m, maxsplit=1)[0]
-            for w in re.findall(r'<words[^>]*>([^<]+)</words>', head):
-                w = html.unescape(w).strip()
-                if SECTION_WORD.match(w) and len(w) <= 24:
-                    marks.setdefault(i, w)
+        # from whichever part carries them: the alto's page, not the
+        # concert trombone the key was read from
+        for pid in order:
+            for i, (attrs, m) in enumerate(re.findall(
+                    r'<measure ([^>]*)>(.*?)</measure>', bodies[pid],
+                    re.S)):
+                head = re.split(r'<note[ >]', m, maxsplit=1)[0]
+                for w in re.findall(r'<words[^>]*>([^<]+)</words>', head):
+                    w = html.unescape(w).strip()
+                    if SECTION_WORD.match(w) and len(w) <= 24:
+                        marks.setdefault(i, w)
+            if marks:
+                break
     # the chords: the part that carries the most symbols
     hp = max(order, key=lambda p: bodies[p].count('<harmony'))
     simplified = []
@@ -493,6 +494,12 @@ def score_to_chart(xml, score_file, title_hint):
     for pid in order:
         mt = meta[pid]
         b0 = bodies[pid]
+        if not re.search(r'<pitch>|<unpitched', b0):
+            # a staff of nothing but rests (Sibelius leaves unnamed
+            # empty ones) is no one's chair
+            find.append(f'"{mt["name"]}" has no notes in it, so it was '
+                        'left out of the band')
+            continue
         tr = re.search(r'<chromatic>(-?\d+)</chromatic>', b0)
         stv = re.search(r'<staves>(\d+)</staves>', b0)
         cl = re.search(r'<sign>(\w+)</sign>', b0)
@@ -515,12 +522,7 @@ def score_to_chart(xml, score_file, title_hint):
         used.add(label)
         # the compiler lifts by matching this label to the score's own
         # part name; make sure it will find exactly this part
-        src_names = [html.unescape(re.search(
-            r'<part-name[^>]*>([^<]*)</part-name>', re.search(
-                r'<score-part id="%s">(.*?)</score-part>' % re.escape(q),
-                xml, re.S).group(1)).group(1)) if re.search(
-            r'<score-part id="%s">.*?<part-name' % re.escape(q), xml,
-            re.S) else q for q in order]
+        src_names = [chartc.source_part_name(xml, q) for q in order]
         mine = src_names[order.index(pid)]
         ok = False
         for cand in (label, re.sub(r'\s+', ' ', re.sub(
@@ -532,9 +534,9 @@ def score_to_chart(xml, score_file, title_hint):
             except SystemExit:
                 pass
         if not ok:
-            find.append(f'"{mt["name"] or pid}" shares its name with '
-                        'another part, so it was left out; rename one '
-                        'in the score and import again')
+            find.append(f'"{mt["name"] or pid}" could not be told apart '
+                        'from another part by name, so it was left out; '
+                        'rename one in the score and import again')
             continue
         band.append((label, inst))
     if not band:
@@ -542,6 +544,14 @@ def score_to_chart(xml, score_file, title_hint):
                             "instrument Copyist can print yet.")
 
     # sections: at each rehearsal mark, else one section
+    # the same section word written again and again ("vamp 2" over every
+    # two bars, a reminder) is one section continuing, not new ones
+    last_word = None
+    for i in sorted(marks):
+        if marks[i].lower() == (last_word or '').lower():
+            del marks[i]
+        else:
+            last_word = marks[i]
     start = 1 if pickup_q is not None else 0
     cuts = sorted(i for i in marks if i >= start) or [start]
     if cuts[0] != start:

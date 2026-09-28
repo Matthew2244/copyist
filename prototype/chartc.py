@@ -1089,14 +1089,32 @@ parse_chart.defs_ref = {}
 
 # --------------------------------------------------------- source score
 
+def source_part_name(xml, pid):
+    """A score part's name as a band label can find it: its part-name,
+    else its abbreviation, else its instrument's name, else its id. A
+    part named " " (Sibelius leaves some blank) must still be reachable,
+    and two blank parts must not collapse into one."""
+    import html as _html
+    m = re.search(r'<score-part id="%s"[^>]*>(.*?)</score-part>'
+                  % re.escape(pid), xml, re.S)
+    body = m.group(1) if m else ''
+    for rx in (r'<part-name[^>]*>([^<]*)</part-name>',
+               r'<part-abbreviation[^>]*>([^<]*)</part-abbreviation>',
+               r'<instrument-name>([^<]*)</instrument-name>'):
+        n = re.search(rx, body)
+        n = _html.unescape(n.group(1)) if n else ''
+        n = re.sub(r'\s*\(\d+\)\s*$', '', n).strip()
+        if re.search(r'\w', n):
+            return n
+    return pid
+
+
 def load_source(path):
     # a Sibelius export writes `<chord />`; lifted bars must carry the
     # compact form every reader downstream expects
     xml = re.sub(r'\s+/>', '/>', open(path, encoding='utf-8').read())
-    order = re.findall(r'<score-part id="([^"]+)">', xml)
-    names = dict(re.findall(
-        r'<score-part id="([^"]+)">.*?<part-name[^>]*>([^<]*)</part-name>',
-        xml, re.S))
+    order = re.findall(r'<score-part id="([^"]+)"', xml)
+    names = {pid: source_part_name(xml, pid) for pid in order}
     parts = {}
     for pid in order:
         body = re.search(r'<part id="%s">(.*?)</part>' % pid, xml, re.S).group(1)
@@ -1109,7 +1127,7 @@ def load_source(path):
         staves = re.search(r'<staves>(\d+)</staves>', body)
         clef = re.search(r'<clef[^>]*>\s*<sign>(\w+)</sign>', body)
         fifths = re.search(r'<fifths>(-?\d+)</fifths>', body)
-        parts[names[pid].strip()] = {
+        parts[names[pid]] = {
             'measures': ms, 'div': int(dv.group(1)) if dv else 8,
             'staves': int(staves.group(1)) if staves else 1,
             'clef': clef.group(1) if clef else 'G',
@@ -1123,6 +1141,9 @@ def match_part(label, source_names):
     # words only: a score's "I (Trumpet)" must match the label
     # "i trumpet", so punctuation never counts as part of a word
     lt = re.findall(r'[\w#]+', label.lower())
+    # "trumpet in bb" names the same part as "Trumpet in Bb": the
+    # transposition words drop from both sides, never only one
+    lt = [t for t in lt if t not in drop] or lt
     hits = []
     for name in source_names:
         nt = [t for t in re.findall(r'[\w#]+', name.lower())
@@ -1157,6 +1178,19 @@ def strip_lifted(content, percussion=False):
         return block
     return re.sub(r'<direction[^>]*>.*?</direction>\s*', keep, content,
                   flags=re.S)
+
+
+def lifted_rest(piece):
+    """A bar lifted from an engraving that holds nothing but rests —
+    no words, no dynamics, no chord, no signature change — can join a
+    multirest like one of our own. Anything a player must see keeps the
+    bar on its own."""
+    if re.search(r'<direction|<harmony|<attributes|<barline|<print'
+                 r'|<figured-bass', piece):
+        return False
+    notes = re.findall(r'<note[ >].*?</note>', piece, re.S)
+    return bool(notes) and all('<rest' in n and '<cue' not in n
+                               for n in notes)
 
 
 def direction(text, placement='above'):
@@ -2638,13 +2672,15 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             '</direction-type></direction>\n')
                 pure_rest = (len(pieces) == 1 and not open_bl
                              and '<repeat' not in barline
-                             and pieces[0] == rest_bar(div, staves,
-                                                       bmeter))
+                             and (pieces[0] == rest_bar(div, staves,
+                                                        bmeter)
+                                  or lifted_rest(pieces[0])))
                 head_ok = (not pure_rest and not open_bl
                            and '<repeat' not in barline
                            and any(p == rest_bar(div, staves, bmeter)
-                                   for p in pieces)
+                                   or lifted_rest(p) for p in pieces)
                            and all(p == rest_bar(div, staves, bmeter)
+                                   or lifted_rest(p)
                                    or p.lstrip().startswith(
                                        ('<direction', '<attributes'))
                                    for p in pieces))
@@ -2671,12 +2707,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     n = j - i + 1
                     if n >= 2:
                         content = out[i][0]
-                        content = content.replace(
-                            '      <note>',
-                            '      <attributes><measure-style>'
-                            f'<multiple-rest>{n}</multiple-rest>'
-                            '</measure-style></attributes>\n'
-                            '      <note>', 1)
+                        # before the bar's first note, whatever its
+                        # attributes (a lifted <note default-x=...>)
+                        content = re.sub(
+                            r'(\s*)<note[ >]',
+                            lambda m_: (m_.group(1)
+                                        + '<attributes><measure-style>'
+                                        f'<multiple-rest>{n}'
+                                        '</multiple-rest></measure-style>'
+                                        '</attributes>' + m_.group(0)),
+                            content, count=1)
                         out[i] = (content, True, False)
                     i = j + 1
                 else:

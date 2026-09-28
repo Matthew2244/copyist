@@ -1231,10 +1231,14 @@ def measure_width(meas):
     if 'time' in meas['show']:
         w += 5 * SP
     per = {}
+    # durations at Copyist's own resolution (24 a quarter): a Sibelius
+    # export counts 256 a quarter, and its rests were spacing ten times
+    # too wide — one or two bars a line on every lifted page
+    unit = 24.0 / max(meas['state'].get('div', 24), 1)
     for pos, notes, staff, voice in meas['events']:
         n = notes[0]
         per[(staff, voice)] = per.get((staff, voice), 0) + (
-            2.4 * SP + 1.15 * SP * (max(n.dur, 2) ** 0.5)
+            2.4 * SP + 1.15 * SP * (max(n.dur * unit, 2) ** 0.5)
             + (1.6 * SP if any(x.alter and not x.rest
                                for x in notes) else 0))
     # the optical floor: every onset's ink plus the gap, end to end
@@ -1312,9 +1316,8 @@ def engrave(xml_path, pdf_path, look=None):
             draw_brace(pdf, MARGIN - 2, tops[0], tops[-1] - STAFF)
             pdf.line(MARGIN, tops[0], MARGIN, tops[-1] - STAFF, w=1.2)
         if si == 0:
-            pdf.text(MARGIN - (14 if staves > 1 else 4),
-                     (tops[0] + tops[-1] - STAFF) / 2 - 3, pname, size=9,
-                     font='H', right=True)
+            draw_part_name(pdf, MARGIN - (14 if staves > 1 else 4),
+                           (tops[0] + tops[-1] - STAFF) / 2 - 3, pname)
         x = MARGIN
         state = system[0][0]['state']
         xk = x
@@ -1459,10 +1462,12 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
                              w=0.7)
             if staves > 1:
                 draw_brace(pdf, M - 2, tops[0], tops[-1] - STAFF)
-            pdf.text(M - (14 if staves > 1 else 4),
-                     (tops[0] + tops[-1] - STAFF) / 2 - 3,
-                     pname if si == 0 else _abbrev(pname),
-                     size=8.5, font='H', right=True)
+            # clear of the section bracket at M-5 (the last letters of
+            # "Saxophone" were hiding under it)
+            draw_part_name(pdf, M - (16 if staves > 1 else 10),
+                           (tops[0] + tops[-1] - STAFF) / 2 - 3,
+                           pname if si == 0 else _abbrev(pname),
+                           size=8.5)
         pdf.line(M, part_tops[0][0], M, part_tops[-1][-1] - STAFF, w=1.4)
         for i0, i1 in spans:
             if i1 == i0:
@@ -1576,6 +1581,30 @@ def part_height(staves):
 
 def staff_tops(y, staves):
     return [y - i * (STAFF + GRAND_GAP) for i in range(staves)]
+
+
+def draw_part_name(pdf, right_x, mid_y, name, size=9.0):
+    """A part's name in the left margin, right-aligned against the
+    staff: wrapped onto lines that fit ("Trumpet" over "in Bb"), and
+    only a single word too long for the margin is set smaller — never
+    running off the page."""
+    room = right_x - 6
+    # "in Bb" is one unit on a part name: Trumpet / in Bb, never
+    # Trumpet in / Bb
+    words, lines = re.findall(r'\b[Ii]n [A-G][b#♭♯]?\b|\S+', name), []
+    for w in words:
+        if lines and pdf.tw(lines[-1] + ' ' + w, size, 'H') <= room:
+            lines[-1] += ' ' + w
+        else:
+            lines.append(w)
+    widest = max((pdf.tw(ln, size, 'H') for ln in lines), default=0)
+    if widest > room:
+        size = max(6.0, size * room / widest)
+    lead = size * 1.15
+    y = mid_y + (len(lines) - 1) * lead / 2
+    for ln in lines:
+        pdf.text(right_x, y, ln, size=size, font='H', right=True)
+        y -= lead
 
 
 def draw_brace(pdf, x, top, bottom_y):
