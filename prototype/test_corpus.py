@@ -1924,6 +1924,140 @@ def check_road_maps():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_keyswitches():
+    """
+    Keyswitches in a played demo (his ask, 2026-09-27): keys far outside
+    the instrument's range that change the patch's articulation are taken
+    out of the notes, and their names — from the chart's keyswitches
+    block, a saved library map, or Logic Pro's own articulation sets —
+    become the page's marks, words and slurs, the read-aloud's words and
+    the listen's samples. A key with no name yet is named in findings.
+    """
+    import plistlib
+    import re
+    import chart as chartmod
+    import chartaudio
+    import chartc
+    import chartdemo
+    import smf
+    tmp = tempfile.mkdtemp()
+    old_dir = chartc.KS_DIR
+    chartc.KS_DIR = os.path.join(tmp, "ks")
+    try:
+        d, n = 480, []
+
+        def ks(t, p):
+            n.append((t - 20, t - 5, p, 100))   # a hair early, as played
+        ks(0, 24)
+        n += [(i * d, (i + 1) * d, 67 + i * 2, 90) for i in range(4)]
+        ks(4 * d, 26)
+        n += [(4 * d + i * d // 2, 4 * d + i * d // 2 + 100, 74, 90)
+              for i in range(8)]
+        ks(8 * d, 28)
+        n += [(8 * d + i * d, 8 * d + i * d + 200, 62 + i, 90)
+              for i in range(4)]
+        ks(12 * d, 24)
+        n += [(12 * d + i * d, 12 * d + (i + 1) * d, 72 - i, 90)
+              for i in range(4)]
+        ks(16 * d, 30)
+        n.append((16 * d, 20 * d - 20, 67, 90))
+        smf.write(os.path.join(tmp, "v.mid"), n, d, 100)
+        check("the MIDI writer takes a time before the start as the start "
+              "(it used to loop forever)",
+              os.path.getsize(os.path.join(tmp, "v.mid")) > 50)
+        cp = os.path.join(tmp, "v.chart")
+        open(cp, "w").write(
+            'title: V\nkey: C\nmeter: 4/4\ntempo: 100\n\n'
+            'keyswitches "My Violins":\n  C1 legato\n  D1 Staccato\n'
+            '  E1 Pizzicato\n\nband:\n'
+            '  violin, demo "v.mid", keyswitches "My Violins"\n\n'
+            'section A, 5 bars\n  chords: C x5\n'
+            '  violin: from demo bars 1-5\n')
+        out = os.path.join(tmp, "b")
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(cp, out)
+        vx = open(os.path.join(out, "V — violin.musicxml")).read()
+        fnd = open(os.path.join(out, "V — findings.txt")).read()
+        check("keyswitches leave the notes (no low C1 on the page)",
+              '<octave>1</octave>' not in vx and 'moved up' not in fnd,
+              fnd)
+        check("findings name each key by note and MIDI number, and the "
+              "unnamed one with its bars",
+              "E1 (MIDI 28) is Pizzicato" in fnd
+              and "F#1 (MIDI 30) governs bars 5" in fnd, fnd)
+        check("staccato keys print staccato, pizz. prints once, arco "
+              "comes back, legato slurs",
+              vx.count('<staccato/>') == 8 and vx.count('>pizz.<') == 1
+              and vx.count('>arco<') == 1
+              and 'slur number="1" type="start"' in vx, vx[:200])
+        said = subprocess.run([sys.executable,
+                               os.path.join(HERE, "chartread.py"), cp,
+                               "--part", "violin"], capture_output=True,
+                              text=True).stdout
+        check("the read-aloud says each change once",
+              "staccato from here" in said and "pizz. from here" in said
+              and "legato from here" in said, said)
+        plan = chartaudio.parse_score(os.path.join(
+            out, "V — for listening.musicxml"))
+        ev = plan['parts'][0]['events']
+        check("the listen plucks the pizzicato bars and bows the rest",
+              [bool(e[4].get('pizz')) for e in ev].count(True) == 4
+              and not ev[-1][4].get('pizz'))
+        check("library names read like a copyist reads them",
+              chartdemo.ks_meaning("Fall Short")[0] is None
+              and chartdemo.ks_meaning("Fall Short")[3] == 'falloff'
+              and chartdemo.ks_meaning("Trill Semi")[3] == 'trill_half'
+              and chartdemo.ks_meaning("Expressive Long") ==
+              (None, None, False, None)
+              and chartdemo.ks_meaning("Violins - Spiccato")[0] ==
+              'spiccato')
+        # a saved library map, used by name from any chart
+        os.makedirs(chartc.KS_DIR)
+        open(os.path.join(chartc.KS_DIR, "Saved Violins.txt"), "w").write(
+            "C1 legato\n26 staccato\nE1 pizzicato\nF#1 tremolo\n")
+        body_ = open(cp).read().replace(
+            'demo "v.mid", keyswitches "My Violins"',
+            'demo "v.mid", keyswitches "saved violins"')
+        open(cp, "w").write(body_)
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(cp, out)
+        vx2 = open(os.path.join(out, "V — violin.musicxml")).read()
+        check("a saved map is found by name, and names the last key too",
+              '<tremolo type="single">' in vx2 and vx2.count(
+                  '<staccato/>') == 8)
+        # Logic Pro's articulation sets come in as saved maps
+        lg = os.path.join(tmp, "Logic", "Studio Strings")
+        os.makedirs(lg)
+        plistlib.dump({'Articulations': [
+            {'ID': 1001, 'Name': 'Sustain'},
+            {'ID': 1002, 'Name': 'Staccato'}],
+            'Switches': [{'ID': 1001, 'MB1': 24, 'Status': 'NoteOn'},
+                         {'ID': 1002, 'MB1': 30, 'Status': 'NoteOn'}],
+            'OctaveOffset': 0}, open(os.path.join(lg, "Studio Violins.plist"),
+                                     "wb"))
+        old_logic = chartmod.LOGIC_ARTIC
+        chartmod.LOGIC_ARTIC = os.path.join(tmp, "Logic")
+        try:
+            with redirect_stdout(io.StringIO()):
+                chartmod.run_keyswitches(['from-logic'])
+        finally:
+            chartmod.LOGIC_ARTIC = old_logic
+        lm = chartc.keyswitch_map({'keyswitches': {}},
+                                  "Logic Studio Strings - Studio Violins")
+        check("Logic's articulation sets import as maps",
+              lm == {24: 'Sustain', 30: 'Staccato'}, str(lm))
+        try:
+            chartc.keyswitch_map({'keyswitches': {}}, "Nobody's Map")
+            got = ""
+        except SystemExit as e:
+            got = str(e)
+        check("an unknown map is refused in a sentence", "no keyswitch "
+              "map called" in got, got)
+    finally:
+        chartc.KS_DIR = old_dir
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_detail_and_look():
     """
     DESIGN.md 11's last two levels through the chart door — `simplified`
@@ -2934,6 +3068,7 @@ if __name__ == "__main__":
     check_score_import()
     check_text_import()
     check_road_maps()
+    check_keyswitches()
     check_detail_and_look()
     check_user_chair()
     check_engraver()

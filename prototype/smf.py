@@ -17,6 +17,9 @@ import struct
 
 
 def vlq(n):
+    # a negative delta would shift right forever (-1 >> 7 is -1): a
+    # time before the start is the start
+    n = max(0, int(n))
     out = bytearray([n & 0x7F])
     n >>= 7
     while n:
@@ -53,6 +56,7 @@ def write(path, notes, division, bpm, ts=(4, 4), name="Copyist"):
     ])
     ev = []
     for on, off, pitch, vel in notes:
+        on = max(0, on)
         off = max(off, on + 1)
         ev.append((int(on), bytes([0x90, int(pitch) & 0x7F, max(1, min(127, int(vel)))])))
         ev.append((int(off), bytes([0x80, int(pitch) & 0x7F, 0])))

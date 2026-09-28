@@ -234,6 +234,182 @@ def find_trills(notes, beat):
     return sorted(kept), found
 
 
+# ------------------------------------------------------------ keyswitches
+
+# what a keyswitch's name means on the page. The name is the writer's
+# (or the library's) word; anything not listed prints as the words
+# themselves at the change, so nothing a library calls it is lost.
+KS_MARK = {  # per-note articulation tags
+    'staccato': 'staccato', 'stacc': 'staccato', 'short': 'staccato',
+    'shorts': 'staccato', 'spiccato': 'spiccato',
+    'staccatissimo': 'staccatissimo', 'marcato': 'strong-accent',
+    'marcatos': 'strong-accent', 'accent': 'accent', 'accented': 'accent',
+    'sfz': 'accent', 'sforzando': 'accent', 'tenuto': 'tenuto',
+    'portato': 'detached-legato', 'loure': 'detached-legato',
+    'detache': 'tenuto', 'detached': 'tenuto',
+}
+KS_TEXT = {  # techniques printed in words at the change
+    'pizz': 'pizz.', 'pizzicato': 'pizz.', 'arco': 'arco',
+    'con sord': 'con sord.', 'con sordino': 'con sord.',
+    'mute': 'mute', 'muted': 'mute', 'senza sord': 'senza sord.',
+    'open': 'open', 'harmon': 'harmon mute', 'harmon mute': 'harmon mute',
+    'cup': 'cup mute', 'cup mute': 'cup mute', 'straight': 'straight mute',
+    'straight mute': 'straight mute', 'plunger': 'plunger',
+    'flutter': 'flz.', 'flutter tongue': 'flz.', 'flz': 'flz.',
+    'sul pont': 'sul pont.', 'sul ponticello': 'sul pont.',
+    'sul tasto': 'sul tasto', 'col legno': 'col legno',
+    'harmonics': 'harm.', 'harmonic': 'harm.', 'growl': 'growl',
+    'shake': 'shake', 'ord': 'ord.', 'ordinario': 'ord.', 'normale': 'ord.',
+    'fortepiano': 'fp', 'crescendo': 'cresc.', 'glissando': 'gliss.',
+    'gliss': 'gliss.', 'dead note': 'dead notes', 'dead notes': 'dead notes',
+    'slap': 'slap', 'pop': 'pop',
+}
+KS_PLAIN = {'long', 'longs', 'sustain', 'sus', 'sustained', 'normal',
+            'legato', 'slur', 'slurred', 'default'}
+# a patch's playing modes that no copyist prints: how the sampler picks
+# its takes, not what the player reads (Logic's own sets, surveyed)
+KS_INTERNAL = re.compile(
+    r'\b(expressive (long|medium)|standard|passionate|all auto|auto|'
+    r'index|middle|down only|up only|down up|pickup|by velocity|'
+    r'open slide|round robin|rr)\b', re.I)
+
+
+def ks_meaning(word):
+    """A keyswitch name -> (mark tag, printed words, legato?, ornament).
+    Library names come dressed ('Violins - Spiccato', 'SHORTS marcato
+    2'): the known words inside are found; the rest is the writer's."""
+    w = re.sub(r'[^a-z ]', ' ', word.lower())
+    w = re.sub(r'\s+', ' ', w).strip()
+    if KS_INTERNAL.search(w) and not re.search(
+            r'stac|spic|marc|pizz|trem|trill|fall|doit|legato|mute|'
+            r'harm|slap|pop', w):
+        return None, None, False, None
+    mark = next((KS_MARK[k] for k in sorted(KS_MARK, key=len, reverse=True)
+                 if re.search(r'\b%s\b' % k, w)), None)
+    text = next((KS_TEXT[k] for k in sorted(KS_TEXT, key=len, reverse=True)
+                 if re.search(r'\b%s\b' % k, w)), None)
+    legato = bool(re.search(r'\b(legato|slur|slurred)\b', w))
+    orn = ('trem' if re.search(r'\btrem', w) else
+           'trill_half' if re.search(r'\btrill (semi|half)', w) else
+           'trill_whole' if re.search(r'\btrill whole', w) else
+           'trill' if re.search(r'\btrill', w) and 'shake' not in w
+           else 'falloff' if re.search(r'\bfall', w) else
+           'doit' if re.search(r'\bdoit', w) else
+           'scoop' if re.search(r'\bscoop|\bslide in', w) else None)
+    if orn in ('falloff', 'doit', 'scoop'):
+        mark = None                   # "Fall Short" is a fall, not a dot
+    if not (mark or text or legato or orn) and not any(
+            re.search(r'\b%s\b' % k, w) for k in KS_PLAIN):
+        text = word.strip().lower()   # the library's own word, printed
+    return mark, text, legato, orn
+
+
+def midi_name(p):
+    names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#',
+             'B']
+    return f"{names[p % 12]}{p // 12 - 1}"
+
+
+def find_keyswitches(notes, sounding_range, beat):
+    """Keyswitches in played notes [(on, off, pitch, vel)]: keys well
+    outside the instrument's playable range (an octave past its ends,
+    or below A0 / above C8 when the range is unknown) that never sound
+    in the part. Returns (musical notes, switches [(on, off, pitch)])."""
+    lo, hi = sounding_range if sounding_range else (33, 96)
+    floor, ceil = (lo - 12, hi + 12) if sounding_range else (21, 108)
+    ks, kept = [], []
+    for n in notes:
+        (ks if n[2] < floor or n[2] > ceil else kept).append(n)
+    ks = [(on, off, p) for on, off, p, _v in ks]
+    return kept, sorted(ks)
+
+
+def assign_keyswitches(notes, switches, beat):
+    """Which switch governs each musical note, by its raw onset. A
+    switch latches until the next one; a switch HELD across notes for
+    more than a beat governs only while held, then the latched one
+    returns. A switch pressed a hair after the note it meant (a 32nd)
+    still counts for it."""
+    slack = beat / 8
+    latched_order = [s for s in switches if s[1] - s[0] <= beat * 0.9]
+    held = [s for s in switches if s[1] - s[0] > beat * 0.9]
+    out = {}
+    for on, _off, _p, _v in notes:
+        cur = None
+        for s_on, s_off, sp in held:
+            if s_on - slack <= on < s_off:
+                cur = sp
+        if cur is None:
+            for s_on, _s_off, sp in latched_order:
+                if s_on - slack <= on:
+                    cur = sp
+                else:
+                    break
+        if cur is not None:
+            out[on] = cur
+    return out
+
+
+# the word that ends a technique when the playing returns to normal
+KS_RELEASE = {'pizz.': 'arco', 'con sord.': 'senza sord.', 'mute': 'open',
+              'harmon mute': 'open', 'cup mute': 'open',
+              'straight mute': 'open', 'plunger': 'open',
+              'sul pont.': 'ord.', 'sul tasto': 'ord.', 'col legno': 'ord.',
+              'harm.': 'ord.', 'flz.': 'ord.'}
+
+
+def ks_plan(res, timeline, fifths_concert):
+    """res['ks'] -> what the page does with it: {start: mark tag},
+    {start: words printed there}, legato slur runs over timeline
+    indices, and trill/tremolo entries merged into res. Words print
+    only where the technique changes, the way a part is marked."""
+    ks = res.get('ks') or {}
+    marks, texts, legato_idx = {}, {}, []
+    state = None
+    for ti, (st, _e, ps) in enumerate(timeline):
+        word = next((ks[(st, p)] for p in ps if (st, p) in ks), None)
+        if word is None:
+            continue
+        mark, text, legato, orn = ks_meaning(word)
+        if mark:
+            marks[st] = mark
+        if text != state:
+            if text:
+                texts[st] = text
+            elif state in KS_RELEASE:
+                texts[st] = KS_RELEASE[state]
+            state = text
+        if legato:
+            legato_idx.append(ti)
+        if orn == 'trem':
+            res.setdefault('trems', {})[(st, ps[0])] = 3
+        elif orn in ('trill', 'trill_half', 'trill_whole'):
+            spec = {'trill': ('key',), 'trill_half': ('second', 1),
+                    'trill_whole': ('second', 2)}[orn]
+            aux, form = trill_target(ps[-1], spec, fifths_concert)
+            res.setdefault('trills', {})[(st, ps[-1])] = (aux, form)
+        elif orn in ('falloff', 'doit', 'scoop'):
+            marks[st] = orn
+    runs, run = [], []
+    for ti in legato_idx:
+        if run and ti == run[-1] + 1 and timeline[run[-1]][1] == \
+                timeline[ti][0]:
+            run.append(ti)
+        else:
+            if len(run) > 1:
+                runs.append((run[0], run[-1]))
+            run = [ti]
+    if len(run) > 1:
+        runs.append((run[0], run[-1]))
+    return marks, texts, runs
+
+
+def words_direction(text):
+    return ('      <direction placement="above"><direction-type>'
+            f'<words font-style="italic">{text}</words>'
+            '</direction-type></direction>\n')
+
+
 INTERVAL_WORD = {1: 'a half step', 2: 'a whole step',
                  3: 'a minor third', 4: 'a major third',
                  5: 'a fourth', 6: 'a tritone', 7: 'a fifth'}
@@ -590,7 +766,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   poly=False, grand=False, reach=17, comfortable=14,
                   legato=False, ghost=False, detail=None, meter=(4, 4),
                   window=None, part_label="", findings=None, drums=False,
-                  trills=True):
+                  trills=True, ks_map=None):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
     into a quantized timeline of sounding pitches starting at absolute
@@ -648,6 +824,40 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         lag = 0
     moved = [(on - lag - lo_t, off - lag - lo_t, p, v)
              for on, off, p, v in picked]
+
+    # ---- keyswitches: keys pressed to change the patch's articulation
+    # are not music. They leave the notes here (a C0 must never print
+    # as a note folded up four octaves) and say what they meant.
+    ks_by_on, ks_unmapped = {}, {}
+    if not drums:
+        shifted_rng = None
+        if sounding_range:
+            shifted_rng = (sounding_range[0] - 12 * octave_shift,
+                           sounding_range[1] - 12 * octave_shift)
+        moved, switches = find_keyswitches(moved, shifted_rng, beat)
+        if switches:
+            gov = assign_keyswitches(moved, switches, beat)
+            for on, sp in gov.items():
+                word = (ks_map or {}).get(sp)
+                if word is None:
+                    ks_unmapped.setdefault(sp, []).append(on)
+                ks_by_on[on] = word
+            used = sorted({sp for _o, _f, sp in switches})
+            named = [f"{midi_name(sp)} (MIDI {sp}) is "
+                     f"{(ks_map or {})[sp]}" for sp in used
+                     if sp in (ks_map or {})]
+            find.add(f"{part_label}: {len(switches)} keyswitch press(es) "
+                     f"on {len(used)} key(s) taken out of the notes"
+                     + ("; " + "; ".join(named) if named else ""))
+            for sp, ons in sorted(ks_unmapped.items()):
+                bars_ = sorted({bar_lo + spoken_shift
+                                + int(max(o, 0) // tick_bar) for o in ons})
+                find.add(f"{part_label}: keyswitch {midi_name(sp)} (MIDI "
+                         f"{sp}) governs bars "
+                         + ", ".join(str(b) for b in bars_[:8])
+                         + (" and more" if len(bars_) > 8 else "")
+                         + " but has no name yet; name it in a "
+                         "keyswitches block and the page marks it")
 
     # ---- a played trill is one note with a trill on it, not a pile of
     # thirty-seconds: collapse it before the grid is chosen, and keep
@@ -708,11 +918,13 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     default_sub = {'quarters': 1, 'eighths': 2, 'grid8': 2, 'triplet8': 3,
                    'triplet16': 6}.get(quant, 4)
 
+    ks_notes = {}        # (chart onset, sounding pitch) -> keyswitch word
     trill_map = {}       # (chart onset, sounding pitch) -> trill target
     trem_map = {}        # (chart onset, sounding pitch) -> strokes
     events = {}          # chart-tick onset -> [(pitch, q_off, raw_on,
                          #                        raw_off, velocity)]
     for on, off, p, v in moved:
+        ks_word = ks_by_on.get(on)
         trill_here = trill_on.get(on)
         if trill_here and trill_here[0] != p:
             trill_here = None              # a chord tone sharing the onset
@@ -762,6 +974,8 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                          f"{abs(folded - p) // 12} octave(s) into range")
                 p = folded
         events.setdefault(q_on, []).append((p, q_off, on, off, v))
+        if ks_word:
+            ks_notes[(q_on, p)] = ks_word
         if trill_here and trill_here[2] == 'trem':
             trem_map[(q_on, p)] = 3
         elif trill_here:
@@ -991,7 +1205,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             'spoken_shift': spoken_shift, 'staves': staves_out,
             'bar_ticks': bar_ticks, 'pulse_div': pulse_div,
             'drums': drums, 'drum_cap': drum_cap if drums else None,
-            'trills': trill_map, 'trems': trem_map}
+            'trills': trill_map, 'trems': trem_map, 'ks': ks_notes}
 
 
 def bend_indices(res, bends):
@@ -1024,7 +1238,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     timeline = res['timeline']
     grids_chart = res['grids']
     table = spelling_table(fifths_written, find)
-    trills = res.get('trills') or {}
+    trills = res.setdefault('trills', {})
 
     def trill_of(start, pitches):
         for p in pitches:
@@ -1034,7 +1248,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
                         'fifths': fifths_written}
         return None
     res['_trill_of'] = trill_of
-    trems = res.get('trems') or {}
+    trems = res.setdefault('trems', {})
 
     def trem_of(start, pitches):
         for p in pitches:
@@ -1151,6 +1365,10 @@ def render_range(res, fifths_written, transpose_to_written, fall,
 
     out = {b: [] for b in
            range(at_bar, at_bar + (n_units // bar_ticks))}
+    concert_f = ((fifths_written - 7 * transpose_to_written + 6) % 12) - 6
+    ks_marks, ks_texts, ks_runs = ks_plan(res, timeline, concert_f)
+    if ks_runs and not res.get('slurs'):
+        res['slurs'] = ks_runs      # legato the patch played, slurred
     slur_a = {i for i, _ in res.get('slurs', ())}
     slur_b = {j for _, j in res.get('slurs', ())}
     ghosts = res.get('ghosts') or set()
@@ -1161,8 +1379,12 @@ def render_range(res, fifths_written, transpose_to_written, fall,
             _emit(out, at_bar, pos, start, None, table, grids_chart,
                   None, transpose_to_written, bar=bar_ticks)
         is_last = ti == len(timeline) - 1
+        if start in ks_texts:
+            out[at_bar + start // bar_ticks].append(
+                words_direction(ks_texts[start]))
         _emit(out, at_bar, start, end, pitches, table, grids_chart,
-              (last_artic if is_last else None) or every,
+              (last_artic if is_last else None) or ks_marks.get(start)
+              or every,
               transpose_to_written, bend=bends.get(ti), bar=bar_ticks,
               slur=(ti in slur_a, ti in slur_b), ghost=ti in ghosts,
               lyric=lyr[ti] if lyr else None, cue=cue, slash=slash,
@@ -1762,6 +1984,24 @@ def say_ornaments(res, table, fifths=0):
             words[s_] = f"trill {gap} up, to {target}"
     for (s_, p), n in (res.get('trems') or {}).items():
         words[s_] = "tremolo"
+    # keyswitched articulation, spoken once where it changes, the way a
+    # player pencils it in
+    SAY_MARK = {'staccato': 'staccato', 'spiccato': 'spiccato',
+                'staccatissimo': 'staccatissimo', 'strong-accent':
+                'marcato', 'accent': 'accented', 'tenuto': 'tenuto',
+                'detached-legato': 'portato', 'falloff': 'falls',
+                'doit': 'doits'}
+    prev = None
+    for (s_, p), word in sorted((res.get('ks') or {}).items()):
+        mark, text, legato, orn = ks_meaning(word)
+        desc = text or SAY_MARK.get(mark) or ('legato' if legato else
+                                              'ordinary')
+        if orn == 'trem' and not text:
+            desc = 'tremolo'
+        if desc != prev:
+            here = f"{desc} from here"
+            words[s_] = (words[s_] + ", " + here) if s_ in words else here
+            prev = desc
     return words
 
 

@@ -277,6 +277,44 @@ shortcut: `chart tune.chart c` checks, `b` builds, `r` reads, `p`
 lists the band, `d` diffs, `l` bounces the listen, `n` interviews,
 `e` is the roadmap conversation.
 
+## Keyswitches: the articulations you played
+
+If your demo switches articulations with keyswitches, Copyist reads
+them. The keys themselves (far below or above the instrument's range)
+come out of the notes, so no stray low C prints, and each one's name
+becomes what a copyist would write: staccato dots, marcato, tenuto,
+slurs over the legato, "pizz." where it starts and "arco" where the bow
+comes back, mutes, "sul pont.", tremolo strokes, trills, falls, doits,
+scoops. The listen plays the strings' real pizzicato and tremolo
+samples.
+
+Tell it what the keys mean once. In the chart:
+
+    keyswitches "My Violins":
+      C1 legato
+      D1 staccato
+      E1 pizzicato
+
+    band:
+      violin, demo "strings.mid", keyswitches "My Violins"
+
+Middle C is C4 (MIDI 60); if your library calls it C3, write the MIDI
+number instead (`24 legato`), and the findings always name both. Or
+save the map for every chart that uses that patch:
+
+    chart keyswitches set "My Violins" F#1 tremolo
+    chart keyswitches show "My Violins"
+    chart keyswitches
+
+`chart keyswitches from-logic` brings in all of Logic Pro's own
+articulation sets (Studio Strings, Horns and Bass) as ready maps, named
+like "Logic Studio Strings - Studio Violins". A library's names can stay
+as the library wrote them ("Violins - Spiccato", "SHORTS marcato"):
+Copyist finds the musical word inside, ignores the sampler's own modes
+("Expressive Long", "Down/Up (Auto)"), and prints anything else it
+doesn't know as the word itself. A key you haven't named yet is listed
+in the findings with the bars it covers.
+
 ## Road maps: D.S., D.C., the coda
 
 Write them where they sit, as timed events in the section:

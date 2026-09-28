@@ -613,6 +613,119 @@ def list_instruments(want):
             "— or try sax, voice, drum, cymbal, cello.")
 
 
+LOGIC_ARTIC = "/Applications/Logic Pro.app/Contents/Resources/" \
+    "Articulation Settings"
+
+
+def run_keyswitches(argv):
+    """chart keyswitches: the saved maps that tell Copyist what each
+    keyswitch in a patch means, so a demo's articulations print.
+
+        chart keyswitches                      the saved maps
+        chart keyswitches show NAME            one map, key by key
+        chart keyswitches set NAME KEY WORDS   name a key (C1, or 24)
+        chart keyswitches from-logic           Logic's articulation sets
+    """
+    import plistlib
+    ksdir = chartc.KS_DIR
+    os.makedirs(ksdir, exist_ok=True)
+
+    def path_for(name):
+        for fn in os.listdir(ksdir):
+            if os.path.splitext(fn)[0].lower() == name.lower():
+                return os.path.join(ksdir, fn)
+        return os.path.join(ksdir, name + ".txt")
+
+    def load(p):
+        out = {}
+        if os.path.exists(p):
+            for i, ln in enumerate(open(p, encoding='utf-8'), 1):
+                ln = ln.strip()
+                if ln and not ln.startswith('#'):
+                    k, w = chartc.parse_ks_line(ln, f"line {i}")
+                    out[k] = w
+        return out
+
+    def save(p, m, note=''):
+        with open(p, 'w', encoding='utf-8') as f:
+            if note:
+                f.write(f"# {note}\n")
+            for k in sorted(m):
+                f.write(f"{chartdemo.midi_name(k)} {m[k]}\n")
+
+    if not argv:
+        names = sorted(os.path.splitext(f)[0] for f in os.listdir(ksdir)
+                       if f.endswith('.txt'))
+        if not names:
+            say("No keyswitch maps saved yet. 'chart keyswitches set "
+                "\"My Violins\" C1 legato' starts one, and 'chart "
+                "keyswitches from-logic' brings in Logic's.")
+        else:
+            say(f"{len(names)} keyswitch map(s): " + "; ".join(names)
+                + ". A band line uses one with: keyswitches \"NAME\".")
+        return
+    cmd = argv[0]
+    if cmd == 'show' and len(argv) > 1:
+        p = path_for(argv[1])
+        m = load(p)
+        if not m:
+            say(f'No map called "{argv[1]}".')
+            sys.exit(1)
+        say(f'"{os.path.splitext(os.path.basename(p))[0]}": '
+            + "; ".join(f"{chartdemo.midi_name(k)} (MIDI {k}) {w}"
+                        for k, w in sorted(m.items())) + ".")
+        return
+    if cmd == 'set' and len(argv) > 3:
+        p = path_for(argv[1])
+        m = load(p)
+        k, w = chartc.parse_ks_line(argv[2] + " " + " ".join(argv[3:]),
+                                    "the key")
+        m[k] = w
+        save(p, m)
+        say(f'Saved: in "{os.path.splitext(os.path.basename(p))[0]}", '
+            f"{chartdemo.midi_name(k)} (MIDI {k}) is {w}. Every chart "
+            "whose band line names this map now marks it.")
+        return
+    if cmd == 'from-logic':
+        if not os.path.isdir(LOGIC_ARTIC):
+            say("Logic Pro's articulation sets aren't on this Mac.")
+            sys.exit(1)
+        made, skipped = 0, []
+        for root, _d, files in os.walk(LOGIC_ARTIC):
+            for fn in sorted(files):
+                if not fn.endswith('.plist'):
+                    continue
+                pl = plistlib.load(open(os.path.join(root, fn), 'rb'))
+                names = {}
+                for i, a in enumerate(pl.get('Articulations', [])):
+                    names[int(a.get('ID', 1001 + i))] = a.get('Name', '')
+                off = 12 * int(pl.get('OctaveOffset') or 0)
+                m = {}
+                for i, sw in enumerate(pl.get('Switches', [])):
+                    if str(sw.get('Status', '')).replace(' ', '') != \
+                            'NoteOn' or 'MB1' not in sw:
+                        continue
+                    nm = names.get(int(sw.get('ID', 1001 + i)))
+                    if nm:
+                        m[int(sw['MB1']) + off] = nm
+                title = "Logic " + os.path.basename(root) + " - " + \
+                    os.path.splitext(fn)[0]
+                if m:
+                    save(os.path.join(ksdir, title + ".txt"), m,
+                         f"from {fn}, Logic Pro's own articulation set")
+                    made += 1
+                else:
+                    skipped.append(title)
+        say(f"Brought in {made} of Logic's articulation sets as keyswitch "
+            "maps." + (f" {len(skipped)} switch by something other than "
+                       "notes and were left out: " + ", ".join(skipped)
+                       + "." if skipped else ""))
+        return
+    say("chart keyswitches: show NAME, set NAME KEY WORDS (like set "
+        "\"My Violins\" C1 legato), or from-logic.")
+    sys.exit(2)
+
+
 def run_import(argv):
     """chart import FILE [--into CHART] [--to FOLDER]: anything a writer
     has, in; a MIDI demo goes on to the interview. The last line names
@@ -696,6 +809,9 @@ def main():
         return
     if len(sys.argv) > 1 and sys.argv[1] in ('import', 'i'):
         run_import(sys.argv[2:])
+        return
+    if len(sys.argv) > 1 and sys.argv[1] in ('keyswitches', 'ks'):
+        run_keyswitches(sys.argv[2:])
         return
     ap = argparse.ArgumentParser(
         description="Compile a chart and make everything a writer "

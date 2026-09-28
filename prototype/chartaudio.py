@@ -385,6 +385,7 @@ def parse_score(path, only=None):
         slur_depth = 0
         pend_grace = {}                 # voice -> grace <note> texts
         pend_hit = False                # a sforzando waits for its note
+        pizz = False                    # "pizz." until "arco"
         pedals = []                     # (q, 'start'|'stop'|'change')
         pend_trem = {}                  # voice -> event index of a
                                         # two-note tremolo's first note
@@ -451,6 +452,11 @@ def parse_score(path, only=None):
                     pd = re.search(r'<pedal [^>]*type="(\w+)"', t)
                     if pd:
                         pedals.append((q0 + pos / div, pd.group(1)))
+                    for w in re.findall(r'<words[^>]*>([^<]*)</words>', t):
+                        if re.match(r'\s*pizz', w, re.I):
+                            pizz = True
+                        elif re.match(r'\s*(arco|ord)', w, re.I):
+                            pizz = False
                     wd = re.search(r'<wedge [^>]*type="(\w+)"', t)
                     if wd:
                         if wd.group(1) in ('crescendo', 'diminuendo'):
@@ -537,6 +543,8 @@ def parse_score(path, only=None):
                 if pend_hit:
                     art['acc'] = True
                     pend_hit = False
+                if pizz:
+                    art['pizz'] = True
                 if 'trill' in art:
                     art['trill_step'] = trill_step(t, fifths)
                 ts1 = re.search(r'<tremolo type="single">(\d)', t)

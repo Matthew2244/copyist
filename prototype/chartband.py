@@ -86,17 +86,23 @@ _SFZ_VOICES = (
      {'sus': _V + 'OboeSusVib.sfz', 'stac': _V + 'OboeStac.sfz'}),
     (('reed.bassoon',),
      {'sus': _V + 'BassoonVib.sfz', 'stac': _V + 'BassoonStac.sfz'}),
+    # the strings' own plucked and bowed-tremolo takes: "pizz." on the
+    # page (or a pizzicato keyswitch in the demo) plays these
     (('strings.violin',),
-     {'sus': _V + 'SViolinVib.sfz', 'stac': _V + 'SViolinSpic.sfz'}),
+     {'sus': _V + 'SViolinVib.sfz', 'stac': _V + 'SViolinSpic.sfz',
+      'pizz': _V + 'SViolinPizz.sfz', 'trem': _V + 'SViolinTrem.sfz'}),
     (('strings.viola',),
      {'sus': _V + 'ViolaEnsSusVib.sfz',
-      'stac': _V + 'ViolaEnsSpic.sfz'}),
+      'stac': _V + 'ViolaEnsSpic.sfz',
+      'pizz': _V + 'ViolaEnsPizz.sfz', 'trem': _V + 'ViolaEnsTrem.sfz'}),
     (('strings.cello',),
      {'sus': _V + 'CelloEnsSusVib.sfz',
-      'stac': _V + 'CelloEnsSpic.sfz'}),
+      'stac': _V + 'CelloEnsSpic.sfz',
+      'pizz': _V + 'CelloEnsPizz.sfz', 'trem': _V + 'CelloEnsTrem.sfz'}),
     (('strings.group',),
      {'sus': _V + 'ViolinEnsSusVib.sfz',
-      'stac': _V + 'ViolinEnsSpic.sfz'}),
+      'stac': _V + 'ViolinEnsSpic.sfz',
+      'pizz': _V + 'ViolinEnsPizz.sfz', 'trem': _V + 'ViolinEnsTrem.sfz'}),
     (('voice.',),
      {'sus': 'Copyist-Extras/choir-ah.sfz'}),
     (('pitched-percussion.glockenspiel',),
@@ -323,6 +329,10 @@ def _variant(voice, art):
     for short marks, its ghost set for ghosts, sustain otherwise."""
     if voice is None:
         return None
+    if 'pizz' in art and 'pizz' in voice:
+        return voice['pizz']
+    if art.get('trem') and 'trem' in voice:
+        return voice['trem']
     if ('stac' in art or 'marc' in art) and 'stac' in voice:
         return voice['stac']
     if 'ghost' in art and 'ghost' in voice:
@@ -485,6 +495,8 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         if not pieces:
             res = None
             inst = _variant(voice, art)
+            if art.get('trem') and voice and 'trem' in voice:
+                amps = None     # the recorded bow already trembles
             if inst is not None:
                 res = inst.render_note(int(key), v, d, SR, bend=bend,
                                        brightness=bright, amps=amps,

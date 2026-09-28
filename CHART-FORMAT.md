@@ -473,6 +473,18 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
       at bar 8: d.s. al coda
       build: add saxes at 3, add trombones at 11
 
+  **Keyswitches** (2026-09-27): a band line may name a map, `violin,
+  demo "v.mid", keyswitches "NAME"`; the map is a top-level block,
+  `keyswitches "NAME":` with indented `C1 legato` / `24 staccato` lines,
+  or a saved file `~/.config/copyist/keyswitches/NAME.txt` of the same
+  lines (`chart keyswitches set/show/from-logic` manage them). Notes an
+  octave past the instrument's sounding range are keyswitches whether
+  or not a map is named: they leave the notes, latch until the next
+  (a switch held over a beat governs only while held), and a named one
+  becomes marks, printed technique words (with their release: arco,
+  open, senza sord., ord.), slurs, tremolos, trills, falls, doits and
+  scoops.
+
   **Road maps** are timed events too: `segno` (or `sign`), `coda`, `to
   coda`, `fine`, and the jump itself, `d.s.`, `d.s. al coda`, `d.s. al
   fine`, `d.c.`, `d.c. al coda` or `d.c. al fine` (spelled out, `dal

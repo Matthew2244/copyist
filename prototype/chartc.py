@@ -760,7 +760,8 @@ def seconds_before(chart, printed_bar):
 
 def parse_chart(path):
     chart = {'header': {}, 'band': [], 'chords': {}, 'sections': [],
-             'groups': {}, 'figures': {}, 'pickup': None}
+             'groups': {}, 'figures': {}, 'pickup': None,
+             'keyswitches': {}}
     cur = None          # current section
     cur_fig = None      # current figure block
     mode = None         # 'band' or None
@@ -778,6 +779,12 @@ def parse_chart(path):
                 continue
             if s == 'output:':
                 mode = 'output'
+                continue
+            m = re.match(r'keyswitches "([^"]+)":\s*$', s)
+            if m:
+                mode = 'ks'
+                cur_ks = chart['keyswitches'].setdefault(
+                    m.group(1).strip().lower(), {})
                 continue
             m = re.match(r'chords ([\w ]+?):\s*(.+)$', s)
             if m:
@@ -843,7 +850,8 @@ def parse_chart(path):
             m = re.match(r'([\w ]+?)(?:\s*=\s*([\w ]+?))?'
                          r'(?:,\s*detail (\w[\w-]*))?'
                          r'(?:,\s*tuning ([\w ]+))?'
-                         r'(?:,\s*demo "([^"]+)"(?:\s+octave (-?\d+))?)?\s*$',
+                         r'(?:,\s*demo "([^"]+)"(?:\s+octave (-?\d+))?)?'
+                         r'(?:,\s*keyswitches "([^"]+)")?\s*$',
                          s)
             if not m:
                 fail(f"{loc}: cannot read band line '{s}'")
@@ -852,10 +860,15 @@ def parse_chart(path):
                                   'detail': m.group(3),
                                   'tuning': m.group(4),
                                   'demo': m.group(5),
-                                  'demo_octave': int(m.group(6) or 0)})
+                                  'demo_octave': int(m.group(6) or 0),
+                                  'keyswitches': m.group(7)})
             continue
         if mode == 'output':
             continue        # defaults only in this increment
+        if mode == 'ks':
+            k, word = parse_ks_line(s, loc)
+            cur_ks[k] = word
+            continue
         if mode == 'figure':
             m = re.match(r'lyrics:\s*(.+)$', s)
             if m:
@@ -1290,6 +1303,50 @@ def road_direction(kind):
             else 'dalsegno="segno"')
     return ('      <direction placement="above"><direction-type>'
             f'{body}</direction-type><sound {snd}/></direction>\n')
+
+
+KS_DIR = os.path.expanduser("~/.config/copyist/keyswitches")
+
+
+def parse_ks_line(s, loc):
+    """'C0 legato' / 'C#-1 staccato' / '24 pizzicato' -> (midi, word).
+    Note names are scientific (middle C is C4, MIDI 60); a library that
+    counts middle C as C3 is one octave off, so the MIDI number is
+    always accepted too — and the findings name both."""
+    m = re.match(r'(\d{1,3})\s+(.+)$', s)
+    if m and int(m.group(1)) < 128:
+        return int(m.group(1)), m.group(2).strip()
+    m = re.match(r'([A-Ga-g])([b#]?)(-?\d)\s+(.+)$', s)
+    if not m:
+        fail(f"{loc}: a keyswitch line is a key and its name, like "
+             "'C0 legato' or '24 staccato', not '{s}'")
+    pc = {'c': 0, 'd': 2, 'e': 4, 'f': 5, 'g': 7, 'a': 9,
+          'b': 11}[m.group(1).lower()] + {'b': -1, '#': 1, '': 0}[
+              m.group(2)]
+    return pc + (int(m.group(3)) + 1) * 12, m.group(4).strip()
+
+
+def keyswitch_map(chart, name, loc='band'):
+    """A part's keyswitch map: the chart's own block, else a saved
+    library map in ~/.config/copyist/keyswitches/<name>.txt (same lines,
+    written once for a patch and used by every chart)."""
+    key = name.strip().lower()
+    if key in chart.get('keyswitches', {}):
+        return chart['keyswitches'][key]
+    if os.path.isdir(KS_DIR):
+        for fn in os.listdir(KS_DIR):
+            if os.path.splitext(fn)[0].strip().lower() == key:
+                out = {}
+                for i, ln in enumerate(open(os.path.join(KS_DIR, fn),
+                                            encoding='utf-8'), 1):
+                    ln = ln.strip()
+                    if ln and not ln.startswith('#'):
+                        k, w = parse_ks_line(ln, f"{fn} line {i}")
+                        out[k] = w
+                return out
+    fail(f"{loc}: no keyswitch map called \"{name}\": add a "
+         f"'keyswitches \"{name}\":' block to the chart, or save one in "
+         f"{KS_DIR}")
 
 
 def lifted_rest(piece):
@@ -1893,6 +1950,9 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     legato=ref.get('legato', False),
                     ghost=ref.get('ghost', False),
                     trills=not ref.get('no_trills', False),
+                    ks_map=(keyswitch_map(chart, b['keyswitches'],
+                                          ref['loc'])
+                            if b.get('keyswitches') else None),
                     derive_dyns=hdr.get('dynamics', '') not in
                     ('by hand', 'manual'),
                     short=ref.get('short', False),
