@@ -67,6 +67,15 @@ SMUFL = {
     'marcato': 0xE4AC, 'accent': 0xE4A0, 'stacc': 0xE4A2,
     'fermata': 0xE4C0,
     'ornamentTrill': 0xE566, 'wiggleTrill': 0xEAA4,
+    'staccatissimo': 0xE4A6, 'loure': 0xE4B2, 'spiccato': 0xE4A8,
+    'upBow': 0xE612, 'downBow': 0xE610, 'openMark': 0xE5E7,
+    'stoppedMark': 0xE5E5, 'harmonic': 0xE614,
+    'breath': 0xE4CE, 'caesura': 0xE4D1,
+    'mordent': 0xE56D, 'shortTrill': 0xE56C,
+    'turn': 0xE567, 'turnInverted': 0xE568,
+    'dyn_p': 0xE520, 'dyn_m': 0xE521, 'dyn_f': 0xE522, 'dyn_r': 0xE523,
+    'dyn_s': 0xE524, 'dyn_z': 0xE525, 'dyn_n': 0xE526,
+    'pedalPed': 0xE650, 'pedalUp': 0xE655,
     'tremolo1': 0xE220, 'tremolo2': 0xE221, 'tremolo3': 0xE222,
     'tenuto': 0xE4A4,
     'dynP': 0xE520, 'dynF': 0xE522, 'dynMP': 0xE52C, 'dynMF': 0xE52D,
@@ -659,14 +668,14 @@ class Note:
                  'tmod', 'measure_rest',
                  'grace', 'grace_slash', 'graces',
                  'trill', 'trill_acc', 'trill_to', 'wavy', 'trem',
-                 'trem2')
+                 'trem2', 'marks', 'arp', 'gliss', 'gliss_to', 'ott')
 
 
 def _parse_note(t):
     n = Note()
     n.rest = '<rest' in t
     n.measure_rest = 'rest measure="yes"' in t
-    n.chord = '<chord/>' in t
+    n.chord = bool(re.search(r'<chord\s*/>', t))
     m = re.search(r'<step>(\w)</step>', t)
     n.step = m.group(1) if m else 'B'
     m = re.search(r'<alter>(-?\d+)</alter>', t)
@@ -677,28 +686,40 @@ def _parse_note(t):
     n.dur = int(m.group(1)) if m else 0
     m = re.search(r'<type[^>]*>([\w]+)</type>', t)
     n.ntype = m.group(1) if m else 'quarter'
-    n.dots = t.count('<dot/>')
-    n.tie_start = '<tied type="start"/>' in t
-    n.tie_stop = '<tied type="stop"/>' in t
-    n.slur_start = 'slur number="1" type="start"' in t
-    n.slur_stop = 'slur number="1" type="stop"' in t
+    # attribute-tolerant throughout: an engraving writes
+    # <tied type="stop" orientation="under"/> and <accent default-x=.../>
+    n.dots = len(re.findall(r'<dot[\s/>]', t))
+    n.tie_start = bool(re.search(r'<tied [^>]*type="start"', t))
+    n.tie_stop = bool(re.search(r'<tied [^>]*type="stop"', t))
+    n.slur_start = bool(re.search(r'<slur [^>]*type="start"', t))
+    n.slur_stop = bool(re.search(r'<slur [^>]*type="stop"', t))
     n.artic = None
     n.fermata = '<fermata' in t
     for a in ('strong-accent', 'accent', 'staccato', 'tenuto',
               'falloff', 'doit', 'scoop', 'plop'):
-        if f'<{a}/>' in t:
+        if re.search(r'<%s[\s/>]' % a, t):
             n.artic = a
             break
-    n.slash = '<notehead>slash</notehead>' in t
+    n.slash = bool(re.search(r'<notehead[^>]*>slash<', t))
     m = re.search(r'<notehead[^>]*>([\w-]+)</notehead>', t)
     n.head = m.group(1) if m else None
     n.parens = 'parentheses="yes"' in t
     n.cue = '<cue/>' in t
-    m = re.search(r'<lyric><syllabic>(\w+)</syllabic>'
-                  r'<text>([^<]*)</text>(<extend/>)?</lyric>', t)
+    m = re.search(r'<lyric[^>]*>\s*<syllabic>(\w+)</syllabic>\s*'
+                  r'<text[^>]*>([^<]*)</text>\s*(<extend[^>]*/>)?', t)
     n.lyric = (m.group(1), m.group(2), bool(m.group(3))) if m else None
     m = re.search(r'<actual-notes>(\d+)</actual-notes>', t)
     n.tmod = int(m.group(1)) if m else None
+    nt = re.search(r'<notations>(.*?)</notations>', t, re.S)
+    body = nt.group(1) if nt else ''
+    n.marks = [m for m in re.findall(r'<([a-z-]+)[ />]', body)
+               if m in MARK_TAGS]
+    n.marks = list(dict.fromkeys(n.marks))
+    n.arp = '<arpeggiate' in body
+    m = re.search(r'<(glissando|slide)[^>]*type="(start|stop)"', body)
+    n.gliss = m.group(2) if m else None
+    n.gliss_to = None
+    n.ott = None
     n.trill = '<trill-mark' in t
     m = re.search(r'<accidental-mark[^>]*>([\w-]+)</accidental-mark>', t)
     n.trill_acc = ({'sharp': 1, 'flat': -1, 'natural': 0,
@@ -720,6 +741,17 @@ def _parse_note(t):
 
 
 REFUSE = ()
+
+# every small mark the real books put on a note (the survey of his 52
+# files, 2026-09-27): near the head, above the note, or after it
+NEAR_MARKS = ('staccato', 'staccatissimo', 'tenuto', 'detached-legato',
+              'spiccato')
+ABOVE_MARKS = ('accent', 'strong-accent', 'up-bow', 'down-bow',
+               'open-string', 'stopped', 'harmonic', 'mordent',
+               'inverted-mordent', 'turn', 'inverted-turn')
+AFTER_MARKS = ('breath-mark', 'caesura')
+BEND_MARKS = ('falloff', 'doit', 'scoop', 'plop')
+MARK_TAGS = NEAR_MARKS + ABOVE_MARKS + AFTER_MARKS + BEND_MARKS
 
 
 KEY_STEPS_SHARP = ['F', 'C', 'G', 'D', 'A', 'E', 'B']
@@ -756,10 +788,10 @@ def mark_accidentals(meas, state):
 
 
 def parse_part(xml, pid):
-    """One part of our own document -> measures ready to draw, or a
-    sentence naming why this part still needs MuseScore."""
+    """One part of a document -> measures ready to draw, or a sentence
+    naming why this part cannot be drawn."""
     body = re.search(r'<part id="%s">(.*?)</part>' % pid, xml, re.S)
-    body = body.group(1)
+    body = re.sub(r'\s+/>', '/>', body.group(1))
     for tag in REFUSE:
         if tag in body:
             what = {'<grace': 'grace notes'}[tag]
@@ -772,7 +804,7 @@ def parse_part(xml, pid):
         meas = {'num': num, 'events': [], 'show': dict(),
                 'texts': [], 'chords': [], 'dyn': [], 'metronome': None,
                 'rehearsal': None, 'left': None, 'right': None,
-                'wedges': [],
+                'wedges': [], 'pedals': [],
                 'ending': [], 'multi': 0}
         mm = re.search(r'<multiple-rest>(\d+)</multiple-rest>', m)
         if mm:
@@ -799,13 +831,17 @@ def parse_part(xml, pid):
         if sv:
             state['staves'] = int(sv.group(1))
         for cnum, sign in re.findall(
-                r'<clef(?: number="(\d+)")?><sign>(\w+)</sign>', m):
+                r'<clef(?:\s+number="(\d+)")?[^>]*>\s*<sign>(\w+)</sign>',
+                m):
             state['clefs'][int(cnum or 1)] = (
                 'percussion' if sign == 'percussion' else sign)
             meas['show']['clef'] = dict(state['clefs'])
         pos = 0
         hi_pos = 0
         pend_grace = {}
+        last_voice = {}
+        ottava = state.setdefault('ottava', {})
+        ott_end = {}
         for el in re.finditer(r'<note[ >].*?</note>|<forward>.*?</forward>'
                               r'|<backup>.*?</backup>'
                               r'|<direction[ >].*?</direction>'
@@ -855,17 +891,41 @@ def parse_part(xml, pid):
                 w = re.search(r'<words[^>]*>([^<]+)</words>', t)
                 if w and 'print-object="no"' not in t:
                     meas['texts'].append((pos, w.group(1)))
+                pd = re.search(r'<pedal [^>]*type="(\w+)"', t)
+                if pd:
+                    meas['pedals'].append((pos, pd.group(1)))
+                osh = re.search(r'<octave-shift [^>]*/?>', t)
+                if osh:
+                    ok_ = re.search(r'type="(\w+)"', osh.group(0)).group(1)
+                    sz = re.search(r'size="(\d+)"', osh.group(0))
+                    sz = int(sz.group(1)) if sz else 8
+                    stv = re.search(r'<staff>(\d+)</staff>', t)
+                    stn = int(stv.group(1)) if stv else 1
+                    if ok_ == 'stop':
+                        # a stop sits at the last covered note's own
+                        # position (how Sibelius writes it): the note
+                        # starting here is still under the line
+                        if stn in ottava:
+                            ott_end[stn] = pos
+                    else:
+                        # type="down": printed lower than it sounds —
+                        # 8va; "up" is 8vb. 15 is two octaves.
+                        k = 2 if sz >= 15 else 1
+                        ottava[stn] = (k if ok_ == 'down' else -k,
+                                       ('15ma' if k == 2 else '8va')
+                                       if ok_ == 'down' else
+                                       ('15mb' if k == 2 else '8vb'))
                 wg = re.search(r'<wedge type="(\w+)"', t)
                 if wg:
                     meas['wedges'].append((pos, wg.group(1)))
-                dyn = re.search(r'<dynamics><(\w+)/></dynamics>', t)
+                dyn = re.search(r'<dynamics[^>]*>\s*<([a-z]+)\s*/>', t)
                 if dyn:
                     off = re.search(r'<offset>(-?\d+)</offset>', t)
                     meas['dyn'].append(
                         (pos + (int(off.group(1)) if off else 0),
                          dyn.group(1)))
-                met = re.search(r'<beat-unit>quarter</beat-unit>'
-                                r'(<beat-unit-dot/>)?'
+                met = re.search(r'<beat-unit>quarter</beat-unit>\s*'
+                                r'(<beat-unit-dot/>)?\s*'
                                 r'<per-minute>([\d.]+)</per-minute>', t)
                 if met:
                     meas['metronome'] = (bool(met.group(1)), met.group(2))
@@ -873,8 +933,24 @@ def parse_part(xml, pid):
             n = _parse_note(t)
             sv = re.search(r'<staff>(\d+)</staff>', t)
             n_staff = int(sv.group(1)) if sv else 1
+            if n_staff in ott_end and not n.chord \
+                    and pos > ott_end[n_staff]:
+                ottava.pop(n_staff, None)
+                ott_end.pop(n_staff)
+            if n_staff in ottava and not n.rest:
+                # under an 8va line the head sits an octave below its
+                # sounding pitch: fewer ledger lines, the line says why
+                n.octave -= ottava[n_staff][0]
+                n.ott = ottava[n_staff][1]
             vv = re.search(r'<voice>(\d+)</voice>', t)
             n_voice = int(vv.group(1)) if vv else 1
+            if n.chord and not vv:
+                # a chord member may leave its voice out: it belongs to
+                # the note before it (the Sibelius books do this; the
+                # upper notes of a voice-4 chord were being dropped)
+                n_voice = last_voice.get(n_staff, n_voice)
+            elif not n.grace:
+                last_voice[n_staff] = n_voice
             if n.grace:
                 # a grace takes no time: it waits for the note it
                 # leans on, in its own staff and voice; a grace chord
@@ -900,6 +976,9 @@ def parse_part(xml, pid):
             meas['events'].append((pos, [n], n_staff, n_voice))
             pos += n.dur
             hi_pos = max(hi_pos, pos)
+        for stn in list(ott_end):
+            ottava.pop(stn, None)
+        ott_end.clear()
         mark_accidentals(meas, state)
         meas['state'] = {'clefs': dict(state['clefs']),
                          'staves': state['staves'],
@@ -907,6 +986,17 @@ def parse_part(xml, pid):
                          'time': state['time'], 'div': state['div']}
         meas['len'] = hi_pos
         measures.append(meas)
+
+    # a slide or glissando that crosses the barline: its first note
+    # learns where it lands, so the line can head for that note
+    open_g = {}
+    for meas in measures:
+        for _pos, notes, staff, voice in meas['events']:
+            n = notes[0]
+            if n.gliss == 'stop' and (staff, voice) in open_g:
+                open_g.pop((staff, voice)).gliss_to = (n.step, n.octave)
+            if n.gliss == 'start':
+                open_g[(staff, voice)] = n
 
     # The groove economy every drum book uses: a bar identical to the
     # one before it prints as the one-bar repeat sign. Only plain bars
@@ -932,7 +1022,7 @@ def parse_part(xml, pid):
                                            for grp in n.graces
                                            for g in grp),
                             n.trill, n.trill_acc, n.trill_to, n.wavy,
-                            n.trem, n.trem2))
+                            n.trem, n.trem2, tuple(n.marks), n.arp))
             evs.append((pos, staff, voice, tuple(row)))
         return tuple(evs) if playing else None
 
@@ -1160,7 +1250,9 @@ def engrave(xml_path, pdf_path, look=None):
     """One of our documents -> a PDF, or (False, why). A single part
     gets the part treatment; several parts get the conductor score.
     `look` picks the text hand (jazz, handwritten, engraved, plain)."""
-    xml = open(xml_path, encoding='utf-8').read()
+    # `<chord />` and `<dot />`, as every Sibelius export writes them,
+    # must read exactly like our own compact form
+    xml = re.sub(r'\s+/>', '/>', open(xml_path, encoding='utf-8').read())
     pids = re.findall(r'<score-part id="([^"]+)">', xml)
     names = dict(re.findall(r'<score-part id="([^"]+)">.*?<part-name[^>]*>'
                             r'([^<]*)</part-name>', xml, re.S))
@@ -1695,10 +1787,37 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
                  'sfz': 'dynSFZ', 'fp': 'dynFP'}
     for pos, mark in meas['dyn']:
         g = DYN_GLYPH.get(mark)
-        if not (g and pdf.glyph(xat(pos), bottom_y - 2.6 * SP, g,
-                                4 * SP)):
-            pdf.text(xat(pos), bottom_y - 2.6 * SP, mark, size=11,
-                     font='TBI')
+        if g and pdf.glyph(xat(pos), bottom_y - 2.6 * SP, g, 4 * SP):
+            continue
+        # anything else — sf, fz, rf, ppp, sfp, fffff — letter by letter
+        # from the font's own dynamic alphabet
+        dx = xat(pos)
+        if all(pdf.music and pdf.music.gids.get('dyn_' + ch)
+               for ch in mark):
+            for ch in mark:
+                pdf.glyph(dx, bottom_y - 2.6 * SP, 'dyn_' + ch, 4 * SP)
+                dx += pdf.gw('dyn_' + ch, 4 * SP) * 0.92
+        else:
+            pdf.text(dx, bottom_y - 2.6 * SP, mark, size=11, font='TBI')
+
+    low = bottom_y
+    for _p, ns, st_, _v in meas['events']:
+        if st_ == len(tops):
+            for n in ns:
+                if not n.rest:
+                    low = min(low, tops[-1] - STAFF + step_pos(
+                        n.step, n.octave, state['clefs'].get(
+                            st_, 'G')) * SP / 2)
+    for pos, kind in meas.get('pedals', ()):
+        py = min(bottom_y - 5.4 * SP, low - 3.6 * SP)
+        px = xat(pos)
+        if kind in ('stop', 'change'):
+            if not pdf.glyph(px - 1.2 * SP, py, 'pedalUp', 4 * SP):
+                pdf.text(px - 1.2 * SP, py, '*', size=11, font='HB')
+            px += 1.8 * SP
+        if kind in ('start', 'change'):
+            if not pdf.glyph(px, py, 'pedalPed', 4 * SP):
+                pdf.text(px, py, 'Ped.', size=10, font='TBI')
 
     if wedge_run is not None:
         wy = bottom_y - 2.6 * SP + 3
@@ -1767,6 +1886,7 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
     mid = top - STAFF / 2
     pend_beam = []
     trem_open = []
+    gliss_open = []
     slur_open = opens if opens is not None else []
     drawn = []
     # notes that will beam together share one stem direction, decided
@@ -1882,17 +2002,51 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
         else:
             flush_beam(pdf, pend_beam)
             pend_beam = []
-        if n0.artic:
-            if n0.artic in ('strong-accent', 'accent'):
-                ay = max(top + 0.6 * SP, max(ys) + 1.8 * SP)
-            else:
+        marks = list(n0.marks) or ([n0.artic] if n0.artic else [])
+        for mk in marks:
+            if mk in BEND_MARKS:
                 ay = (min(ys) - 2.2 * SP) if up else (max(ys) + 1.6 * SP)
-            acx = cx
-            if n0.artic in ('scoop', 'plop') and any(
-                    getattr(n, 'show_acc', None) is not None
-                    for n in notes):
-                acx -= 1.9 * SP        # start left of the accidental
-            draw_artic(pdf, acx, ay, n0.artic)
+                acx = cx
+                if mk in ('scoop', 'plop') and any(
+                        getattr(n, 'show_acc', None) is not None
+                        for n in notes):
+                    acx -= 1.9 * SP    # start left of the accidental
+                draw_artic(pdf, acx, ay, mk)
+        # near the head, on the side away from the stem, stacking out;
+        # accents and string/brass/ornament signs above, outside them
+        near_hi = max(ys)
+        for k, mk in enumerate(m for m in marks if m in NEAR_MARKS):
+            if up:
+                draw_mark(pdf, cx, min(ys) - 2.2 * SP - k * 1.5 * SP, mk)
+            else:
+                near_hi = max(ys) + 1.6 * SP + k * 1.5 * SP
+                draw_mark(pdf, cx, near_hi, mk)
+        base = max(top + 0.6 * SP, max(ys) + 1.8 * SP,
+                   near_hi + 1.6 * SP if near_hi > max(ys) else -1e9)
+        for k, mk in enumerate(m for m in marks if m in ABOVE_MARKS):
+            draw_mark(pdf, cx, base + k * 1.9 * SP, mk)
+        for mk in (m for m in marks if m in AFTER_MARKS):
+            draw_mark(pdf, xat(pos + n0.dur) - 0.9 * SP
+                      if n0.dur else cx + 3 * SP, top + 0.9 * SP, mk)
+        if n0.arp and len(ys) > 1:
+            # a rolled chord: a wavy line up the chord's left side
+            ax0 = cx - 2.6 * SP - (1.7 * SP if any(
+                getattr(n, 'show_acc', None) is not None
+                for n in notes) else 0)
+            yy, k = min(ys) - 0.6 * SP, 0
+            while yy < max(ys) + 0.6 * SP:
+                pdf.line(ax0 + (0.35 * SP if k % 2 else -0.35 * SP), yy,
+                         ax0 + (-0.35 * SP if k % 2 else 0.35 * SP),
+                         yy + 0.6 * SP, w=0.9)
+                yy += 0.6 * SP
+                k += 1
+        if n0.gliss == 'start':
+            gliss_open[:] = [cx + 1.6 * SP, sum(ys) / len(ys),
+                             n0.gliss_to]
+        elif n0.gliss == 'stop' and gliss_open:
+            gx, gy, _to = gliss_open
+            gliss_open[:] = []
+            pdf.line(gx, gy, cx - 1.8 * SP, sum(ys) / len(ys), w=1.1)
         if getattr(n0, 'fermata', False):
             fy = max(top + 0.9 * SP, max(ys) + 2.4 * SP)
             if not pdf.glyph(cx - 1.2 * SP, fy, 'fermata', 4 * SP):
@@ -1978,6 +2132,36 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                      str(n0.tmod), size=8, font='HO', center=True)
             drawn.append(pos // beat_len)
     flush_beam(pdf, pend_beam)
+    ott = [(xat(pos), pos, notes[0].ott) for pos, notes in events
+           if not notes[0].rest and notes[0].ott]
+    if ott:
+        label = ott[0][2]
+        above = not label.endswith('b')
+        oy = (top + 3.4 * SP) if above else (top - STAFF - 4.2 * SP)
+        x1 = ott[0][0] - 1.2 * SP
+        pdf.text(x1, oy, label, size=9, font='TBI')
+        x2 = max(ott[-1][0] + 1.6 * SP, x1 + 4 * SP)
+        xx = x1 + 3.2 * SP
+        while xx < x2 - 0.4 * SP:
+            pdf.line(xx, oy + 0.7 * SP, min(xx + 0.7 * SP, x2),
+                     oy + 0.7 * SP, w=0.7)
+            xx += 1.4 * SP
+        last_pos = ott[-1][1]
+        if any(p_ > last_pos and not ns[0].rest and not ns[0].ott
+               for p_, ns in events):
+            pdf.line(x2, oy + 0.7 * SP, x2,
+                     oy + (0 if above else 1.4) * SP - (0.0), w=0.7)
+    if gliss_open and gliss_open[2]:
+        # it lands in the next bar: head for that note's height
+        gx, gy, (st, oc) = gliss_open
+        ty = top - STAFF + step_pos(st, oc, clef) * SP / 2
+        pdf.line(gx, gy, x0 + width - 0.6 * SP, gy + (ty - gy) * 0.8,
+                 w=1.1)
+    elif gliss_open:
+        # a slide with no landing (how Sibelius writes a slide off a
+        # note): a short line down and away
+        gx, gy, _to = gliss_open
+        pdf.line(gx, gy, gx + 3.0 * SP, gy - 1.6 * SP, w=1.1)
 
 
 def drain_ties(pdf, carry, edge):
@@ -2039,6 +2223,37 @@ def draw_artic(pdf, x, y, artic):
                  ((x - 2.8 * SP, y - d * 0.8 * SP),
                   (x - 2.2 * SP, y - d * 0.3 * SP),
                   (x - 1.4 * SP, y))], w=1.4)
+
+
+MARK_GLYPH = {'staccato': 'stacc', 'staccatissimo': 'staccatissimo',
+              'tenuto': 'tenuto', 'detached-legato': 'loure',
+              'spiccato': 'spiccato', 'accent': 'accent',
+              'strong-accent': 'marcato', 'up-bow': 'upBow',
+              'down-bow': 'downBow', 'open-string': 'openMark',
+              'stopped': 'stoppedMark', 'harmonic': 'harmonic',
+              'breath-mark': 'breath', 'caesura': 'caesura',
+              'mordent': 'mordent', 'inverted-mordent': 'shortTrill',
+              'turn': 'turn', 'inverted-turn': 'turnInverted'}
+MARK_WORD = {'staccatissimo': "'", 'detached-legato': '-.',
+             'spiccato': "'", 'up-bow': 'V', 'down-bow': 'П',
+             'open-string': 'o', 'stopped': '+', 'harmonic': 'o',
+             'breath-mark': ',', 'caesura': '//', 'mordent': 'mord.',
+             'inverted-mordent': 'mord.', 'turn': '~',
+             'inverted-turn': '~'}
+
+
+def draw_mark(pdf, x, y, mark):
+    """One of the small signs a note carries, from the music font —
+    the old four through draw_artic's hand-drawn net when the font is
+    missing, the rest as a plain character."""
+    name = MARK_GLYPH.get(mark)
+    if pdf.music and name and pdf.glyph(
+            x - pdf.gw(name, 4 * SP) / 2, y, name, 4 * SP):
+        return
+    if mark in ('staccato', 'accent', 'strong-accent', 'tenuto'):
+        draw_artic(pdf, x, y, mark)
+    else:
+        pdf.text(x - 2, y, MARK_WORD.get(mark, ''), size=9, font='HB')
 
 
 def draw_chord_symbol(pdf, x, y, sym):

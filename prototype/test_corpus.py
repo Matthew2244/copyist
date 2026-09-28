@@ -1468,6 +1468,95 @@ def check_trills_and_tremolos():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_sibelius_style_files():
+    """
+    Every file in his book is a Sibelius export: pretty-printed, tags
+    written `<chord />`, marks carrying attributes, dynamics on their
+    own line, chord members with no voice, pedal and 8va directions.
+    Each of those once went silently missing from the page or the
+    listen (2026-09-27 survey of his 52 files). Pinned here, read the
+    way both the engraver and the player read them.
+    """
+    import re
+    import chartaudio
+    import chartengrave
+    tmp = tempfile.mkdtemp()
+    xml = """<?xml version="1.0"?>
+<score-partwise><part-list><score-part id="P1"><part-name>Piano</part-name>
+</score-part></part-list><part id="P1">
+<measure number="1" width="300">
+ <attributes><divisions>256</divisions><key><fifths>0</fifths></key>
+  <time><beats>4</beats><beat-type>4</beat-type></time>
+  <clef number="1" color="#000000">
+   <sign>F</sign>
+   <line>4</line>
+  </clef></attributes>
+ <direction placement="below"><direction-type>
+  <dynamics default-x="1">
+   <sf />
+  </dynamics></direction-type></direction>
+ <direction><direction-type><pedal type="start" line="no" /></direction-type></direction>
+ <note color="#000000"><pitch><step>C</step><octave>3</octave></pitch>
+  <duration>256</duration><voice>4</voice><type>quarter</type>
+  <notations><tied type="start" orientation="under" />
+   <articulations><accent default-x="0" /><staccato default-y="5" /></articulations>
+   <arpeggiate /></notations>
+  <lyric number="1" default-y="-80"><syllabic>single</syllabic><text>Hey</text></lyric></note>
+ <note><chord /><pitch><step>E</step><octave>3</octave></pitch>
+  <duration>256</duration><type>quarter</type><notations><arpeggiate /></notations></note>
+ <note><chord /><pitch><step>G</step><octave>3</octave></pitch>
+  <duration>256</duration><type>quarter</type><notations><arpeggiate /></notations></note>
+ <note><pitch><step>C</step><octave>3</octave></pitch>
+  <duration>256</duration><voice>4</voice><type>quarter</type>
+  <notations><tied type="stop" orientation="under" /></notations></note>
+ <direction><direction-type><octave-shift type="down" size="8" number="1" /></direction-type></direction>
+ <note><pitch><step>C</step><octave>5</octave></pitch>
+  <duration>256</duration><voice>4</voice><type>quarter</type><dot /></note>
+ <direction><direction-type><octave-shift type="stop" size="8" number="1" /></direction-type></direction>
+ <note><pitch><step>D</step><octave>5</octave></pitch>
+  <duration>256</duration><voice>4</voice><type>quarter</type></note>
+</measure></part></score-partwise>"""
+    xp = os.path.join(tmp, "sib.musicxml")
+    open(xp, "w").write(xml)
+    body = open(xp).read()
+    ms, why = chartengrave.parse_part(body, "P1")
+    evs = ms[0]['events']
+    first = evs[0][1]
+    check("a chord member with no voice joins the note before it",
+          len(first) == 3 and first[0].arp, str([len(e[1]) for e in evs]))
+    check("marks with attributes all read, stacked",
+          first[0].marks == ['accent', 'staccato'], str(first[0].marks))
+    check("ties, dots and lyrics with attributes read",
+          first[0].tie_start and evs[1][1][0].tie_stop
+          and evs[2][1][0].dots == 1 and first[0].lyric
+          and first[0].lyric[1] == 'Hey')
+    check("the clef with a colour and line breaks reads as bass",
+          ms[0]['state']['clefs'][1] == 'F')
+    check("a pretty-printed dynamic reads", ms[0]['dyn'] == [(0, 'sf')],
+          str(ms[0]['dyn']))
+    check("under an 8va the head sits an octave down, and the stop "
+          "still covers the note at its own position",
+          evs[2][1][0].octave == 4 and evs[2][1][0].ott == '8va'
+          and evs[3][1][0].octave == 4 and evs[3][1][0].ott,
+          str([(e[1][0].octave, e[1][0].ott) for e in evs]))
+    check("pedal marks read", ms[0]['pedals'] == [(0, 'start')])
+    ok, why = chartengrave.engrave(xp, os.path.join(tmp, "s.pdf"))
+    check("and the whole Sibelius-style page engraves", ok, str(why))
+    plan = chartaudio.parse_score(xp)
+    ev = plan['parts'][0]['events']
+    check("the player hears the chord together, not in a row",
+          sorted(round(e[0], 2) for e in ev[:3]) == [0.0, 0.0, 0.0],
+          str([(round(e[0], 2), e[2]) for e in ev]))
+    check("an sf with no playback value lands as an accent",
+          ev[0][4].get('acc'))
+    check("marks with attributes perform",
+          ev[0][4].get('stac'))
+    check("the sustain pedal holds what it catches",
+          all(e[4].get('ped') and abs(e[0] + e[1] - 4.0) < 1e-6
+              for e in ev[:-1]), str([(e[0], e[1]) for e in ev]))
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_detail_and_look():
     """
     DESIGN.md 11's last two levels through the chart door — `simplified`
@@ -2474,6 +2563,7 @@ if __name__ == "__main__":
     check_directive_family()
     check_build_entrance()
     check_trills_and_tremolos()
+    check_sibelius_style_files()
     check_detail_and_look()
     check_user_chair()
     check_engraver()

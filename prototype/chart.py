@@ -34,7 +34,7 @@ def verify_measures(files):
     for f in files:
         if not f.endswith('.musicxml'):
             continue
-        xml = open(f, encoding='utf-8').read()
+        xml = re.sub(r'\s+/>', '/>', open(f, encoding='utf-8').read())
         for pid, body in re.findall(r'<part id="([^"]+)">(.*?)</part>',
                                     xml, re.S):
             div = 24

@@ -42,6 +42,24 @@ _ART_MARKS = [('<staccato/>', 'stac'), ('<tenuto/>', 'ten'),
               ('<glissando type="start"', 'gliss'),
               ('<slide type="start"', 'port')]
 
+def _mark_rx(pat):
+    """'<staccato/>' -> the tag with any attributes an engraving hangs
+    on it (<staccato default-x="0"/>); '<slide type="start"' -> that
+    attribute anywhere inside the tag."""
+    name = re.match(r'<([a-z-]+)', pat).group(1)
+    attr = re.search(r'\s(\w[\w-]*="[^"]*")', pat)
+    if attr:
+        return re.compile('<' + name + r'\s[^>]*' + re.escape(attr.group(1)))
+    return re.compile('<' + name + r'[\s/>]')
+
+
+_ART_RX = [(_mark_rx(p), f) for p, f in _ART_MARKS]
+
+# the rest of the books' small marks, as the player reads them
+_MORE_MARKS = [('staccatissimo', ('stac',)), ('spiccato', ('stac',)),
+               ('detached-legato', ('ten', 'stac')),
+               ('breath-mark', ()), ('caesura', ())]
+
 # the drum map read backwards: staff position and notehead -> GM number.
 # Our own charts write instruments.DRUM_MAP positions; a lifted engraving
 # passes its source's positions through verbatim, so exact match falls
@@ -147,6 +165,14 @@ def _expand_repeats(ms):
 
 
 
+# a dynamic mark's level when the document gives no playback value
+_LEVEL = {'pppp': 12, 'ppp': 23, 'pp': 40, 'p': 54, 'mp': 71, 'mf': 89,
+          'f': 106, 'ff': 123, 'fff': 127, 'ffff': 127, 'fffff': 127,
+          'ffffff': 127, 'fp': 54, 'sfp': 54, 'sfpp': 40, 'pf': 106,
+          'n': 5}
+_HIT_MARKS = {'sf', 'sfz', 'sffz', 'fz', 'rf', 'rfz', 'sfp', 'sfpp',
+              'fp', 'sfzp'}
+
 _NAT = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
 _ACC_MARK = {'sharp': 1, 'flat': -1, 'natural': 0, 'double-sharp': 2,
              'sharp-sharp': 2, 'flat-flat': -2}
@@ -211,7 +237,9 @@ def parse_score(path, only=None):
     parts: [{name, program, percussion, events: [(q_on, q_dur, midi,
     gain)]}] with q in quarter notes from the top; tempos: [(q, qbpm)];
     swings: [(q, ratio_or_None)]."""
-    xml = open(path, encoding='utf-8').read()
+    # an engraving's pretty-printing (`<chord />`, as every Sibelius
+    # export writes it) must read exactly like our own compact form
+    xml = re.sub(r'\s+/>', '/>', open(path, encoding='utf-8').read())
     meta = {}
     for sp in re.findall(r'<score-part id="([^"]+)">(.*?)</score-part>',
                          xml, re.S):
@@ -245,6 +273,8 @@ def parse_score(path, only=None):
         wedge_open = None
         slur_depth = 0
         pend_grace = {}                 # voice -> grace <note> texts
+        pend_hit = False                # a sforzando waits for its note
+        pedals = []                     # (q, 'start'|'stop'|'change')
         pend_trem = {}                  # voice -> event index of a
                                         # two-note tremolo's first note
         fifths = 0
@@ -273,6 +303,7 @@ def parse_score(path, only=None):
             pos = 0
             top = 0                     # a pickup is only as long as itself
             last_on = {}                # voice -> onset ticks, for <chord/>
+            last_voice = '1'
             for el in re.finditer(
                     r'<note[ >].*?</note>|<backup>.*?</backup>'
                     r'|<forward>.*?</forward>|<direction[ >].*?</direction>',
@@ -291,9 +322,24 @@ def parse_score(path, only=None):
                     if sd:
                         tempos[q0 + pos / div] = float(sd.group(1))
                     sd = re.search(r'<sound dynamics="([\d.]+)"', t)
+                    mk = re.search(r'<dynamics[^>]*>\s*<([a-z-]+)', t)
                     if sd:
                         dyn_state = float(sd.group(1))
                         dyns.append((q0 + pos / div, dyn_state))
+                    elif mk:
+                        # an engraving's mark with no playback value (the
+                        # Sibelius books never carry one): read the mark
+                        # the way a player does. A sforzando is one hit,
+                        # not a new level; fp and sfp hit, then drop.
+                        word = mk.group(1)
+                        if word in _HIT_MARKS:
+                            pend_hit = True
+                        if word in _LEVEL:
+                            dyn_state = float(_LEVEL[word])
+                            dyns.append((q0 + pos / div, dyn_state))
+                    pd = re.search(r'<pedal [^>]*type="(\w+)"', t)
+                    if pd:
+                        pedals.append((q0 + pos / div, pd.group(1)))
                     wd = re.search(r'<wedge [^>]*type="(\w+)"', t)
                     if wd:
                         if wd.group(1) in ('crescendo', 'diminuendo'):
@@ -338,8 +384,16 @@ def parse_score(path, only=None):
                     continue
                 dur = int(d.group(1))
                 voice = re.search(r'<voice>(\d+)</voice>', t)
-                voice = voice.group(1) if voice else '1'
-                chorded = '<chord/>' in t
+                chorded = bool(re.search(r'<chord\s*/>', t))
+                if voice:
+                    voice = voice.group(1)
+                elif chorded:
+                    voice = last_voice      # a chord member's voice is
+                                            # the note it stacks on
+                else:
+                    voice = '1'
+                if not chorded:
+                    last_voice = voice
                 on = last_on.get(voice, pos) if chorded else pos
                 if not chorded:
                     last_on[voice] = pos
@@ -348,7 +402,7 @@ def parse_score(path, only=None):
                 graces = ([] if chorded else
                           pend_grace.pop(voice, []))
                 if '<rest' in t or '<cue/>' in t \
-                        or '<notehead>slash</notehead>' in t:
+                        or re.search(r'<notehead[^>]*>slash<', t):
                     # cues and slashes print; they never sound — but a
                     # fermata over a REST still holds time (the
                     # phrase-end hold on an empty bar)
@@ -362,9 +416,16 @@ def parse_score(path, only=None):
                 if gain <= 0:
                     continue            # a slash is an instruction
                 art = {}
-                for pat, flag in _ART_MARKS:
-                    if pat in t:
+                for rx, flag in _ART_RX:
+                    if rx.search(t):
                         art[flag] = True
+                for tag, flags in _MORE_MARKS:
+                    if re.search('<' + tag + r'[\s/>]', t):
+                        for fl in flags:
+                            art[fl] = True
+                if pend_hit:
+                    art['acc'] = True
+                    pend_hit = False
                 if 'trill' in art:
                     art['trill_step'] = trill_step(t, fifths)
                 ts1 = re.search(r'<tremolo type="single">(\d)', t)
@@ -431,6 +492,26 @@ def parse_score(path, only=None):
                     nxt = events[k2]
                     if nxt[0] > ev[0] + 1e-9 and nxt[2] is not None:
                         ev[4]['slide_to'] = nxt[2] - ev[2]
+                        break
+        if pedals:
+            # the sustain pedal holds what is struck while it is down;
+            # a fresh Ped. with no release (how many engravings write it)
+            # is a change: up and straight back down
+            downs, open_q = [], None
+            for q, kind in sorted(pedals):
+                if open_q is not None:
+                    downs.append((open_q, q))
+                    open_q = None
+                if kind in ('start', 'change'):
+                    open_q = q
+            if open_q is not None:
+                downs.append((open_q, q0))
+            for i, ev in enumerate(events):
+                for d0, d1 in downs:
+                    if d0 - 1e-6 <= ev[0] < d1:
+                        if d1 - ev[0] > ev[1]:
+                            events[i] = (ev[0], d1 - ev[0], ev[2], ev[3],
+                                         {**ev[4], 'ped': True})
                         break
         parts.append({'name': m['name'], 'program': m['program'],
                       'percussion': m['percussion'],

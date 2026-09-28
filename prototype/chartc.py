@@ -1050,7 +1050,9 @@ parse_chart.defs_ref = {}
 # --------------------------------------------------------- source score
 
 def load_source(path):
-    xml = open(path, encoding='utf-8').read()
+    # a Sibelius export writes `<chord />`; lifted bars must carry the
+    # compact form every reader downstream expects
+    xml = re.sub(r'\s+/>', '/>', open(path, encoding='utf-8').read())
     order = re.findall(r'<score-part id="([^"]+)">', xml)
     names = dict(re.findall(
         r'<score-part id="([^"]+)">.*?<part-name[^>]*>([^<]*)</part-name>',
