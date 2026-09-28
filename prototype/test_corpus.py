@@ -1633,6 +1633,16 @@ def check_score_import():
           and "arranger: Somebody" in text, text[:300])
     check("a short first bar is a pickup, whatever its number",
           "pickup 1 beats, as engraved" in text, text)
+    import re as _re
+    h = ('<harmony><root><root-step>A</root-step><root-alter>-1'
+         '</root-alter></root><kind text="13">dominant-13th</kind>'
+         '<degree><degree-value>9</degree-value><degree-alter>-1'
+         '</degree-alter><degree-type>alter</degree-type></degree>'
+         '</harmony>')
+    check("a chord's text keeps the alterations stored beside it "
+          "(Ab13 with a flat nine is Ab13b9)",
+          chartimport.harmony_symbol(h, []) == 'Ab13b9',
+          chartimport.harmony_symbol(h, []))
     check("the chord text wins, and beats land where the score put them",
           "Bbm7b5 E7#9@3" in text, text)
     check("sections cut at the marks and split where numbering jumps",
@@ -1729,6 +1739,20 @@ def check_text_import():
     check("text: lead-sheet chords come in as written, not simplified",
           all(c in late for c in ("Eb9#11", "G7b9b13", "Cm13", "F13#9"))
           and "D9sus4" in open(made["Porch Song.cho"]).read(), late)
+    # a real iReal quirk: the first title can open with an apostrophe
+    # ('S Wonderful) — that once cut a 233-tune link down to nothing
+    from urllib.parse import quote as _q
+    link = "irealb://" + _q(
+        "'S Wonderful=Gershwin George==Medium Swing=Eb=="
+        + textformats.IREAL_PREFIX + textformats.ireal_scramble(
+            "{*AT44Eb^7XyQ|C-7XyQ|F-7XyQ|Bb7 Z") + "==Jazz=120=3",
+        safe='')
+    if link:
+        songs = textformats.parse_all("see " + link + "' for more")
+        check("text: an iReal link survives an apostrophe title",
+              len(songs) == 1 and songs[0]['title'].startswith("'S")
+              and sum(len(x['bars']) for x in songs[0]['sections']) == 4,
+              str([s_['title'] for s_ in songs]))
     check("text: ABC brings its melody as a figure",
           "figure melody" in open(made["Reel.abc"]).read())
     chart, find = chartimport.import_file(os.path.join(tmp, "words.txt"),

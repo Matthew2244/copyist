@@ -170,11 +170,6 @@ def harmony_symbol(t, simplified):
     if kind == 'none':
         return 'nc'
     text = re.search(r'text="([^"]*)"', km.group(1)) if km else None
-    tries = []
-    if text and text.group(1).strip():
-        tries.append(text.group(1).strip().replace('Δ', 'maj')
-                     .replace('ø', 'm7b5').replace('°', 'dim')
-                     .replace('−', 'm'))
     q = KIND.get(kind, '')
     alts = ''
     for dv, da, dt in re.findall(
@@ -187,15 +182,30 @@ def harmony_symbol(t, simplified):
             q = {'': 'add9', '6': '69', 'm': 'madd9', 'm6': 'm69'}[q]
         elif dt == 'add' and dv == '4' and q == '7':
             q = '7sus4'
-    tries.append(q + alts)
+    text_q = ''
+    if text and text.group(1).strip():
+        text_q = (text.group(1).strip().replace('Δ', 'maj')
+                  .replace('ø', 'm7b5').replace('°', 'dim')
+                  .replace('−', 'm'))
+    # the engraver's text first, but WITH the degrees it stores apart:
+    # a text of "13" and a flat nine as a degree is Ab13b9, not Ab13
+    # (checked against a reference Bolivia: every alteration was being
+    # dropped that way)
+    tries = []
+    if alts:
+        tries += [text_q + alts] if text_q else []
+        tries.append(q + alts)
+    tries += [text_q] if text_q else []
     tries.append(q)
     for i, qual in enumerate(tries):
         for with_bass in (True, False):
             sym = root + qual + (bass if with_bass else '')
             if chord_ok(sym):
-                if i == len(tries) - 1 and len(tries) > 1 and \
-                        (tries[0] != qual):
-                    simplified.append(root + (tries[0] or q) + bass)
+                lost = (alts and not qual.endswith(alts)) or (
+                    i == len(tries) - 1 and len(tries) > 1
+                    and tries[0] != qual)
+                if lost or not with_bass and bass:
+                    simplified.append(root + tries[0] + bass)
                 return sym
     simplified.append(root + (tries[0] if tries else '') + bass)
     return root + ('m' if q.startswith('m') and not q.startswith('maj')

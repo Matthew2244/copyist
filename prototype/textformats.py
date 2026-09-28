@@ -90,7 +90,9 @@ HOW = {
 OFFICE = ('.rtf', '.rtfd', '.doc', '.docx', '.odt', '.html', '.htm',
           '.webarchive')
 
-IREAL_LINK = re.compile(r'irealb(?:ook)?://[^\s"\'<>]+')
+# an apostrophe can open the first title ('S Wonderful), so it may sit
+# inside a link; only a trailing one (a single-quoted href) is trimmed
+IREAL_LINK = re.compile(r'irealb(?:ook)?://[^\s"<>]+')
 
 
 def read_text(path):
@@ -246,7 +248,7 @@ def _ireal_links_in(path, ext):
     except Exception:
         return []
     text = html.unescape(raw.decode('utf-8', 'replace'))
-    return IREAL_LINK.findall(text)
+    return [l.rstrip("')") for l in IREAL_LINK.findall(text)]
 
 
 # ---- Word .docx, plain Python
@@ -1567,6 +1569,7 @@ def ireal_links(text):
     (scheme, song string)."""
     songs = []
     for link in IREAL_LINK.findall(html.unescape(text)):
+        link = link.rstrip("')")
         scheme, _, body = link.partition('://')
         body = unquote(body)
         for part in body.split('==='):
@@ -2666,7 +2669,8 @@ CHORD_TABLE = [
     ('C9sus4', 'C9sus4'), ('C7b9b13', 'C7b9b13'), ('Cm13', 'Cm13'),
     ('C5', 'C5'), ('C^9#11', 'Cmaj9#11'), ('C9#11', 'C9#11'),
     ('C13#9', 'C13#9'), ('Cmaj13', 'Cmaj13'), ('C-13', 'Cm13'),
-    ('Ch9', 'Cm7b5'), ('C-b6', 'Cm'),
+    ('Ch9', 'Cm9b5'), ('C-b6', 'Cmb6'), ('C7#9#5', 'C7#9#5'),
+    ('C^7#5', 'Cmaj7#5'), ('C7b9sus', 'C7b9sus4'), ('C-^9', 'Cmmaj9'),
 ]
 
 

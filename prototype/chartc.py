@@ -447,6 +447,21 @@ CHORD_KINDS = {
     'maj9#11': ('major-ninth', 'maj9#11', [(11, 1, 'add')]),
     'm7b9': ('minor-seventh', 'm7b9', [(9, -1, 'add')]),
     '5': ('power', '5'),
+    # what 1,460 real iReal jazz charts still needed (2026-09-27 tally):
+    # the altered dominants first, then the rest of the tail
+    '7#9#5': ('augmented-seventh', '7#9#5', [(9, 1, 'add')]),
+    '7b9#5': ('augmented-seventh', '7b9#5', [(9, -1, 'add')]),
+    'maj7#5': ('major-seventh', 'maj7#5', [(5, 1, 'alter')]),
+    'mb6': ('minor', 'mb6', [(6, -1, 'add')]),
+    '7b9sus4': ('suspended-fourth', '7b9sus4', [(7, -1, 'add'),
+                                                (9, -1, 'add')]),
+    '7b9b5': ('dominant', '7b9b5', [(5, -1, 'alter'), (9, -1, 'add')]),
+    '9#5': ('augmented-ninth', '9#5'),
+    '7#9b5': ('dominant', '7#9b5', [(5, -1, 'alter'), (9, 1, 'add')]),
+    'm#5': ('minor', 'm#5', [(5, 1, 'alter')]),
+    'm9b5': ('half-diminished', 'm9b5', [(9, 0, 'add')]),
+    '9b5': ('dominant-ninth', '9b5', [(5, -1, 'alter')]),
+    'mmaj9': ('major-minor', 'mmaj9', [(9, 0, 'add')]),
 }
 
 # jazz shorthand for qualities: the dash minor, min and mi spellings
@@ -456,6 +471,9 @@ QUAL_SYNONYMS = {'-': 'm', '-7': 'm7', '-9': 'm9', '-11': 'm11',
                  'mi': 'm', 'mi7': 'm7', 'mi9': 'm9', 'mi11': 'm11',
                  'mi6': 'm6', 'sus': 'sus4', '7sus': '7sus4',
                  '9sus': '9sus4', 'min13': 'm13', 'mi13': 'm13',
+                 '7b9sus': '7b9sus4', 'm(b6)': 'mb6', 'm(maj9)': 'mmaj9',
+                 'maj7+5': 'maj7#5', 'maj7(#5)': 'maj7#5', 'aug9': '9#5',
+                 '7alt#5': '7#9#5',
                  '-13': 'm13', 'ma13': 'maj13', 'ma9': 'maj9',
                  'ma7': 'maj7',
                  'M7': 'maj7', 'm(maj7)': 'mmaj7', 'aug7': '7#5',
