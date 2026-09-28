@@ -13,6 +13,7 @@
 // when present so development stays live. Build: app/build.sh.
 
 import SwiftUI
+import PDFKit
 import AppKit
 import UniformTypeIdentifiers
 
@@ -182,6 +183,7 @@ final class AppModel: ObservableObject {
     /// which tab the current run's transcript belongs on
     @Published var runTab: Tab = .build
     @Published var parts: [String] = []
+    @Published var showExport = false
     @AppStorage("speakSteps") var speakSteps: Bool = true
     @AppStorage("speakTabs") var speakTabs: Bool = true
     private var lastSpokenStep = ""
@@ -872,6 +874,9 @@ struct DeskCommands: Commands {
             }
             .keyboardShortcut("d", modifiers: .command)
             .disabled(model?.chart == nil)
+            Button("Export…") { model?.showExport = true }
+                .keyboardShortcut("e", modifiers: .command)
+                .disabled(model?.chart == nil)
             Button("Braille") { model?.run("Braille", args: ["braille"]) }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
                 .disabled(model?.chart == nil)
@@ -1338,6 +1343,14 @@ struct BuildTab: View {
                              enabled: model.chart != nil) {
                     model.run("What changed", args: ["diff"])
                 }
+                ActionButton(icon: "square.and.arrow.up",
+                             title: "Export…",
+                             line: "Choose the bars, the parts, the look "
+                                 + "and what to make.",
+                             keys: "⌘E", pal: pal,
+                             enabled: model.chart != nil) {
+                    model.showExport = true
+                }
                 ActionButton(icon: "hand.point.up.braille",
                              title: "Braille",
                              line: "Just the braille: a file for each "
@@ -1353,6 +1366,253 @@ struct BuildTab: View {
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 20)
+        .sheet(isPresented: $model.showExport) {
+            ExportSheet(pal: pal).environmentObject(model)
+        }
+    }
+}
+
+/// The export picker: which bars, which parts, what to make, and how
+/// the pages look — with a real sample page to choose the look by.
+struct ExportSheet: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.dismiss) var dismiss
+    let pal: Palette
+    @State private var whole = true
+    @State private var fromBar = ""
+    @State private var toBar = ""
+    @State private var score = true
+    @State private var chosen: Set<String> = []
+    @State private var makes: Set<String> = []
+    @State private var look = ""
+    @State private var sample: URL?
+    @State private var sampling = false
+    @State private var note = ""
+
+    let formats = [("pages", "Pages — the PDF charts"),
+                   ("listen", "Listen — the MP3"),
+                   ("braille", "Braille — a file for each part"),
+                   ("braille pages", "Braille pages — the dots drawn"),
+                   ("read-alouds", "Read-alouds — each part as text")]
+    let looks = [("", "The chart's own"), ("jazz", "Jazz"),
+                 ("handwritten", "Handwritten"), ("engraved", "Engraved"),
+                 ("plain", "Plain")]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Export")
+                    .font(.system(size: 22, weight: .bold, design: .serif))
+                    .accessibilityAddTraits(.isHeader)
+                box("Bars") {
+                    Toggle("The whole song", isOn: $whole)
+                    if !whole {
+                        HStack {
+                            TextField("From bar", text: $fromBar)
+                                .frame(width: 90)
+                                .accessibilityLabel("From bar, now "
+                                    + (fromBar.isEmpty ? "empty" : fromBar))
+                            TextField("To bar", text: $toBar)
+                                .frame(width: 90)
+                                .accessibilityLabel("To bar, now "
+                                    + (toBar.isEmpty ? "empty" : toBar))
+                            Text("as printed on the pages")
+                                .font(.system(size: 11))
+                                .foregroundStyle(pal.sub)
+                        }
+                        .textFieldStyle(.roundedBorder)
+                    }
+                }
+                box("Parts") {
+                    Toggle("The score", isOn: $score)
+                    HStack {
+                        Button("Every part") { chosen = Set(model.parts) }
+                        Button("No parts") { chosen = [] }
+                    }
+                    ForEach(model.parts, id: \.self) { p in
+                        Toggle(p, isOn: Binding(
+                            get: { chosen.contains(p) },
+                            set: { on in
+                                if on { chosen.insert(p) }
+                                else { chosen.remove(p) } }))
+                    }
+                }
+                box("What to make") {
+                    ForEach(formats, id: \.0) { key, label in
+                        Toggle(label, isOn: Binding(
+                            get: { makes.contains(key) },
+                            set: { on in
+                                if on { makes.insert(key) }
+                                else { makes.remove(key) } }))
+                    }
+                }
+                box("How the pages look") {
+                    Picker("Look", selection: $look) {
+                        ForEach(looks, id: \.0) { key, label in
+                            Text(label).tag(key)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: look) { _ in sample = nil }
+                    HStack {
+                        Button(sampling ? "Drawing a sample…"
+                                        : "Show a sample page") {
+                            drawSample()
+                        }
+                        .disabled(sampling)
+                        Text("The first bars of the first thing picked, "
+                             + "in this look.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(pal.sub)
+                    }
+                    if let u = sample {
+                        PDFPreview(url: u)
+                            .frame(height: 420)
+                            .accessibilityLabel("Sample page in the "
+                                + (looks.first { $0.0 == look }?.1
+                                   ?? "chart's own") + " look")
+                        Button("Open the sample in Preview") {
+                            NSWorkspace.shared.open(u)
+                        }
+                    }
+                }
+                if !note.isEmpty {
+                    Text(note).foregroundStyle(pal.sub)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
+                HStack {
+                    Spacer()
+                    Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Export") { export() }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                        .tint(pal.accent)
+                }
+            }
+            .padding(24)
+        }
+        .frame(minWidth: 560, minHeight: 620)
+        .onAppear {
+            chosen = Set(model.parts)
+            let cfgURL = URL(fileURLWithPath: NSHomeDirectory()
+                + "/.config/copyist/config.json")
+            var ex = "pages, listen, braille, read-alouds"
+            if let d = try? Data(contentsOf: cfgURL),
+               let j = try? JSONSerialization.jsonObject(with: d)
+                    as? [String: Any], let e = j["exports"] as? String {
+                ex = e
+            }
+            makes = Set(ex.split(separator: ",").map {
+                $0.trimmingCharacters(in: .whitespaces) })
+        }
+    }
+
+    @ViewBuilder
+    func box(_ title: String,
+             @ViewBuilder _ content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(pal.sub)
+                .accessibilityAddTraits(.isHeader)
+            content()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10).fill(pal.card))
+    }
+
+    /// The picker as engine words.
+    func pick() -> [String] {
+        var a: [String] = []
+        if !whole {
+            let f = fromBar.trimmingCharacters(in: .whitespaces)
+            let t = toBar.trimmingCharacters(in: .whitespaces)
+            a += ["--bars", t.isEmpty ? f : "\(f)-\(t)"]
+        }
+        if !(score && chosen.count == model.parts.count) {
+            var who = Array(chosen).sorted {
+                (model.parts.firstIndex(of: $0) ?? 0)
+                    < (model.parts.firstIndex(of: $1) ?? 0) }
+            if score { who.insert("score", at: 0) }
+            if !score && chosen.count == model.parts.count {
+                who = ["parts"]
+            }
+            a += ["--parts", who.joined(separator: ", ")]
+        }
+        if !look.isEmpty { a += ["--look", look] }
+        return a
+    }
+
+    func export() {
+        if !score && chosen.isEmpty {
+            note = "Pick the score or at least one part."
+            announce(note)
+            return
+        }
+        if makes.isEmpty {
+            note = "Pick at least one thing to make."
+            announce(note)
+            return
+        }
+        let order = formats.map { $0.0 }.filter { makes.contains($0) }
+        dismiss()
+        model.run("Export", args: ["build", "--exports",
+                                   order.joined(separator: ", ")] + pick())
+    }
+
+    func drawSample() {
+        guard let tool = Tool.find(), let c = model.chart else { return }
+        sampling = true
+        note = "Drawing a sample page…"
+        let args = [tool.script, c, "preview"] + pick()
+        DispatchQueue.global().async {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: tool.python)
+            p.arguments = args
+            let pipe = Pipe()
+            p.standardOutput = pipe
+            p.standardError = pipe
+            try? p.run()
+            p.waitUntilExit()
+            let out = String(decoding: pipe.fileHandleForReading
+                .readDataToEndOfFile(), as: UTF8.self)
+            let line = out.split(separator: "\n").last {
+                $0.contains("Sample page in the") } ?? ""
+            let path = line.components(separatedBy: " look: ").last ?? ""
+            DispatchQueue.main.async {
+                sampling = false
+                if !path.isEmpty, FileManager.default.fileExists(
+                    atPath: String(path)) {
+                    sample = URL(fileURLWithPath: String(path))
+                    note = "Sample page drawn."
+                } else {
+                    note = out.split(separator: "\n").last
+                        .map(String.init) ?? "No sample page."
+                }
+                announce(note)
+            }
+        }
+    }
+}
+
+/// A PDF page shown in place.
+struct PDFPreview: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> PDFView {
+        let v = PDFView()
+        v.autoScales = true
+        v.displayMode = .singlePage
+        v.document = PDFDocument(url: url)
+        return v
+    }
+
+    func updateNSView(_ v: PDFView, context: Context) {
+        if v.document?.documentURL != url {
+            v.document = PDFDocument(url: url)
+        }
     }
 }
 

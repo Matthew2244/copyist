@@ -7,7 +7,8 @@ the Mac, in a window with five tabs, the Mac app's five: **Chart**,
 tab strip, so NVDA and JAWS say the tab and its place ("Build tab, 2
 of 5"); **Ctrl+Tab** steps through them as in any Windows tab control.
 The work has keys too: **Ctrl+B** builds, **Ctrl+Shift+B** makes just
-the braille, **Ctrl+K** checks, **Ctrl+D**
+the braille, **Ctrl+E** exports a choice of bars, parts, formats and
+look, **Ctrl+K** checks, **Ctrl+D**
 says what changed, **Ctrl+L** listens, **Ctrl+R** reads a part aloud,
 **Ctrl+O** opens a chart, **F5** asks how a build is going and **F1**
 lists the keys. Every button says its key after its name. The line at

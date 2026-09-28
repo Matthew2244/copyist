@@ -3686,6 +3686,59 @@ def check_braille():
                   f"{errs[:2]} {[(i, a, b) for i, (a, b) in enumerate(zip(want, got)) if a != b][:3]} {len(want)} vs {len(got)}")
 
 
+def check_export_picker():
+    """Bars from any bar to any bar, parts by name, score or not."""
+    import chart
+    import chartexcerpt as ex
+    import chartengrave as ce
+    import chartbraille as cb
+    check("bars: '9-24' reads as a range", ex.bar_range('9-24') == (9, 24))
+    check("bars: 'from 9 to 24' too", ex.bar_range('from 9 to 24')
+          == (9, 24))
+    check("bars: all is the whole song", ex.bar_range('all') is None)
+    bad = False
+    try:
+        ex.bar_range('24-9')
+    except ValueError:
+        bad = True
+    check("bars: a backwards range refuses", bad)
+    bars = [['r w'], ['r w'], ['r w'], ['r w'], ['C5 w'], ['D5 w'],
+            ['E5 w'], ['F5 w', '|]']]
+    xml = _mx(bars, fifths=-2, time=(3, 4))
+    xml = xml.replace('<measure number="1">', '<measure number="1">'
+                      '<attributes><measure-style><multiple-rest>4'
+                      '</multiple-rest></measure-style></attributes>', 1)
+    cut = ex.excerpt(xml, 3, 6)
+    ms, _ = ce.parse_part(cut, 'P1')
+    check("excerpt keeps just the bars asked for, numbered as printed",
+          [m['num'] for m in ms] == ['3', '4', '5', '6'],
+          [m['num'] for m in ms])
+    check("excerpt carries the key and time into its first bar",
+          ms[0]['state']['fifths'] == -2 and ms[0]['state']['time'] == (3, 4),
+          ms[0]['state'])
+    check("excerpt shortens a multirest it cuts to what it keeps",
+          ms[0]['multi'] == 2, ms[0]['multi'])
+    brf, _ = cb.part_to_brf(cut, 'P1', 'T', 'Test part')
+    check("an excerpt brailles and reads back", not cb.proofread(
+        cut, 'P1', brf))
+    labels = ['alto 1', 'trumpet 1', 'trumpet 2', 'piano']
+    check("parts: names pick parts, score picks the score",
+          chart.select_parts('trumpet 1, score', labels)
+          == {'score': True, 'labels': ['trumpet 1']})
+    check("parts: a unique piece of a name is enough",
+          chart.select_parts('piano', labels)['labels'] == ['piano'])
+    check("parts: 'parts' is every part and no score",
+          chart.select_parts('parts', labels)
+          == {'score': False, 'labels': None})
+    bad = False
+    try:
+        with redirect_stdout(io.StringIO()):
+            chart.select_parts('trumpet', labels)
+    except SystemExit:
+        bad = True
+    check("parts: an ambiguous name refuses and lists the band", bad)
+
+
 def check_drum_kit():
     """
     Kit notation from a played demo: hits keep their chords, spacing
@@ -4354,6 +4407,7 @@ if __name__ == "__main__":
     check_roadmap()
     check_drum_kit()
     check_braille()
+    check_export_picker()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

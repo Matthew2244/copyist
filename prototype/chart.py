@@ -23,6 +23,7 @@ import sys
 import chartaudio
 import chartc
 import chartengrave
+import chartexcerpt
 import chartdemo
 import chartread
 
@@ -242,7 +243,7 @@ def make_braille(sources, title, where, ex):
     made, notyet, doubts = [], [], []
     for src in sources:
         base = os.path.basename(src)[:-len('.musicxml')]
-        if base.endswith('— score'):
+        if is_score(src):
             continue
         xml = open(src, encoding='utf-8').read()
         for pid, pname in chartbraille.document_parts(xml)[:1]:
@@ -283,6 +284,125 @@ def make_braille(sources, title, where, ex):
         say("No braille yet for " + "; ".join(
             (", ".join(n[:-1]) + " and " + n[-1] if len(n) > 1 else n[0])
             + f" — {why}" for why, n in by.items()) + ".")
+
+
+def select_parts(text, labels):
+    """--parts: 'trumpet, alto', 'score', 'score and parts', 'all' ->
+    {'score': bool, 'labels': [chosen labels] or None for every part}.
+    A name matches its label exactly or as the one label containing it."""
+    t = (text or '').strip().lower()
+    if t in ('', 'all', 'everything', 'score and parts',
+             'score and all parts', 'score, parts', 'score + parts'):
+        return {'score': True, 'labels': None}
+    if t in ('parts', 'all parts', 'just the parts'):
+        return {'score': False, 'labels': None}
+    want = {'score': False, 'labels': []}
+    for w in re.split(r'\s*(?:,|\+|\band\b)\s*', t):
+        w = w.strip()
+        if not w:
+            continue
+        if w in ('score', 'the score', 'full score', 'conductor score'):
+            want['score'] = True
+            continue
+        exact = [l for l in labels if l.lower() == w]
+        hits = exact or [l for l in labels if w in l.lower()]
+        if len(hits) != 1:
+            sys.exit(f"chart: '{w}' is not one part — the band is "
+                     + ", ".join(labels) + ", or score.")
+        if hits[0] not in want['labels']:
+            want['labels'].append(hits[0])
+    if not want['labels'] and want['score']:
+        want['labels'] = []
+    return want
+
+
+def is_score(path):
+    return bool(re.search(r'— score( \(|\.|$)', os.path.basename(path)))
+
+
+def picked(path, label_of, sel):
+    """Is this built file one the picker asked for? Part files carry the
+    score's part names; label_of maps each to its chart label."""
+    if is_score(path):
+        return sel['score']
+    return sel['labels'] is None or label_of.get(path) in sel['labels']
+
+
+def describe_pick(rng, sel):
+    what = []
+    if sel['score']:
+        what.append('the score')
+    if sel['labels'] is None:
+        what.append('every part')
+    else:
+        what += sel['labels']
+    bars = (f"bars {rng[0]} to {rng[1]}" if rng and rng[0] != rng[1]
+            else f"bar {rng[0]}" if rng else "the whole song")
+    names = (", ".join(what[:-1]) + " and " + what[-1]
+             if len(what) > 1 else what[0] if what else "nothing")
+    return f"{names}, {bars}"
+
+
+def excerpt_file(src, rng, where):
+    """The bars asked for, as their own MusicXML, named for them."""
+    xml = open(src, encoding='utf-8').read()
+    cut = chartexcerpt.excerpt(xml, rng[0], rng[1])
+    if cut is None:
+        return None
+    base = os.path.basename(src)[:-len('.musicxml')]
+    tag = (f"bars {rng[0]}-{rng[1]}" if rng[0] != rng[1]
+           else f"bar {rng[0]}")
+    out = os.path.join(where, f"{base} ({tag}).musicxml")
+    with open(out, 'w', encoding='utf-8') as f:
+        f.write(cut)
+    return out
+
+
+def listen_excerpt(listen_src, title, listen_dir, rng, sel, cfg, count_in,
+                   player_of=None):
+    """The listen for a pick: the chosen players alone, cut to the
+    chosen bars from the whole performance, so repeats and road maps
+    still play as written."""
+    import shutil
+    import tempfile
+    who = " + ".join(sel['labels']) if sel['labels'] else "the band"
+    only = [(player_of or {}).get(l.lower(), l)
+            for l in sel['labels']] if sel['labels'] else None
+    tag = ""
+    if rng:
+        tag = (f" (bars {rng[0]}-{rng[1]})" if rng[0] != rng[1]
+               else f" (bar {rng[0]})")
+    final = os.path.join(listen_dir, f"{title} — listen, {who}{tag}.mp3")
+    tmp = os.path.join(tempfile.mkdtemp(), "whole.mp3")
+    lead = [0.0]
+    if not render_listen(listen_src, tmp, say, only=only, count_in=count_in,
+                         lead=lead, samples=resolve_sounds(cfg)):
+        say("No listen this time — the render failed. Report this.")
+        return
+    if not rng:
+        shutil.move(tmp, final)
+        say(f"Listen ready: {who}.")
+        return
+    start = chartaudio.first_bar_seconds(listen_src, rng[0])
+    end = chartaudio.first_bar_seconds(listen_src, rng[1] + 1)
+    if start is None:
+        say(f"The pages have no bar {rng[0]}, so no listen for that "
+            "range.")
+        return
+    from shutil import which
+    if which('ffmpeg') is None:
+        say("No ffmpeg here to cut the listen — brew install ffmpeg "
+            "gets it.")
+        return
+    cmd = ['ffmpeg', '-y', '-hide_banner', '-ss',
+           f'{start + lead[0]:.2f}', '-i', tmp]
+    if end is not None:
+        cmd[5:5] = ['-to', f'{end + lead[0]:.2f}']
+    subprocess.run(cmd + [final], capture_output=True)
+    if os.path.exists(final):
+        say(f"Listen ready: {who}, bars {rng[0]} to {rng[1]}.")
+    else:
+        say("ffmpeg refused the cut; no listen for that range.")
 
 
 def parse_exports(text):
@@ -927,7 +1047,8 @@ def main():
     ap.add_argument('chart', help="the .chart file")
     ap.add_argument('command', nargs='?', default='build',
                     choices=['build', 'check', 'read', 'parts', 'diff',
-                             'listen', 'braille', 'new', 'edit', 'keys',
+                             'listen', 'braille', 'preview', 'new', 'edit',
+                             'keys',
                              'drums',
                              'b', 'c', 'r', 'p', 'd', 'l', 'n', 'e'],
                     help="build (default): everything; check: compile "
@@ -947,6 +1068,16 @@ def main():
                     help="skip the PDFs")
     ap.add_argument('--no-listen', action='store_true',
                     help="skip the listening MP3")
+    ap.add_argument('--look',
+                    help='how the pages dress for this build: jazz, '
+                         'handwritten, engraved or plain, plus any '
+                         'adjustments a look: line takes')
+    ap.add_argument('--bars',
+                    help='only these bars, as printed: e.g. --bars 9-24; '
+                         'all (the default) is the whole song')
+    ap.add_argument('--parts',
+                    help='only these: part names, score, "score and '
+                         'parts", or parts — e.g. --parts "trumpet, alto"')
     ap.add_argument('--exports',
                     help='what this build makes, overriding the setting '
                          'once: any of pages, listen, braille, "braille '
@@ -1055,6 +1186,8 @@ def main():
         ex.discard('listen')
     if args.command == 'listen':
         ex = {'listen'}
+    elif args.command == 'preview':
+        ex = set()
     elif args.command == 'braille':
         ex = {'braille'} | ({'braille pages'} & parse_exports(
             args.exports or cfg['exports']))
@@ -1105,6 +1238,18 @@ def main():
                 "build refreshes the files.")
         return
 
+    # ---- the export picker: parts and bars, for this build
+    try:
+        rng = chartexcerpt.bar_range(args.bars)
+    except ValueError as e:
+        sys.exit(f"chart: {e}")
+    sel = select_parts(args.parts, labels)
+    import tempfile
+    excerpt_dir = tempfile.mkdtemp(prefix='copyist-excerpt-')
+    if args.command != 'preview' and (rng or sel['labels'] is not None
+                                      or not sel['score']):
+        say("Exporting " + describe_pick(rng, sel) + ".")
+
     # ---- read-alouds, next to the chart where the writer lives.
     # snapshot the outgoing read-alouds so the new build has something
     # to answer "what changed?" against
@@ -1116,7 +1261,9 @@ def main():
             if os.path.exists(cur):
                 shutil.copy2(cur, prev_dir)
 
-    read_list = labels + [None] if do_reads else []
+    read_list = ([l for l in labels if sel['labels'] is None
+                  or l in sel['labels']]
+                 + ([None] if sel['score'] else [])) if do_reads else []
     for ri, label in enumerate(read_list):
         progress(2 + 10 * ri / max(len(read_list), 1),
                  f"speaking the {label} part" if label
@@ -1156,7 +1303,9 @@ def main():
     # engraver crash; nobody is told they need it, because they don't.
     mscore = find_mscore()
 
-    look = chart['header'].get('look') or cfg['look'] or None
+    look = args.look or chart['header'].get('look') or cfg['look'] or None
+    if args.look:
+        parse_look(args.look)                  # refuse nonsense early
     look_style = write_style(look, title_dir) if look else None
     if 'pages' in ex:
         say("Drawing the pages.")
@@ -1166,12 +1315,30 @@ def main():
     listen_src = None
     to_draw = [w for w in written if w.endswith('.musicxml')
                and '— for listening' not in w]
-    for src in written:
-        if not src.endswith('.musicxml'):
-            continue
-        if '— for listening' in src:
-            listen_src = src
-            continue
+    listen_src = next((w for w in written if w.endswith('.musicxml')
+                       and '— for listening' in w), None)
+    # the export picker: which parts, which bars
+    # the compiler writes the part files in band order, so each one
+    # maps to its chart label by place
+    part_files = [w for w in to_draw if not is_score(w)]
+    label_of = (dict(zip(part_files, labels))
+                if len(part_files) == len(labels) else {})
+    to_draw = [w for w in to_draw if picked(w, label_of, sel)]
+    # the listening file names its players as the parts do
+    player_of = {}
+    for f, lab in label_of.items():
+        try:
+            import chartbraille
+            names = chartbraille.document_parts(
+                open(f, encoding='utf-8').read())
+            if names:
+                player_of[lab.lower()] = names[0][1]
+        except OSError:
+            pass
+    if rng:
+        to_draw = [excerpt_file(w, rng, excerpt_dir) for w in to_draw]
+        to_draw = [w for w in to_draw if w]
+    for src in to_draw:
         if 'pages' not in ex:
             continue
         progress(12 + 13 * pages / max(len(to_draw), 1),
@@ -1206,11 +1373,30 @@ def main():
         if failed:
             say("No page for " + ", ".join(failed) + ".")
 
+    if args.command == 'preview':
+        # a sample page in a look, to choose by seeing it: the first
+        # few bars of the first thing picked
+        first = to_draw[0] if to_draw else None
+        if first and not rng:
+            first = excerpt_file(first, (1, 8), excerpt_dir) or first
+        name = (look or 'the chart\'s own look').split(',')[0].strip()
+        dst = os.path.join(pages_dir, f"{title} — look preview, {name}.pdf")
+        ok, why = (chartengrave.engrave(first, dst, look=look)
+                   if first else (False, "nothing picked"))
+        if ok:
+            say(f"Sample page in the {name} look: {dst}")
+        else:
+            say(f"No sample page — {why}.")
+        return
+
     if ex & {'braille', 'braille pages'}:
         make_braille(to_draw, title, dest_dir(cfg, 'braille_to', title_dir),
                      ex)
 
-    if 'listen' in ex and listen_src:
+    if 'listen' in ex and listen_src and (rng or sel['labels']):
+        listen_excerpt(listen_src, title, listen_dir, rng, sel, cfg,
+                       args.count_in, player_of)
+    elif 'listen' in ex and listen_src:
         band = resolve_sounds(cfg)
         robot = os.path.join(listen_dir,
                              f"{title} — chart as written "
@@ -1283,6 +1469,7 @@ def main():
     if args.solo and listen_src:
         wanted = [w.strip() for w in args.solo.split(',') if w.strip()]
         nice = " + ".join(wanted)
+        wanted = [player_of.get(w.lower(), w) for w in wanted]
         mp3 = os.path.join(listen_dir,
                            f"{title} — listen, {nice}.mp3")
         try:

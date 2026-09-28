@@ -313,6 +313,27 @@ In the Mac app, Settings has a switch for each one under **What a
 build makes**, and every switch says whether it is on. The MP3 alone
 and the braille alone each have their own button on the Build tab.
 
+Any one export can also take just some of the tune, some of the band,
+and its own look:
+
+    chart tune.chart --bars 9-24                  # those bars, as printed
+    chart tune.chart --parts "trumpet 1, alto"    # just those parts
+    chart tune.chart --parts score                # just the score
+    chart tune.chart --parts parts                # every part, no score
+    chart tune.chart --look handwritten           # this export's pages
+    chart tune.chart preview --look engraved      # a sample page first
+
+A bar range prints exactly those bars, numbered as on the full pages,
+with the key, time and tempo carried in; its files are named for the
+range, so the full ones stay. Picking parts for the listen gives just
+those players; a bar range cuts it from the whole performance, so
+repeats and a D.S. still play as written. In the Mac app, **Export…**
+on the Build tab (Command E) asks all of it in one sheet: the whole
+song or from and to bars, a switch for the score and for every part,
+what to make, and the look, with **Show a sample page** drawing the
+first bars in that look right in the sheet. On Windows, **Export**
+(Control E) asks the same questions in turn.
+
 And every command has a one-letter
 shortcut: `chart tune.chart c` checks, `b` builds, `r` reads, `p`
 lists the band, `d` diffs, `l` bounces the listen, `n` interviews,

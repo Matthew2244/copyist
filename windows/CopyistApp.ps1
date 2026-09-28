@@ -219,6 +219,33 @@ function Do-BuildKnown([string]$p, [string]$mode, [string]$doing) {
         "and pick 'How is the build going' whenever you want the news.")
 }
 
+function Do-Export {
+    # the export picker, one plain question at a time: bars, parts,
+    # what to make, the look. Empty keeps the whole song, every part,
+    # the settings' exports and the chart's own look.
+    $p = Pick-Chart
+    if (-not $p) { return }
+    $bars = [Microsoft.VisualBasic.Interaction]::InputBox(
+        'Which bars? As printed on the pages, like 9-24. Empty for the whole song.',
+        'Copyist - Export', '')
+    $parts = [Microsoft.VisualBasic.Interaction]::InputBox(
+        ('Which parts? Names separated by commas, or score, or parts for every part without the score. Empty for the score and every part. The band: ' +
+         ((Run-Chart ('"' + $p + '" parts --labels')) -split "`n" -join ', ')),
+        'Copyist - Export', '')
+    $makes = [Microsoft.VisualBasic.Interaction]::InputBox(
+        'What to make? Any of pages, listen, braille, braille pages, read-alouds, separated by commas, or all. Empty uses your settings.',
+        'Copyist - Export', '')
+    $look = Choose-FromList 'How should the pages look?' @(
+        "The chart's own", 'jazz', 'handwritten', 'engraved', 'plain', 'Back')
+    if (-not $look -or $look -eq 'Back') { return }
+    $mode = 'build'
+    if ($bars.Trim()) { $mode += ' --bars "' + $bars.Trim() + '"' }
+    if ($parts.Trim()) { $mode += ' --parts "' + $parts.Trim() + '"' }
+    if ($makes.Trim()) { $mode += ' --exports "' + $makes.Trim() + '"' }
+    if ($look -ne "The chart's own") { $mode += ' --look ' + $look }
+    Do-BuildKnown $p $mode 'Exporting what you picked.'
+}
+
 function Do-ReadPart {
     $p = Pick-Chart
     if (-not $p) { return }
@@ -363,7 +390,7 @@ function Do-BringIn {
 # Five tabs, the Mac app's five. Ctrl+1 to Ctrl+5 jump straight to one
 # and put focus on the tab control, so NVDA and JAWS say "Build tab, 2
 # of 5" themselves; Ctrl+Tab steps through them, as in any Windows tab
-# control. The work has keys too: Ctrl+B builds, Ctrl+Shift+B makes just the braille, Ctrl+K checks, Ctrl+L
+# control. The work has keys too: Ctrl+B builds, Ctrl+Shift+B makes just the braille, Ctrl+E exports a choice of bars and parts, Ctrl+K checks, Ctrl+L
 # listens, Ctrl+O opens a chart. Each button names its key in its
 # accessible description, so the screen reader says it after the name.
 
@@ -460,6 +487,8 @@ Add-Action $buildFlow 'Check it' 'Compile only - every measure gets counted, not
     Do-Build 'c' 'Checking the chart - every measure gets counted.' }
 Add-Action $buildFlow 'What changed' 'Since the last build, by part and by bar.' 'Ctrl+D' {
     Do-Build 'd' 'Reading what changed since your last build, part by part.' }
+Add-Action $buildFlow 'Export' 'Choose the bars, the parts, what to make and the look.' 'Ctrl+E' {
+    Do-Export }
 Add-Action $buildFlow 'Braille' 'Just the braille: a file for each part, read back against the score.' 'Ctrl+Shift+B' {
     Do-Build 'braille' 'Making the braille, each part read back against the score.' }
 Add-Action $buildFlow 'How is the build going' 'The news on a background build, on a button press, never a timer.' 'F5' {
@@ -515,6 +544,7 @@ $form.Add_KeyDown({
                 else { Do-Build '' 'Building everything your settings ask for.' }
             }
             'K' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }
+            'E' { Do-Export }
             'D' { Do-Build 'd' 'Reading what changed since your last build, part by part.' }
             'L' { Do-Listen }
             'R' { Do-ReadPart }
@@ -529,7 +559,7 @@ $form.Add_KeyDown({
     if ($k -eq 'F5') { Do-HowGoes; $e.Handled = $true }
     if ($k -eq 'F1') {
         Go-Tab 4
-        Show-Info 'Ctrl+1 to Ctrl+5 move between the tabs: Chart, Build, Listen and read, Conversation, Settings. Ctrl+B builds, Ctrl+Shift+B makes just the braille, Ctrl+K checks, Ctrl+L listens, Ctrl+O opens a chart, F5 asks how a build is going.'
+        Show-Info 'Ctrl+1 to Ctrl+5 move between the tabs: Chart, Build, Listen and read, Conversation, Settings. Ctrl+B builds, Ctrl+Shift+B makes just the braille, Ctrl+E exports a choice of bars and parts, Ctrl+K checks, Ctrl+L listens, Ctrl+O opens a chart, F5 asks how a build is going.'
         $e.Handled = $true
     }
 })
