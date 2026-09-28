@@ -1053,10 +1053,26 @@ def draw_graces(pdf, n0, right_x, top, clef):
                  sx + 1.4 * SP * s, tip - 0.4 * SP * s, w=0.8)
 
 
+def header_width(meas):
+    """How much of the header lane this bar's own marks fill: the
+    rehearsal box, the tempo mark and its words, generously estimated
+    (the lane is shared, so a bar narrower than its header pushes the
+    next section's box off its own downbeat — Night Story's HEAD,
+    2026-09-27)."""
+    w = 0.0
+    if meas['rehearsal']:
+        w += 11 * 0.72 * len(meas['rehearsal']) + 14
+    if meas['metronome']:
+        w += 2.2 * SP + 8.5 * 0.6 * (len(meas['metronome'][1]) + 4) + 6
+    for _pos, words in meas['texts']:
+        w += 8.5 * 0.55 * len(words) + 6
+    return w
+
+
 def measure_width(meas):
     w = 3.2 * SP
     if meas['multi']:
-        return 16 * SP
+        return max(16 * SP, header_width(meas) + 2 * SP)
     if meas.get('simile'):
         return 9 * SP
     if 'clef' in meas['show']:
@@ -1078,7 +1094,7 @@ def measure_width(meas):
     # empty bar must not print on top of each other
     cw = sum(6.2 * len(s) + 8 for _, s in meas['chords'])
     return max(w + max(per.values(), default=0), w + opt + 2 * SP,
-               w + cw, 12 * SP)
+               w + cw, 12 * SP, header_width(meas) + 2 * SP)
 
 
 def engrave(xml_path, pdf_path, look=None):
@@ -1526,7 +1542,9 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
         bx = max(x0 - 1, hx0)
         pdf.text(bx + 4, top + 4.6 * SP, meas['rehearsal'], size=11,
                  font='HB')
-        est = 11 * 0.62 * len(meas['rehearsal']) + 6
+        # the face's own letter widths, not a count of them: wide
+        # capitals (HEAD, SOLOS) ran into the right edge of the box
+        est = pdf.tw(meas['rehearsal'], 11, 'HB') + 7
         pdf.poly([(bx, top + 4.2 * SP), (bx + est + 1, top + 4.2 * SP),
                   (bx + est + 1, top + 4.6 * SP + 11),
                   (bx, top + 4.6 * SP + 11)], close=True, fill=False,
@@ -1539,13 +1557,14 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
                  top + 6.8 * SP, w=0.8)
         pdf.text(tx + 2.2 * SP, top + 4.8 * SP,
                  ("." if dot else "") + " = " + per, size=8.5, font='HB')
-        tx += 2.2 * SP + 8.5 * 0.55 * (len(per) + 4)
+        tx += 2.2 * SP + pdf.tw(("." if dot else "") + " = " + per,
+                                8.5, 'HB') + 6
     ty = top + 4.8 * SP
     for pos, words in meas['texts']:
         frac = pos / max(meas['len'], 1)
         wx = x + frac * (x0 + width - x - 2 * SP)
         pdf.text(max(wx, tx), ty, words, size=8.5, font='HO')
-        tx = max(wx, tx) + 8.5 * 0.55 * len(words) + 6
+        tx = max(wx, tx) + pdf.tw(words, 8.5, 'HO') + 6
     if wedge_run is not None:
         wedge_run['hx'] = tx
 

@@ -1268,6 +1268,22 @@ def check_build_entrance():
     said = subprocess.run(
         [sys.executable, os.path.join(HERE, "chartread.py"), cp,
          "--part", "bass"], capture_output=True, text=True).stdout
+    tp = os.path.join(tmp, "t.chart")
+    open(tp, "w").write(
+        'title: T\nkey: G\nmeter: 4/4\ntempo: 120\n\n'
+        'band:\n  piano\n  bass\n\n'
+        'section intro, 4 bars\n  chords: Gmaj7, Cmaj7, Gmaj7, D7\n'
+        '  bass: tacet\n\n'
+        'section A, 4 bars\n  chords: G7 x4\n')
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(tp, os.path.join(tmp, "t"))
+    tb = open(os.path.join(tmp, "t", "T — bass.musicxml")).read()
+    tbars = re.findall(r'<measure [^>]*>(.*?)</measure>', tb, re.S)
+    tpn = open(os.path.join(tmp, "t", "T — piano.musicxml")).read()
+    check("a tacet section is rests with no changes over them",
+          not any('<harmony' in b for b in tbars[:4])
+          and '<harmony' in tbars[4] and '<harmony' in tpn.split(
+              '</measure>')[0], str([('<harmony' in b) for b in tbars]))
     check("the read-aloud says when to come in",
           'Bars 1 to 4: rest' in said and 'from bar 5' in said, said)
     shutil.rmtree(tmp, ignore_errors=True)

@@ -2361,9 +2361,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 waiting = (kind in ('groove', 'hits')
                            and off + 1 < plan['enters'].get(label, 0)
                            and absbar not in demo_measures[label])
-                if waiting:
-                    # a player waiting to come in reads rests, not
-                    # changes — and the entrance restates its chord
+                soloing = any(isinstance(t[1], str)
+                              and t[1].lower().startswith('solo')
+                              for t in plan['texts'][label])
+                silent = (kind == 'tacet' and not soloing
+                          and absbar not in demo_measures[label])
+                if waiting or silent:
+                    # a player waiting to come in, or sitting a section
+                    # out, reads one multirest, not changes over empty
+                    # bars — and where they play again the chord is
+                    # restated
                     governing[0] = None
                 elif with_harmony and clef != 'percussion' and (
                         label in chord_parts or any(
