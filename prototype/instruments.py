@@ -220,5 +220,42 @@ DRUM_NAMES = {
 }
 
 
+# Drum maps other than General MIDI: note -> the GM note of the same kit
+# piece, so the page's positions, heads and names and the listen's
+# sounds all apply. Toontrack's layout (EZdrummer / Superior Drummer),
+# read from the key chart that ships with his EZX Latin Cuban Drums
+# (EZX-Keys.pdf, "EZdrummer line"); a piece's articulations fold to the
+# piece: open-edge hats are an open hat, a rimshot is the snare.
+DRUM_MAPS = {
+    'toontrack': {
+        # hi-hat: open tips and edges, the variable-CC hat, pedals
+        12: 46, 13: 46, 14: 46, 15: 46, 16: 46, 20: 42, 21: 44, 22: 42,
+        23: 44, 24: 46, 25: 46, 26: 46, 60: 46, 61: 42, 62: 42, 63: 42,
+        42: 42, 44: 44, 46: 46, 119: 42, 120: 42, 121: 42,
+        # kick
+        34: 36, 35: 36, 36: 36,
+        # snare: center, edge, rimshot, closed roll, sidestick, rim
+        33: 38, 38: 38, 39: 38, 40: 38, 37: 37, 70: 37, 71: 37,
+        # toms: floor, rack 2, rack 1 (centers, rims, shells, aliases)
+        41: 43, 43: 43, 72: 43, 73: 43, 74: 43, 75: 43, 76: 43,
+        45: 47, 47: 47, 77: 47, 78: 47, 79: 47, 80: 47,
+        48: 48, 81: 48, 82: 48,
+        # cymbals: crash 1, crash 2, stack, rides 1 and 2
+        27: 49, 28: 49, 49: 49, 50: 49, 31: 57, 32: 57, 57: 57, 58: 57,
+        52: 52, 54: 52, 55: 52, 29: 59, 30: 53, 51: 51, 53: 53, 59: 59,
+        85: 53, 86: 51, 87: 51, 88: 53,
+        # the rest of the Latin kit
+        56: 56, 122: 56, 123: 56, 124: 56, 125: 56, 126: 56, 127: 56,
+        66: 65, 68: 65, 69: 65, 67: 76,
+    },
+}
+DRUM_MAP_NAMES = {'toontrack': 'toontrack', 'ezdrummer': 'toontrack',
+                  'superior drummer': 'toontrack', 'ezd': 'toontrack',
+                  'sd3': 'toontrack'}
+# notes a General-MIDI kit never uses, so a take full of them was
+# probably played on another map
+NOT_GM_DRUMS = set(range(0, 35)) | set(range(82, 128))
+
+
 def drum_name(pitch):
     return DRUM_NAMES.get(pitch, f"drum {pitch}")

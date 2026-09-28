@@ -321,6 +321,19 @@ Copyist finds the musical word inside, ignores the sampler's own modes
 doesn't know as the word itself. A key you haven't named yet is listed
 in the findings with the bars it covers.
 
+## Drum takes from EZdrummer and Superior Drummer
+
+Toontrack's drum instruments don't use the General MIDI drum map: their
+note 39 is a snare roll where General MIDI has a hand clap, 40 is a
+rimshot, the low notes are hi-hat openings. Tell Copyist the take's map
+on the band line and it reads the kit that was played:
+
+    drums = drum set, demo "take.mid", drummap "Toontrack"
+
+(`EZdrummer` and `Superior Drummer` work as names too.) A drum take
+without a map that uses notes General MIDI doesn't have gets a line in
+the findings suggesting it.
+
 ## Road maps: D.S., D.C., the coda
 
 Write them where they sit, as timed events in the section:

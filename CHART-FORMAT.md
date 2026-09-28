@@ -485,6 +485,13 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
   open, senza sord., ord.), slurs, tremolos, trills, falls, doits and
   scoops.
 
+  **Drum maps**: a drum part's band line may add `drummap "Toontrack"`
+  (also `EZdrummer`, `Superior Drummer`): the take's notes are read as
+  the General MIDI kit pieces they play before anything else happens,
+  from Toontrack's key chart (EZX Latin Cuban Drums, "EZdrummer line").
+  A drum take with notes below 35 or above 81 and no map gets a finding
+  suggesting one.
+
   **Road maps** are timed events too: `segno` (or `sign`), `coda`, `to
   coda`, `fine`, and the jump itself, `d.s.`, `d.s. al coda`, `d.s. al
   fine`, `d.c.`, `d.c. al coda` or `d.c. al fine` (spelled out, `dal

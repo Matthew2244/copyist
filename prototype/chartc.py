@@ -27,6 +27,7 @@ import sys
 import argparse
 
 import chartdemo
+import instruments
 import chartgroove
 
 BEATS = 4          # the 4/4 default; parse_meter unlocks the rest
@@ -851,7 +852,8 @@ def parse_chart(path):
                          r'(?:,\s*detail (\w[\w-]*))?'
                          r'(?:,\s*tuning ([\w ]+))?'
                          r'(?:,\s*demo "([^"]+)"(?:\s+octave (-?\d+))?)?'
-                         r'(?:,\s*keyswitches "([^"]+)")?\s*$',
+                         r'(?:,\s*keyswitches "([^"]+)")?'
+                         r'(?:,\s*drummap "([^"]+)")?\s*$',
                          s)
             if not m:
                 fail(f"{loc}: cannot read band line '{s}'")
@@ -861,7 +863,8 @@ def parse_chart(path):
                                   'tuning': m.group(4),
                                   'demo': m.group(5),
                                   'demo_octave': int(m.group(6) or 0),
-                                  'keyswitches': m.group(7)})
+                                  'keyswitches': m.group(7),
+                                  'drummap': m.group(8)})
             continue
         if mode == 'output':
             continue        # defaults only in this increment
@@ -1350,6 +1353,16 @@ def keyswitch_map(chart, name, loc='band'):
     fail(f"{loc}: no keyswitch map called \"{name}\": add a "
          f"'keyswitches \"{name}\":' block to the chart, or save one in "
          f"{KS_DIR}")
+
+
+def drum_map_for(name, loc):
+    if not name:
+        return None
+    key = instruments.DRUM_MAP_NAMES.get(name.strip().lower())
+    if not key:
+        fail(f"{loc}: no drum map called \"{name}\"; Copyist knows "
+             "Toontrack's (EZdrummer, Superior Drummer)")
+    return instruments.DRUM_MAPS[key]
 
 
 def lifted_rest(piece):
@@ -1956,6 +1969,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     ks_map=(keyswitch_map(chart, b['keyswitches'],
                                           ref['loc'])
                             if b.get('keyswitches') else None),
+                    drum_map=drum_map_for(b.get('drummap'), ref['loc']),
                     derive_dyns=hdr.get('dynamics', '') not in
                     ('by hand', 'manual'),
                     short=ref.get('short', False),

@@ -2104,6 +2104,32 @@ def check_keyswitches():
               and chartdemo.ks_meaning("x-note")[1] == "dead notes"
               and chartdemo.ks_meaning("select string E low") ==
               (None, None, False, None))
+        # a Toontrack (EZdrummer / Superior Drummer) take: its own map
+        dn = [(i * 240, i * 240 + 60, [36, 24, 39, 32][i % 4], 100)
+              for i in range(16)]
+        smf.write(os.path.join(tmp, "d.mid"), dn, 480, 100)
+        for mapped in (False, True):
+            dc = os.path.join(tmp, "d.chart")
+            open(dc, "w").write(
+                'title: D\nkey: C\nmeter: 4/4\ntempo: 100\n\nband:\n'
+                '  drums = drum set, demo "d.mid"'
+                + (', drummap "Toontrack"' if mapped else '') + '\n\n'
+                'section A, 2 bars\n  chords: C x2\n'
+                '  drums: from demo bars 1-2\n')
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(dc, os.path.join(tmp, "db"))
+            dfind = open(os.path.join(tmp, "db", "D — findings.txt")).read()
+            said = subprocess.run(
+                [sys.executable, os.path.join(HERE, "chartread.py"), dc,
+                 "--part", "drums"], capture_output=True, text=True).stdout
+            if mapped:
+                check("a Toontrack take reads as the kit it played: open "
+                      "hat, snare, crash — no claps, no mystery drums",
+                      "clap" not in said and "drum 32" not in said
+                      and "open hat" in said and "crash" in said, said)
+            else:
+                check("an unmapped take with non-GM drum notes says so",
+                      "drummap \"Toontrack\"" in dfind, dfind)
         try:
             chartc.keyswitch_map({'keyswitches': {}}, "Nobody's Map")
             got = ""

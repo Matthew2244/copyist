@@ -790,7 +790,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   poly=False, grand=False, reach=17, comfortable=14,
                   legato=False, ghost=False, detail=None, meter=(4, 4),
                   window=None, part_label="", findings=None, drums=False,
-                  trills=True, ks_map=None):
+                  trills=True, ks_map=None, drum_map=None):
     """
     Resolve demo bars [bar_lo, bar_hi] (the file's own 1-based numbering)
     into a quantized timeline of sounding pitches starting at absolute
@@ -822,6 +822,19 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     slack = beat // 8
     picked = [(n.on, n.off or n.on, n.pitch, n.vel) for n in src
               if lo_t - slack <= n.on < hi_t]
+    if drums and drum_map:
+        # another maker's kit layout, read as the GM piece it plays
+        picked = [(on, off, drum_map.get(p, p), v)
+                  for on, off, p, v in picked]
+    elif drums:
+        odd = sorted({p for _o, _f, p, _v in picked}
+                     & instruments.NOT_GM_DRUMS)
+        if odd:
+            find.add(f"{part_label}: drum note(s) "
+                     + ", ".join(str(p) for p in odd)
+                     + " aren't General MIDI drums; if this was played "
+                     "on EZdrummer or Superior Drummer, add "
+                     "drummap \"Toontrack\" to its band line")
     if not picked:
         raise SystemExit(
             f"chartc: {part_label}: demo bars {bar_lo}-{bar_hi} of "
