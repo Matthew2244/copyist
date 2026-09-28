@@ -1261,6 +1261,8 @@ def say_road(listen_path):
         mk = [chartaudio.roadmap_marks(m) for _n, m in m_]
         road = mk if road is None else [a | b for a, b in zip(road, mk)]
         ms = ms or m_
+    if not ms or not any(k & {'ds', 'dc'} for k in road or []):
+        return None
     walk = [n for n, _m in chartaudio.expand_roadmap(ms, road)
             if n.isdigit() and n != '0']
     runs = []
@@ -2912,9 +2914,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                          harmony_on=lambda l: l in chord_parts,
                          listen=True))
     written.append(listen_path)
-    if any(k == 'road' for sec in chart['sections']
-           for _b, k, _t in sec['events']):
-        findings.add(say_road(listen_path))
+    # written in the chart or lifted from a score, a road map is read
+    # back in bar numbers
+    road_said = say_road(listen_path)
+    if road_said:
+        findings.add(road_said)
     if realized_bars:
         findings.add("listen: rhythm section realized from the chord "
                      "symbols — "
