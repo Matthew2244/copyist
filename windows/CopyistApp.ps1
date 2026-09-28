@@ -265,9 +265,56 @@ function Do-Settings {
     }
 }
 
+function Do-BringIn {
+    # a score, a MIDI demo, or words and chords in any format - the
+    # same door as the Mac app's Bring in a file
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Title = 'Bring in a file - a score, a MIDI demo, or words and chords'
+    $dlg.Filter = ('Everything Copyist reads|*.musicxml;*.xml;*.mxl;' +
+        '*.mscz;*.mid;*.midi;*.txt;*.md;*.rtf;*.doc;*.docx;*.odt;' +
+        '*.html;*.htm;*.pdf;*.cho;*.chordpro;*.chopro;*.crd;*.pro;*.abc|' +
+        'All files (*.*)|*.*')
+    if ($dlg.ShowDialog() -ne 'OK') { return }
+    $f = $dlg.FileName
+    $ext = [System.IO.Path]::GetExtension($f).ToLower()
+    if (@('.mid', '.midi', '.kar', '.smf') -contains $ext) {
+        # the demo interview is a conversation: a real console window,
+        # which NVDA reads natively
+        Start-Process -FilePath $py -ArgumentList @(
+            ('"' + $chartPy + '"'), 'import', ('"' + $f + '"'))
+        return
+    }
+    $into = ''
+    $words = @('.txt', '.md', '.rtf', '.doc', '.docx', '.odt', '.html',
+        '.htm', '.pdf')
+    if (($words -contains $ext) -and (Test-Path $lastFile)) {
+        $last = (Get-Content $lastFile -Raw).Trim()
+        if ($last -and (Test-Path $last)) {
+            $name = Split-Path -Leaf $last
+            $c = Choose-FromList 'Where do these words go?' @(
+                "Add them to $name", 'Start a new tune from this file',
+                'Back')
+            if (-not $c -or $c -eq 'Back') { return }
+            if ($c -like 'Add them*') { $into = ' --into "' + $last + '"' }
+        }
+    }
+    $out = Run-Chart ('import "' + $f + '"' + $into)
+    $made = ($out -split "`n" | Where-Object { $_ -like 'chart: *' } |
+        Select-Object -Last 1)
+    $shown = ($out -split "`n" | Where-Object { $_ -notlike 'chart: *' }) -join "`n"
+    if ($made) {
+        $path = $made.Substring(7).Trim()
+        Set-Content -Path $lastFile -Value $path
+        $shown += "`n`nThis is now the chart you are working on: " +
+            (Split-Path -Leaf $path) + '.'
+    }
+    Show-Info $shown
+}
+
 while ($true) {
     $c = Choose-FromList ('Copyist - from your played demo to pages a band ' +
         'can read. What are we doing?') @(
+        'Bring in a file - a score, a MIDI demo, or words and chords',
         'Build - pages, listen MP3, findings',
         'Check - compile only, nothing rendered',
         'Listen - the whole band, or just your chair, from any bar',
@@ -288,6 +335,7 @@ while ($true) {
     }
     if ($c -eq 'Quit') { break }
     switch -Wildcard ($c) {
+        'Bring in*' { Do-BringIn }
         'Build*' { Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
         'Check*' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }
         'Listen*' { Do-Listen }

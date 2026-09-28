@@ -137,6 +137,8 @@ final class AppModel: ObservableObject {
     @Published var progressPct: Double?
     @Published var progressWhat = ""
     private var runBuffer = ""
+    /// the chart an import just made, from the engine's "chart:" line
+    private var importedChart: String?
     private var flavorTimer: Timer?
     private var proc: Process?
 
@@ -255,7 +257,16 @@ final class AppModel: ObservableObject {
                 }
                 let last = self.runOutput.split(separator: "\n")
                     .last.map(String.init) ?? "Done."
-                announce("\(title) finished. \(last)"
+                var opened = ""
+                if let made = self.importedChart {
+                    self.importedChart = nil
+                    self.choose(made)
+                    opened = " Now working on "
+                        + URL(fileURLWithPath: made)
+                            .deletingPathExtension().lastPathComponent
+                        + "."
+                }
+                announce("\(title) finished. \(last)" + opened
                          + (self.playURL != nil
                             ? " Play it is on screen." : ""))
             }
@@ -267,6 +278,59 @@ final class AppModel: ObservableObject {
             runOutput = "Copyist's engine would not start: "
                 + error.localizedDescription
         }
+    }
+
+    /// Anything a writer has, in: a MIDI demo goes to the interview in
+    /// the conversation; words or a chord sheet with a chart open asks
+    /// whether they belong to it; everything else is imported as a new
+    /// tune and opened when it lands.
+    func bringIn(_ path: String) {
+        let url = URL(fileURLWithPath: path)
+        let ext = url.pathExtension.lowercased()
+        let base = url.deletingPathExtension().lastPathComponent
+        if ["mid", "midi", "kar", "smf"].contains(ext) {
+            let folder = chartsFolder().appendingPathComponent(base)
+            let chartURL = folder.appendingPathComponent(base + ".chart")
+            if FileManager.default.fileExists(atPath: chartURL.path) {
+                announce("There is already a chart called \(base). "
+                         + "Open it, or rename the demo first.")
+                runTitle = "Bring in a file"
+                runOutput = "There is already a chart called \(base) in "
+                    + "Copyist Charts. Open it from Recent charts, or "
+                    + "rename the demo and bring it in again.\n"
+                screen = .run
+                return
+            }
+            try? FileManager.default.createDirectory(
+                at: folder, withIntermediateDirectories: true)
+            choose(chartURL.path)
+            startTalk(["new", "--demo", path])
+            return
+        }
+        let wordsLike = ["txt", "text", "md", "markdown", "rtf", "rtfd",
+                         "doc", "docx", "odt", "pages", "pdf", "html",
+                         "htm"].contains(ext)
+        if wordsLike, let c = chart {
+            let a = NSAlert()
+            a.messageText = "Where do these words go?"
+            a.informativeText = "Add them to \(chartName), beside the "
+                + "sections they belong to, or start a new tune from "
+                + "this file."
+            a.addButton(withTitle: "Add to \(chartName)")
+            a.addButton(withTitle: "Start a new tune")
+            a.addButton(withTitle: "Cancel")
+            switch a.runModal() {
+            case .alertFirstButtonReturn:
+                run("Bring in a file", args: ["import", path, "--into", c],
+                    needsChart: false)
+                return
+            case .alertSecondButtonReturn:
+                break
+            default:
+                return
+            }
+        }
+        run("Bring in a file", args: ["import", path], needsChart: false)
     }
 
     func stopRun() {
@@ -289,6 +353,12 @@ final class AppModel: ObservableObject {
                     progressPct = Double(body[..<cut.lowerBound])
                     progressWhat = String(body[cut.upperBound...])
                 }
+                continue
+            }
+            if line.hasPrefix("chart: ") {
+                // the engine names the chart it made; the app opens it
+                // rather than reading a path aloud
+                importedChart = String(line.dropFirst("chart: ".count))
                 continue
             }
             runOutput += line + "\n"
@@ -452,6 +522,22 @@ func newChart(_ model: AppModel) -> Bool {
     return false
 }
 
+func pickAnything(_ model: AppModel) {
+    let p = NSOpenPanel()
+    p.title = "Bring in a file"
+    p.message = "A score (MusicXML), a MIDI demo, or words and chords "
+        + "in any format."
+    p.prompt = "Bring In"
+    p.canChooseFiles = true
+    p.canChooseDirectories = false
+    p.allowsOtherFileTypes = true
+    p.directoryURL = FileManager.default.urls(
+        for: .downloadsDirectory, in: .userDomainMask).first
+    if p.runModal() == .OK, let u = p.url {
+        model.bringIn(u.path)
+    }
+}
+
 func pickFile(start: String?, dirs: Bool = false) -> String? {
     let p = NSOpenPanel()
     p.canChooseDirectories = dirs
@@ -475,6 +561,23 @@ struct CopyistApp: App {
                 .frame(minWidth: 780, minHeight: 560)
         }
         .windowResizability(.contentMinSize)
+        .commands { BringInCommand() }
+    }
+}
+
+/// File > Bring In a File… (Command-Shift-I), for whichever window is
+/// in front — each window is its own desk.
+struct BringInCommand: Commands {
+    @FocusedObject var model: AppModel?
+
+    var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("Bring In a File…") {
+                if let m = model { pickAnything(m) }
+            }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+            .disabled(model == nil)
+        }
     }
 }
 
@@ -508,6 +611,19 @@ struct ContentView: View {
                               model.vibe == .manuscript ? .light : nil)
         .foregroundStyle(pal.text)
         .environmentObject(model)
+        .focusedSceneObject(model)
+        .onDrop(of: [.fileURL], isTargeted: nil) { items in
+            // any file dropped on the window comes in the same door
+            guard let item = items.first else { return false }
+            _ = item.loadObject(ofClass: URL.self) { url, _ in
+                guard let url else { return }
+                DispatchQueue.main.async {
+                    announce("Bringing in \(url.lastPathComponent).")
+                    model.bringIn(url.path)
+                }
+            }
+            return true
+        }
     }
 }
 
@@ -622,6 +738,11 @@ struct HomeView: View {
 
     var actions: [ActionSpec] {
         [
+            ActionSpec(id: "bring", icon: "tray.and.arrow.down",
+                       title: "Bring in a file",
+                       line: "A score, a MIDI demo, or words and chords "
+                           + "in any format. Or drop it on the window.",
+                       needsChart: false) { m in pickAnything(m) },
             ActionSpec(id: "talk", icon: "bubble.left.and.bubble.right",
                        title: "Tell me the tune",
                        line: "Describe it in one breath. I write the sections.",
