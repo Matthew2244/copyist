@@ -251,6 +251,7 @@ KS_MARK = {  # per-note articulation tags
 KS_TEXT = {  # techniques printed in words at the change
     'pizz': 'pizz.', 'pizzicato': 'pizz.', 'arco': 'arco',
     'con sord': 'con sord.', 'con sordino': 'con sord.',
+    'sordino': 'con sord.', 'sord': 'con sord.',
     'mute': 'mute', 'muted': 'mute', 'senza sord': 'senza sord.',
     'open': 'open', 'harmon': 'harmon mute', 'harmon mute': 'harmon mute',
     'cup': 'cup mute', 'cup mute': 'cup mute', 'straight': 'straight mute',
@@ -262,7 +263,8 @@ KS_TEXT = {  # techniques printed in words at the change
     'shake': 'shake', 'ord': 'ord.', 'ordinario': 'ord.', 'normale': 'ord.',
     'fortepiano': 'fp', 'crescendo': 'cresc.', 'glissando': 'gliss.',
     'gliss': 'gliss.', 'dead note': 'dead notes', 'dead notes': 'dead notes',
-    'slap': 'slap', 'pop': 'pop',
+    'slap': 'slap', 'pop': 'pop', 'x note': 'dead notes',
+    'flageolet': 'harm.', 'gliss key': 'gliss.', 'palm mute': 'P.M.',
 }
 KS_PLAIN = {'long', 'longs', 'sustain', 'sus', 'sustained', 'normal',
             'legato', 'slur', 'slurred', 'default'}
@@ -271,7 +273,9 @@ KS_PLAIN = {'long', 'longs', 'sustain', 'sus', 'sustained', 'normal',
 KS_INTERNAL = re.compile(
     r'\b(expressive (long|medium)|standard|passionate|all auto|auto|'
     r'index|middle|down only|up only|down up|pickup|by velocity|'
-    r'open slide|round robin|rr)\b', re.I)
+    r'open slide|round robin|rr|select string|force string|chord mode|'
+    r'playing position|position|repetition|shift|open strings|'
+    r'strum|stroke|mode off|octave runs)\b', re.I)
 
 
 def ks_meaning(word):
@@ -295,7 +299,8 @@ def ks_meaning(word):
            'trill' if re.search(r'\btrill', w) and 'shake' not in w
            else 'falloff' if re.search(r'\bfall', w) else
            'doit' if re.search(r'\bdoit', w) else
-           'scoop' if re.search(r'\bscoop|\bslide in', w) else None)
+           'scoop' if re.search(r'\bscoop|\bslide in|\bslide up', w)
+           else None)
     if orn in ('falloff', 'doit', 'scoop'):
         mark = None                   # "Fall Short" is a fall, not a dot
     if not (mark or text or legato or orn) and not any(
@@ -310,7 +315,20 @@ def midi_name(p):
     return f"{names[p % 12]}{p // 12 - 1}"
 
 
-def find_keyswitches(notes, sounding_range, beat):
+def ks_word_for(word, vel):
+    '''A map line may split by how hard the key was pressed, as Kontakt
+    guitars do: "low velo: mute | high velo: x-note" (the split is at
+    100, the libraries' default). The press's own velocity picks.'''
+    if not word or 'velo' not in word.lower():
+        return word
+    m = re.match(r'\s*low velo[^:]*:\s*(.*?)\s*\|\s*high velo[^:]*:\s*(.*)$',
+                 word, re.I)
+    if not m:
+        return word
+    return m.group(1) if vel <= 100 else m.group(2)
+
+
+def find_keyswitches(notes, sounding_range, beat, mapped=frozenset()):
     """Keyswitches in played notes [(on, off, pitch, vel)]: keys well
     outside the instrument's playable range (an octave past its ends,
     or below A0 / above C8 when the range is unknown) that never sound
@@ -319,8 +337,14 @@ def find_keyswitches(notes, sounding_range, beat):
     floor, ceil = (lo - 12, hi + 12) if sounding_range else (21, 108)
     ks, kept = [], []
     for n in notes:
-        (ks if n[2] < floor or n[2] > ceil else kept).append(n)
-    ks = [(on, off, p) for on, off, p, _v in ks]
+        # a key the part's map names counts once it is past the
+        # playable range at all (many libraries sit their switches just
+        # below the lowest note); an unnamed key must be an octave out,
+        # so a low note really played is never taken for a switch
+        out = n[2] < floor or n[2] > ceil or (
+            n[2] in mapped and sounding_range and (n[2] < lo or n[2] > hi))
+        (ks if out else kept).append(n)
+    ks = [(on, off, p, v) for on, off, p, v in ks]
     return kept, sorted(ks)
 
 
@@ -336,13 +360,13 @@ def assign_keyswitches(notes, switches, beat):
     out = {}
     for on, _off, _p, _v in notes:
         cur = None
-        for s_on, s_off, sp in held:
+        for s_on, s_off, sp, sv in held:
             if s_on - slack <= on < s_off:
-                cur = sp
+                cur = (sp, sv)
         if cur is None:
-            for s_on, _s_off, sp in latched_order:
+            for s_on, _s_off, sp, sv in latched_order:
                 if s_on - slack <= on:
-                    cur = sp
+                    cur = (sp, sv)
                 else:
                     break
         if cur is not None:
@@ -834,15 +858,16 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         if sounding_range:
             shifted_rng = (sounding_range[0] - 12 * octave_shift,
                            sounding_range[1] - 12 * octave_shift)
-        moved, switches = find_keyswitches(moved, shifted_rng, beat)
+        moved, switches = find_keyswitches(moved, shifted_rng, beat,
+                                           set(ks_map or ()))
         if switches:
             gov = assign_keyswitches(moved, switches, beat)
-            for on, sp in gov.items():
-                word = (ks_map or {}).get(sp)
+            for on, (sp, sv) in gov.items():
+                word = ks_word_for((ks_map or {}).get(sp), sv)
                 if word is None:
                     ks_unmapped.setdefault(sp, []).append(on)
                 ks_by_on[on] = word
-            used = sorted({sp for _o, _f, sp in switches})
+            used = sorted({sp for _o, _f, sp, _v in switches})
             named = [f"{midi_name(sp)} (MIDI {sp}) is "
                      f"{(ks_map or {})[sp]}" for sp in used
                      if sp in (ks_map or {})]

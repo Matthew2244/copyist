@@ -1313,6 +1313,9 @@ def parse_ks_line(s, loc):
     Note names are scientific (middle C is C4, MIDI 60); a library that
     counts middle C as C3 is one octave off, so the MIDI number is
     always accepted too — and the findings name both."""
+    # a bracketed note after the name is for the reader of the map
+    # ("[screenshot only]"), not part of the articulation
+    s = re.sub(r'\s*\[[^\]]*\]\s*$', '', s)
     m = re.match(r'(\d{1,3})\s+(.+)$', s)
     if m and int(m.group(1)) < 128:
         return int(m.group(1)), m.group(2).strip()

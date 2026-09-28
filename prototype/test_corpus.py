@@ -2070,6 +2070,40 @@ def check_keyswitches():
         check("and the next build knows them (only the skipped key is "
               "still asked about)", f3.count("has no name yet") == 1
               and "D1 (MIDI 26)" in f3, f3)
+        # a named key just below the range (Cuba's trumpet sits its
+        # switches at MIDI 48-51) is a switch; the same key unnamed is
+        # a note, so a low note really played is never eaten
+        tp = []
+        tp.append((0, 30, 48, 100))
+        tp += [(i * 480, i * 480 + 120, 72, 90) for i in range(1, 4)]
+        smf.write(os.path.join(tmp, "t.mid"), tp, 480, 100)
+        for mapped, want_notes in ((True, 3), (False, 4)):
+            tc = os.path.join(tmp, "t.chart")
+            open(tc, "w").write(
+                'title: T\nkey: C\nmeter: 4/4\ntempo: 100\n\n'
+                + ('keyswitches "Cuba":\n  48 Staccato (short)\n\n'
+                   if mapped else '')
+                + 'band:\n  trumpet, demo "t.mid"'
+                + (', keyswitches "Cuba"' if mapped else '') + '\n\n'
+                'section A, 1 bars\n  chords: C\n'
+                '  trumpet: from demo bars 1-1\n')
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(tc, os.path.join(tmp, "tb"))
+            tx = open(os.path.join(tmp, "tb", "T — trumpet.musicxml")).read()
+            got = len(re.findall(r'<note>(?:(?!</note>).)*<pitch>', tx,
+                                 re.S))
+            check("a mapped key just below the range is a switch"
+                  if mapped else "the same key unmapped stays a note",
+                  got == want_notes
+                  and (tx.count('<staccato/>') == 3) == mapped, str(got))
+        check("a key's velocity picks its half of a split map line",
+              chartdemo.ks_word_for("low velo: mute | high velo: x-note",
+                                    60) == "mute"
+              and chartdemo.ks_word_for("low velo: mute | high velo: "
+                                        "x-note", 120) == "x-note"
+              and chartdemo.ks_meaning("x-note")[1] == "dead notes"
+              and chartdemo.ks_meaning("select string E low") ==
+              (None, None, False, None))
         try:
             chartc.keyswitch_map({'keyswitches': {}}, "Nobody's Map")
             got = ""
