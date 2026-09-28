@@ -212,7 +212,102 @@ SETTINGS = (
     ('countin', '', "count-in bars offered whenever a demo comes in "
                     "and nothing in the file says otherwise — any "
                     "number you like"),
+    ('exports', 'pages, listen, braille, read-alouds',
+     "what a build makes, any mix of: pages (the PDF charts), listen "
+     "(the MP3), braille (a .brf file per part), braille pages (the "
+     "braille drawn as dots, for sighted eyes), read-alouds — or all"),
+    ('braille_to', '', "a folder where braille files land — empty keeps "
+                       "them with the build"),
 )
+
+EXPORTS = (('pages', 'the PDF charts'), ('listen', 'the listen MP3'),
+           ('braille', 'a braille file for each part'),
+           ('braille pages', 'the braille drawn as dots'),
+           ('read-alouds', 'the spoken read-alouds'))
+_EXPORT_WORDS = {
+    'pages': 'pages', 'page': 'pages', 'pdf': 'pages', 'pdfs': 'pages',
+    'charts': 'pages', 'listen': 'listen', 'mp3': 'listen',
+    'audio': 'listen', 'braille': 'braille', 'brf': 'braille',
+    'braille pages': 'braille pages', 'braille view': 'braille pages',
+    'braille pdf': 'braille pages', 'read-alouds': 'read-alouds',
+    'read alouds': 'read-alouds', 'readalouds': 'read-alouds',
+    'spoken': 'read-alouds', 'text': 'read-alouds'}
+
+
+def make_braille(sources, title, where, ex):
+    """A braille file (BRF, BANA music code) for every part that can be
+    brailled, and/or the braille drawn as dots; each one read back by
+    the proofreader and compared with the score before it is kept."""
+    import chartbraille
+    made, notyet, doubts = [], [], []
+    for src in sources:
+        base = os.path.basename(src)[:-len('.musicxml')]
+        if base.endswith('— score'):
+            continue
+        xml = open(src, encoding='utf-8').read()
+        for pid, pname in chartbraille.document_parts(xml)[:1]:
+            text, why = chartbraille.part_to_brf(xml, pid, title, pname)
+            if text is None:
+                notyet.append((pname, '; '.join(why)))
+                continue
+            for w in why:
+                say(f"Braille for {pname}: {w}.")
+            problems = chartbraille.proofread(xml, pid, text)
+            if problems:
+                doubts.append(f"{pname}: {problems[0]}")
+            if 'braille' in ex:
+                with open(os.path.join(where, base + '.brf'), 'wb') as f:
+                    f.write(text.encode('ascii', 'ignore'))
+            if 'braille pages' in ex:
+                chartbraille.brf_pages_pdf(
+                    text, os.path.join(where, base + ' (braille view).pdf'),
+                    f"{title} - {pname}")
+            made.append(pname)
+    if made:
+        what = {frozenset({'braille'}): "Braille files",
+                frozenset({'braille pages'}): "Braille views (the dots "
+                "drawn for sighted eyes)",
+                frozenset({'braille', 'braille pages'}): "Braille files "
+                "and braille views"}[frozenset(ex & {'braille',
+                                                     'braille pages'})]
+        say(f"{what} for {len(made)} part(s): " + ", ".join(made) + ". "
+            + ("Every one read back note for note against the score."
+               if not doubts else ""))
+    for d in doubts:
+        say(f"The braille proofreader disagrees with the score in {d} — "
+            "report that before anyone reads it.")
+    if notyet:
+        by = {}
+        for name, why in notyet:
+            by.setdefault(why, []).append(name)
+        say("No braille yet for " + "; ".join(
+            (", ".join(n[:-1]) + " and " + n[-1] if len(n) > 1 else n[0])
+            + f" — {why}" for why, n in by.items()) + ".")
+
+
+def parse_exports(text):
+    """'pages, braille' -> the set of exports; 'all' is every one. A
+    word it does not know is refused by name."""
+    text = (text or '').strip().lower()
+    if text in ('all', 'everything'):
+        return {k for k, _ in EXPORTS}
+    out = set()
+    for w in re.split(r'\s*(?:,|\+|\band\b)\s*', text):
+        w = w.strip()
+        if not w:
+            continue
+        if w not in _EXPORT_WORDS:
+            sys.exit(f"chart: '{w}' is not an export — the choices are "
+                     + ", ".join(k for k, _ in EXPORTS) + ", or all.")
+        out.add(_EXPORT_WORDS[w])
+    return out
+
+
+def say_exports(ex):
+    """The exports in a sentence, in their own order."""
+    names = [k for k, _ in EXPORTS if k in ex]
+    return (", ".join(names[:-1]) + " and " + names[-1]
+            if len(names) > 1 else names[0] if names else "nothing")
 
 
 def sounds_home(cfg=None):
@@ -300,6 +395,11 @@ def run_settings(argv):
         sys.exit("chart: the feels are eighths, straight, sixteenths, "
                  "triplets, eighth triplets and sixteenth triplets "
                  "(or empty to let each line decide).")
+    if k == 'exports':
+        v = ", ".join(k2 for k2, _ in EXPORTS if k2 in parse_exports(v))
+        if not v:
+            sys.exit("chart: exports needs at least one of "
+                     + ", ".join(k2 for k2, _ in EXPORTS) + ".")
     if k == 'countin' and v and not v.isdigit():
         sys.exit("chart: countin is a number of bars, like 1 or 2 "
                  "(or empty for none).")
@@ -321,6 +421,9 @@ def run_settings(argv):
                  if v == 'yes' else
                  "open is off — the pages wait in the build folder."),
     }
+    if k == 'exports':
+        lines[k] = (f"exports is now {v} — every build makes "
+                    f"{say_exports(parse_exports(v))}.")
     if k == 'sounds':
         found = resolve_sounds(cfg)
         if not v:
@@ -824,12 +927,14 @@ def main():
     ap.add_argument('chart', help="the .chart file")
     ap.add_argument('command', nargs='?', default='build',
                     choices=['build', 'check', 'read', 'parts', 'diff',
-                             'listen', 'new', 'edit', 'keys', 'drums',
+                             'listen', 'braille', 'new', 'edit', 'keys',
+                             'drums',
                              'b', 'c', 'r', 'p', 'd', 'l', 'n', 'e'],
                     help="build (default): everything; check: compile "
                          "only; read: speak the chart; parts: list the "
                          "band; diff: what changed since the last build; "
-                         "listen: just the MP3; new: interview a starter "
+                         "listen: just the MP3; braille: just the braille; "
+                         "new: interview a starter "
                          "chart into existence; edit: the roadmap "
                          "conversation — describe the tune, Copyist "
                          "writes the sections. Each has a one-letter "
@@ -842,6 +947,11 @@ def main():
                     help="skip the PDFs")
     ap.add_argument('--no-listen', action='store_true',
                     help="skip the listening MP3")
+    ap.add_argument('--exports',
+                    help='what this build makes, overriding the setting '
+                         'once: any of pages, listen, braille, "braille '
+                         'pages", read-alouds, or all — e.g. --exports '
+                         '"pages, braille"')
     ap.add_argument('--solo',
                     help='also bounce an isolated listen of just these '
                          'parts, e.g. --solo "bari,trombone"')
@@ -936,7 +1046,19 @@ def main():
                 say(s)
         return
 
-    do_reads = args.command != 'listen'
+    # what this build makes: the setting, or --exports for this once;
+    # listen and braille are the one-thing commands
+    ex = parse_exports(args.exports or cfg['exports'])
+    if args.no_pages:
+        ex.discard('pages')
+    if args.no_listen:
+        ex.discard('listen')
+    if args.command == 'listen':
+        ex = {'listen'}
+    elif args.command == 'braille':
+        ex = {'braille'} | ({'braille pages'} & parse_exports(
+            args.exports or cfg['exports']))
+    do_reads = 'read-alouds' in ex
 
     # remember which chart text produced the previous build, so a source
     # diff is always possible
@@ -1036,7 +1158,7 @@ def main():
 
     look = chart['header'].get('look') or cfg['look'] or None
     look_style = write_style(look, title_dir) if look else None
-    if not args.no_pages and args.command != 'listen':
+    if 'pages' in ex:
         say("Drawing the pages.")
     pages = 0
     borrowed = []
@@ -1050,7 +1172,7 @@ def main():
         if '— for listening' in src:
             listen_src = src
             continue
-        if args.no_pages or args.command == 'listen':
+        if 'pages' not in ex:
             continue
         progress(12 + 13 * pages / max(len(to_draw), 1),
                  "drawing " + os.path.basename(src)
@@ -1073,7 +1195,7 @@ def main():
         else:
             failed.append(os.path.basename(src) + f" ({why})"
                           if why else os.path.basename(src))
-    if not args.no_pages and args.command != 'listen':
+    if 'pages' in ex:
         if borrowed:
             say(f"{pages} pages — Copyist drew "
                 f"{pages - len(borrowed)} itself; MuseScore covered "
@@ -1084,7 +1206,11 @@ def main():
         if failed:
             say("No page for " + ", ".join(failed) + ".")
 
-    if not args.no_listen and listen_src:
+    if ex & {'braille', 'braille pages'}:
+        make_braille(to_draw, title, dest_dir(cfg, 'braille_to', title_dir),
+                     ex)
+
+    if 'listen' in ex and listen_src:
         band = resolve_sounds(cfg)
         robot = os.path.join(listen_dir,
                              f"{title} — chart as written "
@@ -1170,8 +1296,7 @@ def main():
     say("Done. Proof it by ear before a single player sees it.")
     tname = os.path.splitext(os.path.basename(path))[0]
     if cfg['notify'] == 'yes':
-        notify_build(tname, f"{pages} page(s) built, listen ready."
-                     if pages else "Built — listen ready.")
+        notify_build(tname, f"Built: {say_exports(ex)}.")
     progress(100, "done")
     if cfg['open'] == 'yes' and pages:
         open_pages(pages_dir)

@@ -776,6 +776,7 @@ def mark_accidentals(meas, state):
     else:
         base = {}
     cur = {}                     # (staff, step, octave) -> alter in force
+    held = {}                    # tied in from the last bar: its alter
     for pos, notes, staff, voice in sorted(
             meas['events'], key=lambda e: (e[0], e[2], e[3])):
         perc = state['clefs'].get(staff) == 'percussion'
@@ -785,9 +786,17 @@ def mark_accidentals(meas, state):
                 continue
             k = (staff, n.step, n.octave)
             want = n.alter or 0
-            if want != cur.get(k, base.get(n.step, 0)) \
-                    and not n.tie_stop:
+            if n.tie_stop and k not in cur:
+                # tied in from the last bar: the tie carries the
+                # accidental for this note only, so a later note on the
+                # same line shows its own again (Gould) — and says so
+                # too where it differs from the one just held over
+                held[k] = want
+                continue
+            if (want != cur.get(k, base.get(n.step, 0)) or
+                    (k in held and want != held[k])) and not n.tie_stop:
                 n.show_acc = want
+            held.pop(k, None)
             cur[k] = want
 
 

@@ -297,7 +297,23 @@ sample shelf lives), `midi` (the folder your played files start in),
 (offered
 when a demo says nothing itself). And it says where finished files
 go: `pages_to`, `listens_to` and `spoken_to` each name a folder for
-that kind of file, and empty keeps everything with the build. And every command has a one-letter
+that kind of file, and empty keeps everything with the build;
+`braille_to` does the same for braille.
+
+`exports` says what a build makes, any mix of five things: `pages`
+(the PDF charts), `listen` (the MP3), `braille` (a .brf file for each
+part), `braille pages` (the braille drawn as dots) and `read-alouds`.
+Out of the box it is pages, listen, braille and read-alouds.
+
+    chart set exports=pages, braille       # charts and braille, no audio
+    chart set exports=all
+    chart tune.chart --exports "listen"    # just this once
+
+In the Mac app, Settings has a switch for each one under **What a
+build makes**, and every switch says whether it is on. The MP3 alone
+and the braille alone each have their own button on the Build tab.
+
+And every command has a one-letter
 shortcut: `chart tune.chart c` checks, `b` builds, `r` reads, `p`
 lists the band, `d` diffs, `l` bounces the listen, `n` interviews,
 `e` is the roadmap conversation.
@@ -769,6 +785,44 @@ And when only your ears matter: `listen` skips the pages, `--from-bar
 The build also prints findings: every place it moved a note into range,
 unified a repeated phrase's cutoff, or noticed your timing sitting loose
 on a grid. A finding is a question for your ear, not an apology.
+
+## Braille
+
+Every part a single player reads (horns, strings, voice, bass, guitar)
+comes out as a braille music file, a `.brf`, beside its PDF:
+
+    python3 prototype/chart.py "Uptown Local.chart" braille
+
+`braille` makes only that; a full build makes it too while `exports`
+includes braille. The files follow BANA's *Music Braille Code 2015*
+in the single-line layout a player reads from: the title and part,
+the tempo, key and time heading, the music in numbered segments with
+rehearsal letters on their own lines, chord symbols on a second line
+under the notes they fall on, and pages of 40 cells by 25 lines, the
+size a braille embosser or notetaker expects. Octave marks, accidentals,
+ties, slurs, triplets and other groups, chords written as intervals,
+two voices in a bar as an in-accord, repeats and endings, D.S. and the
+coda, dynamics and every word on the page are all brailled by the
+code's own rules.
+
+Print slashes have no sign in braille music. Copyist writes the word
+*slashes*, then a rest for each slash, with the changes underneath,
+and a transcriber's note at the top of the part says so. When a part
+has chords, the same note says which way its intervals read.
+
+Before a build keeps any braille, a separate reader, written apart
+from the braille writer on purpose, reads every file back by the
+code's rules and compares it with the score note by note: pitch,
+octave, accidental, value and dot. The build says so when every part
+agrees and names the note when one does not. Keyboard music (bar over
+bar) and percussion are not brailled yet, and a vocal part's braille
+carries its notes but not yet its lyrics; the build names each one.
+
+**Braille pages** draws the braille as dots, one PDF page for every
+braille page, raised dots solid and the empty places in each cell
+faint, with each cell's braille ASCII beneath it. It is for sighted
+eyes: a teacher, a bandmate, a proofreader who wants to see what the
+reader's fingers meet.
 
 ## Writing with other people
 

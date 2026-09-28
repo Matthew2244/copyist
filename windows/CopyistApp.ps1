@@ -244,8 +244,9 @@ function Do-ReadPart {
 $settingGroups = [ordered]@{
     'Your charts - name and look'        = @('composer', 'look')
     'When a build lands - ping and open' = @('notify', 'open')
+    'What a build makes'                 = @('exports')
     'Where finished files go'            = @('pages_to', 'listens_to',
-                                             'spoken_to')
+                                             'spoken_to', 'braille_to')
     'MIDI and demos'                     = @('midi', 'quant', 'countin')
     'Sounds - the sample shelf'          = @('sounds', 'sounds_dir')
 }
@@ -284,6 +285,9 @@ function Do-Settings {
             }
             if ($c -eq 'countin') {
                 $hint = ' Count-in bars offered when a demo says nothing itself; any number, empty reads the demo.'
+            }
+            if ($c -eq 'exports') {
+                $hint = ' Any mix of pages, listen, braille, braille pages and read-alouds, separated by commas - or all.'
             }
             if ($c -like '*_to') {
                 $hint = ' A folder path; empty keeps these files with the build.'
@@ -359,7 +363,7 @@ function Do-BringIn {
 # Five tabs, the Mac app's five. Ctrl+1 to Ctrl+5 jump straight to one
 # and put focus on the tab control, so NVDA and JAWS say "Build tab, 2
 # of 5" themselves; Ctrl+Tab steps through them, as in any Windows tab
-# control. The work has keys too: Ctrl+B builds, Ctrl+K checks, Ctrl+L
+# control. The work has keys too: Ctrl+B builds, Ctrl+Shift+B makes just the braille, Ctrl+K checks, Ctrl+L
 # listens, Ctrl+O opens a chart. Each button names its key in its
 # accessible description, so the screen reader says it after the name.
 
@@ -450,12 +454,14 @@ Add-Action $chartFlow 'Tell me the tune' 'The roadmap conversation, in a console
     $p = Pick-Chart; if ($p) { Open-Talk $p 'edit'; Update-Working } }
 
 $buildFlow = New-Page 1
-Add-Action $buildFlow 'Build it' 'Pages, the listen MP3, read-alouds and findings.' 'Ctrl+B' {
-    Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
+Add-Action $buildFlow 'Build it' 'Everything your settings ask for: pages, the listen MP3, braille, read-alouds and findings.' 'Ctrl+B' {
+    Do-Build '' 'Building everything your settings ask for.' }
 Add-Action $buildFlow 'Check it' 'Compile only - every measure gets counted, nothing rendered.' 'Ctrl+K' {
     Do-Build 'c' 'Checking the chart - every measure gets counted.' }
 Add-Action $buildFlow 'What changed' 'Since the last build, by part and by bar.' 'Ctrl+D' {
     Do-Build 'd' 'Reading what changed since your last build, part by part.' }
+Add-Action $buildFlow 'Braille' 'Just the braille: a file for each part, read back against the score.' 'Ctrl+Shift+B' {
+    Do-Build 'braille' 'Making the braille, each part read back against the score.' }
 Add-Action $buildFlow 'How is the build going' 'The news on a background build, on a button press, never a timer.' 'F5' {
     Do-HowGoes }
 
@@ -504,7 +510,10 @@ $form.Add_KeyDown({
         $e.SuppressKeyPress = $true
         switch ($k) {
             'O' { if (Open-Chart) { Update-Working } }
-            'B' { Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
+            'B' {
+                if ($e.Shift) { Do-Build 'braille' 'Making the braille, each part read back against the score.' }
+                else { Do-Build '' 'Building everything your settings ask for.' }
+            }
             'K' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }
             'D' { Do-Build 'd' 'Reading what changed since your last build, part by part.' }
             'L' { Do-Listen }
@@ -520,7 +529,7 @@ $form.Add_KeyDown({
     if ($k -eq 'F5') { Do-HowGoes; $e.Handled = $true }
     if ($k -eq 'F1') {
         Go-Tab 4
-        Show-Info 'Ctrl+1 to Ctrl+5 move between the tabs: Chart, Build, Listen and read, Conversation, Settings. Ctrl+B builds, Ctrl+K checks, Ctrl+L listens, Ctrl+O opens a chart, F5 asks how a build is going.'
+        Show-Info 'Ctrl+1 to Ctrl+5 move between the tabs: Chart, Build, Listen and read, Conversation, Settings. Ctrl+B builds, Ctrl+Shift+B makes just the braille, Ctrl+K checks, Ctrl+L listens, Ctrl+O opens a chart, F5 asks how a build is going.'
         $e.Handled = $true
     }
 })

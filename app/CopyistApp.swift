@@ -517,6 +517,37 @@ final class AppModel: ObservableObject {
             .appendingPathComponent("build")
     }
 
+    /// Where braille lands: the "braille_to" setting, else the build
+    /// folder — the engine's rule.
+    func brailleFolder() -> URL? {
+        guard let c = chart else { return nil }
+        let cfgURL = URL(fileURLWithPath: NSHomeDirectory()
+            + "/.config/copyist/config.json")
+        if let d = try? Data(contentsOf: cfgURL),
+           let j = try? JSONSerialization.jsonObject(with: d)
+                as? [String: Any],
+           let to = (j["braille_to"] as? String)?
+                .trimmingCharacters(in: .whitespaces), !to.isEmpty {
+            return URL(fileURLWithPath:
+                (to as NSString).expandingTildeInPath)
+        }
+        return URL(fileURLWithPath: c).deletingLastPathComponent()
+            .appendingPathComponent("build")
+    }
+
+    /// This chart's braille: the .brf files, or the dot pages.
+    func brailleFiles(views: Bool) -> [URL] {
+        guard let dir = brailleFolder() else { return [] }
+        let title = chartName.replacingOccurrences(of: "/", with: " - ")
+        let items = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil)) ?? []
+        return items.filter {
+            let n = $0.lastPathComponent
+            return n.hasPrefix(title + " —") && (views
+                ? n.hasSuffix("(braille view).pdf") : n.hasSuffix(".brf"))
+        }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
     /// The conductor score this chart's last build drew, if any.
     func scorePDF() -> URL? {
         guard let dir = pagesFolder(), let c = chart else { return nil }
@@ -841,6 +872,9 @@ struct DeskCommands: Commands {
             }
             .keyboardShortcut("d", modifiers: .command)
             .disabled(model?.chart == nil)
+            Button("Braille") { model?.run("Braille", args: ["braille"]) }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+                .disabled(model?.chart == nil)
             Divider()
             Button("Listen…") { model?.tab = .listen }
                 .keyboardShortcut("l", modifiers: .command)
@@ -1304,6 +1338,14 @@ struct BuildTab: View {
                              enabled: model.chart != nil) {
                     model.run("What changed", args: ["diff"])
                 }
+                ActionButton(icon: "hand.point.up.braille",
+                             title: "Braille",
+                             line: "Just the braille: a file for each "
+                                 + "part, read back against the score.",
+                             keys: "⇧⌘B", pal: pal,
+                             enabled: model.chart != nil) {
+                    model.run("Braille", args: ["braille"])
+                }
             }
             .fixedSize(horizontal: false, vertical: true)
             RunPanel(pal: pal, tab: .build)
@@ -1448,6 +1490,48 @@ struct ResultButtons: View {
                 .accessibilityHint("Command P")
             }
             if model.chart != nil {
+                if model.runOutput.contains("Braille files")
+                    || model.runOutput.contains("Braille views") {
+                    let brf = model.brailleFiles(views: false)
+                    let views = model.brailleFiles(views: true)
+                    if !brf.isEmpty {
+                        Button {
+                            NSWorkspace.shared
+                                .activateFileViewerSelecting(brf)
+                        } label: {
+                            Label("Show the braille files",
+                                  systemImage: "hand.point.up.braille")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("\(brf.count) files, selected "
+                                           + "in the Finder")
+                    }
+                    if !views.isEmpty {
+                        Button {
+                            views.forEach { NSWorkspace.shared.open($0) }
+                        } label: {
+                            Label("See the braille as dots",
+                                  systemImage: "circle.grid.3x3")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("Opens \(views.count) page "
+                                           + "file(s), drawn for sighted "
+                                           + "eyes")
+                    } else {
+                        Button {
+                            model.run("Braille", args: [
+                                "braille", "--exports",
+                                "braille, braille pages"])
+                        } label: {
+                            Label("Draw the braille as dots",
+                                  systemImage: "circle.grid.3x3")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("For a sighted teacher or "
+                                           + "bandmate: every braille page "
+                                           + "drawn as dots")
+                    }
+                }
                 if model.runOutput.contains("aren't General MIDI drums") {
                     Button {
                         model.startTalk(["drums"])
@@ -1868,6 +1952,15 @@ struct SettingsView: View {
                         }
                     }
                 }
+                group("What a build makes") {
+                    Text("Any mix. Listen and Braille on the Build tab "
+                         + "make just their one thing.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(pal.sub)
+                    ForEach(exportChoices, id: \.0) { key, label in
+                        Toggle(label, isOn: export(key))
+                    }
+                }
                 group("When a build lands") {
                     Toggle("Ping my phone",
                            isOn: yesno("notify"))
@@ -1882,6 +1975,7 @@ struct SettingsView: View {
                     pathRow("PDF pages", key: "pages_to")
                     pathRow("Listen MP3s", key: "listens_to")
                     pathRow("Spoken read-alouds", key: "spoken_to")
+                    pathRow("Braille files", key: "braille_to")
                 }
                 group("MIDI and demos") {
                     Text("The folder your playing comes from, and how "
@@ -1988,6 +2082,29 @@ struct SettingsView: View {
     func bind(_ key: String) -> Binding<String> {
         Binding(get: { cfg[key] ?? "" },
                 set: { set(key, $0) })
+    }
+
+    let exportChoices = [
+        ("pages", "Pages — the PDF charts"),
+        ("listen", "Listen — the MP3"),
+        ("braille", "Braille — a file for each part"),
+        ("braille pages", "Braille pages — the braille drawn as dots"),
+        ("read-alouds", "Read-alouds — each part spoken as text")]
+
+    /// The exports setting as a set of words; unset means the default.
+    func exportsNow() -> [String] {
+        let v = cfg["exports"] ?? "pages, listen, braille, read-alouds"
+        return v.split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    func export(_ key: String) -> Binding<Bool> {
+        Binding(get: { exportsNow().contains(key) },
+                set: { on in
+                    var now = exportsNow().filter { $0 != key }
+                    if on { now.append(key) }
+                    set("exports", now.joined(separator: ", "))
+                })
     }
 
     func yesno(_ key: String) -> Binding<Bool> {

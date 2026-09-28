@@ -2657,6 +2657,22 @@ def check_settings():
         except SystemExit:
             bad = True
         check("a look nobody has refuses in a sentence", bad, "accepted")
+        with redirect_stdout(io.StringIO()) as out:
+            chart.run_settings(['set', 'exports=pdf and brf'])
+        check("exports takes plain words and says what a build makes",
+              chart.load_cfg()['exports'] == 'pages, braille'
+              and 'makes pages and braille' in out.getvalue(),
+              out.getvalue())
+        check("exports: all is every one",
+              chart.parse_exports('all') == {k for k, _ in chart.EXPORTS})
+        bad = False
+        try:
+            with redirect_stdout(io.StringIO()):
+                chart.run_settings(['set', 'exports=pages, tuba'])
+        except SystemExit:
+            bad = True
+        check("an export nobody makes refuses in a sentence", bad,
+              "accepted")
     finally:
         chart.CONFIG = real
         shutil.rmtree(tmp, ignore_errors=True)
@@ -3242,6 +3258,347 @@ def run_fixture(name, key, expect_verdicts):
             check(f"round-trip note accuracy 100% (got {acc:.1f}%)", acc == 100.0)
 
     shutil.rmtree(tmp, ignore_errors=True)
+
+
+_DUR = {'w': 96, 'h': 48, 'q': 24, 'e': 12, 's': 6, 't': 3}
+_TYPE = {'w': 'whole', 'h': 'half', 'q': 'quarter', 'e': 'eighth',
+         's': '16th', 't': '32nd'}
+
+
+def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test'):
+    """A one-part MusicXML score from compact bars, for the braille tests
+    (made-up material; nobody's music). A bar is a list of tokens, or a
+    tuple of two lists for two voices on the staff. Tokens:
+      "C5 q"  "Bb4 e."  "C5+E5+G5 h" (a chord)  "r q"  "r w" (whole bar)
+      "C5 q ~" (tied into the next note of that pitch)  "D4 q slash"
+      "C5 q cue"  "t3 C5 e" (triplet)  "t6 C5 s" (sextuplet)
+      "{C7}" a chord symbol   '"words"' a direction   "#A" rehearsal
+      "|:" ":|" "||" "|]" bar lines   "[1" "[2" voltas   "segno" "coda"
+    """
+    out = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<score-partwise version="3.1"><part-list>',
+           '<score-part id="P1"><part-name>Test part</part-name>'
+           '</score-part></part-list><part id="P1">']
+    beats, unit = time
+    full = beats * 96 // unit
+    held = {}
+    for bi, bar in enumerate(bars):
+        out.append(f'<measure number="{bi + 1}">')
+        if bi == 0:
+            sign, line = ('G', 2) if clef == 'G' else ('F', 4)
+            out.append(f'<attributes><divisions>24</divisions><key>'
+                       f'<fifths>{fifths}</fifths></key><time><beats>'
+                       f'{beats}</beats><beat-type>{unit}</beat-type></time>'
+                       f'<clef><sign>{sign}</sign><line>{line}</line></clef>'
+                       f'</attributes>')
+        voices = bar if isinstance(bar, tuple) else (bar,)
+        right = ''
+        for vi, toks in enumerate(voices):
+            if vi:
+                out.append(f'<backup><duration>{full}</duration></backup>')
+            for t in toks:
+                if t.startswith('{'):
+                    root, kind = t[1], t[2:-1]
+                    out.append(f'<harmony><root><root-step>{root}'
+                               f'</root-step></root><kind text="{kind}">'
+                               f'dominant</kind></harmony>')
+                    continue
+                if t.startswith('"'):
+                    out.append('<direction placement="above"><direction-'
+                               f'type><words>{t[1:-1]}</words></direction-'
+                               'type></direction>')
+                    continue
+                if t.startswith('#'):
+                    out.append('<direction placement="above"><direction-'
+                               f'type><rehearsal>{t[1:]}</rehearsal>'
+                               '</direction-type></direction>')
+                    continue
+                if t in ('segno', 'coda'):
+                    out.append('<direction placement="above"><direction-'
+                               f'type><{t}/></direction-type></direction>')
+                    continue
+                if t == '|:':
+                    out.append('<barline location="left"><bar-style>heavy-'
+                               'light</bar-style><repeat direction="forward"'
+                               '/></barline>')
+                    continue
+                if t in ('[1', '[2'):
+                    out.append('<barline location="left"><ending number="'
+                               f'{t[1]}" type="start"/></barline>')
+                    continue
+                if t in (':|', '||', '|]'):
+                    right = t
+                    continue
+                parts = t.split()
+                tmod = None
+                if parts[0] in ('t3', 't6'):
+                    tmod = int(parts[0][1])
+                    parts = parts[1:]
+                pitch, dur = parts[0], parts[1]
+                flags = parts[2:]
+                d = _DUR[dur[0]]
+                dots = dur.count('.')
+                d = d * (2 - 1 / 2 ** dots)
+                if tmod:
+                    d = d * (2 if tmod == 3 else 4) / tmod
+                d = int(d)
+                tm = ('' if not tmod else
+                      f'<time-modification><actual-notes>{tmod}</actual-'
+                      f'notes><normal-notes>{2 if tmod == 3 else 4}</normal-'
+                      f'notes></time-modification>')
+                if pitch == 'r':
+                    whole = ' measure="yes"' if dur == 'w' and \
+                        len(toks) == 1 else ''
+                    out.append(f'<note><rest{whole}/><duration>{d}</duration>'
+                               f'<voice>{vi + 1}</voice><type>{_TYPE[dur[0]]}'
+                               f'</type>{"<dot/>" * dots}{tm}</note>')
+                    continue
+                for k, p in enumerate(pitch.split('+')):
+                    step, octv = p[0], p[-1]
+                    alter = {'b': -1, '#': 1}.get(p[1], 0) if len(p) > 2 \
+                        else 0
+                    key = (vi, p)
+                    stop = held.pop(key, False)
+                    start = '~' in flags
+                    if start:
+                        held[key] = True
+                    ties = ('<tie type="stop"/>' if stop else '') + \
+                        ('<tie type="start"/>' if start else '')
+                    tied = ('<tied type="stop"/>' if stop else '') + \
+                        ('<tied type="start"/>' if start else '')
+                    out.append(
+                        '<note>' + ('<cue/>' if 'cue' in flags else '') +
+                        ('<chord/>' if k else '') +
+                        f'<pitch><step>{step}</step>' +
+                        (f'<alter>{alter}</alter>' if alter else '') +
+                        f'<octave>{octv}</octave></pitch><duration>{d}'
+                        f'</duration>{ties}<voice>{vi + 1}</voice><type>'
+                        f'{_TYPE[dur[0]]}</type>{"<dot/>" * dots}{tm}' +
+                        ('<notehead>slash</notehead>' if 'slash' in flags
+                         else '') +
+                        (f'<notations>{tied}</notations>' if tied else '') +
+                        '</note>')
+        if right == ':|':
+            out.append('<barline location="right"><bar-style>light-heavy'
+                       '</bar-style><repeat direction="backward"/></barline>')
+        elif right == '||':
+            out.append('<barline location="right"><bar-style>light-light'
+                       '</bar-style></barline>')
+        elif right == '|]':
+            out.append('<barline location="right"><bar-style>light-heavy'
+                       '</bar-style></barline>')
+        out.append('</measure>')
+    out.append('</part></score-partwise>')
+    return '\n'.join(out)
+
+
+def check_braille():
+    """BRF output (BANA Music Braille Code 2015): exact forms for the
+    rules, then every part read back by the separate proofreader."""
+    import chartbraille as cb
+    import chartbrailleread as rd
+    import chartengrave as ce
+
+    def brf(bars, chords=True, **kw):
+        text, why = cb.part_to_brf(_mx(bars, **kw), 'P1', 'Test',
+                                   'Test part', chords=chords)
+        return text
+
+    def music(text):
+        """The music lines, page furniture and heading gone."""
+        lines = text.replace('\r\n', '\n').replace('\f', '').split('\n')
+        return [l for l in lines[lines.index('') + 2:] if l.strip()]
+
+    def score_notes(bars, **kw):
+        xml = _mx(bars, **kw)
+        ms, _ = ce.parse_part(xml, 'P1')
+        out = []
+        for m in ms:
+            ev = sorted((e for e in m['events'] if e[2] == 1),
+                        key=lambda e: e[0])
+            for side in cb._sides(m, ev):
+                for _p, ns, _s, _v in side:
+                    pitched = [x for x in ns if not x.rest and not x.slash]
+                    if not pitched:
+                        continue
+                    w = (max if cb._down(m) else min)(pitched, key=cb._dia)
+                    rest = sorted((x for x in pitched if x is not w),
+                                  key=lambda x: abs(cb._dia(x) - cb._dia(w)))
+                    for x in [w] + rest:
+                        a = x.alter or 0
+                        out.append((x.step + ('#' * a if a > 0 else 'b' * -a)
+                                    + str(x.octave), {
+                                        'whole': 'W', '16th': 'W',
+                                        'half': 'H', '32nd': 'H',
+                                        'quarter': 'Q', '64th': 'Q',
+                                        'eighth': 'E', '128th': 'E'}[x.ntype],
+                                    x.dots))
+        return out
+
+    # BANA 5.3-1, the music line: plain rests for two bars, the numbered
+    # form for four, an octave mark only after the number
+    bars = [['F2 h', 'r q'], ['r w'], ['r w'], ['G2 h', 'r q'], ['r w'],
+            ['r w'], ['r w'], ['r w'], ['C2 h.', '|]']]
+    got = music(brf(bars, time=(3, 4), clef='F'))
+    check("braille: BANA 5.3-1 multi-measure rests",
+          got == ['#A ^QV MM RV #DM ^N\'<K'], repr(got))
+
+    # 3.2: octave marks by the interval rule, first note of a line marked
+    got = music(brf([['C4 q', 'E4 q', 'G4 q', 'C5 q'],
+                     ['G4 q', 'C4 q', 'B3 q', 'C4 q', '|]']]))
+    check("braille: octave marks follow 3.2.2",
+          got == ['#A "?$\\.? "\\?W?<K'], repr(got))
+
+    # 17.1 / 17.1.1: repeat and voltas touch the measure's first sign
+    got = ' '.join(music(brf([['|:', 'C5 w'], ['[1', 'D5 w', ':|'],
+                              ['[2', 'E5 w', '|]']])))
+    check("braille: repeat and voltas attach (17.1)",
+          '<7.Y' in got and '#1' in got and "<2" in got and '#2' in got,
+          got)
+
+    # 6.5 / 7.1 heading: key and time together, no space
+    text = brf([['C5 w', '|]']], fifths=-3, time=(3, 4))
+    check("braille: heading carries key and time as one sign",
+          '<<<#C4' in text.replace('\r\n', '\n'), text)
+
+    # 9.1: a chord from its top note, intervals downward, nearest first;
+    # the transcriber's note says which way they read (9.2)
+    text = brf([['D5+Ab4+F4+Bb3 q', 'r q', 'r h', '|]']])
+    m = ' '.join(music(text))
+    check("braille: chord as written note and intervals (9.1)",
+          '.:<#0<+' in m, m)
+    check("braille: interval direction stated (9.2)",
+          'INTERVALS READING DOWNWARD' in ' '.join(text.split()))
+    text = brf([['Bb2+F3+D4 q', 'r q', 'r h', '|]']], clef='F')
+    check("braille: a bass part writes the bottom note, reading up",
+          'READING UPWARD' in ' '.join(text.split()) and
+          '^W9' in ' '.join(music(text)), ' '.join(music(text)))
+
+    # 11.1.1: two voices on one staff, the higher first, in-accord
+    got = ' '.join(music(brf([(['A4 h', 'G4 h'], ['D5 w']), ['C5 w', '|]']])))
+    check("braille: two voices written as a full-measure in-accord",
+          '<>' in got and got.index('.Z') < got.index('<>'), got)
+
+    # 10.1.3 and Gould: a flat tied over the bar is not restated there,
+    # but a later note of that pitch in the new bar shows it again
+    got = ' '.join(music(brf([['r h', 'r q', 'Ab4 q ~'],
+                              ['Ab4 q', 'Bb4 q', 'Ab4 q', 'r q', '|]']])))
+    check("braille: accidental after a held-over tie shows again",
+          '@C [<W<[' in got, got)
+
+    # 2.4: a bar that reads two ways takes value signs
+    got = ' '.join(music(brf([['r h', 'G5 s', 'F5 t', 'E5 t', 'C5 s',
+                               'F5 e.', 'C5 s', 'D5 s', '|]']])))
+    check("braille: value signs where a bar is ambiguous (2.4)",
+          ',<1' in got and '^<1' in got, got)
+    got = ' '.join(music(brf([['C5 e.', 'D5 s', 'E5 q', 'F5 h', '|]']])))
+    check("braille: no value signs where only one reading fits",
+          ',<1' not in got and '^<1' not in got, got)
+
+    # 8.5: sextuplets, doubled for a run of four, single on the last
+    six = ['t6 C5 s'] * 24
+    got = ' '.join(music(brf([six + ['|]']])))
+    check("braille: a run of sextuplets doubles its sign (8.5)",
+          got.count("_6_6'") == 1 and got.count("_6'") == 2, got)
+
+    # 21.6: a cue note is marked small
+    got = ' '.join(music(brf([['C5 q cue', 'D5 q cue', 'r h', '|]']])))
+    check("braille: cue notes carry the small-type sign (21.6)",
+          got.count(',5') == 2, got)
+
+    # slashes inside a bar: rests under the word, never pitched notes
+    got = ' '.join(music(brf([['{C7}', 'B4 q slash', 'B4 q slash',
+                               'E5 q', 'F5 q', '|]']])))
+    check("braille: part-bar slashes are rests under 'slashes'",
+          '>SLASHES' in got and "'VV" in got and '?' not in
+          got.split('>SLASHES')[1][:4], got)
+
+    # 20.2: road-map words after the bar they close
+    got = ' '.join(music(brf([['C5 w', '"To Coda"'], ['D5 w', '||',
+                              '"D.S. al Coda"'], ['coda', 'E5 w', '|]']])))
+    check("braille: To Coda follows its measure with the coda sign",
+          "+L >TO CODA>" in got, got)
+    check("braille: D.S. follows the bar line, closed",
+          "<K' >D'S' AL CODA>" in got, got)
+
+    # page layout: 40 cells, 25 lines, form feeds between pages
+    long_bars = [['C5 e', 'D5 e', 'E5 e', 'F5 e', 'G5 e', 'A5 e', 'B5 e',
+                  'C6 e']] * 120 + [['C5 w', '|]']]
+    text = brf(long_bars)
+    pages = text.split('\f')
+    lines = [l for p in pages for l in p.split('\r\n')]
+    check("braille: no line wider than 40 cells",
+          max(len(l) for l in lines) <= 40)
+    check("braille: pages of at most 25 lines",
+          all(len([l for l in p.split('\r\n') if l != '']) <= 25
+              for p in pages) and len(pages) > 1)
+
+    # the build path: a made-up chart, compiled, brailled, proofread
+    import chart
+    import chartc
+    tmp = tempfile.mkdtemp()
+    try:
+        cp = os.path.join(tmp, "b.chart")
+        open(cp, "w").write(
+            'title: Braille Test\nkey: Bb\nmeter: 4/4\ntempo: 120\n\n'
+            'band:\n  trumpet\n  piano\n\n'
+            'figure line, 2 bars:\n'
+            '  notes: Bb4 q, D5 e, F5 e, triplet( G5 e, F5 e, Eb5 e ), '
+            'D5 q, C5 h+q, rest q\n\n'
+            'section A, 2 bars\n  chords: Bb, Eb7\n'
+            '  trumpet: figure line\n  piano: groove\n')
+        with redirect_stdout(io.StringIO()):
+            files = chartc.compile_chart(cp, os.path.join(tmp, "build"))
+        with redirect_stdout(io.StringIO()) as out:
+            chart.make_braille([f for f in files
+                                if f.endswith('.musicxml')
+                                and 'for listening' not in f],
+                               'Braille Test', tmp,
+                               {'braille', 'braille pages'})
+        said = out.getvalue()
+        brf_path = os.path.join(tmp, "Braille Test — trumpet.brf")
+        check("a build writes the part's braille and its dots",
+              os.path.exists(brf_path) and os.path.exists(os.path.join(
+                  tmp, "Braille Test — trumpet (braille view).pdf")),
+              said)
+        check("the build proofreads the braille and says so",
+              "read back note for note" in said, said)
+        check("the build names a part it cannot braille yet",
+              "No braille yet for piano" in said, said)
+        raw = open(brf_path, 'rb').read()
+        check("a BRF is plain ASCII with CRLF lines",
+              raw.isascii() and b'\r\n' in raw and b'\n\n' not in
+              raw.replace(b'\r\n', b''))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    # everything above, read back by the proofreader, note for note
+    cases = {
+        'rests': (bars, {'time': (3, 4), 'clef': 'F'}),
+        'chords': ([['D5+Ab4+F4+Bb3 q', 'C5+G4+E4 q', 'r h'],
+                    ['B5+G5+D5+A4 h', 'r h', '|]']], {}),
+        'bass chords': ([['Bb2+F3+D4 q', 'C3+G3+E4 q', 'r h', '|]']],
+                        {'clef': 'F'}),
+        'voices': ([(['A4 h', 'G4 h'], ['D5 w']), ['C5 w', '|]']], {}),
+        'ties': ([['r h', 'r q', 'Ab4 q ~'],
+                  ['Ab4 q', 'Bb4 q', 'Ab4 q', 'r q', '|]']], {}),
+        'values': ([['r h', 'G5 s', 'F5 t', 'E5 t', 'C5 s', 'F5 e.',
+                     'C5 s', 'D5 s', '|]']], {}),
+        'sextuplets': ([six + ['|]']], {}),
+        'flats': ([['Bb4 q', 'Eb5 q', 'Ab4 q', 'Db5 q'],
+                   ['Gb4 w', '|]']], {'fifths': -6}),
+        'long': (long_bars, {}),
+    }
+    for name, (bs, kw) in cases.items():
+        for chords in (True, False):
+            got, errs = rd.decode(cb.part_to_brf(_mx(bs, **kw), 'P1', 'T',
+                                                 'Test part',
+                                                 chords=chords)[0])
+            want = score_notes(bs, **kw)
+            check(f"braille reads back note for note: {name}"
+                  f"{'' if chords else ', melody only'}",
+                  got == want and not errs,
+                  f"{errs[:2]} {[(i, a, b) for i, (a, b) in enumerate(zip(want, got)) if a != b][:3]} {len(want)} vs {len(got)}")
 
 
 def check_drum_kit():
@@ -3911,6 +4268,7 @@ if __name__ == "__main__":
     check_settings()
     check_roadmap()
     check_drum_kit()
+    check_braille()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
