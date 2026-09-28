@@ -59,9 +59,52 @@ struct Palette {
 
 // MARK: - Talking to VoiceOver
 
-func announce(_ text: String) {
+func announce(_ text: String, queued: Bool = false) {
     if #available(macOS 14.0, *) {
-        AccessibilityNotification.Announcement(text).post()
+        var a = AttributedString(text)
+        // a queued line waits for VoiceOver to finish the one it is on
+        // (the tab heading it just landed on); the rest speak now
+        a.accessibilitySpeechAnnouncementPriority = queued ? .default : .high
+        AccessibilityNotification.Announcement(a).post()
+    }
+}
+
+// MARK: - The tabs
+
+enum Tab: Int, CaseIterable, Identifiable {
+    case chart = 1, build, listen, talk, settings
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .chart: return "Chart"
+        case .build: return "Build"
+        case .listen: return "Listen and read"
+        case .talk: return "Conversation"
+        case .settings: return "Settings"
+        }
+    }
+    var icon: String {
+        switch self {
+        case .chart: return "doc.text"
+        case .build: return "hammer"
+        case .listen: return "headphones"
+        case .talk: return "bubble.left.and.bubble.right"
+        case .settings: return "gearshape"
+        }
+    }
+    /// what the tab holds, said once on arrival
+    var blurb: String {
+        switch self {
+        case .chart: return "Choose, start or bring in a chart."
+        case .build: return "Build, check, and what changed."
+        case .listen: return "Hear the band from any bar, or have a part read aloud."
+        case .talk: return "Tell Copyist the tune, or teach it your keyswitches and drums."
+        case .settings: return "Every setting says what it is set to."
+        }
+    }
+    var key: KeyEquivalent { KeyEquivalent(Character(String(rawValue))) }
+    var spokenPlace: String {
+        "\(title), tab \(rawValue) of \(Tab.allCases.count)"
     }
 }
 
@@ -121,9 +164,14 @@ struct TalkLine: Identifiable, Equatable {
 // MARK: - The app's one model
 
 final class AppModel: ObservableObject {
-    enum Screen { case home, run, talk, settings }
-
-    @Published var screen: Screen = .home
+    @Published var tab: Tab = .chart
+    /// which tab the current run's transcript belongs on
+    @Published var runTab: Tab = .build
+    @Published var parts: [String] = []
+    @AppStorage("speakSteps") var speakSteps: Bool = true
+    @AppStorage("speakTabs") var speakTabs: Bool = true
+    private var lastSpokenStep = ""
+    private var lastSpokenAt = Date.distantPast
     @AppStorage("vibe") var vibeRaw: String = Vibe.system.rawValue
     @AppStorage("lastChart") var lastChart: String = ""
     @AppStorage("recentCharts") var recentRaw: String = "[]"
@@ -182,6 +230,36 @@ final class AppModel: ObservableObject {
         var r = recents.filter { $0 != path }
         r.insert(path, at: 0)
         recents = Array(r.prefix(8))
+        loadParts()
+    }
+
+    /// The band, one chair per line, for the pick lists.
+    func loadParts() {
+        guard let tool = Tool.find(), let c = chart,
+              FileManager.default.fileExists(atPath: c) else {
+            parts = []
+            return
+        }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: tool.python)
+        p.arguments = [tool.script, c, "parts", "--labels"]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = Pipe()
+        do { try p.run() } catch { parts = []; return }
+        p.waitUntilExit()
+        let d = pipe.fileHandleForReading.readDataToEndOfFile()
+        parts = p.terminationStatus == 0
+            ? String(decoding: d, as: UTF8.self)
+                .split(separator: "\n").map(String.init)
+                .filter { !$0.isEmpty }
+            : []
+    }
+
+    /// The transcript, one line per thing said.
+    var runLines: [String] {
+        runOutput.split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
     }
 
     // ---------------------------------------------------- the runner
@@ -195,17 +273,19 @@ final class AppModel: ObservableObject {
         "Dotting the ties, tying the dots…",
     ]
 
-    func run(_ title: String, args: [String], needsChart: Bool = true) {
+    func run(_ title: String, args: [String], needsChart: Bool = true,
+             on where_: Tab = .build) {
         guard let tool = Tool.find() else {
             runTitle = title
             runOutput = "I can't find the Copyist engine. There's no "
                 + "~/copyist checkout and no copy inside the app, "
                 + "which shouldn't happen. Reinstall with app/build.sh."
-            screen = .run
+            runTab = where_
+            tab = where_
             return
         }
         if running {
-            screen = .run
+            tab = runTab
             announce("Still working on \(runTitle)"
                      + (progressPct.map { " — \(Int($0)) percent" }
                         ?? "")
@@ -227,7 +307,9 @@ final class AppModel: ObservableObject {
         progressWhat = ""
         runBuffer = ""
         let wantsPlay = args.contains("build") || args.contains("listen")
-        screen = .run
+        lastSpokenStep = ""
+        runTab = where_
+        tab = where_
         startFlavor()
         let p = Process()
         p.executableURL = URL(fileURLWithPath: tool.python)
@@ -268,7 +350,7 @@ final class AppModel: ObservableObject {
                 }
                 announce("\(title) finished. \(last)" + opened
                          + (self.playURL != nil
-                            ? " Play it is on screen." : ""))
+                            ? " Play it, Command P, is ready." : ""))
             }
         }
         proc = p
@@ -298,7 +380,7 @@ final class AppModel: ObservableObject {
                 runOutput = "There is already a chart called \(base) in "
                     + "Copyist Charts. Open it from Recent charts, or "
                     + "rename the demo and bring it in again.\n"
-                screen = .run
+                tab = .chart
                 return
             }
             try? FileManager.default.createDirectory(
@@ -352,6 +434,7 @@ final class AppModel: ObservableObject {
                 if let cut = body.range(of: "% — ") {
                     progressPct = Double(body[..<cut.lowerBound])
                     progressWhat = String(body[cut.upperBound...])
+                    speakStep()
                 }
                 continue
             }
@@ -363,6 +446,17 @@ final class AppModel: ObservableObject {
             }
             runOutput += line + "\n"
         }
+    }
+
+    /// Each new build step, said aloud — but never more often than
+    /// every six seconds, so the voice never becomes a ticker.
+    private func speakStep() {
+        guard speakSteps, progressWhat != lastSpokenStep,
+              Date().timeIntervalSince(lastSpokenAt) >= 6 else { return }
+        lastSpokenStep = progressWhat
+        lastSpokenAt = Date()
+        announce("\(Int(progressPct ?? 0)) percent. \(progressWhat)",
+                 queued: true)
     }
 
     /// Where the PDF pages land: the "pages_to" setting, else the
@@ -439,7 +533,7 @@ final class AppModel: ObservableObject {
         questionDefault = ""
         talkBuffer = ""
         talking = true
-        screen = .talk
+        tab = .talk
         let p = Process()
         p.executableURL = URL(fileURLWithPath: tool.python)
         p.arguments = [tool.script, c] + args
@@ -584,31 +678,100 @@ func pickFile(start: String?, dirs: Bool = false) -> String? {
 
 @main
 struct CopyistApp: App {
+    init() {
+        // Copyist's own tabs are the tabs; the system's window tabs
+        // would put a second "Show Tab Bar" in View beside them
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+
     var body: some Scene {
         // each window is its own desk: its own chart, its own build —
         // File > New Window works on a second chart while the first
         // one cooks
         WindowGroup("Copyist") {
             ContentView()
-                .frame(minWidth: 780, minHeight: 560)
+                .frame(minWidth: 820, minHeight: 600)
         }
         .windowResizability(.contentMinSize)
-        .commands { BringInCommand() }
+        .commands { DeskCommands() }
     }
 }
 
-/// File > Bring In a File… (Command-Shift-I), for whichever window is
-/// in front — each window is its own desk.
-struct BringInCommand: Commands {
+/// The menu bar is where a VoiceOver user goes looking for what an app
+/// can do, so everything lives there with its key: the tabs in View
+/// (Command 1 to 5), the work in a Chart menu, Settings on Command
+/// comma like every Mac app. Each acts on the window in front.
+struct DeskCommands: Commands {
     @FocusedObject var model: AppModel?
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
+            Button("Open a Chart…") {
+                if let m = model { pickChart(m) }
+            }
+            .keyboardShortcut("o", modifiers: .command)
+            .disabled(model == nil)
             Button("Bring In a File…") {
                 if let m = model { pickAnything(m) }
             }
             .keyboardShortcut("i", modifiers: [.command, .shift])
             .disabled(model == nil)
+        }
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { model?.tab = .settings }
+                .keyboardShortcut(",", modifiers: .command)
+                .disabled(model == nil)
+        }
+        CommandGroup(before: .toolbar) {
+            ForEach(Tab.allCases) { t in
+                Button(t.title) { model?.tab = t }
+                    .keyboardShortcut(t.key, modifiers: .command)
+                    .disabled(model == nil)
+            }
+            Divider()
+        }
+        CommandMenu("Chart") {
+            Button("Build") { model?.run("Build", args: ["build"]) }
+                .keyboardShortcut("b", modifiers: .command)
+                .disabled(model?.chart == nil)
+            Button("Check") { model?.run("Check", args: ["check"]) }
+                .keyboardShortcut("k", modifiers: .command)
+                .disabled(model?.chart == nil)
+            Button("What Changed") {
+                model?.run("What changed", args: ["diff"])
+            }
+            .keyboardShortcut("d", modifiers: .command)
+            .disabled(model?.chart == nil)
+            Divider()
+            Button("Listen…") { model?.tab = .listen }
+                .keyboardShortcut("l", modifiers: .command)
+                .disabled(model?.chart == nil)
+            Button("Play the Last Listen") {
+                if let u = model?.newestMP3() { NSWorkspace.shared.open(u) }
+            }
+            .keyboardShortcut("p", modifiers: .command)
+            .disabled(model?.chart == nil)
+            Button("Open the Score") {
+                if let u = model?.scorePDF() { NSWorkspace.shared.open(u) }
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(model?.chart == nil)
+            Divider()
+            Button("Tell Me the Tune") {
+                if let m = model {
+                    if m.chart == nil && !newChart(m) { return }
+                    m.startTalk(["edit"])
+                }
+            }
+            .keyboardShortcut("t", modifiers: [.command, .shift])
+            .disabled(model == nil)
+            Divider()
+            Button("Stop") {
+                model?.stopRun()
+                announce("Stopped.")
+            }
+            .keyboardShortcut(".", modifiers: .command)
+            .disabled(model?.running != true)
         }
     }
 }
@@ -630,13 +793,19 @@ struct ContentView: View {
             pal.bg.ignoresSafeArea()
             VStack(spacing: 0) {
                 HeaderBar(pal: pal)
+                TabStrip(pal: pal)
                 Divider().overlay(pal.edge)
-                switch model.screen {
-                case .home: HomeView(pal: pal)
-                case .run: RunView(pal: pal)
-                case .talk: TalkView(pal: pal)
-                case .settings: SettingsView(pal: pal)
+                Group {
+                    switch model.tab {
+                    case .chart: ChartTab(pal: pal)
+                    case .build: BuildTab(pal: pal)
+                    case .listen: ListenTab(pal: pal)
+                    case .talk: TalkView(pal: pal)
+                    case .settings: SettingsView(pal: pal)
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity,
+                       alignment: .topLeading)
             }
         }
         .preferredColorScheme(model.vibe == .stage ? .dark :
@@ -644,6 +813,18 @@ struct ContentView: View {
         .foregroundStyle(pal.text)
         .environmentObject(model)
         .focusedSceneObject(model)
+        .onAppear { model.loadParts() }
+        .onChange(of: model.tab) { t in
+            // the heading takes VoiceOver there and says the tab's name;
+            // what the tab holds follows, once, after it
+            // (measured: posted at once, or at low priority, VoiceOver
+            // drops it under the heading; a beat later it follows it)
+            if model.speakTabs {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
+                    if model.tab == t { announce(t.blurb, queued: true) }
+                }
+            }
+        }
         .onDrop(of: [.fileURL], isTargeted: nil) { items in
             // any file dropped on the window comes in the same door
             guard let item = items.first else { return false }
@@ -659,7 +840,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Header
+// MARK: - Header and tabs
 
 struct HeaderBar: View {
     @EnvironmentObject var model: AppModel
@@ -671,295 +852,675 @@ struct HeaderBar: View {
                 .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(pal.accent)
                 .accessibilityHidden(true)
-            Text("Copyist")
-                .font(.system(size: 22, weight: .bold, design: .serif))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Copyist")
+                    .font(.system(size: 20, weight: .bold, design: .serif))
+                Text(model.chart == nil ? "No chart open"
+                     : "Working on \(model.chartName)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(pal.sub)
+                    .lineLimit(1)
+            }
+            .accessibilityElement(children: .combine)
             Spacer()
-            if model.screen != .home {
-                // going Home leaves a build or conversation alive —
-                // Home shows a chip to come back to it
-                Button("Home") { model.screen = .home }
-                    .buttonStyle(.bordered)
+            if model.running && model.tab != model.runTab {
+                // a build going elsewhere stays one click away
+                Button {
+                    model.tab = model.runTab
+                } label: {
+                    HStack(spacing: 8) {
+                        if let p = model.progressPct {
+                            ProgressView(value: p, total: 100)
+                                .frame(width: 80)
+                                .tint(pal.accent)
+                        } else {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(model.runTitle
+                             + (model.progressPct.map { " \(Int($0))%" }
+                                ?? ""))
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("\(model.runTitle) is still going"
+                    + (model.progressPct.map { ", \(Int($0)) percent" }
+                       ?? "") + ". Go to it.")
             }
             Button {
                 pickChart(model)
             } label: {
-                Label(model.chartName, systemImage: "doc.text")
-                    .lineLimit(1)
+                Label("Open a chart", systemImage: "folder")
             }
             .buttonStyle(.bordered)
-            .accessibilityLabel("Current chart: \(model.chartName). "
-                                + "Choose another")
-            Button {
-                model.screen = .settings
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .buttonStyle(.bordered)
-            .accessibilityLabel("Settings")
+            .help("Open a chart (Command O)")
+            .accessibilityHint("Command O")
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
     }
 }
 
-// MARK: - Home
+/// Five tabs across the top, each saying where it sits and its key.
+struct TabStrip: View {
+    @EnvironmentObject var model: AppModel
+    let pal: Palette
 
-struct ActionSpec: Identifiable {
-    let id: String
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(Tab.allCases) { t in
+                let on = model.tab == t
+                Button {
+                    model.tab = t
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: t.icon)
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(t.title)
+                            .font(.system(size: 13, weight: on ? .bold
+                                                              : .medium))
+                        Text("⌘\(t.rawValue)")
+                            .font(.system(size: 10, weight: .medium,
+                                          design: .rounded))
+                            .foregroundStyle(on ? pal.accentText
+                                                  .opacity(0.75)
+                                             : pal.sub)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .foregroundStyle(on ? pal.accentText : pal.text)
+                    .background(Capsule().fill(on ? pal.accent : pal.card))
+                    .overlay(Capsule().stroke(on ? pal.accent : pal.edge,
+                                              lineWidth: 1))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(t.title)
+                .accessibilityValue("tab \(t.rawValue) of "
+                                    + "\(Tab.allCases.count)")
+                .accessibilityHint("Command \(t.rawValue)")
+                .accessibilityAddTraits(on ? [.isSelected] : [])
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 10)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Tabs")
+    }
+}
+
+/// Every tab opens on its heading. VoiceOver lands there on arrival,
+/// so switching tabs always says where you are.
+struct TabHeading: View {
+    let tab: Tab
+    let pal: Palette
+    @AccessibilityFocusState private var here: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(tab.title)
+                .font(.system(size: 22, weight: .bold, design: .serif))
+                .accessibilityLabel(tab.spokenPlace)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($here)
+            Text(tab.blurb)
+                .font(.system(size: 13))
+                .foregroundStyle(pal.sub)
+                .accessibilityHidden(true)   // said on arrival already
+        }
+        .padding(.top, 16)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                here = true
+            }
+        }
+    }
+}
+
+/// A group of related controls on a card, its title a heading.
+struct Card<Content: View>: View {
+    let title: String
+    let pal: Palette
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(pal.sub)
+                .accessibilityAddTraits(.isHeader)
+            content
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(pal.card))
+        .overlay(RoundedRectangle(cornerRadius: 12)
+            .stroke(pal.edge, lineWidth: 1))
+    }
+}
+
+/// A big labelled action: icon, name, one line, and its key.
+struct ActionButton: View {
     let icon: String
     let title: String
     let line: String
-    let needsChart: Bool
-    let act: (AppModel) -> Void
-}
-
-struct RunChip: View {
-    @EnvironmentObject var model: AppModel
+    var keys: String = ""
     let pal: Palette
+    var enabled: Bool = true
+    let act: () -> Void
 
     var body: some View {
-        let pct: Int? = model.progressPct.map { Int($0) }
-        let head: String = model.runTitle + " is still going"
-            + (pct.map { " — \($0)%" } ?? "") + ". Check on it."
-        let sub = "A new window (File menu) works on another chart "
-            + "meanwhile."
-        let spoken: String = model.runTitle + " is still going"
-            + (pct.map { ", \($0) percent, " + model.progressWhat }
-               ?? "")
-            + ". Check on it. A new window from the File menu works "
-            + "on another chart meanwhile."
-        Button {
-            model.screen = .run
-        } label: {
-            HStack(spacing: 10) {
-                if let p = model.progressPct {
-                    ProgressView(value: p, total: 100)
-                        .frame(width: 110)
-                        .tint(pal.accent)
-                } else {
-                    ProgressView().controlSize(.small)
-                }
+        Button(action: act) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(pal.accent)
+                    .frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(head)
-                        .font(.system(size: 13, weight: .semibold))
-                    Text(sub)
-                        .font(.system(size: 11))
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(line)
+                        .font(.system(size: 12))
                         .foregroundStyle(pal.sub)
+                }
+                Spacer(minLength: 0)
+                if !keys.isEmpty {
+                    Text(keys)
+                        .font(.system(size: 11, weight: .medium,
+                                      design: .rounded))
+                        .foregroundStyle(pal.sub)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 5)
+                            .stroke(pal.edge, lineWidth: 1))
                 }
             }
             .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 12)
-                .fill(pal.card))
-            .overlay(RoundedRectangle(cornerRadius: 12)
-                .stroke(pal.accent, lineWidth: 1))
+            .frame(maxWidth: .infinity, maxHeight: .infinity,
+                   alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 10)
+                .fill(pal.bg.opacity(0.5)))
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(pal.edge, lineWidth: 1))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(spoken)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
+        // label the Button itself: wrapping it in a combined element
+        // hides its press action, and VoiceOver's press does nothing
+        .accessibilityLabel(title)
+        .accessibilityHint(keys.isEmpty ? line
+            : (line.hasSuffix(".") ? String(line.dropLast()) : line)
+              + ". " + spokenKeys(keys))
     }
 }
 
-struct HomeView: View {
+/// "⌘⇧I" said the way VoiceOver users say it.
+func spokenKeys(_ k: String) -> String {
+    var out: [String] = []
+    for ch in k {
+        switch ch {
+        case "⌘": out.append("Command")
+        case "⇧": out.append("Shift")
+        case "⌥": out.append("Option")
+        case "⌃": out.append("Control")
+        default: out.append(String(ch))
+        }
+    }
+    return out.joined(separator: " ")
+}
+
+// MARK: - Chart tab
+
+struct ChartTab: View {
     @EnvironmentObject var model: AppModel
     let pal: Palette
-    @State private var partAsk = false
-    @State private var partName = ""
-    @State private var listenAsk = false
-    @State private var fromBar = ""
-    @State private var soloParts = ""
-
-    var actions: [ActionSpec] {
-        [
-            ActionSpec(id: "bring", icon: "tray.and.arrow.down",
-                       title: "Bring in a file",
-                       line: "A score, a MIDI demo, or words and chords "
-                           + "in any format. Or drop it on the window.",
-                       needsChart: false) { m in pickAnything(m) },
-            ActionSpec(id: "talk", icon: "bubble.left.and.bubble.right",
-                       title: "Tell me the tune",
-                       line: "Describe it in one breath. I write the sections.",
-                       needsChart: false) { m in
-                if m.chart == nil && !newChart(m) { return }
-                m.startTalk(["edit"])
-            },
-            ActionSpec(id: "build", icon: "hammer",
-                       title: "Build it",
-                       line: "Pages, read-alouds, findings, and the band plays it.",
-                       needsChart: true) { $0.run("Build", args: ["build"]) },
-            ActionSpec(id: "keys", icon: "pianokeys.inverse",
-                       title: "Name the keyswitches",
-                       line: "Say once what each key in your demo does; "
-                           + "the page marks it from then on.",
-                       needsChart: true) { m in m.startTalk(["keys"]) },
-            ActionSpec(id: "drums", icon: "circle.grid.cross",
-                       title: "Name the drum notes",
-                       line: "Your drum library's own note map, said once "
-                           + "and kept for every take from that kit.",
-                       needsChart: true) { m in m.startTalk(["drums"]) },
-            ActionSpec(id: "listen", icon: "headphones",
-                       title: "Listen",
-                       line: "The whole band, or just your chair, from any bar.",
-                       needsChart: true) { _ in listenAsk = true },
-            ActionSpec(id: "check", icon: "checkmark.seal",
-                       title: "Check it",
-                       line: "Prove every bar adds up. Nothing rendered.",
-                       needsChart: true) { $0.run("Check", args: ["check"]) },
-            ActionSpec(id: "read", icon: "text.book.closed",
-                       title: "Read a part",
-                       line: "Spoken the way a player would read it.",
-                       needsChart: true) { _ in partAsk = true },
-            ActionSpec(id: "diff", icon: "arrow.triangle.2.circlepath",
-                       title: "What changed",
-                       line: "Since the last build, by part and by bar.",
-                       needsChart: true) { $0.run("What changed", args: ["diff"]) },
-            ActionSpec(id: "parts", icon: "person.3",
-                       title: "The band",
-                       line: "Who's on this chart.",
-                       needsChart: true) { $0.run("The band", args: ["parts"]) },
-            ActionSpec(id: "sounds", icon: "pianokeys",
-                       title: "The sounds",
-                       line: "The shelf the band plays on.",
-                       needsChart: false) { $0.run("The sounds",
-                                                   args: ["sounds"],
-                                                   needsChart: false) },
-        ]
-    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(model.chart == nil
-                     ? "What are we writing today?"
-                     : "Working on \(model.chartName).")
-                    .font(.system(size: 17, design: .serif))
-                    .foregroundStyle(pal.sub)
-                    .padding(.top, 18)
-                if model.running {
-                    RunChip(pal: pal)
-                }
-                if model.talking {
-                    Button {
-                        model.screen = .talk
-                    } label: {
-                        Label("The conversation is waiting on you.",
-                              systemImage: "bubble.left.and.bubble.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .padding(12)
-                            .frame(maxWidth: .infinity,
-                                   alignment: .leading)
-                            .background(RoundedRectangle(
-                                cornerRadius: 12).fill(pal.card))
-                            .overlay(RoundedRectangle(cornerRadius: 12)
-                                .stroke(pal.accent, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 330),
-                                             spacing: 14)],
-                          spacing: 14) {
-                    ForEach(actions) { a in
-                        Button {
-                            a.act(model)
-                        } label: {
-                            HStack(spacing: 14) {
-                                Image(systemName: a.icon)
-                                    .font(.system(size: 24, weight: .semibold))
-                                    .foregroundStyle(pal.accent)
-                                    .frame(width: 34)
-                                    .accessibilityHidden(true)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(a.title)
-                                        .font(.system(size: 16,
-                                                      weight: .semibold))
-                                    Text(a.line)
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(pal.sub)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .padding(14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(pal.card))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(pal.edge, lineWidth: 1))
+            VStack(alignment: .leading, spacing: 16) {
+                TabHeading(tab: .chart, pal: pal)
+                Card(title: model.chart == nil ? "No chart open yet"
+                     : "Open now: \(model.chartName)", pal: pal) {
+                    if let c = model.chart {
+                        Text(URL(fileURLWithPath: c)
+                                .deletingLastPathComponent().path)
+                            .font(.system(size: 11))
+                            .foregroundStyle(pal.sub)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .accessibilityLabel("In the folder "
+                                + URL(fileURLWithPath: c)
+                                    .deletingLastPathComponent()
+                                    .lastPathComponent)
+                        if !model.parts.isEmpty {
+                            Text("The band, \(model.parts.count) chairs: "
+                                 + model.parts.joined(separator: ", "))
+                                .font(.system(size: 13))
                         }
-                        .buttonStyle(.plain)
-                        .disabled(a.needsChart && model.chart == nil)
-                        .opacity(a.needsChart && model.chart == nil
-                                 ? 0.45 : 1)
-                        .accessibilityElement(children: .combine)
+                    }
+                    ActionButton(icon: "folder", title: "Open a chart",
+                                 line: "From your Copyist Charts folder.",
+                                 keys: "⌘O", pal: pal) { pickChart(model) }
+                    ActionButton(icon: "tray.and.arrow.down",
+                                 title: "Bring in a file",
+                                 line: "A score, a MIDI demo, or words and "
+                                     + "chords in any format. Or drop it "
+                                     + "on the window.",
+                                 keys: "⌘⇧I", pal: pal) {
+                        pickAnything(model)
+                    }
+                    ActionButton(icon: "bubble.left.and.bubble.right",
+                                 title: "Tell me the tune",
+                                 line: "Describe it in one breath. Copyist "
+                                     + "writes the sections.",
+                                 keys: "⌘⇧T", pal: pal) {
+                        if model.chart == nil && !newChart(model) { return }
+                        model.startTalk(["edit"])
                     }
                 }
                 if !model.recents.isEmpty {
-                    Text("Recent charts")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(pal.sub)
-                        .padding(.top, 6)
-                    ForEach(model.recents, id: \.self) { r in
-                        Button {
-                            model.choose(r)
-                        } label: {
-                            Label(URL(fileURLWithPath: r)
-                                    .deletingPathExtension()
-                                    .lastPathComponent,
-                                  systemImage: "clock")
+                    Card(title: "Recent charts", pal: pal) {
+                        ForEach(model.recents, id: \.self) { r in
+                            let name = URL(fileURLWithPath: r)
+                                .deletingPathExtension().lastPathComponent
+                            let on = r == model.chart
+                            Button {
+                                model.choose(r)
+                                announce("Now working on \(name).")
+                            } label: {
+                                HStack {
+                                    Image(systemName: on ? "checkmark.circle.fill"
+                                                         : "clock")
+                                        .foregroundStyle(on ? pal.accent
+                                                            : pal.sub)
+                                    Text(name)
+                                        .font(.system(size: 14,
+                                                      weight: on ? .semibold
+                                                                 : .regular))
+                                    Spacer()
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(name)
+                            .accessibilityValue(on ? "open now" : "")
                         }
-                        .buttonStyle(.link)
-                        .foregroundStyle(pal.text)
                     }
                 }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 24)
         }
-        .sheet(isPresented: $listenAsk) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Return plays the whole thing from the top.")
-                    .font(.headline)
-                TextField("Start at bar (your DAW's number)",
-                          text: $fromBar)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { runListen() }
-                TextField("Solo who? Like bari, bone. Empty is everyone.",
-                          text: $soloParts)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { runListen() }
-                HStack {
-                    Spacer()
-                    Button("Back") { listenAsk = false }
-                        .keyboardShortcut(.cancelAction)
-                    Button("Listen") { runListen() }
-                        .keyboardShortcut(.defaultAction)
+    }
+}
+
+// MARK: - Build tab
+
+struct BuildTab: View {
+    @EnvironmentObject var model: AppModel
+    let pal: Palette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            TabHeading(tab: .build, pal: pal)
+            HStack(spacing: 10) {
+                ActionButton(icon: "hammer", title: "Build it",
+                             line: "Pages, read-alouds, findings, and the "
+                                 + "band plays it.",
+                             keys: "⌘B", pal: pal,
+                             enabled: model.chart != nil) {
+                    model.run("Build", args: ["build"])
+                }
+                ActionButton(icon: "checkmark.seal", title: "Check it",
+                             line: "Prove every bar adds up. Nothing "
+                                 + "rendered.",
+                             keys: "⌘K", pal: pal,
+                             enabled: model.chart != nil) {
+                    model.run("Check", args: ["check"])
+                }
+                ActionButton(icon: "arrow.triangle.2.circlepath",
+                             title: "What changed",
+                             line: "Since the last build, by part and bar.",
+                             keys: "⌘D", pal: pal,
+                             enabled: model.chart != nil) {
+                    model.run("What changed", args: ["diff"])
                 }
             }
-            .padding(20)
-            .frame(width: 440)
+            .fixedSize(horizontal: false, vertical: true)
+            RunPanel(pal: pal, tab: .build)
+            Spacer(minLength: 0)
         }
-        .sheet(isPresented: $partAsk) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Which part? Leave it empty for the whole chart.")
-                    .font(.headline)
-                TextField("Part name, like trumpet 1", text: $partName)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { readPart() }
-                HStack {
-                    Spacer()
-                    Button("Back") { partAsk = false }
-                        .keyboardShortcut(.cancelAction)
-                    Button("Read it") { readPart() }
-                        .keyboardShortcut(.defaultAction)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+    }
+}
+
+/// The run's progress, its result buttons and its transcript. The
+/// transcript is one element per line, so VoiceOver walks it line by
+/// line instead of reading a wall.
+struct RunPanel: View {
+    @EnvironmentObject var model: AppModel
+    let pal: Palette
+    let tab: Tab
+
+    var body: some View {
+        if model.runTab != tab || (model.runTitle.isEmpty
+                                   && !model.running) {
+            Text(tab == .build
+                 ? "Nothing built yet in this window. Build it, Command B."
+                 : "Nothing played or read yet in this window.")
+                .font(.system(size: 13))
+                .foregroundStyle(pal.sub)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Text(model.runTitle)
+                        .font(.system(size: 17, weight: .bold,
+                                      design: .serif))
+                        .accessibilityAddTraits(.isHeader)
+                    if model.running {
+                        if let pct = model.progressPct {
+                            ProgressView(value: pct, total: 100)
+                                .frame(width: 160)
+                                .tint(pal.accent)
+                                .accessibilityLabel("Progress")
+                                .accessibilityValue("\(Int(pct)) percent, "
+                                                    + model.progressWhat)
+                            Text("\(Int(pct))% — \(model.progressWhat)")
+                                .font(.system(size: 12))
+                                .foregroundStyle(pal.sub)
+                                .accessibilityHidden(true)
+                        } else {
+                            ProgressView().controlSize(.small)
+                                .accessibilityLabel("Working")
+                            Text(model.flavor)
+                                .font(.system(size: 12))
+                                .foregroundStyle(pal.sub)
+                                .accessibilityHidden(true)
+                        }
+                        Spacer()
+                        Button("Stop") { model.stopRun() }
+                            .buttonStyle(.bordered)
+                            .accessibilityHint("Command period")
+                    } else {
+                        Spacer()
+                    }
+                }
+                if !model.running { ResultButtons(pal: pal) }
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 3) {
+                            if model.runLines.isEmpty {
+                                Text(model.running ? "On it…" : "Done.")
+                                    .foregroundStyle(pal.sub)
+                            }
+                            ForEach(Array(model.runLines.enumerated()),
+                                    id: \.offset) { i, line in
+                                TranscriptLine(line: line, pal: pal)
+                                    .id(i)
+                            }
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .background(RoundedRectangle(cornerRadius: 12)
+                        .fill(pal.card))
+                    .overlay(RoundedRectangle(cornerRadius: 12)
+                        .stroke(pal.edge, lineWidth: 1))
+                    .accessibilityLabel("Transcript, \(model.runLines.count) "
+                                        + "lines")
+                    .onChange(of: model.runOutput) { _ in
+                        proxy.scrollTo(model.runLines.count - 1,
+                                       anchor: .bottom)
+                    }
                 }
             }
-            .padding(20)
-            .frame(width: 420)
+        }
+    }
+}
+
+/// One line of what the engine said. Findings read as findings, dressed
+/// quieter on screen; the words are exactly what the engine wrote.
+struct TranscriptLine: View {
+    let line: String
+    let pal: Palette
+
+    var body: some View {
+        let finding = line.hasPrefix("finding: ")
+        let body = finding ? String(line.dropFirst("finding: ".count))
+                           : line
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if finding {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10))
+                    .foregroundStyle(pal.sub)
+                    .accessibilityHidden(true)
+            }
+            Text(body)
+                .font(.system(size: finding ? 12 : 13,
+                              design: finding ? .default : .monospaced))
+                .foregroundStyle(finding ? pal.sub : pal.text)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(finding ? "Finding: " + body : body)
+        .accessibilityAddTraits(.isStaticText)
+    }
+}
+
+/// What a finished run offers next, each only when it applies.
+struct ResultButtons: View {
+    @EnvironmentObject var model: AppModel
+    let pal: Palette
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let u = model.playURL {
+                Button {
+                    NSWorkspace.shared.open(u)
+                } label: {
+                    Label("Play it", systemImage: "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(pal.accent)
+                .accessibilityHint("Command P")
+            }
+            if model.chart != nil {
+                if model.runOutput.contains("aren't General MIDI drums") {
+                    Button {
+                        model.startTalk(["drums"])
+                    } label: {
+                        Label("Name the drum notes",
+                              systemImage: "circle.grid.cross")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                if model.runOutput.contains("has no name yet") {
+                    Button {
+                        model.startTalk(["keys"])
+                    } label: {
+                        Label("Name the keyswitches",
+                              systemImage: "pianokeys.inverse")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                if model.runTitle == "Bring in a file"
+                    && model.runOutput.contains("tell me the tune.") {
+                    Button {
+                        model.startTalk(["edit"])
+                    } label: {
+                        Label("Tell me the tune",
+                              systemImage: "bubble.left.and.bubble.right")
+                    }
+                    .buttonStyle(.bordered)
+                } else if model.runTitle == "Bring in a file" {
+                    Button {
+                        model.run("Build", args: ["build"])
+                    } label: {
+                        Label("Build it now", systemImage: "hammer")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                if model.playURL != nil || model.runTitle == "Build",
+                   let score = model.scorePDF() {
+                    Button {
+                        NSWorkspace.shared.open(score)
+                    } label: {
+                        Label("Open the score", systemImage: "doc.richtext")
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityHint("Command Shift E")
+                }
+                if model.runTitle == "Build",
+                   let dir = model.pagesFolder(),
+                   FileManager.default.fileExists(atPath: dir.path) {
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([dir])
+                    } label: {
+                        Label("Show the pages", systemImage: "folder")
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityHint("Opens the folder with every "
+                                       + "part's PDF in Finder")
+                }
+            }
+            Spacer()
+        }
+    }
+}
+
+// MARK: - Listen and read tab
+
+struct ListenTab: View {
+    @EnvironmentObject var model: AppModel
+    let pal: Palette
+    @State private var fromBar = ""
+    @State private var solo: Set<String> = []
+    @State private var readWho = ""
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                TabHeading(tab: .listen, pal: pal)
+                HStack(alignment: .top, spacing: 14) {
+                    Card(title: "Listen", pal: pal) {
+                        HStack {
+                            Text("Start at bar")
+                            TextField("the top", text: $fromBar)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 90)
+                                .accessibilityLabel("Start at bar, your "
+                                    + "DAW's number")
+                                .accessibilityValue(fromBar.isEmpty
+                                    ? "empty, from the top" : fromBar)
+                                .onSubmit { listen() }
+                        }
+                        Text(solo.isEmpty
+                             ? "Who plays: the whole band."
+                             : "Who plays: just "
+                               + solo.sorted().joined(separator: ", ") + ".")
+                            .font(.system(size: 12))
+                            .foregroundStyle(pal.sub)
+                        if model.parts.isEmpty {
+                            Text("Open a chart to pick players.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(pal.sub)
+                        }
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120),
+                                                     spacing: 6)],
+                                  alignment: .leading, spacing: 6) {
+                            ForEach(model.parts, id: \.self) { p in
+                                Toggle(p, isOn: Binding(
+                                    get: { solo.contains(p) },
+                                    set: { on in
+                                        if on { solo.insert(p) }
+                                        else { solo.remove(p) }
+                                    }))
+                                    .toggleStyle(.checkbox)
+                                    .accessibilityLabel("Solo \(p)")
+                            }
+                        }
+                        HStack {
+                            Button {
+                                listen()
+                            } label: {
+                                Label(solo.isEmpty ? "Listen to the band"
+                                      : "Listen to just these",
+                                      systemImage: "headphones")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(pal.accent)
+                            .disabled(model.chart == nil)
+                            if !solo.isEmpty {
+                                Button("Everyone") { solo = [] }
+                                    .buttonStyle(.bordered)
+                                    .accessibilityLabel("Clear the solo, "
+                                        + "back to everyone")
+                            }
+                            Spacer()
+                            Button {
+                                if let u = model.newestMP3() {
+                                    NSWorkspace.shared.open(u)
+                                } else {
+                                    announce("No listen yet. Build it or "
+                                             + "listen first.")
+                                }
+                            } label: {
+                                Label("Play the last one",
+                                      systemImage: "play.fill")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(model.chart == nil)
+                            .accessibilityHint("Command P")
+                        }
+                    }
+                    Card(title: "Read aloud", pal: pal) {
+                        Picker("Which part", selection: $readWho) {
+                            Text("The whole chart").tag("")
+                            ForEach(model.parts, id: \.self) { p in
+                                Text(p).tag(p)
+                            }
+                        }
+                        Text("Spoken the way a player would read it.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(pal.sub)
+                        Button {
+                            var args = ["read"]
+                            if !readWho.isEmpty { args += ["--part", readWho] }
+                            model.run(readWho.isEmpty ? "Read the chart"
+                                      : "Read \(readWho)",
+                                      args: args, on: .listen)
+                        } label: {
+                            Label("Read it", systemImage: "text.book.closed")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(model.chart == nil)
+                        Divider()
+                        Button {
+                            model.run("The sounds", args: ["sounds"],
+                                      needsChart: false, on: .listen)
+                        } label: {
+                            Label("The sound shelf", systemImage: "pianokeys")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("What the band plays on")
+                    }
+                    .frame(maxWidth: 320)
+                }
+                RunPanel(pal: pal, tab: .listen)
+                    .frame(minHeight: model.runTab == .listen ? 260 : 0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
         }
     }
 
-    func runListen() {
-        listenAsk = false
+    func listen() {
         var args = ["listen"]
         var what = "Listen"
         let b = fromBar.trimmingCharacters(in: .whitespaces)
@@ -967,159 +1528,12 @@ struct HomeView: View {
             args += ["--from-bar", b]
             what += " from bar \(b)"
         }
-        let sp = soloParts.trimmingCharacters(in: .whitespaces)
-        if !sp.isEmpty {
-            args += ["--solo", sp]
-            what += ", just \(sp)"
+        if !solo.isEmpty {
+            let who = solo.sorted().joined(separator: ",")
+            args += ["--solo", who]
+            what += ", just " + solo.sorted().joined(separator: " and ")
         }
-        model.run(what, args: args)
-    }
-
-    func readPart() {
-        partAsk = false
-        var args = ["read"]
-        let p = partName.trimmingCharacters(in: .whitespaces)
-        if !p.isEmpty { args += ["--part", p] }
-        model.run(p.isEmpty ? "Read the chart" : "Read \(p)", args: args)
-    }
-}
-
-// MARK: - Runner
-
-struct RunView: View {
-    @EnvironmentObject var model: AppModel
-    let pal: Palette
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(model.runTitle)
-                    .font(.system(size: 18, weight: .bold, design: .serif))
-                if model.running {
-                    if let pct = model.progressPct {
-                        ProgressView(value: pct, total: 100)
-                            .frame(width: 150)
-                            .padding(.leading, 6)
-                            .tint(pal.accent)
-                            .accessibilityLabel(
-                                "\(Int(pct)) percent — "
-                                + model.progressWhat)
-                        Text("\(Int(pct))% — \(model.progressWhat)")
-                            .font(.system(size: 12))
-                            .foregroundStyle(pal.sub)
-                            .accessibilityHidden(true)
-                    } else {
-                        ProgressView().controlSize(.small)
-                            .padding(.leading, 6)
-                        Text(model.flavor)
-                            .font(.system(size: 12))
-                            .foregroundStyle(pal.sub)
-                            .accessibilityHidden(true)
-                    }
-                }
-                Spacer()
-                if let u = model.playURL, !model.running {
-                    Button {
-                        NSWorkspace.shared.open(u)
-                    } label: {
-                        Label("Play it", systemImage: "play.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(pal.accent)
-                    .accessibilityLabel("Play the listen MP3")
-                }
-                if !model.running && model.chart != nil {
-                    if model.runOutput.contains("aren't General MIDI "
-                                                + "drums") {
-                        Button {
-                            model.startTalk(["drums"])
-                        } label: {
-                            Label("Name the drum notes",
-                                  systemImage: "circle.grid.cross")
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityHint("Asks what each note of your "
-                                           + "drum take is on your kit")
-                    }
-                    if model.runOutput.contains("has no name yet") {
-                        Button {
-                            model.startTalk(["keys"])
-                        } label: {
-                            Label("Name the keyswitches",
-                                  systemImage: "pianokeys.inverse")
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityHint("Asks what each unnamed key in "
-                                           + "your demo does, one at a time")
-                    }
-                    if model.runTitle == "Bring in a file"
-                        && model.runOutput.contains("tell me the tune.") {
-                        // words with no form yet: the conversation is
-                        // the next step, not a build
-                        Button {
-                            model.startTalk(["edit"])
-                        } label: {
-                            Label("Tell me the tune",
-                                  systemImage: "bubble.left.and.bubble.right")
-                        }
-                        .buttonStyle(.bordered)
-                    } else if model.runTitle == "Bring in a file" {
-                        Button {
-                            model.run("Build", args: ["build"])
-                        } label: {
-                            Label("Build it now", systemImage: "hammer")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    if model.playURL != nil || model.runTitle == "Build",
-                       let score = model.scorePDF() {
-                        Button {
-                            NSWorkspace.shared.open(score)
-                        } label: {
-                            Label("Open the score",
-                                  systemImage: "doc.richtext")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    if model.runTitle == "Build",
-                       let dir = model.pagesFolder(),
-                       FileManager.default.fileExists(atPath: dir.path) {
-                        Button {
-                            NSWorkspace.shared.activateFileViewerSelecting(
-                                [dir])
-                        } label: {
-                            Label("Show the pages", systemImage: "folder")
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityHint("Opens the folder with every "
-                                           + "part's PDF in Finder")
-                    }
-                }
-                if model.running {
-                    Button("Stop") { model.stopRun() }
-                        .buttonStyle(.bordered)
-                }
-            }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    Text(model.runOutput.isEmpty && model.running
-                         ? "On it…" : model.runOutput)
-                        .font(.system(size: 13, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
-                        .id("out")
-                }
-                .background(RoundedRectangle(cornerRadius: 12)
-                    .fill(pal.card))
-                .overlay(RoundedRectangle(cornerRadius: 12)
-                    .stroke(pal.edge, lineWidth: 1))
-                .onChange(of: model.runOutput) { _ in
-                    proxy.scrollTo("out", anchor: .bottom)
-                }
-            }
-        }
-        .padding(20)
+        model.run(what, args: args, on: .listen)
     }
 }
 
@@ -1132,7 +1546,34 @@ struct TalkView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
+            TabHeading(tab: .talk, pal: pal)
+            if model.talk.isEmpty && !model.talking {
+                Card(title: "Start a conversation", pal: pal) {
+                    ActionButton(icon: "bubble.left.and.bubble.right",
+                                 title: "Tell me the tune",
+                                 line: "Describe it in one breath. Copyist "
+                                     + "writes the sections.",
+                                 keys: "⌘⇧T", pal: pal) {
+                        if model.chart == nil && !newChart(model) { return }
+                        model.startTalk(["edit"])
+                    }
+                    ActionButton(icon: "pianokeys.inverse",
+                                 title: "Name the keyswitches",
+                                 line: "Say once what each key in your demo "
+                                     + "does; the page marks it from then on.",
+                                 pal: pal, enabled: model.chart != nil) {
+                        model.startTalk(["keys"])
+                    }
+                    ActionButton(icon: "circle.grid.cross",
+                                 title: "Name the drum notes",
+                                 line: "Your drum library's note map, said "
+                                     + "once and kept for every take.",
+                                 pal: pal, enabled: model.chart != nil) {
+                        model.startTalk(["drums"])
+                    }
+                }
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
@@ -1213,7 +1654,7 @@ struct TalkView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(pal.sub)
                 }
-            } else {
+            } else if !model.talk.isEmpty {
                 HStack(spacing: 10) {
                     Button {
                         model.run("Build", args: ["build"])
@@ -1223,12 +1664,14 @@ struct TalkView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(pal.accent)
-                    Button("Back home") { model.screen = .home }
+                    .accessibilityHint("Command B")
+                    Button("New conversation") { model.talk = [] }
                         .buttonStyle(.bordered)
                 }
             }
         }
-        .padding(16)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 16)
     }
 
     func send() {
@@ -1254,13 +1697,7 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Settings")
-                    .font(.system(size: 18, weight: .bold, design: .serif))
-                    .padding(.top, 16)
-                Text("Every control says what it is set to. Nothing "
-                     + "here needs saving twice.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(pal.sub)
+                TabHeading(tab: .settings, pal: pal)
                 group("The app") {
                     Picker("Appearance", selection: Binding(
                         get: { model.vibe },
@@ -1271,6 +1708,13 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     .tint(pal.accent)
+                    Toggle("Say each build step aloud as it happens",
+                           isOn: $model.speakSteps)
+                        .accessibilityHint("Off, you hear only when it "
+                                           + "finishes")
+                    Toggle("Say what a tab holds when you switch to it",
+                           isOn: $model.speakTabs)
+                        .accessibilityHint("The tab's name is always said")
                 }
                 group("Your charts") {
                     Text("The name on every new chart, and how the "
@@ -1381,6 +1825,7 @@ struct SettingsView: View {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(pal.sub)
+                .accessibilityAddTraits(.isHeader)
             content()
         }
         .padding(14)

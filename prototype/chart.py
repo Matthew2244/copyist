@@ -855,6 +855,9 @@ def main():
                          "the whole tune to proof the ending")
     ap.add_argument('--demo', help="with new: the demo MIDI to scaffold "
                                    "the chart around")
+    ap.add_argument('--labels', action='store_true',
+                    help="with parts: one part label per line, for the "
+                         "apps' pick lists")
     args = ap.parse_args()
     args.command = {'b': 'build', 'c': 'check', 'r': 'read',
                     'p': 'parts', 'd': 'diff', 'l': 'listen',
@@ -893,6 +896,9 @@ def main():
 
     if args.command == 'parts':
         chart = chartc.parse_chart(path)
+        if args.labels:
+            print("\n".join(b['label'] for b in chart['band']))
+            return
         bits = []
         for b in chart['band']:
             inst = chartc.canonical_instrument(b['instrument'])

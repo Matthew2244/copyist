@@ -11,6 +11,7 @@
 # If something misbehaves, that is a bug worth reporting.
 
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName Microsoft.VisualBasic
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -92,16 +93,16 @@ function Choose-FromList([string]$prompt, [string[]]$items) {
 }
 
 function Pick-Chart {
+    # the chart the window says it is working on; the file dialog only
+    # when there is none yet. "Open a chart" (Ctrl+O) changes it.
     if (Test-Path $lastFile) {
         $last = (Get-Content $lastFile -Raw).Trim()
-        if ($last -and (Test-Path $last)) {
-            $name = Split-Path -Leaf $last
-            $c = Choose-FromList 'Which chart are we working on?' @(
-                "Same chart: $name", 'Pick a different chart', 'Back')
-            if (-not $c -or $c -eq 'Back') { return $null }
-            if ($c -like 'Same chart*') { return $last }
-        }
+        if ($last -and (Test-Path $last)) { return $last }
     }
+    return (Open-Chart)
+}
+
+function Open-Chart {
     $dlg = New-Object System.Windows.Forms.OpenFileDialog
     $dlg.Title = 'Pick a .chart file'
     $dlg.Filter = 'Chart files (*.chart)|*.chart|All files (*.*)|*.*'
@@ -136,19 +137,6 @@ function Offer-Teach([string]$p, [string]$log) {
         $opts + @('Not now'))
     if ($c -like 'Name the drum*') { Open-Talk $p 'drums' }
     elseif ($c -like 'Name the key*') { Open-Talk $p 'keys' }
-}
-
-function Do-Teach {
-    $p = Pick-Chart
-    if (-not $p) { return }
-    $c = Choose-FromList ('Teach Copyist what your libraries play. ' +
-        'Answers are saved, so every chart using that patch or kit ' +
-        'reads right from then on.') @(
-        'Name the keyswitches - what each unnamed key in a demo does',
-        'Name the drum notes - what each note is on your kit',
-        'Back')
-    if ($c -like 'Name the key*') { Open-Talk $p 'keys' }
-    elseif ($c -like 'Name the drum*') { Open-Talk $p 'drums' }
 }
 
 $buildLog = Join-Path $env:APPDATA 'copyist-build.log'
@@ -367,52 +355,178 @@ function Do-BringIn {
     }
 }
 
-while ($true) {
-    $c = Choose-FromList ('Copyist - from your played demo to pages a band ' +
-        'can read. What are we doing?') @(
-        'Bring in a file - a score, a MIDI demo, or words and chords',
-        'Build - pages, listen MP3, findings',
-        'Check - compile only, nothing rendered',
-        'Listen - the whole band, or just your chair, from any bar',
-        'What changed - since the last build, by part and by bar',
-        'How is the build going - check in on a background build',
-        'Read a part aloud',
-        'Tell me the tune - the roadmap conversation, in a console',
-        'Teach Copyist - name keyswitches or drum notes, in a console',
-        'Sounds - the band''s sample shelf',
-        'Settings - the defaults desk',
-        'Help - what this is',
-        'Quit')
-    if (-not $c) {
-        # Escape at the main menu asks before leaving - sublists go
-        # back on Escape, so the same key must not kill the app here
-        $r = [System.Windows.Forms.MessageBox]::Show(
-            'Leave Copyist?', 'Copyist', 'YesNo')
-        if ($r -eq 'Yes') { break } else { continue }
-    }
-    if ($c -eq 'Quit') { break }
-    switch -Wildcard ($c) {
-        'Bring in*' { Do-BringIn }
-        'Build*' { Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
-        'Check*' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }
-        'Listen*' { Do-Listen }
-        'What changed*' { Do-Build 'd' 'Reading what changed since your last build, part by part.' }
-        'How is the build*' { Do-HowGoes }
-        'Read*' { Do-ReadPart }
-        'Tell me*' {
-            $p = Pick-Chart
-            if ($p) { Open-Talk $p 'edit' }
-        }
-        'Teach*' { Do-Teach }
-        'Sounds*' { Show-Info (Run-Chart 'sounds') }
-        'Settings*' { Do-Settings }
-        'Help*' {
-            Show-Info ('Copyist turns a chart file - plain words and a ' +
-                'played demo - into engraved parts, a conductor score, ' +
-                'spoken read-alouds and a listening MP3, all its own ink. ' +
-                'Write charts with any text editor; the guide is ' +
-                'CHART-WRITING.md. The same brain answers to ' +
-                '"python prototype\chart.py" in a terminal.')
+# ---------------------------------------------------------------- the window
+# Five tabs, the Mac app's five. Ctrl+1 to Ctrl+5 jump straight to one
+# and put focus on the tab control, so NVDA and JAWS say "Build tab, 2
+# of 5" themselves; Ctrl+Tab steps through them, as in any Windows tab
+# control. The work has keys too: Ctrl+B builds, Ctrl+K checks, Ctrl+L
+# listens, Ctrl+O opens a chart. Each button names its key in its
+# accessible description, so the screen reader says it after the name.
+
+$font = New-Object System.Drawing.Font('Segoe UI', 11)
+$headFont = New-Object System.Drawing.Font('Segoe UI Semibold', 15)
+
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'Copyist'
+$form.Width = 820; $form.Height = 620
+$form.StartPosition = 'CenterScreen'
+$form.Font = $font
+$form.KeyPreview = $true
+$form.AutoScaleMode = 'Dpi'
+
+$working = New-Object System.Windows.Forms.Label
+$working.Dock = 'Top'; $working.Height = 40
+$working.Padding = New-Object System.Windows.Forms.Padding(12, 10, 12, 0)
+$working.AccessibleName = 'Working on'
+
+function Update-Working {
+    $n = 'no chart yet - Ctrl+O opens one'
+    if (Test-Path $lastFile) {
+        $last = (Get-Content $lastFile -Raw).Trim()
+        if ($last -and (Test-Path $last)) {
+            $n = [System.IO.Path]::GetFileNameWithoutExtension($last)
         }
     }
+    $working.Text = "Working on: $n"
+    $working.AccessibleName = "Working on: $n"
 }
+
+$tabs = New-Object System.Windows.Forms.TabControl
+$tabs.Dock = 'Fill'
+$tabs.Padding = New-Object System.Drawing.Point(14, 6)
+$tabs.AccessibleName = 'Copyist tabs'
+
+$tabNames = @('Chart', 'Build', 'Listen and read', 'Conversation',
+    'Settings')
+$tabBlurbs = @(
+    'Choose, start or bring in a chart.',
+    'Build, check, and what changed. Builds run in the background.',
+    'Hear the band from any bar, or open a part read aloud.',
+    'Tell Copyist the tune, or teach it your keyswitches and drums.',
+    'Every setting says what it is set to.')
+
+function New-Page([int]$i) {
+    $page = New-Object System.Windows.Forms.TabPage
+    $page.Text = $tabNames[$i] + '  (Ctrl+' + ($i + 1) + ')'
+    $page.AccessibleName = $tabNames[$i]
+    $page.AccessibleDescription = $tabBlurbs[$i]
+    $flow = New-Object System.Windows.Forms.FlowLayoutPanel
+    $flow.Dock = 'Fill'; $flow.FlowDirection = 'TopDown'
+    $flow.WrapContents = $false; $flow.AutoScroll = $true
+    $flow.Padding = New-Object System.Windows.Forms.Padding(14)
+    $head = New-Object System.Windows.Forms.Label
+    $head.Text = $tabNames[$i]; $head.Font = $headFont
+    $head.AutoSize = $true
+    $head.AccessibleRole = 'StaticText'
+    $sub = New-Object System.Windows.Forms.Label
+    $sub.Text = $tabBlurbs[$i]; $sub.AutoSize = $true
+    $sub.Margin = New-Object System.Windows.Forms.Padding(3, 0, 3, 14)
+    $flow.Controls.Add($head); $flow.Controls.Add($sub)
+    $page.Controls.Add($flow)
+    [void]$tabs.TabPages.Add($page)
+    return $flow
+}
+
+function Add-Action($flow, [string]$title, [string]$line, [string]$key,
+                    [scriptblock]$act) {
+    $b = New-Object System.Windows.Forms.Button
+    $b.Text = $title + $(if ($key) { "   ($key)" } else { '' }) +
+        "`n" + $line
+    $b.TextAlign = 'MiddleLeft'
+    $b.Width = 700; $b.Height = 64
+    $b.Margin = New-Object System.Windows.Forms.Padding(3, 3, 3, 8)
+    $b.AccessibleName = $title
+    $b.AccessibleDescription = $line + $(if ($key) { " $key." } else { '' })
+    $b.Add_Click($act)
+    $flow.Controls.Add($b)
+}
+
+$chartFlow = New-Page 0
+Add-Action $chartFlow 'Open a chart' 'From your charts folder.' 'Ctrl+O' {
+    if (Open-Chart) { Update-Working } }
+Add-Action $chartFlow 'Bring in a file' 'A score, a MIDI demo, or words and chords in almost any format.' 'Ctrl+Shift+I' {
+    Do-BringIn; Update-Working }
+Add-Action $chartFlow 'Tell me the tune' 'The roadmap conversation, in a console your screen reader reads.' 'Ctrl+Shift+T' {
+    $p = Pick-Chart; if ($p) { Open-Talk $p 'edit'; Update-Working } }
+
+$buildFlow = New-Page 1
+Add-Action $buildFlow 'Build it' 'Pages, the listen MP3, read-alouds and findings.' 'Ctrl+B' {
+    Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
+Add-Action $buildFlow 'Check it' 'Compile only - every measure gets counted, nothing rendered.' 'Ctrl+K' {
+    Do-Build 'c' 'Checking the chart - every measure gets counted.' }
+Add-Action $buildFlow 'What changed' 'Since the last build, by part and by bar.' 'Ctrl+D' {
+    Do-Build 'd' 'Reading what changed since your last build, part by part.' }
+Add-Action $buildFlow 'How is the build going' 'The news on a background build, on a button press, never a timer.' 'F5' {
+    Do-HowGoes }
+
+$listenFlow = New-Page 2
+Add-Action $listenFlow 'Listen' 'The whole band, or just your chair, from any bar.' 'Ctrl+L' {
+    Do-Listen }
+Add-Action $listenFlow 'Read a part aloud' 'Opens a part''s read-aloud in Notepad; a screen reader reads it like a letter.' 'Ctrl+R' {
+    Do-ReadPart }
+Add-Action $listenFlow 'The sound shelf' 'What the band plays on.' '' {
+    Show-Info (Run-Chart 'sounds') }
+
+$talkFlow = New-Page 3
+Add-Action $talkFlow 'Tell me the tune' 'Describe it in one breath; Copyist writes the sections.' 'Ctrl+Shift+T' {
+    $p = Pick-Chart; if ($p) { Open-Talk $p 'edit' } }
+Add-Action $talkFlow 'Name the keyswitches' 'Say once what each unnamed key in your demo does.' '' {
+    $p = Pick-Chart; if ($p) { Open-Talk $p 'keys' } }
+Add-Action $talkFlow 'Name the drum notes' 'Your drum library''s note map, said once and kept.' '' {
+    $p = Pick-Chart; if ($p) { Open-Talk $p 'drums' } }
+
+$setFlow = New-Page 4
+Add-Action $setFlow 'The settings desk' 'Your name, the look, where files go, how your playing is read.' 'Ctrl+Comma' {
+    Do-Settings }
+Add-Action $setFlow 'Help - what this is' 'Copyist in a paragraph.' 'F1' {
+    Show-Info ('Copyist turns a chart file - plain words and a ' +
+        'played demo - into engraved parts, a conductor score, ' +
+        'spoken read-alouds and a listening MP3, all its own ink. ' +
+        'Write charts with any text editor; the guide is ' +
+        'CHART-WRITING.md. Ctrl+1 to Ctrl+5 move between the tabs.') }
+
+function Go-Tab([int]$i) {
+    $tabs.SelectedIndex = $i
+    # focus on the tab strip: the screen reader names the tab and its
+    # place, "Build tab, 2 of 5", with no speech of our own on top
+    [void]$tabs.Focus()
+}
+
+$form.Add_KeyDown({
+    param($s, $e)
+    $k = $e.KeyCode
+    if ($e.Control -and -not $e.Alt) {
+        $n = [int]$k - [int][System.Windows.Forms.Keys]::D1
+        if ($n -ge 0 -and $n -lt 5 -and -not $e.Shift) {
+            Go-Tab $n; $e.Handled = $true; $e.SuppressKeyPress = $true
+            return
+        }
+        $e.SuppressKeyPress = $true
+        switch ($k) {
+            'O' { if (Open-Chart) { Update-Working } }
+            'B' { Do-Build '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.' }
+            'K' { Do-Build 'c' 'Checking the chart - every measure gets counted.' }
+            'D' { Do-Build 'd' 'Reading what changed since your last build, part by part.' }
+            'L' { Do-Listen }
+            'R' { Do-ReadPart }
+            'I' { if ($e.Shift) { Do-BringIn; Update-Working } }
+            'T' { if ($e.Shift) { $p = Pick-Chart; if ($p) { Open-Talk $p 'edit' } } }
+            'Oemcomma' { Go-Tab 4; Do-Settings }
+            default { $e.SuppressKeyPress = $false; return }
+        }
+        $e.Handled = $true
+        return
+    }
+    if ($k -eq 'F5') { Do-HowGoes; $e.Handled = $true }
+    if ($k -eq 'F1') {
+        Go-Tab 4
+        Show-Info 'Ctrl+1 to Ctrl+5 move between the tabs: Chart, Build, Listen and read, Conversation, Settings. Ctrl+B builds, Ctrl+K checks, Ctrl+L listens, Ctrl+O opens a chart, F5 asks how a build is going.'
+        $e.Handled = $true
+    }
+})
+
+$form.Controls.Add($tabs)
+$form.Controls.Add($working)
+Update-Working
+$form.Add_Shown({ [void]$tabs.Focus() })
+[void]$form.ShowDialog()

@@ -257,19 +257,25 @@ and part agrees.
 
 On the Mac, **Copyist** lives in Applications: a real app over the
 same engine, with two designed looks (Dark Stage and Manuscript) or
-the system's own. The big actions sit on cards: the roadmap
-conversation in a chat view, build, check, read a part, and Listen,
-which asks two optional questions, start at which bar and solo who,
-so proofing an ending never costs sitting through the tune. A build
-shows a real progress bar, phase by phase, and you can walk away:
-Home keeps a live chip to come back to, and a new window works on a
-second chart while the first one renders. The
-settings desk states every value before you change it. On Windows,
-the `windows` folder holds **Copyist.bat**, the same menu in native
-Windows dialogs that NVDA and JAWS read well; its Listen asks the
-same two questions, and the roadmap conversation opens in a real
-console, which screen readers already read natively. Python from
-python.org is the one requirement there. The terminal `chart` command
+the system's own. It has five tabs, and Command 1 to 5 go straight to
+one: **Chart** (open, start or bring in a chart), **Build** (build,
+check, what changed), **Listen and read** (start at any bar, tick the
+players you want to hear alone, or pick a part to read aloud),
+**Conversation** (tell Copyist the tune, name keyswitches and drum
+notes) and **Settings**, which Command comma opens too. VoiceOver lands
+on each tab's heading when you arrive, so it always says where you
+are, then says once what the tab holds. The work lives in a Chart menu
+with keys: Command B builds, Command K checks, Command D says what
+changed, Command P plays the last listen, Command period stops. A
+build says each step aloud as it goes (Settings turns that down to
+just the finish), shows a real progress bar, and keeps going if you
+change tabs or open a second window for another chart. Its transcript
+is one line per thing said, so VoiceOver walks the findings a line at
+a time. On Windows, the `windows` folder holds **Copyist.bat**: the
+same five tabs in a native window NVDA and JAWS read well, Control 1 to
+5 between them, Control B, K, D, L and R for the work, and the roadmap
+conversation in a real console. Python from python.org is the one
+requirement there. The terminal `chart` command
 does everything either app does, and more.
 
 ## The settings desk, and shortcuts

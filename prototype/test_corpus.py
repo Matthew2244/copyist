@@ -3420,6 +3420,12 @@ def check_minor_and_chord_spelling():
     check("interview: compound meters offer the dotted-quarter tempo",
           chartnew.compound((6, 8)) and chartnew.compound((12, 8))
           and not chartnew.compound((4, 4)))
+    import subprocess as _sp
+    out = _sp.run([sys.executable, os.path.join(HERE, "chart.py"),
+                   os.path.join(tmp, "m.chart"), "parts", "--labels"],
+                  capture_output=True, text=True).stdout.split()
+    check("parts --labels: one chair per line for the apps' pick lists",
+          out == ["flute", "trumpet"], repr(out))
     check("interview: a track named for its instrument offers it",
           chartnew.track_instrument("Trumpet 1") == "trumpet"
           and chartnew.track_instrument("congas") == "congas"
