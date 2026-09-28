@@ -128,12 +128,21 @@ def spell_fifth(f):
     return step, alter, (BASE_PC[step] + alter) % 12
 
 
-def spelling_table(fifths, find):
+def spelling_table(fifths, find, minor=False, chords=None):
     """
     9 — key-aware spelling. The seven diatonic degrees come straight from the
     key signature. Chromatic notes take the spelling *closest to the key on the
     circle of fifths*, which is what keeps double accidentals off the page —
     naively raising the note below produces F double-sharp for a plain G.
+
+    A minor key raises its sixth and seventh: D minor's leading tone is C#,
+    never Db, and the tritone from the key's centre is exactly where the
+    closest-on-the-circle rule ties and would fall to the flat.
+
+    `chords` ({pitch class: (step, alter)}, the chord tones sounding in the
+    bar) then spell the notes the signature does not: G# under E7 in C.
+    A note the signature already spells keeps it — a Gb in an Eb minor
+    line stays Gb even with a Bm11 reharmonization in the bar.
     """
     table = {}
     for f in range(fifths, fifths + 7):
@@ -168,6 +177,23 @@ def spelling_table(fifths, find):
                     doubles += 1
                     break
         table[pc] = (best[1], best[2])
+
+    if minor:
+        # the relative minor's tonic sits four fifths above the
+        # signature's first flat-side degree; its major sixth and major
+        # seventh are three and five fifths above that
+        # G# minor's leading tone is F double-sharp, as every theory
+        # book prints it; the engraver draws it and the read-aloud says it
+        for f in (fifths + 7, fifths + 9):
+            step, alter, pc = spell_fifth(f)
+            if abs(alter) <= 2:
+                table[pc] = (step, alter)
+
+    if chords:
+        diatonic = {spell_fifth(f)[2] for f in range(fifths, fifths + 7)}
+        for pc, sp in chords.items():
+            if pc not in diatonic:
+                table[pc] = sp
 
     if doubles:
         find.add("uncertain",

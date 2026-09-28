@@ -1106,10 +1106,118 @@ def parse_chart(path):
                 for i, (b, c) in enumerate(bar)])
         sec['content'] = content
         start += sec['bars']
+    # every bar's chord symbols, in printed bar numbers — the speller
+    # reads them so a note spells the way its chord does
+    chart['chord_bars'] = {}
+    start = 1
+    for sec in chart['sections']:
+        for off, bar in enumerate(sec['content']):
+            chart['chord_bars'][start + off] = [c for _, c in bar]
+        start += sec['bars']
     return chart
 
 
 parse_chart.defs_ref = {}
+
+
+# ------------------------------------------------ spelling by the chord
+
+# a chord tone's distance from its root on the line of fifths: the major
+# third is four fifths up, the minor third three down, and so on — the
+# form that turns "A7" into C# rather than Db without a lookup table
+DEGREE_FIFTHS = {'3': 4, 'b3': -3, '5': 1, 'b5': -6, '#5': 8, '7': 5,
+                 'b7': -2, 'bb7': -9, '6': 3, 'b6': -4, '9': 2, 'b9': -5,
+                 '#9': 9, '11': -1, '#11': 6, '13': 3, 'b13': -4,
+                 '4': -1, '2': 2}
+_STEP_FIFTH = {s: i for i, s in enumerate("FCGDAEB")}
+
+
+def chord_degrees(qual):
+    """The chord tones a quality names, as degrees: 'm7b5' -> b3 b5 b7."""
+    if qual == '5':
+        return {'5'}
+    if qual == 'alt':
+        return {'3', 'b7', 'b9', '#9', '#11', 'b13'}
+    minor = qual.startswith('m') and not qual.startswith('maj')
+    if qual.startswith('dim'):
+        third, fifth = 'b3', 'b5'
+    elif qual.startswith('aug'):
+        third, fifth = '3', '#5'
+    else:
+        third, fifth = ('b3' if minor else '3'), '5'
+    if 'sus4' in qual or qual.endswith('sus'):
+        third = '4'
+    elif 'sus2' in qual:
+        third = '2'
+    if 'b5' in qual:
+        fifth = 'b5'
+    elif '#5' in qual:
+        fifth = '#5'
+    degs = {third, fifth}
+    base = re.sub(r'[b#]\d+', '', qual)
+    if base.startswith('dim7'):
+        degs.add('bb7')
+    elif 'maj' in base and re.search(r'7|9|13', base):
+        degs.add('7')
+    elif re.search(r'7|9|11|13', base) and not re.match(
+            r'(m?6|m?69|m?add)', base):
+        degs.add('b7')
+    for acc, num in re.findall(r'([b#]?)(13|11|9|6)', qual):
+        d = acc + num
+        if d in DEGREE_FIFTHS:
+            degs.add(d)
+    return degs
+
+
+def chord_spelling(syms, foff=0):
+    """{pitch class: (step, alter)} for the chord tones of one bar's
+    symbols, shifted foff fifths into a transposing part's frame. A pitch
+    class two chords in the bar spell differently is left to the key."""
+    from spelling import spell_fifth
+    out, clash = {}, set()
+    for sym in syms:
+        # the parser leaves each chord as (step, alter, quality, bass);
+        # a raw symbol is accepted too, for callers outside a chart
+        try:
+            got = split_chord(sym) if isinstance(sym, str) else sym
+        except SystemExit:
+            continue
+        if not got or len(got) != 4:
+            continue
+        step, alter, qual, bass = got
+        root = _STEP_FIFTH[step] + 7 * alter
+        places = [root] + [root + DEGREE_FIFTHS[d]
+                           for d in chord_degrees(qual)]
+        if bass:
+            m = re.fullmatch(r'([A-G])([b#]?)', bass)
+            if m:
+                places.append(_STEP_FIFTH[m.group(1)]
+                              + 7 * {'b': -1, '#': 1, '': 0}[m.group(2)])
+        for f in places:
+            st, al, pc = spell_fifth(f + foff)
+            if abs(al) > 1:
+                continue
+            if pc in out and out[pc] != (st, al):
+                clash.add(pc)
+            out[pc] = (st, al)
+    for pc in clash:
+        del out[pc]
+    return out
+
+
+def spelling_hints(chart, key, foff=0):
+    """(minor_at, chords_at) for a part whose written key sits foff
+    fifths from concert: what KeyedTable needs to spell like a copyist."""
+    keys_ = chart.get('keys') or [(1, key)]
+    bars = chart.get('chord_bars') or {}
+    cache = {}
+
+    def chords_at(b):
+        if b not in cache:
+            cache[b] = chord_spelling(bars.get(b, ()), foff)
+        return cache[b]
+    return (lambda b: key_at(keys_, b if b is not None else 1)[1]
+            == 'minor', chords_at)
 
 
 # --------------------------------------------------------- source score
@@ -1700,6 +1808,7 @@ def compile_chart(chart_path, outdir):
             # that modulates spells its later bars in their own key
             keys_ = chart.get('keys') or [(1, key)]
             fig_f = key_at(keys_, item['res']['at'])[0]
+            minor_at, chords_at = spelling_hints(chart, key, foff)
             ms = chartdemo.render_range(item['res'], fig_f + foff, tr,
                                         item['fall'], findings,
                                         short=item['short'],
@@ -1708,7 +1817,9 @@ def compile_chart(chart_path, outdir):
                                         scoops=item['scoops'],
                                         cue=item.get('cue', False),
                                         fifths_at=lambda b, k=keys_, f=foff:
-                                        key_at(k, b)[0] + f)
+                                        key_at(k, b)[0] + f,
+                                        minor_at=minor_at,
+                                        chords_at=chords_at)
             for bar, xml in ms.items():
                 if bar in demo_measures[l]:
                     fail(f"'{l}' has two demo figures landing on bar {bar}")
@@ -1846,8 +1957,13 @@ def compile_chart(chart_path, outdir):
         keys_ = chart.get('keys') or [(1, key)]
         def wname(p, bar, _f=h['foff'], _k=keys_):
             # spelled in the key of ITS bar, as the page spells it
+            kb = key_at(_k, bar - shift)
             table = chartdemo.spelling_table(
-                key_at(_k, bar - shift)[0] + _f, chartdemo.Findings())
+                kb[0] + _f, chartdemo.Findings(),
+                minor=kb[1] == 'minor',
+                chords=chord_spelling(
+                    (chart.get('chord_bars') or {}).get(bar - shift, ()),
+                    _f))
             s_, a_, o_ = chartdemo.convert.spell(p + tr, table)
             return f"{s_}{'b' if a_ == -1 else '#' if a_ == 1 else ''}{o_}"
         edge = ""
@@ -2010,6 +2126,11 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     spoken_shift=int(hdr.get('countin', 0)),
                     part_label=l, findings=findings,
                     drums=h['clef'] == 'percussion')
+                # a drum set (or the aux table, several instruments on
+                # one chair) splits cymbals from drums; a conga, bongo or
+                # bell player reads one voice, whatever the heads
+                res['kit'] = canonical_instrument(b['instrument']) in (
+                    'drums', 'percussion')
                 chartdemo.attach_lyrics(
                     res, ref.get('lyrics') or ref.get('fig_lyrics'),
                     l, ref['loc'], findings)

@@ -787,15 +787,20 @@ def main():
         list_instruments(" ".join(sys.argv[2:]).strip().lower())
         return
 
-    if len(sys.argv) == 1:
+    if len(sys.argv) == 1 or sys.argv[1].lower() in ('help', '?'):
         say("Copyist chart — a song from played demo to proofread "
             "parts, by ear.")
         say("Start with a chart file: 'chart my-tune.chart' builds "
             "everything; add 'check' to just prove it, 'read' to hear "
             "a part, 'parts' for the band, 'new --demo take.mid' to "
             "start one from your playing.")
+        say("Without a chart: 'chart import score.musicxml' brings in "
+            "a file, 'chart settings' shows your defaults, 'chart "
+            "sounds' the sample shelf, 'chart instruments' the band "
+            "list, 'chart keyswitches' your saved maps.")
         say("The writer's guide is CHART-WRITING.md, next to the code "
-            "and in your Copyist Charts folder.")
+            "and in your Copyist Charts folder; 'chart --help' lists "
+            "every option.")
         return
     try:
         sys.stdout.reconfigure(errors='replace')   # a Windows console

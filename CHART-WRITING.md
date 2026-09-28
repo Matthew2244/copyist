@@ -63,6 +63,13 @@ The worked example below is an invented tune called *Uptown Local*.
 - `dynamics: by hand` means you'll dictate the dynamics. Leave it out and
   the build reads your expression pedal (CC 11) instead and drafts marks
   for you to correct.
+- **Accidentals spell the way a copyist spells them.** Say `key: D
+  minor` rather than `key: F` for a minor tune: a minor key raises its
+  sixth and seventh, so D minor's leading tone prints C sharp, never D
+  flat. A note outside the key takes its spelling from the chord above
+  it, so a G sharp under an E7 in C prints G sharp. A note the key
+  signature already names keeps the key's spelling, whatever chord
+  sits in the bar.
 
 ## The band
 
@@ -199,7 +206,8 @@ recording convention, not a voicing.
   identical to the one before it prints as the repeat sign with the
   count over every fourth, so a long groove reads as a groove. Hand
   percussion has its own staff dialect, bongos to timbales to the
-  shaker. Add `ghosts` and your quiet snare notes print in
+  shaker, and reads as one voice: a conga player's mutes and open
+  tones share one line, the way conga parts are written. Add `ghosts` and your quiet snare notes print in
   parentheses, from your own played velocities. And the read-back
   speaks drummer, "beat 3, eighth together, snare and closed hat",
   never a pile of note names.
@@ -549,11 +557,15 @@ editing desk. Chords come in as written: 9sus4, 7b9b13, m13, maj13,
     python3 prototype/chart.py "Uptown Local.chart" new --demo horns.mid
 
 The interview reads your demo first, then asks one question at a time:
-title, key, tempo (offered from the file itself), count-in (detected
-when bar one is empty). Then it walks the tracks, each one announced
-with its name, note count and range; you name the instrument, and if
-the track sits an octave off that instrument's real register it says
-so and proposes the correction. The chart it writes opens with an
+title, key, meter, tempo, count-in. Key, meter and tempo are offered
+from the file itself, and in 6/8 or 12/8 the tempo it offers is the
+dotted-quarter figure, the one the page prints. The count-in is
+detected when bar one is empty. Then it walks the tracks, each one
+announced with its name, note count and range. A track already named
+for its instrument ("trumpet", "congas", "Tenor Sax 2") offers that
+instrument, so Enter is the whole answer; if the track sits an octave
+off that instrument's real register it says so and proposes the
+correction. The chart it writes opens with an
 activity map, who plays which bars, so carving sections is reading,
 not detective work.
 

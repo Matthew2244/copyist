@@ -15,6 +15,7 @@ plays which bars — because that is the first thing a writer wants to
 know when carving sections.
 """
 import os
+import re
 import sys
 
 import chartc
@@ -22,6 +23,38 @@ import chartdemo
 from chartedit import ask, say
 
 NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
+MAJOR_BY_FIFTHS = ["Cb", "Gb", "Db", "Ab", "Eb", "Bb", "F", "C",
+                   "G", "D", "A", "E", "B", "F#", "C#"]
+MINOR_BY_FIFTHS = ["Ab", "Eb", "Bb", "F", "C", "G", "D", "A",
+                   "E", "B", "F#", "C#", "G#", "D#", "A#"]
+
+
+def key_name(fifths, minor):
+    """A demo's key signature event, said the way the header takes it."""
+    if not -7 <= fifths <= 7:
+        return "C"
+    if minor:
+        return f"{MINOR_BY_FIFTHS[fifths + 7]} minor"
+    return MAJOR_BY_FIFTHS[fifths + 7]
+
+
+def compound(meter):
+    """6/8, 9/8, 12/8: the tempo a drummer is given is the dotted
+    quarter — the same test the compiler uses when it prints one."""
+    return meter[1] == 8 and meter[0] % 3 == 0
+
+
+def track_instrument(name):
+    """A track already named for its instrument ("trumpet", "bone",
+    "kit") offers that as the answer, so Enter is enough."""
+    if not name:
+        return ""
+    inst = chartc.canonical_instrument(name)
+    if inst in chartc.HORNS:
+        return inst
+    # "Trumpet 1", "tenor sax 2": the name with its chair number off
+    bare = chartc.canonical_instrument(re.sub(r"\s*\d+$", "", name))
+    return bare if bare in chartc.HORNS else ""
 
 
 def pname(p):
@@ -80,9 +113,13 @@ def interview(out_path, demo_path, composer='', cfg=None):
     import analyze
     mid = analyze.parse_midi(demo_path)
     ex = analyze.extract(mid)
-    tempo_default = ""
+    quarter_bpm = None
     if ex["tempos"]:
-        tempo_default = str(round(60_000_000 / ex["tempos"][0][1]))
+        quarter_bpm = 60_000_000 / ex["tempos"][0][1]
+    key_default = "C"
+    if ex["keysigs"]:
+        _, sf, mi = ex["keysigs"][0]
+        key_default = key_name(sf, mi)
     ts_default = "4/4"
     if ex["timesigs"]:
         _, tn, td = ex["timesigs"][0]
@@ -90,7 +127,7 @@ def interview(out_path, demo_path, composer='', cfg=None):
 
     title = ask("Title", os.path.splitext(os.path.basename(out_path))[0])
     composer = ask("Composer", composer)
-    key = ask("Key, like Eb minor or F", "C")
+    key = ask("Key, like Eb minor or F", key_default)
     meter_txt = ask("Meter, like 4/4 or 3/4 or 6/8", ts_default)
     meter = chartc.parse_meter(meter_txt)
     # a demo whose own map changes meter counts its bars by that map;
@@ -124,7 +161,17 @@ def interview(out_path, demo_path, composer='', cfg=None):
     # speaks only when the file says nothing
     countin_default = "1" if first_bar > 1 else \
         (cfg.get('countin') or "0")
-    tempo = ask("Tempo", tempo_default)
+    tempo_default = ""
+    tempo_q = "Tempo"
+    if quarter_bpm:
+        if compound(meter):
+            # the file stores quarter notes; the chart's tempo in 6/8
+            # is the dotted-quarter figure, the one the page prints
+            tempo_default = str(round(quarter_bpm * 2 / 3))
+            tempo_q = "Tempo, dotted quarter to the beat"
+        else:
+            tempo_default = str(round(quarter_bpm))
+    tempo = ask(tempo_q, tempo_default)
     countin = ask("Count-in bars in the demo", countin_default)
     dyn = ask("Dynamics: pedal reads your CC 11, by hand means you "
               "dictate", "pedal")
@@ -139,7 +186,7 @@ def interview(out_path, demo_path, composer='', cfg=None):
         info = (f'Track "{name}": {len(notes)} notes, '
                 f'{pname(min(pitches))} to {pname(max(pitches))}. '
                 'Instrument')
-        inst = ask(info, "")
+        inst = ask(info, track_instrument(name))
         if not inst:
             continue
         inst = chartc.canonical_instrument(inst)

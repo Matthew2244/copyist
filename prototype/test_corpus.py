@@ -3345,10 +3345,143 @@ def check_drum_kit():
               ("xHead", "circleXHead", "diamondHead", "triangleHead")))
 
 
+def check_minor_and_chord_spelling():
+    """
+    A minor key's leading tone is a sharp or a natural, never the flat the
+    closest-on-the-circle rule falls to on a tie: every lifted page in D, G,
+    A, E and B minor printed Db, Gb, Ab, Eb and Bb for it (Victory, in G
+    minor, carried 405 Gb until 2026-09-28). Chord symbols then spell what
+    the signature does not: G# under E7 in C. A note the signature already
+    spells keeps its spelling whatever chord sits in the bar.
+    """
+    import convert, chartc, chartdemo, smf, tempfile
+    from contextlib import redirect_stdout
+    tonic_pc = {"C": 0, "C#": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4, "F": 5,
+                "F#": 6, "G": 7, "G#": 8, "A": 9, "Bb": 10, "B": 11}
+    wrong = []
+    for key in ("A", "E", "B", "F#", "C#", "G#", "D#", "D", "G", "C",
+                "F", "Bb", "Eb"):
+        fifths, _ = chartc.parse_key(key + " minor")
+        t = convert.spelling_table(fifths, chartdemo.Findings(),
+                                   minor=True)
+        tonic = tonic_pc[key]
+        step, alter = t[(tonic - 1) % 12]
+        letter = "ABCDEFG"[("ABCDEFG".index(key[0]) - 1) % 7]
+        if step != letter or alter < 0:
+            wrong.append(f"{key} minor: {step}{alter:+d}")
+    check("every minor key spells its leading tone on the letter below "
+          "the tonic, never flat", not wrong, "; ".join(wrong))
+    t = convert.spelling_table(-1, chartdemo.Findings(), minor=True)
+    check("D minor: raised sixth B natural, leading tone C#",
+          t[11] == ("B", 0) and t[1] == ("C", 1))
+    t = convert.spelling_table(0, chartdemo.Findings(),
+                               chords=chartc.chord_spelling(["E7"]))
+    check("E7 in C spells G#", t[8] == ("G", 1))
+    t = convert.spelling_table(-6, chartdemo.Findings(), minor=True,
+                               chords=chartc.chord_spelling(["Bm11"]))
+    check("a signature note keeps its spelling under a foreign chord "
+          "(Gb in Eb minor over Bm11)", t[6] == ("G", -1))
+    check("chord degrees: m7b5, dim7, 7sus4, alt",
+          chartc.chord_degrees("m7b5") == {"b3", "b5", "b7"}
+          and chartc.chord_degrees("dim7") == {"b3", "b5", "bb7"}
+          and chartc.chord_degrees("7sus4") == {"4", "5", "b7"}
+          and "b13" in chartc.chord_degrees("alt"))
+    check("a transposing part spells the chord in its own frame "
+          "(A7 for Bb trumpet: D#)",
+          chartc.chord_spelling(["A7"], 2).get(3) == ("D", 1))
+
+    # end to end: D minor, C# under A7, trumpet and flute
+    tmp = tempfile.mkdtemp()
+    div = 480
+    ev = [(0, 900, 73, 90), (960, 1800, 74, 90), (1920, 2800, 73, 90),
+          (2880, 3700, 74, 90)]
+    smf.write(os.path.join(tmp, "m.mid"), ev, div, 100)
+    open(os.path.join(tmp, "m.chart"), "w").write(
+        "title: M\nkey: D minor\nmeter: 4/4\ntempo: 100\n\nband:\n"
+        '  flute, demo "m.mid"\n  trumpet, demo "m.mid"\n\n'
+        "section A, 1 bars\n  chords: A7 Dm@3\n"
+        "  flute: from demo bars 1-1\n  trumpet: from demo bars 1-1\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "m.chart"),
+                             os.path.join(tmp, "b"))
+    fx = open(os.path.join(tmp, "b", "M — flute.musicxml")).read()
+    tx = open(os.path.join(tmp, "b", "M — trumpet.musicxml")).read()
+    check("D minor page: the flute reads C#, the trumpet D#",
+          "<step>C</step><alter>1</alter>" in fx.replace("\n", "")
+          .replace(" ", "") and "<step>D</step><alter>1</alter>"
+          in tx.replace("\n", "").replace(" ", "")
+          and "<alter>-1</alter>" not in fx)
+
+    # the interview's defaults read the demo
+    import chartnew
+    check("interview: key signature event named like the header takes it",
+          chartnew.key_name(-1, 1) == "D minor"
+          and chartnew.key_name(3, 0) == "A")
+    check("interview: compound meters offer the dotted-quarter tempo",
+          chartnew.compound((6, 8)) and chartnew.compound((12, 8))
+          and not chartnew.compound((4, 4)))
+    check("interview: a track named for its instrument offers it",
+          chartnew.track_instrument("Trumpet 1") == "trumpet"
+          and chartnew.track_instrument("congas") == "congas"
+          and chartnew.track_instrument("track 3") == "")
+
+
+def check_hand_percussion_parts():
+    """
+    A conga, bongo or bell player reads ONE voice: the kit's
+    cymbals-up/drums-down split is for the drum set (and the aux table),
+    and applied to congas it turned every mute into a stems-up dotted
+    quarter over a line of rests (Sundown Bembe, 2026-09-28). The listen
+    reads a hand-percussion staff by the part's instrument sound as well
+    as its name, so a cowbell labelled "bell" still plays the bell.
+    """
+    import chartc, chartaudio, smf, tempfile
+    from contextlib import redirect_stdout
+    tmp = tempfile.mkdtemp()
+    ev = []
+    for b in range(2):
+        t0 = b * 1920
+        ev += [(t0, t0 + 200, 62, 80), (t0 + 480, t0 + 680, 63, 90),
+               (t0 + 960, t0 + 1160, 62, 80), (t0 + 1440, t0 + 1640, 64, 96)]
+    smf.write(os.path.join(tmp, "c.mid"), ev, 480, 100)
+    kit = []
+    for b in range(2):
+        t0 = b * 1920
+        kit += [(t0 + i * 480, t0 + i * 480 + 100, 42, 80) for i in range(4)]
+        kit += [(t0, t0 + 100, 36, 96), (t0 + 960, t0 + 1060, 38, 90)]
+    smf.write(os.path.join(tmp, "k.mid"), kit, 480, 100)
+    open(os.path.join(tmp, "h.chart"), "w").write(
+        "title: H\nkey: C\nmeter: 4/4\ntempo: 100\n\nband:\n"
+        '  congas, demo "c.mid"\n  drums, demo "k.mid"\n\n'
+        "section A, 2 bars\n  chords: nc x2\n"
+        "  congas: from demo bars 1-2\n  drums: from demo bars 1-2\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "h.chart"),
+                             os.path.join(tmp, "b"))
+    cx = open(os.path.join(tmp, "b", "H — congas.musicxml")).read()
+    dx = open(os.path.join(tmp, "b", "H — drums.musicxml")).read()
+    check("congas: one voice, mutes and open tones together",
+          "<backup>" not in cx and "<voice>2</voice>" not in cx
+          and "<notehead>x</notehead>" in cx)
+    check("drums: the kit still splits cymbals from drums",
+          "<voice>2</voice>" in dx)
+    t = ('<note><unpitched><display-step>E</display-step><display-octave>'
+         '5</display-octave></unpitched><duration>1</duration></note>')
+    check("listen: a cowbell part labelled 'bell' reads the hand staff",
+          chartaudio._note_midi(t, {'name': 'bell',
+                                    'sound': 'metal.cowbell',
+                                    'percussion': True}, 0) == 60
+          and chartaudio._note_midi(t, {'name': 'drums',
+                                        'sound': 'drum.group.set',
+                                        'percussion': True}, 0) != 60)
+
+
 if __name__ == "__main__":
     print("\ninvariants")
     check_duration_algebra()
     check_key_names_are_usable()
+    check_minor_and_chord_spelling()
+    check_hand_percussion_parts()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

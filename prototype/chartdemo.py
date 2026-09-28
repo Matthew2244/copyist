@@ -1298,16 +1298,26 @@ class KeyedTable:
     '''A spelling table that follows the key bar by bar: whoever emits a
     bar sets .at first, and every lookup spells in that bar's key. A
     figure crossing a modulation spells each side in its own key.'''
-    def __init__(self, fifths_at, find):
+    def __init__(self, fifths_at, find, minor_at=None, chords_at=None):
         self.fifths_at, self.find, self.at = fifths_at, find, None
+        # minor_at(bar) -> is that bar's key minor; chords_at(bar) ->
+        # {pitch class: (step, alter)} for the chord tones sounding in
+        # that bar, already in this table's (written) frame. A chord
+        # spells what the signature does not: C# under A7 in any key.
+        self.minor_at, self.chords_at = minor_at, chords_at
         self._cache = {}
 
     def _t(self):
         f = self.fifths_at(self.at) if self.at is not None else \
             self.fifths_at(None)
-        if f not in self._cache:
-            self._cache[f] = spelling_table(f, self.find)
-        return self._cache[f]
+        minor = bool(self.minor_at and self.minor_at(self.at))
+        chords = (self.chords_at(self.at)
+                  if self.chords_at and self.at is not None else None)
+        ck = (f, minor, tuple(sorted(chords.items())) if chords else ())
+        if ck not in self._cache:
+            self._cache[ck] = spelling_table(f, self.find, minor=minor,
+                                             chords=chords)
+        return self._cache[ck]
 
     def __getitem__(self, k):
         return self._t()[k]
@@ -1318,7 +1328,8 @@ class KeyedTable:
 
 def render_range(res, fifths_written, transpose_to_written, fall,
                  findings=None, short=False, every=None, doit=False,
-                 scoops=None, cue=False, fifths_at=None):
+                 scoops=None, cue=False, fifths_at=None, minor_at=None,
+                 chords_at=None):
     """Resolved timeline -> {abs_bar: MusicXML measure content}."""
     find = findings if findings is not None else Findings()
     at_bar = res['at']
@@ -1326,7 +1337,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     timeline = res['timeline']
     grids_chart = res['grids']
     table = (KeyedTable(lambda b: fifths_at(b) if b is not None
-                        else fifths_written, find)
+                        else fifths_written, find, minor_at, chords_at)
              if fifths_at else spelling_table(fifths_written, find))
     trills = res.setdefault('trills', {})
 
@@ -1390,7 +1401,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
                 cyms.append((s_, c))
             if d:
                 drms.append((s_, d))
-        if cyms and drms:
+        if cyms and drms and res.get('kit', True):
             cap = res.get('drum_cap') or DIV
             ghost_on = ({res['timeline'][i][0] for i in res.get('ghosts')
                          or ()})
@@ -2137,12 +2148,14 @@ def say_ornaments(res, table, fifths=0):
 
 
 def say_range(res, concert_fifths, fall=False, findings=None, short=False,
-              doit=False, scoops=None, fifths_at=None):
+              doit=False, scoops=None, fifths_at=None, minor_at=None,
+              chords_at=None):
     """Resolved timeline -> {abs_bar: prose}, spoken at concert pitch."""
     find = findings if findings is not None else Findings()
     table = (None if res.get('drums') else
              KeyedTable(lambda b: fifths_at(b) if b is not None
-                        else concert_fifths, find) if fifths_at
+                        else concert_fifths, find, minor_at, chords_at)
+             if fifths_at
              else spelling_table(concert_fifths, find))
     if isinstance(table, KeyedTable):
         table.shift = res.get('spoken_shift', 0)

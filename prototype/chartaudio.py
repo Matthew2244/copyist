@@ -319,11 +319,14 @@ def _note_midi(t, m, transpose):
         st = re.search(r'<display-step>(\w)</display-step>', t)
         oc = re.search(r'<display-octave>(\d)</display-octave>', t)
         nh = re.search(r'<notehead[^>]*>([a-z-]+)</notehead>', t)
-        hand = bool(re.search(
-            r'percussion|conga|bongo|timbale|shaker|cowbell'
-            r'|clave|guiro|maraca|tambourine|aux',
-            m['name'], re.I)) and not re.search(
-            r'drum|kit|batterie', m['name'], re.I)
+        # the part's instrument sound says it even when the writer's
+        # label does not: a cowbell labelled "bell" is still a cowbell
+        hand_rx = (r'percussion|conga|bongo|timbale|shaker|cowbell'
+                   r'|clave|guiro|maraca|tambourine|aux')
+        hand = bool(re.search(hand_rx, m['name'], re.I)
+                    or re.search(hand_rx, m.get('sound', ''), re.I)) \
+            and not re.search(r'drum|kit|batterie', m['name'], re.I) \
+            and not m.get('sound', '').startswith('drum.group')
         return drum_midi(st.group(1), int(oc.group(1)),
                          nh.group(1) if nh else 'normal',
                          hand=hand) if st and oc else 38
