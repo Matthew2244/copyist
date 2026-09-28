@@ -1210,6 +1210,60 @@ def check_directive_family():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_build_entrance():
+    """
+    `build: add bass at 5` is an entrance: the bass rests bars 1-4 and
+    comes in at 5 — on the page, in the listen, in the findings and in
+    the read-aloud. It used to print the +bass cue over slashes that
+    started at bar 1, and the listen walked a bass line from the top.
+    """
+    import re
+    import subprocess
+    import chartaudio
+    import chartc
+    tmp = tempfile.mkdtemp()
+    cp = os.path.join(tmp, "e.chart")
+    open(cp, "w").write(
+        'title: E\nkey: C\nmeter: 4/4\ntempo: 120\nfeel: swing\n\n'
+        'band:\n  piano\n  bass\n  drums\n  trumpet\n\n'
+        'section A, 8 bars\n  chords: C7 x4, F7 x4\n'
+        '  build: add bass at 5, add trumpet at 7\n')
+    out = os.path.join(tmp, "b")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(cp, out)
+    bass = open(os.path.join(out, "E — bass.musicxml")).read()
+    bars = re.findall(r'<measure [^>]*>(.*?)</measure>', bass, re.S)
+    check("an entrance rests the bars before it",
+          len(bars) == 8 and all('<rest' in b and 'slash' not in b
+                                 for b in bars[:4]), str(len(bars)))
+    check("and slashes from the entrance on",
+          all('slash' in b for b in bars[4:]))
+    check("the part still carries its own +cue", '+bass' in bass)
+    piano = open(os.path.join(out, "E — piano.musicxml")).read()
+    pbars = re.findall(r'<measure [^>]*>(.*?)</measure>', piano, re.S)
+    check("a part not named keeps its slashes from bar 1",
+          'slash' in pbars[0])
+    plan = chartaudio.parse_score(
+        os.path.join(out, "E — for listening.musicxml"))
+    bs = next(p for p in plan['parts'] if p['name'] == 'bass')
+    pn = next(p for p in plan['parts'] if p['name'] == 'piano')
+    check("the listen's bass waits for bar 5",
+          bs['events'] and min(e[0] for e in bs['events']) >= 16,
+          str(min(e[0] for e in bs['events']) if bs['events'] else None))
+    check("the listen's piano plays from the top",
+          pn['events'] and min(e[0] for e in pn['events']) < 4)
+    fnd = open(os.path.join(out, "E — findings.txt")).read()
+    check("findings name the entrance", 'slashes from bar 5' in fnd, fnd)
+    check("an entrance with nothing to play says so",
+          'brought in at bar 7, but nothing is written' in fnd, fnd)
+    said = subprocess.run(
+        [sys.executable, os.path.join(HERE, "chartread.py"), cp,
+         "--part", "bass"], capture_output=True, text=True).stdout
+    check("the read-aloud says when to come in",
+          'Bars 1 to 4: rest' in said and 'from bar 5' in said, said)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_detail_and_look():
     """
     DESIGN.md 11's last two levels through the chart door — `simplified`
@@ -2162,6 +2216,7 @@ if __name__ == "__main__":
     check_figures()
     check_lyrics()
     check_directive_family()
+    check_build_entrance()
     check_detail_and_look()
     check_user_chair()
     check_engraver()

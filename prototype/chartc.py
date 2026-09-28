@@ -1440,6 +1440,12 @@ def compile_chart(chart_path, outdir):
                 what = "slashes"
             else:
                 what = "rest"
+            enter = plan['enters'].get(l)
+            if enter and what in ("kicks", "slashes"):
+                what += f" from bar {enter}"
+            elif enter and what == "rest":
+                what = (f"rest — brought in at bar {enter}, but nothing "
+                        "is written for it there")
             if what != "rest":
                 sounded = True
             elif cued:
@@ -1731,6 +1737,7 @@ def build_plans(chart, band, groups, labels):
                 'wedges': {l: [] for l in labels},
                 'overlays': {l: [] for l in labels},
                 'lifts': {l: [] for l in labels},
+                'enters': {},
                 'doubles': {}, 'cues': {}}
         for target, instr, loc in sec['directives']:
             tgts = groups.get(target) or ([target] if target in labels else None)
@@ -2037,6 +2044,14 @@ def build_plans(chart, band, groups, labels):
                     plan['texts'][l].append((bar, ('tempo', text)))
                 elif kind == 'build':
                     plan['texts'][l].append((bar, f"+{text}"))
+            if kind == 'build' and bar > 1:
+                # "+bass at 5" means the bass is not playing before 5:
+                # its slashes (and the listen's realized bass) start
+                # there. Played or written material the writer placed
+                # earlier still wins its bars — that is a stronger word.
+                for t in groups.get(text) or [text]:
+                    plan['enters'][t] = min(plan['enters'].get(t, bar),
+                                            bar)
                 else:
                     plan['texts'][l].append((bar, text))
         plans.append(plan)
@@ -2343,7 +2358,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             + (f'<offset>{doff}</offset>' if doff else '')
                             + f'<sound dynamics="{SOUND_DYN[mark]}"/>'
                             '</direction>\n')
-                if with_harmony and clef != 'percussion' and (
+                waiting = (kind in ('groove', 'hits')
+                           and off + 1 < plan['enters'].get(label, 0)
+                           and absbar not in demo_measures[label])
+                if waiting:
+                    # a player waiting to come in reads rests, not
+                    # changes — and the entrance restates its chord
+                    governing[0] = None
+                elif with_harmony and clef != 'percussion' and (
                         label in chord_parts or any(
                             isinstance(t[1], str) and
                             t[1].lower().startswith('solo') for t in
@@ -2361,6 +2383,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         governing[0] = chord
                 if absbar in demo_measures[label]:
                     pieces.append(demo_measures[label][absbar])
+                elif waiting:
+                    pieces.append(rest_bar(div, staves, bmeter))
                 elif kind == 'engraved':
                     lo, hi, at = arg
                     idx = absbar - (plan['start'] + at - 1)

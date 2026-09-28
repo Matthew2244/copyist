@@ -220,6 +220,9 @@ def part_section(plan, label, chord_parts, figures=None):
         g = f' "{gw}"' if gw else ""
         lines.append(f"Kicks{g} — {'; '.join(bits)}; slashes everywhere "
                      "else.")
+        enter = plan.get('enters', {}).get(label)
+        if enter:
+            lines.append(f"You come in at bar {enter}; rest before that.")
     elif kind == 'groove':
         is_solo = any(isinstance(t[1], str)
                       and t[1].lower().startswith('solo')
@@ -231,7 +234,12 @@ def part_section(plan, label, chord_parts, figures=None):
             g = f'Groove, "{arg}"' if arg else "Groove"
             what = ("slashes with the changes" if shows_chords
                     else "slashes")
-            lines.append(f"{g} — {what}.")
+            enter = plan.get('enters', {}).get(label)
+            if enter:
+                lines.append(f"Bars 1 to {enter - 1}: rest. {g} from "
+                             f"bar {enter} — {what}.")
+            else:
+                lines.append(f"{g} — {what}.")
     elif any(isinstance(t[1], str) and t[1].lower().startswith('solo')
              for t in texts):
         lines.append(f"You solo — {sec['bars']} bars over the changes, "

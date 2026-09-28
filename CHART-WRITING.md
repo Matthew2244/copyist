@@ -433,8 +433,9 @@ twice, big shout 16, ends on the head." Openers ("it opens with",
 "starts on"), connectors ("then", "after that", "finally") and
 endings ("ends on the head") all read; a mood word (quiet, big,
 mellow, burning) prints as the section's label, the way a real chart
-says "(quiet)" beside the letter; and "bass in at 5" becomes the
-"+bass" entrance cue on the page.
+says "(quiet)" beside the letter; and "bass in at 5" means just that:
+the bass rests bars 1 to 4 and comes in at 5, with the "+bass" cue
+over the entrance. The page, the listen and the read-aloud all agree.
 
 Run `edit` on a chart that already has its form and you get the
 editing desk instead of a fresh interview: `chords of <section>`,

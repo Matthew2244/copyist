@@ -443,7 +443,13 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
       build: add saxes at 3, add trombones at 11
 
   `build:` prints the "+saxes" style entrance cues *Jeannine*'s montuno
-  uses. `at bar N: fermata` is the phrase-end hold every ballad page
+  uses, and it is an entrance, not only a word: a named part whose
+  section content is slashes or kicks rests until its bar — on its page
+  (one multirest, no chord symbols while it waits, the chord restated
+  where it comes in), in the listen, in the read-aloud and in the
+  findings. Material the writer placed earlier (a demo lift, a figure)
+  still plays its bars; and a part brought in with nothing written for
+  it is named in the findings. `at bar N: fermata` is the phrase-end hold every ballad page
   carries: the sign lands on that bar's last note — or its rest — in
   every part, and the listening document holds time there, together. `at bar N: key X` changes key mid-chart (the 8-Bit Big Band
   audit: working books modulate constantly): every pitched part
