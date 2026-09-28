@@ -655,10 +655,14 @@ def run_import(argv):
         say(f"chart: {out}")
         return
     for line in find:
-        say(line[0].upper() + line[1:] + ".")
+        line = line.strip()
+        say(line[0].upper() + line[1:]
+            + ("" if line.endswith(('.', '!', '?')) else "."))
     if into:
         say("The words are in, as comments beside their sections; "
             "nothing printed changes until you place them.")
+    elif any(f.startswith('words only') for f in find):
+        say("Next: open it and tell me the tune.")
     else:
         say("Build it to hear it and see the pages, or tell me the "
             "tune to reshape the form.")

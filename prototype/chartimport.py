@@ -136,9 +136,9 @@ KIND = {
     'half-diminished': 'm7b5', 'major-minor': 'mmaj7',
     'major-sixth': '6', 'minor-sixth': 'm6', 'dominant-ninth': '9',
     'major-ninth': 'maj9', 'minor-ninth': 'm9', 'dominant-11th': '11',
-    'minor-11th': 'm11', 'dominant-13th': '13', 'major-13th': 'maj9',
-    'minor-13th': 'm11', 'suspended-second': 'sus2',
-    'suspended-fourth': 'sus4', 'power': '', 'other': '',
+    'minor-11th': 'm11', 'dominant-13th': '13', 'major-13th': 'maj13',
+    'minor-13th': 'm13', 'suspended-second': 'sus2',
+    'suspended-fourth': 'sus4', 'power': '5', 'other': '',
 }
 ALTER_WORD = {-1: 'b', 1: '#'}
 

@@ -21,6 +21,7 @@ Usage:
 """
 import argparse
 import os
+import re
 import sys
 
 import chartc
@@ -47,11 +48,31 @@ QUAL = {
 }
 
 
+def say_quality(qual):
+    """Any quality the compiler accepts, spoken: the table's own words
+    first, else spelled out piece by piece ('13#11' -> 'thirteen sharp
+    eleven') — a chord the page can print must never crash the voice."""
+    if qual in QUAL:
+        return QUAL[qual]
+    words = {'maj': 'major', 'm': 'minor', 'dim': 'diminished',
+             'aug': 'augmented', 'sus': 'sus', 'add': 'add',
+             'alt': 'altered', '#': 'sharp', 'b': 'flat',
+             '2': 'two', '4': 'four', '5': 'five', '6': 'six',
+             '7': 'seven', '9': 'nine', '11': 'eleven',
+             '13': 'thirteen'}
+    out = []
+    for tok in re.findall(r'maj|dim|aug|sus|add|alt|m|#|b|\d+', qual):
+        out.append(words.get(tok, tok))
+    if qual == '5':
+        return ' five, no third'
+    return (' ' + ' '.join(out)) if out else ''
+
+
 def say_chord(chord):
     if chord is None:
         return "no chord"
     step, alter, qual, bass = chord
-    s = step + ACC[alter] + QUAL[qual]
+    s = step + ACC[alter] + say_quality(qual)
     if bass:
         b = bass[0] + ACC[{'b': -1, '#': 1}.get(bass[1:], 0) if len(bass) > 1
                           else 0]

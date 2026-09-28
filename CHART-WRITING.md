@@ -398,13 +398,44 @@ the window. Whatever you're holding:
   every score in the author's own book does.
 - **A MuseScore file** goes through MuseScore if it's installed.
 - **A MIDI demo** goes to the interview below.
-- **Words and chords** in any text format: see the next section.
+- **Words and chords** in any text format: see below.
 - **Anything it can't read** (Sibelius, Finale, Dorico, Guitar Pro, a
   DAW project, audio, a picture) gets one sentence naming the way in,
   usually "export MusicXML" or "export the MIDI".
 
 It never writes over a chart. A second version of a tune gets its
 file's name, or a number.
+
+### Words and chords, from any text
+
+Plain text, Markdown, RTF, Word, OpenDocument, HTML, a PDF with real
+text in it, and Pages (through the preview it keeps) all read. Copyist
+works out what the words are:
+
+- **A ChordPro song** (`[G]Evening comes down [C]slow`, with
+  `{start_of_chorus}` and friends): the verses and choruses become
+  sections, the chords their changes, the words kept beside them.
+- **A chord sheet**, chords over the lyrics or in `| F | Bb |` bars:
+  barlines set the bars exactly, `%` repeats a bar, `x2` repeats a
+  line, and a title, "by" line, key, tempo and meter at the top come in
+  too.
+- **ABC notation**: the melody itself, as a written figure, with the
+  chords in their places. Grace notes and ornaments ABC decorates with
+  are left out, and the findings say so.
+- **An iReal Pro link** (from a web page, a message, a document): the
+  whole form, bar by bar, repeats and endings written out.
+- **Just the words**: stanzas become sections waiting for a tune, a
+  stanza that comes back is named Chorus, and the chart asks you to
+  tell it the tune. With a chart already open, the app asks whether the
+  words belong to it; `chart import words.docx --into "My Tune.chart"`
+  does the same from the terminal, placing each stanza beside the
+  section with its name, as comments, so no page changes until you
+  place them.
+
+When a sheet only says which chords, not how long, each chord gets one
+bar and the findings say so, so you can give the real lengths at the
+editing desk. Chords come in as written: 9sus4, 7b9b13, m13, maj13,
+9#11 and power chords are all part of the chart language now.
 
 ## Starting from nothing
 

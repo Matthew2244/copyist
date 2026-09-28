@@ -434,6 +434,19 @@ CHORD_KINDS = {
     '7#5': ('augmented-seventh', '7#5'),
     '7b5': ('dominant', '7b5', [(5, -1, 'alter')]),
     '7b13': ('dominant', '7b13', [(13, -1, 'add')]),
+    # the ones real lead sheets and iReal charts use most that were
+    # being simplified away on import (2026-09-27)
+    '9sus4': ('dominant-ninth', '9sus4', [(3, 0, 'subtract'),
+                                          (4, 0, 'add')]),
+    '7b9b13': ('dominant', '7b9b13', [(9, -1, 'add'), (13, -1, 'add')]),
+    '7b9#11': ('dominant', '7b9#11', [(9, -1, 'add'), (11, 1, 'add')]),
+    '9#11': ('dominant-ninth', '9#11', [(11, 1, 'add')]),
+    '13#9': ('dominant-13th', '13#9', [(9, 1, 'alter')]),
+    'm13': ('minor-13th', 'm13'),
+    'maj13': ('major-13th', 'maj13'),
+    'maj9#11': ('major-ninth', 'maj9#11', [(11, 1, 'add')]),
+    'm7b9': ('minor-seventh', 'm7b9', [(9, -1, 'add')]),
+    '5': ('power', '5'),
 }
 
 # jazz shorthand for qualities: the dash minor, min and mi spellings
@@ -442,6 +455,8 @@ QUAL_SYNONYMS = {'-': 'm', '-7': 'm7', '-9': 'm9', '-11': 'm11',
                  '-6': 'm6', 'min': 'm', 'min7': 'm7', 'min9': 'm9',
                  'mi': 'm', 'mi7': 'm7', 'mi9': 'm9', 'mi11': 'm11',
                  'mi6': 'm6', 'sus': 'sus4', '7sus': '7sus4',
+                 '9sus': '9sus4', 'min13': 'm13', 'mi13': 'm13',
+                 '-13': 'm13', 'ma13': 'maj13', 'ma9': 'maj9',
                  'ma7': 'maj7',
                  'M7': 'maj7', 'm(maj7)': 'mmaj7', 'aug7': '7#5',
                  '7alt': 'alt'}

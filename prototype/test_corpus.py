@@ -1672,6 +1672,85 @@ def check_score_import():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_text_import():
+    """
+    Words and chords from any text format: the readers' own self-test,
+    then real-shaped files through `chart import` to a chart that
+    compiles — a ChordPro song, a chord sheet saved as Word, lyrics in
+    a PDF, an ABC reel, a Markdown chart — plus the chords real lead
+    sheets use that once got simplified away, and a read-aloud that can
+    say any quality the page can print.
+    """
+    import subprocess as sp
+    import textformats
+    import chartimport
+    import chartread
+    import chartc
+    from chart import verify_measures
+    for name, ok, detail in textformats.selftest():
+        check("text: " + name, ok, detail)
+    tmp = tempfile.mkdtemp()
+    out = os.path.join(tmp, "out")
+    files = {
+        "Porch Song.cho": "{title: Porch Song}\n{key: G}\n"
+                          "{start_of_chorus}\n[C]Stay a little [G]longer,"
+                          " [Am7]let the night go [D9sus]by\n"
+                          "{end_of_chorus}\n",
+        "Late Train.md": "# Late Train\n\n**Key:** Bb\n\n## Head\n"
+                         "| Bb7 | Eb9#11 | Bb7 | Bb7 |\n"
+                         "| Eb7 | Eb7 | Bb7 | G7b9b13 |\n"
+                         "| Cm13 | F13#9 | Bb7 G7 | Cm7 F7 |\n",
+        "Reel.abc": "X:1\nT:Reel\nM:4/4\nL:1/8\nK:D\n"
+                    "\"D\"DFAF dFAF|\"G\"G2BG \"D\"FDAF|\n",
+        "words.txt": "Rain Walk\n\nWalking through the rain\ncounting "
+                     "every light\n\nHold on, hold on\nmorning's coming"
+                     "\n\nThe corner store is closing\n\nHold on, hold on"
+                     "\nmorning's coming\n",
+    }
+    for fn, body in files.items():
+        open(os.path.join(tmp, fn), "w").write(body)
+    have_textutil = os.path.exists("/usr/bin/textutil")
+    if have_textutil:
+        sp.run(["/usr/bin/textutil", "-convert", "docx", "-output",
+                os.path.join(tmp, "Sheet.docx"),
+                os.path.join(tmp, "Late Train.md")], capture_output=True)
+    made = {}
+    for fn in sorted(os.listdir(tmp)):
+        if fn == "out" or fn == "words.txt":
+            continue
+        chart, find = chartimport.import_file(os.path.join(tmp, fn), out)
+        made[fn] = chart
+        with redirect_stdout(io.StringIO()):
+            built = chartc.compile_chart(chart,
+                                         os.path.join(tmp, "b", fn))
+        check(f"text: {fn} becomes a chart that compiles whole",
+              built and not verify_measures(built), str(find))
+    late = open(made["Late Train.md"]).read()
+    check("text: lead-sheet chords come in as written, not simplified",
+          all(c in late for c in ("Eb9#11", "G7b9b13", "Cm13", "F13#9"))
+          and "D9sus4" in open(made["Porch Song.cho"]).read(), late)
+    check("text: ABC brings its melody as a figure",
+          "figure melody" in open(made["Reel.abc"]).read())
+    chart, find = chartimport.import_file(os.path.join(tmp, "words.txt"),
+                                          out)
+    wtext = open(chart).read()
+    check("text: words alone wait for their tune, the repeat named "
+          "Chorus", "# Chorus:" in wtext and "voice" in wtext
+          and any(f.startswith("words only") for f in find), wtext)
+    tgt = made["Late Train.md"]
+    chartimport.import_file(os.path.join(tmp, "words.txt"), out, into=tgt)
+    check("text: --into adds words to a chart without changing a note",
+          "Walking through the rain" in open(tgt).read())
+    for q in list(chartc.CHORD_KINDS):
+        said = chartread.say_quality(q)
+        if not isinstance(said, str) or '#' in said:
+            check(f"every quality speaks: {q}", False, repr(said))
+            break
+    else:
+        check("every quality the compiler accepts can be spoken", True)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_detail_and_look():
     """
     DESIGN.md 11's last two levels through the chart door — `simplified`
@@ -2680,6 +2759,7 @@ if __name__ == "__main__":
     check_trills_and_tremolos()
     check_sibelius_style_files()
     check_score_import()
+    check_text_import()
     check_detail_and_look()
     check_user_chair()
     check_engraver()

@@ -1019,7 +1019,18 @@ struct RunView: View {
                     .accessibilityLabel("Play the listen MP3")
                 }
                 if !model.running && model.chart != nil {
-                    if model.runTitle == "Bring in a file" {
+                    if model.runTitle == "Bring in a file"
+                        && model.runOutput.contains("tell me the tune.") {
+                        // words with no form yet: the conversation is
+                        // the next step, not a build
+                        Button {
+                            model.startTalk(["edit"])
+                        } label: {
+                            Label("Tell me the tune",
+                                  systemImage: "bubble.left.and.bubble.right")
+                        }
+                        .buttonStyle(.bordered)
+                    } else if model.runTitle == "Bring in a file" {
                         Button {
                             model.run("Build", args: ["build"])
                         } label: {
