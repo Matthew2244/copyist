@@ -1303,8 +1303,7 @@ def engrave(xml_path, pdf_path, look=None):
     if cur:
         systems.append(cur)
 
-    y = top_y
-    title_block(pdf, xml, PAGE_W, PAGE_H, MARGIN)
+    y = under_credits(top_y, title_block(pdf, xml, PAGE_W, PAGE_H, MARGIN))
     pname = names.get(pids[0], '')
     staves = measures[0]['state']['staves'] if measures else 1
     ph = part_height(staves)
@@ -1436,8 +1435,8 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
               page=(pw, ph))
     W, H, M = pw / scale, ph / scale, MARGIN / scale
 
-    title_block(pdf, xml, W, H, M, k=1 / scale)
-    y = H - M - TITLE_H / scale - SYS_HEAD
+    low = title_block(pdf, xml, W, H, M, k=1 / scale)
+    y = under_credits(H - M - TITLE_H / scale - SYS_HEAD, low)
 
     lead_guess = 12 * SP
     carries = [dict() for _ in parts]
@@ -1649,6 +1648,7 @@ def title_block(pdf, xml, w, h, m, k=1.0):
         pdf.text(w - m, h - m - 16 * k, '[%s]' % number.group(1),
                  size=15 * k, font='HB', right=True)
     ry = h - m - 32 * k
+    low = None
     for line in (creators.get('composer'),
                  ('Lyrics by ' + creators['lyricist'])
                  if creators.get('lyricist') else None,
@@ -1656,7 +1656,27 @@ def title_block(pdf, xml, w, h, m, k=1.0):
         if line:
             pdf.text(w - m, ry, line, size=9.5 * k, font='H',
                      right=True)
+            low = ry - 3 * k             # the descenders of that line
             ry -= 11 * k
+    return low
+
+
+# a rehearsal box's top edge above its staff: the first system must sit
+# low enough that a box under the credits never prints on them
+HEAD_CLEAR = 4.6 * SP + 14
+
+
+def beam_beat(time, div):
+    """How long a beat is for beaming, stems and tuplet numbers. In
+    compound time the beat is three of the bottom note, so 12/8 eighths
+    beam in threes (it had flagged every one alone)."""
+    num, den = time[0], time[1]
+    beat = div * 4 // den
+    return beat * 3 if den >= 8 and num % 3 == 0 else beat
+
+
+def under_credits(y, low):
+    return y if low is None else min(y, low - HEAD_CLEAR)
 
 
 def draw_wedge(pdf, x1, x2, y, kind, open_left=False,
@@ -1897,7 +1917,7 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
         draw_measure_number(pdf, meas, x0, top)
         return x0 + width
 
-    beat_len = div * 4 // state['time'][1]
+    beat_len = beam_beat(state['time'], div)
     streams = {}
     for pos, notes, staff, voice in meas['events']:
         streams.setdefault((staff, voice), []).append((pos, notes))

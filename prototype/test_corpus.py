@@ -2288,6 +2288,14 @@ def check_keyswitches():
                   == [24, 24, 48, 96]
                   and _cdm._beat_end(84, 24, 60) == 108
                   and _cdm._beat_end(108, 24, 60) == 120)
+            check("compound time beams by the dotted beat, simple by "
+                  "the bottom note",
+                  [_ceg.beam_beat(t_, 24) for t_ in
+                   ((12, 8), (6, 8), (3, 8), (4, 4), (7, 8), (2, 2))]
+                  == [36, 36, 36, 24, 12, 48])
+            check("the first system clears the credits it sits under",
+                  _ceg.under_credits(700, None) == 700
+                  and _ceg.under_credits(700, 690) == 690 - _ceg.HEAD_CLEAR)
             check("bar ranges as people write them",
                   [chartc.bar_words(t_) for t_ in (
                       'from demo bar 3', 'from demo bars 1 to 4',
