@@ -110,6 +110,47 @@ function Pick-Chart {
     return $dlg.FileName
 }
 
+function Open-Talk([string]$p, [string]$cmd) {
+    # a conversation runs in a real console window, which NVDA and JAWS
+    # read natively. It waits for a key at the end, so the last thing
+    # said ("Saved 4 notes...") is still there to be read - a window
+    # that closes on its own takes the answer with it.
+    Set-Content -Path $lastFile -Value $p
+    $line = '/c "' + $py + ' "' + $chartPy + '" "' + $p + '" ' + $cmd +
+        ' & echo. & echo Done. Press any key to close this window. & pause >nul"'
+    Start-Process -FilePath 'cmd.exe' -ArgumentList $line
+}
+
+function Offer-Teach([string]$p, [string]$log) {
+    # after a build: if the take played notes Copyist could not name,
+    # offer the conversation that names them - once, then every chart
+    # from that library or kit reads right
+    $opts = @()
+    if ($log -like "*aren't General MIDI drums*") {
+        $opts += 'Name the drum notes - what each note is on your kit' }
+    if ($log -like '*has no name yet*') {
+        $opts += 'Name the keyswitches - what each unnamed key does' }
+    if (-not $opts) { return }
+    $c = Choose-FromList ('Your demo played notes Copyist could not name ' +
+        'yet. Teach it now? It asks one at a time and remembers.') (
+        $opts + @('Not now'))
+    if ($c -like 'Name the drum*') { Open-Talk $p 'drums' }
+    elseif ($c -like 'Name the key*') { Open-Talk $p 'keys' }
+}
+
+function Do-Teach {
+    $p = Pick-Chart
+    if (-not $p) { return }
+    $c = Choose-FromList ('Teach Copyist what your libraries play. ' +
+        'Answers are saved, so every chart using that patch or kit ' +
+        'reads right from then on.') @(
+        'Name the keyswitches - what each unnamed key in a demo does',
+        'Name the drum notes - what each note is on your kit',
+        'Back')
+    if ($c -like 'Name the key*') { Open-Talk $p 'keys' }
+    elseif ($c -like 'Name the drum*') { Open-Talk $p 'drums' }
+}
+
 $buildLog = Join-Path $env:APPDATA 'copyist-build.log'
 $buildState = Join-Path $env:APPDATA 'copyist-build.json'
 
@@ -144,6 +185,7 @@ function Do-HowGoes {
         $tail = if ($plain) {
             ($plain | Select-Object -Last 8) -join "`n" } else { 'Done.' }
         Show-Info ("Finished: " + $st.name + "`n`n" + $tail)
+        if ($st.path) { Offer-Teach $st.path $log }
     }
 }
 
@@ -183,7 +225,7 @@ function Do-BuildKnown([string]$p, [string]$mode, [string]$doing) {
     $psi.EnvironmentVariables['PYTHONIOENCODING'] = 'utf-8'
     $psi.EnvironmentVariables['COPYIST_PROGRESS'] = '1'
     $proc = [System.Diagnostics.Process]::Start($psi)
-    @{ pid = $proc.Id; name = (Split-Path -Leaf $p) } |
+    @{ pid = $proc.Id; name = (Split-Path -Leaf $p); path = $p } |
         ConvertTo-Json | Set-Content $buildState
     Show-Info ("$doing It runs in the background - keep working, " +
         "and pick 'How is the build going' whenever you want the news.")
@@ -280,8 +322,9 @@ function Do-BringIn {
     if (@('.mid', '.midi', '.kar', '.smf') -contains $ext) {
         # the demo interview is a conversation: a real console window,
         # which NVDA reads natively
-        Start-Process -FilePath $py -ArgumentList @(
-            ('"' + $chartPy + '"'), 'import', ('"' + $f + '"'))
+        $line = '/c "' + $py + ' "' + $chartPy + '" import "' + $f +
+            '" & echo. & echo Done. Press any key to close this window. & pause >nul"'
+        Start-Process -FilePath 'cmd.exe' -ArgumentList $line
         return
     }
     $into = ''
@@ -309,6 +352,19 @@ function Do-BringIn {
             (Split-Path -Leaf $path) + '.'
     }
     Show-Info $shown
+    if ($made) {
+        $path = $made.Substring(7).Trim()
+        if ($out -like '*tell me the tune.*') {
+            $n = Choose-FromList 'Next: the words have no form yet.' @(
+                'Tell me the tune - the roadmap conversation', 'Not now')
+            if ($n -like 'Tell me*') { Open-Talk $path 'edit' }
+        } else {
+            $n = Choose-FromList 'Next?' @('Build it now', 'Not now')
+            if ($n -eq 'Build it now') {
+                Do-BuildKnown $path '' 'Building the whole desk: pages, the listen MP3, read-alouds and findings.'
+            }
+        }
+    }
 }
 
 while ($true) {
@@ -322,6 +378,7 @@ while ($true) {
         'How is the build going - check in on a background build',
         'Read a part aloud',
         'Tell me the tune - the roadmap conversation, in a console',
+        'Teach Copyist - name keyswitches or drum notes, in a console',
         'Sounds - the band''s sample shelf',
         'Settings - the defaults desk',
         'Help - what this is',
@@ -344,13 +401,9 @@ while ($true) {
         'Read*' { Do-ReadPart }
         'Tell me*' {
             $p = Pick-Chart
-            if ($p) {
-                # a real console window: the conversation is
-                # interactive, and NVDA reads consoles natively
-                Start-Process -FilePath $py -ArgumentList @(
-                    ('"' + $chartPy + '"'), ('"' + $p + '"'), 'edit')
-            }
+            if ($p) { Open-Talk $p 'edit' }
         }
+        'Teach*' { Do-Teach }
         'Sounds*' { Show-Info (Run-Chart 'sounds') }
         'Settings*' { Do-Settings }
         'Help*' {

@@ -1825,9 +1825,11 @@ def compile_chart(chart_path, outdir):
         tr, comf = h['transpose'], h['comf']
         hi = max(notes)
         lo = min(notes)
-        table = chartdemo.spelling_table(key[0] + h['foff'],
-                                         chartdemo.Findings())
-        def wname(p):
+        keys_ = chart.get('keys') or [(1, key)]
+        def wname(p, bar, _f=h['foff'], _k=keys_):
+            # spelled in the key of ITS bar, as the page spells it
+            table = chartdemo.spelling_table(
+                key_at(_k, bar - shift)[0] + _f, chartdemo.Findings())
             s_, a_, o_ = chartdemo.convert.spell(p + tr, table)
             return f"{s_}{'b' if a_ == -1 else '#' if a_ == 1 else ''}{o_}"
         edge = ""
@@ -1840,8 +1842,8 @@ def compile_chart(chart_path, outdir):
             edge += (" — and the low end sits in pedal territory"
                      if l == 'trombone' or 'trombone' in l
                      else " — and the low end is below the standard horn")
-        findings.add(f"{l}: written peak {wname(hi[0])} at bar {hi[1]}, "
-                     f"lowest {wname(lo[0])} at bar {lo[1]}{edge}")
+        findings.add(f"{l}: written peak {wname(*hi)} at bar {hi[1]}, "
+                     f"lowest {wname(*lo)} at bar {lo[1]}{edge}")
     return _compile_rest(chart, band, groups, labels, plans, total,
                          source, src_of, chord_parts, hdr, chart_path, outdir,
                          demo_measures, horn_of, key, findings, meter,

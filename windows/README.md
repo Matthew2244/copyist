@@ -8,6 +8,18 @@ That last one opens a real console window, because the conversation
 is interactive and screen readers already read consoles natively.
 Describe the tune in one breath and Copyist writes the sections.
 
+**Teach Copyist** names what your libraries play, in the same kind of
+console. If a demo used keyswitches Copyist has no name for, or a
+drum kit whose notes aren't General MIDI, it asks about each one
+("note 39, played 20 times, first in bar 5 — what is it on your
+kit?") and saves the answers, so every chart from that patch or kit
+reads right from then on. When a finished build needs this, "How is
+the build going" offers it for you. **Bring in a file** takes a
+score, a MIDI demo, or words and chords in almost any format, then
+offers the next step: the roadmap conversation for words with no
+form yet, or a build. Every console waits for a key before it
+closes, so the last thing said is still there to read.
+
 You need **Python 3** from [python.org](https://www.python.org)
 (tick "Add python.exe to PATH" in the installer). Optional extras:
 **ffmpeg** (`winget install ffmpeg`) turns the listen file into an

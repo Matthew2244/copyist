@@ -2739,7 +2739,8 @@ def check_roadmap():
                         'band:\n  flute, demo "km.mid"\n\nsection A, 2 '
                         'bars\n  chords: Db, D\n  at bar 2: key D\n'
                         '  flute: from demo bars 1-2\n')
-    with redirect_stdout(io.StringIO()):
+    kbuf = io.StringIO()
+    with redirect_stdout(kbuf):
         _cc.compile_chart(kc, os.path.join(tmp3, "kmb"))
     kx = open(os.path.join(tmp3, "kmb", "KM — flute.musicxml")).read()
     sp_ = _re.findall(r'<step>(\w)</step>(?:<alter>(-?\d)</alter>)?'
@@ -2751,7 +2752,8 @@ def check_roadmap():
     check("a figure crossing a key change spells each side in its key",
           sp_ == [('D', '-1'), ('F', ''), ('A', '-1'), ('F', '1'),
                   ('C', '1')]
-          and "F sharp 4" in ksaid and "G flat" not in ksaid,
+          and "F sharp 4" in ksaid and "G flat" not in ksaid
+          and "peak C#5 at bar 2" in kbuf.getvalue(),
           str(sp_) + ksaid[-200:])
     check("the restated key is each part's own written key",
           "<key><fifths>4</fifths>" in tp
