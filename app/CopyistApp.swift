@@ -169,7 +169,13 @@ final class AppModel: ObservableObject {
     /// so the heading can take VoiceOver back to the top of it
     @Published var tabPing = 0
 
+    /// true while the last tab change was the writer's own key or
+    /// click; a switch the app makes (a build, a conversation starting)
+    /// leaves VoiceOver where the work is — the question, the progress
+    @Published var userSwitch = false
+
     func go(_ t: Tab) {
+        userSwitch = true
         tab = t
         tabPing += 1
     }
@@ -179,6 +185,7 @@ final class AppModel: ObservableObject {
     @AppStorage("speakSteps") var speakSteps: Bool = true
     @AppStorage("speakTabs") var speakTabs: Bool = true
     private var lastSpokenStep = ""
+    private var lastSpokenPct = 0.0
     private var lastSpokenAt = Date.distantPast
     @AppStorage("vibe") var vibeRaw: String = Vibe.system.rawValue
     @AppStorage("lastChart") var lastChart: String = ""
@@ -206,6 +213,23 @@ final class AppModel: ObservableObject {
     private var talkProc: Process?
     private var talkStdin: FileHandle?
     private var talkBuffer = ""
+    /// lines said in a burst, spoken as one announcement: sent one by
+    /// one, each cut off the last ("The band: ..." never got heard)
+    private var speechQueue: [String] = []
+    private var speechFlush: DispatchWorkItem?
+
+    private func queueSpeech(_ text: String, now: Bool = false) {
+        speechQueue.append(text)
+        speechFlush?.cancel()
+        let w = DispatchWorkItem { [weak self] in
+            guard let self, !self.speechQueue.isEmpty else { return }
+            announce(self.speechQueue.joined(separator: " "))
+            self.speechQueue = []
+        }
+        speechFlush = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + (now ? 0.05 : 0.4),
+                                      execute: w)
+    }
 
     var vibe: Vibe {
         get { Vibe(rawValue: vibeRaw) ?? .system }
@@ -316,8 +340,11 @@ final class AppModel: ObservableObject {
         runBuffer = ""
         let wantsPlay = args.contains("build") || args.contains("listen")
         lastSpokenStep = ""
+        lastSpokenPct = 0
         runTab = where_
+        userSwitch = false
         tab = where_
+        announce("\(title) started.")
         startFlavor()
         let p = Process()
         p.executableURL = URL(fileURLWithPath: tool.python)
@@ -459,9 +486,14 @@ final class AppModel: ObservableObject {
     /// Each new build step, said aloud — but never more often than
     /// every six seconds, so the voice never becomes a ticker.
     private func speakStep() {
-        guard speakSteps, progressWhat != lastSpokenStep,
+        // a new step, or twenty points further on the same long one
+        // (the band's render is one step for a minute or more)
+        let pct = progressPct ?? 0
+        guard speakSteps,
+              progressWhat != lastSpokenStep || pct - lastSpokenPct >= 20,
               Date().timeIntervalSince(lastSpokenAt) >= 6 else { return }
         lastSpokenStep = progressWhat
+        lastSpokenPct = pct
         lastSpokenAt = Date()
         announce("\(Int(progressPct ?? 0)) percent. \(progressWhat)",
                  queued: true)
@@ -541,6 +573,7 @@ final class AppModel: ObservableObject {
         questionDefault = ""
         talkBuffer = ""
         talking = true
+        userSwitch = false
         tab = .talk
         let p = Process()
         p.executableURL = URL(fileURLWithPath: tool.python)
@@ -551,9 +584,12 @@ final class AppModel: ObservableObject {
             + (env["PATH"] ?? "/usr/bin:/bin")
         env["COPYIST_PROGRESS"] = "1"
         p.environment = env
-        let out = Pipe(), inp = Pipe()
+        let out = Pipe(), inp = Pipe(), err = Pipe()
         p.standardOutput = out
-        p.standardError = Pipe()      // tracebacks stay out of the room
+        // tracebacks stay out of the room, but a "chart: ..." line is
+        // the engine telling the writer why it stopped — that is shown
+        // and spoken, never swallowed
+        p.standardError = err
         p.standardInput = inp
         talkStdin = inp.fileHandleForWriting
         out.fileHandleForReading.readabilityHandler = { [weak self] h in
@@ -563,15 +599,33 @@ final class AppModel: ObservableObject {
             DispatchQueue.main.async { self?.receive(s) }
         }
         p.terminationHandler = { [weak self] _ in
+            let errText = String(decoding: err.fileHandleForReading
+                .readDataToEndOfFile(), as: UTF8.self)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.talking = false
                 out.fileHandleForReading.readabilityHandler = nil
                 self.question = ""
                 self.questionDefault = ""
+                let why = errText.split(separator: "\n")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .last { $0.hasPrefix("chart") }
+                if let why {
+                    let t = why.replacingOccurrences(
+                        of: #"^chartc?:\s*"#, with: "",
+                        options: .regularExpression)
+                    self.talk.append(TalkLine(mine: false, text: t))
+                }
                 let last = self.talk.last(where: { !$0.mine })?.text
                     ?? "That's the conversation."
-                announce(last)
+                // the answer box just went away and VoiceOver moves to
+                // the window; speak once it has settled, or it is lost
+                self.speechFlush?.cancel()
+                self.speechQueue = []
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    announce("The conversation ended. " + last
+                             + " Build it and hear it, Command B, is next.")
+                }
             }
         }
         talkProc = p
@@ -602,13 +656,14 @@ final class AppModel: ObservableObject {
             }
             if type == "say" {
                 talk.append(TalkLine(mine: false, text: text))
-                announce(text)
+                queueSpeech(text)
             } else if type == "ask" {
                 question = text
                 questionDefault = obj["default"] as? String ?? ""
                 let hint = questionDefault.isEmpty ? "" :
                     " Return keeps \(questionDefault)."
-                announce(text + hint)
+                // what was said, then the question — one breath
+                queueSpeech(text + hint, now: true)
             }
         }
     }
@@ -654,6 +709,37 @@ func newChart(_ model: AppModel) -> Bool {
         return true
     }
     return false
+}
+
+/// A tune from nothing: name it, then the conversation — the demo is
+/// asked for, and Return means none (you name the band instead).
+func startNewChart(_ model: AppModel) {
+    let p = NSSavePanel()
+    p.title = "Name the new tune"
+    p.message = "Then describe it. A played demo is welcome but not "
+        + "needed."
+    p.prompt = "Start"
+    p.directoryURL = chartsFolder()
+    p.nameFieldStringValue = "New Tune"
+    p.allowedContentTypes = [UTType(filenameExtension: "chart") ?? .data]
+    guard p.runModal() == .OK, var u = p.url else { return }
+    if u.pathExtension != "chart" { u.appendPathExtension("chart") }
+    // each tune gets its own folder, the Copyist Charts way
+    let name = u.deletingPathExtension().lastPathComponent
+    if u.deletingLastPathComponent().lastPathComponent != name {
+        let folder = u.deletingLastPathComponent()
+            .appendingPathComponent(name)
+        try? FileManager.default.createDirectory(
+            at: folder, withIntermediateDirectories: true)
+        u = folder.appendingPathComponent(name + ".chart")
+    }
+    if FileManager.default.fileExists(atPath: u.path) {
+        announce("There is already a chart called \(name). Opening it.")
+        model.choose(u.path)
+        return
+    }
+    model.choose(u.path)
+    model.startTalk(["edit"])
 }
 
 func pickAnything(_ model: AppModel) {
@@ -714,6 +800,11 @@ struct DeskCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
+            Button("New Chart…") {
+                if let m = model { startNewChart(m) }
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .disabled(model == nil)
             Button("Open a Chart…") {
                 if let m = model { pickChart(m) }
             }
@@ -823,6 +914,7 @@ struct ContentView: View {
         .focusedSceneObject(model)
         .onAppear { model.loadParts() }
         .onChange(of: model.tab) { t in
+            guard model.userSwitch else { return }
             // the heading takes VoiceOver there and says the tab's name;
             // what the tab holds follows, once, after it
             // (measured: posted at once, or at low priority, VoiceOver
@@ -981,6 +1073,7 @@ struct TabHeading: View {
         }
         .padding(.top, 16)
         .onAppear {
+            guard model.userSwitch else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 here = true
             }
@@ -1117,6 +1210,12 @@ struct ChartTab: View {
                                  + model.parts.joined(separator: ", "))
                                 .font(.system(size: 13))
                         }
+                    }
+                    ActionButton(icon: "plus.square", title: "New chart",
+                                 line: "Name it, then describe the tune. "
+                                     + "A demo is welcome, not needed.",
+                                 keys: "⌘⇧N", pal: pal) {
+                        startNewChart(model)
                     }
                     ActionButton(icon: "folder", title: "Open a chart",
                                  line: "From your Copyist Charts folder.",
@@ -1680,6 +1779,7 @@ struct TalkView: View {
                 .overlay(RoundedRectangle(cornerRadius: 12)
                     .stroke(pal.accent.opacity(0.6), lineWidth: 1))
                 .onAppear { focused = true }
+                .onChange(of: model.question) { _ in focused = true }
             } else if model.talking {
                 HStack {
                     ProgressView().controlSize(.small)

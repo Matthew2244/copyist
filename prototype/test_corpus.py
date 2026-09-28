@@ -3581,6 +3581,62 @@ def check_circle_of_fifths():
           "; ".join(keysigs[:8]))
 
 
+def check_starting_from_nothing():
+    """
+    A tune started with no demo, the way a writer describes one
+    (2026-09-28, driven through the app with VoiceOver): "12 bar blues,
+    head twice, solos, head out" once read as two heads, one with no
+    length, and then asked its bars forever; the band could not be
+    named at all; "trumpet and saxes play the melody, bone tacet" lost
+    the bone; a yes/no question took a stray sentence as yes.
+    """
+    import chartedit, chartnew, io
+    from contextlib import redirect_stdout
+    p, g = chartedit.parse_form("12 bar blues, head twice, solos, "
+                                "head out")
+    check("form: 'head twice' repeats the blues head, 'head out' is the out",
+          [(x["name"], x["bars"], x["repeat"], x["kind"]) for x in p]
+          == [("head", 12, 2, "plain"), ("solos", None, 1, "solos"),
+              ("out", None, 1, "out")] and p[2]["source"] == "head"
+          and not g)
+    p, _ = chartedit.parse_form("intro 4, verse 16, chorus 8, verse, "
+                                "chorus twice")
+    check("form: a section named again keeps its length",
+          [(x["name"], x["bars"], x["repeat"]) for x in p][3:]
+          == [("verse", 16, 1), ("chorus", 8, 2)])
+    band, unknown = chartnew.band_from_words(
+        "trumpet, 2 tenors, piano, bass and drums, kazoo")
+    check("band from words: counts, plurals, nicknames, the writer's labels",
+          band == [("trumpet", "trumpet"), ("tenor 1", "tenor sax"),
+                   ("tenor 2", "tenor sax"), ("piano", "piano"),
+                   ("bass", "electric bass"), ("drums", "drums")]
+          and unknown == ["kazoo"], repr((band, unknown)))
+    L = ["trumpet", "alto", "tenor 1", "tenor 2", "bone", "piano",
+         "bass", "drums"]
+    G = ["horns", "saxes", "rhythm", "all"]
+    check("who: players joined by 'and', and a plural meaning every chair",
+          chartedit.parse_who("trumpet and piano groove, tenors tacet",
+                              L, G) == ["trumpet: groove", "piano: groove",
+                                        "tenor 1: tacet", "tenor 2: tacet"])
+    try:
+        chartedit.parse_who("trumpet and saxes play the melody, bone "
+                            "tacet", L, G)
+        got = None
+    except chartedit.MelodyLater as e:
+        got = (e.targets, e.lines)
+    check("who: the melody with no demo waits, the rest of the answer stays",
+          got == (["trumpet", "saxes"], ["bone: tacet"]), repr(got))
+    old_in = sys.stdin
+    try:
+        sys.stdin = io.StringIO("the head sounds good\nyes\n")
+        with redirect_stdout(io.StringIO()) as out:
+            a = chartedit.ask("Take those changes? yes or no", "yes")
+    finally:
+        sys.stdin = old_in
+    check("yes/no: a stray sentence is asked again, never read as yes",
+          a == "yes" and "needs a yes or a no" in out.getvalue())
+
+
 if __name__ == "__main__":
     print("\ninvariants")
     check_duration_algebra()
@@ -3588,6 +3644,7 @@ if __name__ == "__main__":
     check_minor_and_chord_spelling()
     check_hand_percussion_parts()
     check_circle_of_fifths()
+    check_starting_from_nothing()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

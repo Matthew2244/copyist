@@ -86,7 +86,31 @@ def _answer(question, line):
     return line
 
 
+YES_WORDS = ("y", "yes", "yeah", "yep", "yup", "sure", "ok", "okay",
+             "please", "do it", "go", "go ahead", "right", "correct")
+NO_WORDS = ("n", "no", "nope", "nah", "don't", "dont", "not now",
+            "skip", "no thanks")
+
+
 def ask(question, default=""):
+    """One question, its default said with it. A question ending 'yes
+    or no' takes only a yes or a no — a sentence typed into it (a
+    misplaced answer) is asked again, never quietly read as yes."""
+    if question.rstrip().endswith("yes or no"):
+        while True:
+            a = _ask_once(question, default)
+            low = a.strip().lower().rstrip(".!")
+            if low in YES_WORDS:
+                return "yes"
+            if low in NO_WORDS:
+                return "no"
+            if ask.eof:
+                return default or "no"
+            say(f"That needs a yes or a no — I heard '{a}'.")
+    return _ask_once(question, default)
+
+
+def _ask_once(question, default=""):
     if porcelain():
         sys.stdout.write(json.dumps({"type": "ask", "text": question,
                                      "default": default}) + "\n")
@@ -229,8 +253,24 @@ def parse_form(text, vocab=None):
         plan = parse_clause(c)
         if plan is None:
             gaps.append(c)
-        else:
-            plans.append(plan)
+            continue
+        # a section named again with no length is the same section:
+        # "12 bar blues, head twice" plays that head twice, and a
+        # later "head" restates it at its own length
+        if plan["kind"] == "plain" and plan["bars"] is None:
+            same = [q for q in plans if q["kind"] == "plain"
+                    and q["bars"] and q["name"].lower()
+                    == plan["name"].lower()]
+            if same:
+                if plans[-1] is same[-1] and plan["repeat"] > 1 \
+                        and same[-1]["repeat"] == 1:
+                    same[-1]["repeat"] = plan["repeat"]
+                    same[-1]["open"] = same[-1]["open"] or plan["open"]
+                    continue
+                for k in ("bars", "form", "shape"):
+                    if same[-1].get(k) is not None:
+                        plan[k] = same[-1][k]
+        plans.append(plan)
     return plans, gaps
 
 
@@ -303,6 +343,14 @@ def _clause_core(low, reps, open_):
     if m:
         return _mk("out", kind="out", source=(m.group(1) or "").strip()
                    or None, repeat=reps, open_=open_)
+    # "head out", "out head", "the last A out": the out, played over
+    # the section it names
+    m = re.fullmatch(r"(?:(?:the\s+)?([\w ]+?)\s+out|out\s+([\w ]+?))",
+                     low)
+    if m:
+        return _mk("out", kind="out",
+                   source=(m.group(1) or m.group(2)).strip(),
+                   repeat=reps, open_=open_)
 
     # a form it knows by name — "12 bar blues in b flat", "rhythm
     # changes" — arrives with its changes already in hand, offered
@@ -1081,6 +1129,35 @@ MELODY_WORDS = ("melody", "the melody", "has the melody",
                 "on the demo", "demo")
 
 
+class MelodyLater(Exception):
+    """'the trumpet plays the melody' with no demo to take it from:
+    the players are named, the notes come later. Carries the rest of
+    the answer's lines, so 'bone tacet' beside it is never lost."""
+    def __init__(self, targets, lines=()):
+        self.targets, self.lines = targets, list(lines)
+        super().__init__(", ".join(targets))
+
+
+def _who_target(toks, labels, groups):
+    """The player (or players) a who-phrase starts with, and the rest:
+    a label, a group, or a plural that means every numbered chair
+    ("tenors" -> tenor 1, tenor 2)."""
+    for k in range(min(3, len(toks)), 0, -1):
+        cand = " ".join(toks[:k]).lower()
+        cand = WHO_TARGET_ALIASES.get(cand, cand)
+        hit = next((l for l in list(labels) + list(groups)
+                    if l.lower() == cand), None)
+        if hit:
+            return [hit], toks[k:]
+        if cand.endswith("s"):
+            fam = [l for l in labels
+                   if re.fullmatch(re.escape(cand[:-1]) + r"(?: \d+)?",
+                                   l.lower())]
+            if fam:
+                return fam, toks[k:]
+    return None
+
+
 def parse_who(text, labels, groups, vocab=None, melody_range=None):
     """'horns tacet; bass walks, piano comps; voice sings the melody'
     -> directive lines, in bandstand language.  Raises SpokenError on
@@ -1096,24 +1173,41 @@ def parse_who(text, labels, groups, vocab=None, melody_range=None):
                 r",|\band\b(?=\s+[\w ]+?\s+(?:tacet|groove|solo|from|"
                 r"plays|walks|comps|lays|sits|sings|has|hits|kicks))",
                 semi))
-    lines = []
+    lines, later = [], []
     for phrase in chunks:
         phrase = phrase.strip().strip(",").strip()
         if not phrase:
             continue
         toks = phrase.split()
-        target = None
-        for k in range(min(3, len(toks)), 0, -1):
-            cand = " ".join(toks[:k]).lower()
-            cand = WHO_TARGET_ALIASES.get(cand, cand)
-            hit = next((l for l in list(labels) + list(groups)
-                        if l.lower() == cand), None)
-            if hit:
-                target, rest = hit, toks[k:]
+        # one or more players before the verb: "trumpet and tenors
+        # play the melody" is the trumpet and every tenor chair
+        targets, rest = [], toks
+        while rest:
+            got = _who_target(rest, labels, groups)
+            if not got:
                 break
-        if not target:
+            names, rest = got
+            targets += names
+            if rest and rest[0].lower() in ("and", "&", "plus") and \
+                    _who_target(rest[1:], labels, groups):
+                rest = rest[1:]
+                continue
+            break
+        if not targets:
             raise SpokenError(toks[0], phrase)
         r = " ".join(rest).lower().strip()
+        one = re.sub(r"^(plays?|is|are)\s+", "", r)
+        if one in MELODY_WORDS and melody_range is None:
+            later += targets
+            continue
+        if len(targets) > 1:
+            # each player alone through the same reading — one target
+            # a time, so this never comes back here
+            for t in targets:
+                lines += parse_who(t + " " + r, labels, groups,
+                                   melody_range=melody_range)
+            continue
+        target = targets[0]
         r = re.sub(r"^(plays?|is|are)\s+", "", r)
         m = re.fullmatch(r"(?:hits|kicks)\s+on\s+(.+)", r)
         if m:
@@ -1144,6 +1238,8 @@ def parse_who(text, labels, groups, vocab=None, melody_range=None):
                          f"{m.group(1)}-{m.group(2)}")
         else:
             raise SpokenError(r or phrase, phrase)
+    if later:
+        raise MelodyLater(later, lines)
     return lines
 
 
@@ -1455,6 +1551,15 @@ def _who_for(plan, ctx):
                     lines = [ln + f", {q}" if "from demo bars" in ln
                              else ln for ln in lines]
                 return lines
+            except MelodyLater as e:
+                who = " and ".join(e.targets)
+                say(f"No demo yet, so there's no melody to lift for "
+                    f"{who}. I'll ask you for it as soon as the form "
+                    "is written: say it in notes, or play it in from a "
+                    "MIDI file.")
+                ctx.setdefault("melody_later", []).append(
+                    (e.targets, plan["name"]))
+                return e.lines
             except SpokenError as e:
                 if e.word in MELODY_WORDS:
                     say("This chart names no demo to lift the melody "
@@ -1516,6 +1621,43 @@ def edit(path, demo=None, composer="", cfg=None):
         if run_commands(path, ctx) != "replace":
             return
     _new_form(path, ctx)
+    _melodies_now(path, ctx)
+
+
+def _melodies_now(path, ctx):
+    """The melodies promised with no demo to lift them from: asked for
+    right after the form lands, while the writer is still here. The
+    first player gets the line; the others double it."""
+    for targets, sec in ctx.get("melody_later", []):
+        say(f"Now the melody in {sec} for "
+            + " and ".join(targets) + ".")
+        chart = chartc.parse_chart(path)
+        _notes_for(path, ctx, chart, targets[0], sec)
+        lines = _lines(path)
+        span = _section_span(lines, sec)
+        if not span or not any(
+                l.strip().startswith(f"{targets[0]}: figure")
+                for l in lines[span[0]:span[1]]):
+            say(f"Left for later: say 'notes for {targets[0]} in "
+                f"{sec}' at the desk whenever you're ready.")
+            continue
+        j = span[1]
+        while j > span[0] + 1 and not lines[j - 1].strip():
+            j -= 1
+        groups = chartc.resolve_groups(chart["band"], chart["groups"])
+        chairs = []
+        for t in targets[1:]:
+            for c in (groups.get(t) or [t]):
+                if c != targets[0] and c not in chairs:
+                    chairs.append(c)
+        targets = targets[:1] + chairs
+        for t in chairs:
+            lines.insert(j, f"  {t}: double {targets[0]}")
+            j += 1
+        _save_lines(path, lines)
+        if targets[1:]:
+            say(", ".join(targets[1:]) + f" double the {targets[0]} "
+                f"in {sec}, written for each horn.")
 
 
 # ---------------------------------------------- the new-form road
@@ -1611,6 +1753,27 @@ def _shape_plans(ctx, plans, existing=()):
     """Bars first, repeated names numbered (verse, verse 2), shapes
     and known forms carved.  Returns (plans, named families)."""
     named = {}
+    # bare "solos": over the head, the way the bandstand hears it. One
+    # candidate is simply said; several get one question, with the
+    # head (or the tune's known form, or its longest section) offered
+    bodies = [q for q in plans if q["kind"] == "plain" and q["bars"]]
+    for p in plans:
+        if p["kind"] != "solos" or p["bars"] is not None or p["use"] \
+                or not bodies:
+            continue
+        pick = (next((q for q in bodies if q["name"].lower() == "head"),
+                     None)
+                or next((q for q in bodies if q.get("form")), None)
+                or max(bodies, key=lambda q: q["bars"]))
+        if len({q["name"].lower() for q in bodies}) > 1:
+            a = ask("Solos over which section", pick["name"]).strip()
+            hit = next((q for q in bodies
+                        if q["name"].lower() == a.lower()), None)
+            if hit:
+                pick = hit
+        p["use"] = pick["name"]
+        say(f"Solos over the {pick['name']}, {pick['bars']} bars a "
+            "chorus.")
     for p in plans:
         if p["kind"] == "solos" and p["bars"] is None and p["use"]:
             continue                      # inherits its form's length

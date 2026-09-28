@@ -582,6 +582,17 @@ correction. The chart it writes opens with an
 activity map, who plays which bars, so carving sections is reading,
 not detective work.
 
+**No demo yet? Start anyway.** Press Enter at the demo question (in
+the app, New chart, Command Shift N) and Copyist asks the header, then
+who's in the band, the way you'd say it: "trumpet, alto, 2 tenors,
+bone, piano, bass and drums". Counts, plurals and nicknames all work,
+a bare alto or tenor is the sax ("alto voice" for a singer), and the
+parts take your own words as their names. Then you describe the tune.
+Say "trumpet and saxes play the melody" with no demo to take it from
+and Copyist asks for the melody as soon as the form is written: say it
+in notes or play it in from a MIDI file. The first player gets the
+line and the others double it, each written for their own horn.
+
 ## Describing the tune: the roadmap conversation
 
     python3 prototype/chart.py "Uptown Local.chart" edit
@@ -592,6 +603,14 @@ band:
 
     8 bar intro, head is 32 AABA, solos over the head twice,
     out on the last A
+
+Say it the way you'd say it: "12 bar blues, head twice, solos, head
+out" is one head played twice, solos over it, and out on the head. A
+section named again keeps its length, and bare "solos" go over the
+head (if the tune has several sections, Copyist asks which, offering
+the head). A yes-or-no question takes only a yes or a no, so a
+sentence typed into the wrong question is asked again, never taken as
+a yes.
 
 It places what it understood, reads the placement back, and asks one
 question at a time about only the gaps. An AABA head offers to carve

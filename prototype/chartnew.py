@@ -85,13 +85,117 @@ def spans(notes, barof):
     return ", ".join(f"{a}-{b}" if a != b else str(a) for a, b in runs)
 
 
+SAX_BY_DEFAULT = {"alto": "alto sax", "tenor": "tenor sax"}
+
+
+def band_from_words(text):
+    """'trumpet, 2 tenors, piano, bass and drums' -> [(label, inst)],
+    each instrument by the name the band table knows, repeated chairs
+    numbered (tenor 1, tenor 2). Unknown words come back separately."""
+    wanted, unknown = [], []
+    band_from_words.saxed = False
+    text = re.sub(r"\band\b", ",", text)
+    for raw in text.split(","):
+        w = raw.strip().lower()
+        if not w:
+            continue
+        m = re.match(r"^(\d+|two|three|four|five)\s+(.+)$", w)
+        n = 1
+        if m:
+            n = {"two": 2, "three": 3, "four": 4, "five": 5}.get(
+                m.group(1)) or int(m.group(1))
+            w = m.group(2)
+        inst = chartc.canonical_instrument(w)
+        if inst not in chartc.HORNS and w.endswith("s"):
+            inst = chartc.canonical_instrument(w[:-1])   # "trumpets"
+        # on a band list a bare alto or tenor is the sax; the singer is
+        # "alto voice" (said once, below)
+        bare = w[:-1] if w.endswith("s") and w[:-1] in SAX_BY_DEFAULT \
+            else w
+        if inst not in chartc.HORNS and bare in SAX_BY_DEFAULT:
+            inst = SAX_BY_DEFAULT[bare]
+            band_from_words.saxed = True
+        if inst not in chartc.HORNS:
+            unknown.append(raw.strip())
+            continue
+        # the label is the writer's own word ("bass", "tenor"), the
+        # instrument the table's name for it
+        word = bare if bare in SAX_BY_DEFAULT else (
+            w[:-1] if w.endswith("s") and chartc.canonical_instrument(
+                w) not in chartc.HORNS else w)
+        wanted += [(word, inst)] * n
+    band, seen, count = [], {}, {}
+    for word, _ in wanted:
+        seen[word] = seen.get(word, 0) + 1
+    for word, inst in wanted:
+        count[word] = count.get(word, 0) + 1
+        label = word if seen[word] == 1 else f"{word} {count[word]}"
+        band.append((label, inst))
+    return band, unknown
+
+
+def interview_no_demo(out_path, composer='', cfg=None):
+    """No demo yet: the header, then the band by name. The roadmap
+    conversation writes the sections from here; the lines can come
+    later, played or spoken."""
+    title = ask("Title", os.path.splitext(os.path.basename(out_path))[0])
+    composer = ask("Composer", composer)
+    key = ask("Key, like Eb minor or F", "C")
+    meter_txt = ask("Meter, like 4/4 or 3/4 or 6/8", "4/4")
+    meter = chartc.parse_meter(meter_txt)
+    tempo = ask("Tempo" + (", dotted quarter to the beat"
+                           if compound(meter) else ""), "120")
+    band = []
+    while not band:
+        words = ask("Who's in the band? Like: trumpet, tenor, piano, "
+                    "bass, drums. Nicknames work, and '2 trumpets'",
+                    "piano, bass, drums")
+        band, unknown = band_from_words(words)
+        if band_from_words.saxed:
+            say("Alto and tenor read as saxes; say 'alto voice' or "
+                "'tenor voice' for a singer.")
+        if unknown:
+            say("I don't have " + ", ".join(unknown) + " in the band "
+                "table yet, so they're left out.")
+        if not band and ask.eof:
+            sys.exit("chart: no band named, no chart written.")
+    say("The band: " + ", ".join(label for label, _ in band) + ".")
+    lines = [f"title: {title}"]
+    if composer:
+        lines.append(f"composer: {composer}")
+    lines += [f"key: {key}", f"meter: {meter[0]}/{meter[1]}",
+              f"tempo: {tempo}", "", "band:"]
+    for label, inst in band:
+        lines.append(f"  {label}" + (f" = {inst}" if label != inst
+                                     else ""))
+    with open(out_path, 'w', encoding='utf-8') as f:
+        f.write("\n".join(lines) + "\n")
+    say(f"Wrote {os.path.basename(out_path)}: {len(band)} part(s), no "
+        "sections yet. "
+        "Next: tell me the tune.")
+
+
 def interview(out_path, demo_path, composer='', cfg=None):
     cfg = cfg or {}
     if os.path.exists(out_path):
         sys.exit(f"chart: {out_path} already exists — I will not write "
                  "over a chart. Pick a new name.")
-    if not demo_path:
-        demo_path = ask("Which MIDI file is the demo")
+    while not demo_path:
+        demo_path = ask("Which MIDI file is the demo? Enter for none: "
+                        "you describe the tune and name the band").strip()
+        if not demo_path or demo_path.lower() in ("none", "no", "n"):
+            return interview_no_demo(out_path, composer, cfg)
+        found = demo_path if os.path.exists(demo_path) else None
+        if not found and cfg.get('midi'):
+            cand = os.path.join(os.path.expanduser(cfg['midi']), demo_path)
+            found = cand if os.path.exists(cand) else None
+        if not found:
+            # a wrong answer re-asks; it never ends the conversation
+            say(f"No MIDI file called '{demo_path}' here. Give its full "
+                "path, or press Enter for no demo.")
+            if ask.eof:
+                sys.exit("chart: no demo and no answer — nothing written.")
+            demo_path = ""
     # a bare filename looks in the midi folder — the settings desk's
     # 'midi' is where his DAW exports land
     if demo_path and not os.path.exists(demo_path) and \
@@ -260,5 +364,6 @@ def interview(out_path, demo_path, composer='', cfg=None):
                      f"{spans(notes, barof).split(',')[0].strip()}")
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write("\n".join(lines) + "\n")
-    say(f"Wrote {out_path}: {len(band)} part(s), one {total}-bar section "
+    say(f"Wrote {os.path.basename(out_path)}: {len(band)} part(s), one "
+        f"{total}-bar section "
         "to carve up. Next: edit it, then run the build.")
