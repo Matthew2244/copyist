@@ -506,6 +506,18 @@ All of these ride on a `from demo` line, after commas:
   `straight eighths`, `rock` and `pop` play a backbeat, and "straight"
   said outright beats "swing". Any word it doesn't know still prints,
   and the band plays straight time under it.
+- **The percussion section grooves too, each instrument its own way.**
+  Congas, bongos, timbales, cowbell (or bell), claves, shaker, maracas,
+  cabasa, tambourine, guiro, agogo, triangle and woodblock each play the
+  feel on their own instrument when their line says `groove`: in a latin
+  feel the congas play the tumbao, bongos the martillo, the bell the
+  mambo pattern, claves the son clave (2-3, bar by bar) and the guiro
+  the cha-cha stroke; bossa gets the bossa clave and light congas, samba
+  sixteenth shakers and the agogo figure, funk and rock the tambourine
+  on the backbeat, and a ballad keeps everyone light. In 6/8 the bells
+  and sticks play the 6/8 bell. The listen plays real recordings of
+  each (VCSL); timbales use the General MIDI sound, since nothing open
+  recorded them. The drum set and cajon keep the kit's grooves.
 - **Swing plays.** When your
   `feel:` says swing or shuffle, the listen MP3 actually swings;
   the pages keep the straight-eighth convention with the feel marked

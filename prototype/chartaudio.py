@@ -93,6 +93,48 @@ def _drum_decode():
 _DRUM_TABLES = None
 
 
+def _height(step, octave):
+    return octave * 7 + 'CDEFGAB'.index(step)
+
+
+def hand_midi(sound, step, octave, notehead):
+    """A hand-percussion staff read by its own instrument: every note
+    on a cowbell part is the cowbell, a triangle's x head is the muted
+    stroke. One shared table gave a triangle part the cowbell (both
+    print a triangle head on B5). None when the sound is not a hand
+    instrument this knows."""
+    s = (sound or '').lower()
+    h = _height(step, octave)
+    x = notehead in ('x', 'cross')
+    if 'conga' in s:
+        return 64 if h <= _height('F', 4) else (62 if x else 63)
+    if 'bongo' in s and 'bell' not in s:
+        return 60 if h >= _height('E', 5) else 61
+    if 'timbale' in s:
+        return 65 if h >= _height('D', 5) else 66
+    if 'cowbell' in s:
+        return 56
+    if 'triangle' in s:
+        return 80 if x else 81
+    if 'agogo' in s:
+        return 67 if h >= _height('A', 5) else 68
+    if 'claves' in s:
+        return 75
+    if 'guiro' in s:
+        return 73 if x else 74
+    if 'wood-block' in s or 'woodblock' in s:
+        return 76 if h >= _height('E', 5) else 77
+    if 'maraca' in s:
+        return 70
+    if 'cabasa' in s:
+        return 69
+    if 'rattle.' in s:
+        return 82
+    if 'tambourine' in s:
+        return 54
+    return None
+
+
 def drum_midi(step, octave, notehead, hand=False):
     """GM drum number for a staff position and notehead. `hand` reads
     the position as a hand-percussion staff instead of the kit's."""
@@ -327,6 +369,12 @@ def _note_midi(t, m, transpose):
                     or re.search(hand_rx, m.get('sound', ''), re.I)) \
             and not re.search(r'drum|kit|batterie', m['name'], re.I) \
             and not m.get('sound', '').startswith('drum.group')
+        if st and oc:
+            own = hand_midi(m.get('sound', ''), st.group(1),
+                            int(oc.group(1)), nh.group(1) if nh else
+                            'normal')
+            if own is not None:
+                return own
         return drum_midi(st.group(1), int(oc.group(1)),
                          nh.group(1) if nh else 'normal',
                          hand=hand) if st and oc else 38

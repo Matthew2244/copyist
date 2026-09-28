@@ -158,6 +158,13 @@ class Shelf:
         if not self.dir:
             return None
         sid = (sound_id or '').lower()
+        if percussion and any(h in sid for h in HAND_SOUNDS):
+            # the percussion table plays its own recordings
+            if not os.path.exists(os.path.join(self.dir, HAND_SFZ)):
+                write_hand_sfz(self.dir)
+            inst = self._load(HAND_SFZ)
+            if inst is not None and inst.regions:
+                return {'sus': inst}
         if percussion and 'drum.group' not in sid:
             sid = 'drum.group'
         for frags, variants in _SFZ_VOICES:
@@ -170,6 +177,85 @@ class Shelf:
                 if out:
                     return out
         return None
+
+
+# ------------------------------------------------ the percussion table
+#
+# Hand percussion plays VCSL's own recordings (CC0), not the drum kit's:
+# a conga part used to sound through a kit with no congas in it. The
+# sampler file is written from what is on the shelf, one GM percussion
+# key per sound, velocity layers and round robins as recorded. Keys the
+# library never recorded (timbales) fall to the GM SoundFont, as ever.
+_VM = 'Membranophones/Struck Membranophones/'
+_VI = 'Idiophones/Struck Idiophones/'
+HAND_KEYS = (
+    (60, _VM + 'Bongos', r'BongoH_Hit1_'),
+    (61, _VM + 'Bongos', r'BongoL_Hit1_'),
+    (62, _VM + 'Conga', r'Conga_HitFM_'),
+    (63, _VM + 'Conga', r'Conga_HitN_'),
+    (64, _VM + 'Conga', r'Tumba_HitN_'),
+    (54, _VI + 'Tambourine 1', r'Tamb1_Hit_'),
+    (56, _VI + 'Cowbells', r'Cowbell1_Hit_'),
+    (67, _VI + 'Agogo Bells', r'Agogo_High_'),
+    (68, _VI + 'Agogo Bells', r'Agogo_Low_'),
+    (69, _VI + 'Cabasa', r'Cabasa1_Rub_'),
+    (70, _VI + 'Shaker, Small', r'Mid_ShakerHighFaster_Down'),
+    (73, _VI + 'Guiro', r'Guiro_Hit_'),
+    (74, _VI + 'Guiro', r'Guiro_Med_'),
+    (75, _VI + 'Claves', r'Claves1_Hit_'),
+    (76, _VI + 'Woodblock', r'wood_click_f'),
+    (77, _VI + 'Woodblock', r'wood_click3_'),
+    (80, _VI + 'Triangles', r'Triangle3_HitM_'),
+    (81, _VI + 'Triangles', r'Triangle3_Hit_'),
+    (82, _VI + 'Shaker, Small', r'Mid_ShakerDouble_'),
+)
+HAND_SFZ = 'Copyist-Extras/hand-percussion.sfz'
+# level trims in dB, measured on the recordings (2026-09-28): the
+# shakers and guiro were recorded 20-25 dB under the drums
+HAND_TRIM = {54: 3, 64: 6, 67: 6, 68: 7, 69: 7, 70: 16, 73: 20, 74: 20,
+             77: 4, 80: 8, 81: 9, 82: 16}
+HAND_SOUNDS = ('drum.conga', 'drum.bongo', 'drum.timbale', 'metal.cowbell',
+               'wood.', 'rattle.', 'drum.tambourine', 'metal.triangle',
+               'metal.bells.agogo')
+
+
+def write_hand_sfz(shelf_dir):
+    """The percussion table's sampler file, from the recordings on disk.
+    Returns its path, or None when VCSL is not on the shelf."""
+    import re as _re
+    vcsl = os.path.join(shelf_dir, 'VCSL')
+    if not os.path.isdir(vcsl):
+        return None
+    lines = ['// written by chartband.write_hand_sfz from VCSL (CC0)',
+             '<control> default_path=../VCSL/', '']
+    for key, folder, pat in HAND_KEYS:
+        d = os.path.join(vcsl, folder)
+        if not os.path.isdir(d):
+            continue
+        files = sorted(f for f in os.listdir(d)
+                       if f.lower().endswith('.wav') and _re.match(pat, f))
+        if not files:
+            continue
+        layers = {}
+        for f in files:
+            m = _re.search(r'_v(\d+)', f)
+            layers.setdefault(int(m.group(1)) if m else 1, []).append(f)
+        vs = sorted(layers)
+        for i, v in enumerate(vs):
+            lo = 1 + (127 * i) // len(vs)
+            hi = (127 * (i + 1)) // len(vs)
+            takes = layers[v]
+            for j, f in enumerate(takes, 1):
+                lines.append(
+                    f'<region> sample={folder}/{f} key={key} '
+                    f'pitch_keytrack=0 lovel={lo} hivel={hi} '
+                    f'seq_length={len(takes)} seq_position={j}'
+                    f' volume={HAND_TRIM.get(key, 0)}')
+    out = os.path.join(shelf_dir, HAND_SFZ)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, 'w', encoding='utf-8') as fh:
+        fh.write('\n'.join(lines) + '\n')
+    return out
 
 
 def _hash01(*xs):

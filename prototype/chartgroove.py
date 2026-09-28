@@ -234,8 +234,18 @@ class Bar:
 # --------------------------------------------------------------- roles
 
 
+HAND = ('drum.conga', 'drum.bongo', 'drum.timbale', 'metal.cowbell',
+        'wood.claves', 'wood.guiro', 'wood.wood-block', 'rattle.',
+        'drum.tambourine', 'metal.triangle', 'metal.bells.agogo')
+
+
 def role_of(sound_id, clef):
     s = (sound_id or '').lower()
+    # a percussionist's own chair plays its own instrument's groove, not
+    # the kit's (Matthew, 2026-09-28: "percussion should be able to do
+    # all those feels too")
+    if any(h in s for h in HAND):
+        return 'perc'
     if clef == 'percussion' or 'drum' in s:
         return 'drums'
     if 'bass' in s and 'bassoon' not in s:
@@ -476,6 +486,239 @@ def _styled_drums(bar, absbar, style, traits):
     if style == 'funk':                  # ghosts between the backbeats
         _pattern(bar, beat, [(2.75, .25, 28), (3.25, .25, 26),
                              (4.75, .25, 28)], _SNARE)
+
+
+# ------------------------------------------------ the percussion section
+#
+# Each hand instrument's sounds, as staff positions its own part decodes
+# (chartaudio.hand_midi), and what it plays in each feel: beat (1-based),
+# length in beats, which sound, velocity. Two-bar figures (clave, the
+# cascara, the bossa clave) turn on the bar number.
+_PERC_SOUNDS = {
+    'conga': {'mute': ('A', 4, 'x'), 'open': ('A', 4, 'normal'),
+              'low': ('F', 4, 'normal')},
+    'bongo': {'hi': ('E', 5, 'normal'), 'lo': ('C', 5, 'normal')},
+    'timbale': {'hi': ('D', 5, 'normal'), 'lo': ('B', 4, 'normal')},
+    'cowbell': {'main': ('B', 5, 'triangle')},
+    'triangle': {'open': ('B', 5, 'triangle'), 'mute': ('B', 5, 'x')},
+    'agogo': {'hi': ('A', 5, 'triangle'), 'lo': ('F', 5, 'triangle')},
+    'claves': {'main': ('D', 5, 'x')},
+    'guiro': {'long': ('C', 5, 'normal'), 'short': ('C', 5, 'x')},
+    'woodblock': {'hi': ('E', 5, 'x'), 'lo': ('C', 5, 'x')},
+    'shaker': {'main': ('G', 5, 'x')},
+    'tambourine': {'main': ('E', 5, 'x')},
+}
+
+
+def _perc_kind(sound_id):
+    s = (sound_id or '').lower()
+    for key, kind in (('conga', 'conga'), ('bongo', 'bongo'),
+                      ('timbale', 'timbale'), ('cowbell', 'cowbell'),
+                      ('triangle', 'triangle'), ('agogo', 'agogo'),
+                      ('claves', 'claves'), ('guiro', 'guiro'),
+                      ('wood-block', 'woodblock'), ('rattle.', 'shaker'),
+                      ('tambourine', 'tambourine')):
+        if key in s:
+            return kind
+    return None
+
+
+def _sixteenths(n, on=64, off=40, sound='main'):
+    return [(1 + i / 4, .25, sound, on if i % 4 == 0 else
+             (off + 10 if i % 2 == 0 else off)) for i in range(4 * n)]
+
+
+def _eighths(n, on=66, off=44, sound='main'):
+    return [(1 + i / 2, .5, sound, on if i % 2 == 0 else off)
+            for i in range(2 * n)]
+
+
+def _son_clave(absbar):
+    # 2-3: the two side, then the three side
+    return ([(2, .5, 'main', 80), (3, .5, 'main', 80)] if absbar % 2
+            else [(1, .5, 'main', 80), (2.5, .5, 'main', 80),
+                  (4, .5, 'main', 80)])
+
+
+def perc_pattern(kind, style, traits, absbar, n=4):
+    """What this instrument plays in this feel, for one bar of n
+    beats: [(beat, length, sound, velocity)]."""
+    soft = 'ballad' in traits
+    if kind == 'conga':
+        if style == 'latin':
+            last = 'low' if absbar % 2 else 'open'
+            return [(1, .5, 'mute', 40), (1.5, .5, 'mute', 30),
+                    (2, .5, 'mute', 92), (2.5, .5, 'mute', 30),
+                    (3, .5, 'mute', 40), (3.5, .5, 'mute', 30),
+                    (4, .5, 'open', 88), (4.5, .5, last, 84)]
+        if style == 'bossa':
+            return [(1, .5, 'mute', 40), (2, .5, 'open', 68),
+                    (2.5, .5, 'mute', 34), (3.5, .5, 'mute', 40),
+                    (4, .5, 'open', 68)]
+        if style == 'samba':
+            return [(1, .5, 'low', 70), (2, .5, 'open', 90),
+                    (2.5, .5, 'mute', 45), (3, .5, 'low', 70),
+                    (4, .5, 'open', 90), (4.5, .5, 'mute', 45)]
+        if style == 'funk':
+            return [(1, .5, 'open', 82), (1.75, .25, 'mute', 55),
+                    (2.5, .5, 'open', 74), (3.25, .25, 'mute', 50),
+                    (3.5, .5, 'low', 80), (4, .5, 'mute', 60),
+                    (4.5, .5, 'open', 74)]
+        if 'half' in traits:
+            return [(1, .5, 'low', 75), (2.5, .5, 'open', 60),
+                    (3, .5, 'mute', 86), (4.5, .5, 'open', 60)]
+        if style == 'swing':
+            if soft or 'two' in traits:
+                return [(1, 1, 'low', 44), (3, 1, 'open', 44)]
+            return [(2, .5, 'mute', 45), (4, .5, 'open', 64),
+                    (4.5, .5, 'low', 58)]
+        return [(1, .5, 'low', 70), (2, .5, 'mute', 60),
+                (2.5, .5, 'open', 70), (3, .5, 'low', 70),
+                (4, .5, 'mute', 60), (4.5, .5, 'open', 70)]
+    if kind == 'bongo':
+        martillo = [(1, .5, 'hi', 80), (1.5, .5, 'hi', 45),
+                    (2, .5, 'hi', 62), (2.5, .5, 'hi', 45),
+                    (3, .5, 'hi', 72), (3.5, .5, 'hi', 45),
+                    (4, .5, 'lo', 86), (4.5, .5, 'hi', 45)]
+        if style in ('latin', 'straight') and not traits:
+            return martillo
+        if style in ('bossa', 'samba'):
+            return [(b, l, snd, int(v * .78)) for b, l, snd, v in martillo]
+        if style == 'funk':
+            return [(1, .5, 'hi', 82), (1.75, .25, 'lo', 60),
+                    (2.5, .5, 'hi', 74), (3.25, .25, 'hi', 55),
+                    (3.75, .25, 'lo', 70), (4.5, .5, 'hi', 74)]
+        return [(2, .5, 'hi', 48), (4, .5, 'lo', 58)]
+    if kind == 'timbale':
+        if style == 'latin':
+            casc = ([(1, .5, 'hi', 56), (2, .5, 'hi', 44),
+                     (3, .5, 'hi', 56), (3.5, .5, 'hi', 44),
+                     (4.5, .5, 'hi', 44)] if absbar % 2 else
+                    [(1, .5, 'hi', 56), (2, .5, 'hi', 44),
+                     (2.5, .5, 'hi', 44), (3.5, .5, 'hi', 44),
+                     (4.5, .5, 'hi', 44)])
+            return casc + ([(4, .5, 'lo', 84)] if absbar % 4 == 3 else [])
+        if style in ('funk', 'straight') and not soft:
+            return [(2, .5, 'hi', 80), (4, .5, 'hi', 80)]
+        if style == 'samba':
+            return [(2, .5, 'lo', 72), (4, .5, 'lo', 72)]
+        return [(4, .5, 'lo', 48)]
+    if kind == 'cowbell':
+        if style == 'latin':
+            return [(1, .5, 'main', 92), (2, .5, 'main', 70),
+                    (2.5, .5, 'main', 58), (3, .5, 'main', 92),
+                    (4, .5, 'main', 70), (4.5, .5, 'main', 58)]
+        if style == 'samba':
+            return [(1, .5, 'main', 72), (1.75, .25, 'main', 60),
+                    (2.5, .5, 'main', 72), (3, .5, 'main', 72),
+                    (3.75, .25, 'main', 60), (4.5, .5, 'main', 72)]
+        if style == 'funk':
+            return _eighths(n, 82, 58)
+        if style == 'straight' and not soft:
+            return [(b, .5, 'main', 72) for b in range(1, n + 1)]
+        return [(b, .5, 'main', 50) for b in (2, 4)]
+    if kind == 'claves':
+        if style == 'latin':
+            return _son_clave(absbar)
+        if style == 'bossa':
+            return ([(1, .5, 'main', 76), (2.5, .5, 'main', 76),
+                     (4, .5, 'main', 76)] if absbar % 2 else
+                    [(2, .5, 'main', 76), (3.5, .5, 'main', 76)])
+        if style == 'samba':
+            return [(1.75, .25, 'main', 70), (2.5, .5, 'main', 70),
+                    (3.75, .25, 'main', 70), (4.5, .5, 'main', 70)]
+        return [(b, .5, 'main', 60 if soft else 72) for b in (2, 4)]
+    if kind in ('shaker',):
+        if soft:
+            return [(b, 1, 'main', 42) for b in range(1, n + 1)]
+        if style == 'latin' or style == 'swing':
+            return _eighths(n, 66, 44)
+        return _sixteenths(n)
+    if kind == 'tambourine':
+        if style == 'samba':
+            return _sixteenths(n, 70, 38)
+        if style in ('latin', 'bossa'):
+            return _eighths(n, 50, 34)
+        back = [(b, .5, 'main', 92) for b in (2, 4)]
+        if 'half' in traits:
+            back = [(3, .5, 'main', 94)]
+        if style == 'funk' or style == 'straight':
+            return back + [(b + .5, .5, 'main', 36)
+                           for b in range(1, n + 1)]
+        return [(b, l, s_, 64 if soft else v) for b, l, s_, v in back]
+    if kind == 'guiro':
+        if style in ('latin', 'bossa'):
+            v = 60 if style == 'bossa' else 76
+            return [(1, 1, 'long', v), (2, .5, 'short', v - 10),
+                    (2.5, .5, 'short', v - 16), (3, 1, 'long', v),
+                    (4, .5, 'short', v - 10), (4.5, .5, 'short', v - 16)]
+        if style == 'swing':
+            return [(2, .5, 'short', 52), (4, .5, 'short', 52)]
+        return [(1, 1, 'long', 68), (2, .5, 'short', 58),
+                (3, 1, 'long', 68), (4, .5, 'short', 58)]
+    if kind == 'agogo':
+        if style in ('samba', 'latin', 'funk'):
+            return [(1, .5, 'hi', 80), (1.5, .5, 'hi', 60),
+                    (2, .5, 'lo', 76), (2.75, .25, 'hi', 62),
+                    (3.5, .5, 'lo', 76), (4, .5, 'hi', 70),
+                    (4.5, .5, 'lo', 64)]
+        return [(1, .5, 'hi', 56), (3, .5, 'lo', 56)]
+    if kind == 'triangle':
+        if style == 'swing':
+            return [(b, .5, 'open', 50) for b in (2, 4)]
+        return [(1 + i / 2, .5, 'mute' if i % 2 == 0 else 'open',
+                 56 if i % 2 == 0 else 70) for i in range(2 * n)]
+    if kind == 'woodblock':
+        if style == 'latin':
+            return [(b, l, 'hi', v) for b, l, _s, v in _son_clave(absbar)]
+        return [(b, .5, 'hi' if b % 2 else 'lo', 66)
+                for b in range(1, n + 1)]
+    return []
+
+
+def _perc(bar, absbar, feel, sound_id, hits):
+    kind = _perc_kind(sound_id)
+    if kind is None:
+        return
+    sounds = _PERC_SOUNDS[kind]
+    first = next(iter(sounds.values()))
+    beat = bar.div * 4 // bar.den
+    if hits is not None:
+        for b in hits:
+            bar.add(int(round((b - 1) * beat)), beat // 2,
+                    ('u', first, 96))
+        return
+    if bar.den == 8 and bar.num % 3 == 0:
+        # compound time: the 6/8 bell for the bells and sticks, a pulse
+        # on the drums, eighths on the shakers
+        eighth = bar.div // 2
+        per = bar.num
+        if kind in ('cowbell', 'agogo', 'claves', 'woodblock', 'guiro'):
+            hits12 = (0, 2, 4, 5, 7, 9, 11)
+            half = [h - (per if absbar % 2 else 0) for h in hits12]
+            snd = [k for k in sounds][0]
+            for h in half:
+                if 0 <= h < per:
+                    bar.add(h * eighth, eighth, ('u', sounds[snd],
+                                                 84 if h % 3 == 0 else 64))
+        elif kind in ('conga', 'bongo', 'timbale'):
+            keys = list(sounds)
+            for p in range(0, per, 3):
+                bar.add(p * eighth, eighth, ('u', sounds[keys[0]], 50))
+                bar.add((p + 2) * eighth, eighth,
+                        ('u', sounds[keys[-1]], 84))
+        else:
+            for e in range(per):
+                bar.add(e * eighth, eighth, ('u', first,
+                                             66 if e % 3 == 0 else 42))
+        return
+    style, traits = style_of(feel)
+    for b, ln, snd, vel in perc_pattern(kind, style, traits, absbar,
+                                        bar.num):
+        if b > bar.num + 0.99:
+            continue
+        bar.add(int(round((b - 1) * beat)), max(1, int(round(ln * beat))),
+                ('u', sounds.get(snd, first), vel))
 
 
 def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
@@ -732,7 +975,9 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         _horn_hits(bar, state, chords, state['hits'], bmeter)
         state['hits'] = None
         return bar.xml() if bar.onsets else None
-    if role == 'drums':
+    if role == 'perc':
+        _perc(bar, absbar, feel, sound_id, state['hits'])
+    elif role == 'drums':
         _drums(bar, absbar, feel, state['hits'])
     elif role == 'bass':
         _bass(bar, state, sec, off, absbar, feel, chords)

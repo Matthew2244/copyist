@@ -3473,10 +3473,10 @@ def check_hand_percussion_parts():
           "<voice>2</voice>" in dx)
     t = ('<note><unpitched><display-step>E</display-step><display-octave>'
          '5</display-octave></unpitched><duration>1</duration></note>')
-    check("listen: a cowbell part labelled 'bell' reads the hand staff",
+    check("listen: a cowbell part labelled 'bell' plays the cowbell",
           chartaudio._note_midi(t, {'name': 'bell',
                                     'sound': 'metal.cowbell',
-                                    'percussion': True}, 0) == 60
+                                    'percussion': True}, 0) == 56
           and chartaudio._note_midi(t, {'name': 'drums',
                                         'sound': 'drum.group.set',
                                         'percussion': True}, 0) != 60)
@@ -3815,6 +3815,47 @@ def check_mutes_sound():
           "harmon mute" in x and "<words>open</words>" in x)
 
 
+def check_percussion_section_grooves():
+    """
+    Matthew, 2026-09-28: "percussion should be able to do all those
+    feels too." Every percussion chair grooved as a drum kit (kick,
+    snare and hat positions on a conga staff), hand percussion played
+    through the kit's samples, and one shared table decoded a triangle
+    part's triangle head as the cowbell.
+    """
+    import chartgroove, chartaudio, chartband, chartc, tempfile, re as _re
+    from contextlib import redirect_stdout
+    check("perc: a conga, bell or shaker chair grooves as itself; the kit "
+          "and cajon stay kits",
+          chartgroove.role_of("drum.conga", "percussion") == "perc"
+          and chartgroove.role_of("metal.cowbell", "percussion") == "perc"
+          and chartgroove.role_of("rattle.shaker", "percussion") == "perc"
+          and chartgroove.role_of("drum.group.set", "percussion") == "drums"
+          and chartgroove.role_of("drum.cajon", "percussion") == "drums")
+    check("perc: each part's staff decodes by its own instrument",
+          chartaudio.hand_midi("metal.triangle", "B", 5, "triangle") == 81
+          and chartaudio.hand_midi("metal.cowbell", "B", 5, "triangle") == 56
+          and chartaudio.hand_midi("drum.conga", "A", 4, "x") == 62
+          and chartaudio.hand_midi("drum.conga", "F", 4, "normal") == 64
+          and chartaudio.hand_midi("wood.guiro", "C", 5, "normal") == 74)
+    pp = chartgroove.perc_pattern
+    tum = pp("conga", "latin", set(), 1)
+    check("perc: the conga tumbao opens on 4 and the and of 4",
+          [(b, s_) for b, _l, s_, _v in tum if s_ in ("open", "low")]
+          == [(4, "open"), (4.5, "low")])
+    check("perc: son clave alternates the two side and the three side",
+          len(pp("claves", "latin", set(), 1)) == 2
+          and len(pp("claves", "latin", set(), 2)) == 3)
+    check("perc: a ballad is light, samba shakes sixteenths",
+          len(pp("shaker", "swing", {"ballad"}, 1)) == 4
+          and len(pp("shaker", "samba", set(), 1)) == 16)
+    keys = [k for k, _f, _p in chartband.HAND_KEYS]
+    check("perc: the sampler maps congas, bongos, bells, claves, shakers, "
+          "tambourine, guiro, triangle",
+          all(k in keys for k in (54, 56, 60, 61, 62, 63, 64, 70, 73, 74,
+                                  75, 80, 81, 82)))
+
+
 if __name__ == "__main__":
     print("\ninvariants")
     check_duration_algebra()
@@ -3826,6 +3867,7 @@ if __name__ == "__main__":
     check_bow_and_chord_room()
     check_feels_and_technique_for_every_part()
     check_mutes_sound()
+    check_percussion_section_grooves()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()
