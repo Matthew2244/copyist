@@ -2189,6 +2189,64 @@ def check_keyswitches():
                   "no mystery drums",
                   'circle-x' in d2x and '<display-step>A</display-step>'
                   '<display-octave>5' in d2x, d2x[:120])
+            # a built-in map plus the writer's own additions: once a
+            # crash (note numbers passed as keywords), now layered
+            os.makedirs(chartdrums.DRUM_DIR, exist_ok=True)
+            open(os.path.join(chartdrums.DRUM_DIR, "Addictive Drums 2.txt"),
+                 "w").write("47 open conga\n")
+            try:
+                with redirect_stdout(io.StringIO()):
+                    chartc.compile_chart(ac, os.path.join(tmp, "ab2"))
+                ax2 = open(os.path.join(tmp, "ab2", "A — drums.musicxml")
+                           ).read()
+                layered = "<display-step>" in ax2
+            except Exception as e:
+                layered = repr(e)
+            check("a built-in drum map takes the writer's additions on top",
+                  layered is True, str(layered))
+            import re as _rg
+            import smf as _smg
+            import instruments as _ig
+            # a stroke named with its piece: "snare ghost" prints in
+            # parentheses on that note alone, not on the kick beside it
+            gn = []
+            for b in (0, 1920):
+                gn += [(b, b + 200, 36, 100), (b + 960, b + 1160, 36, 100),
+                       (b + 480, b + 680, 100, 100),
+                       (b + 1440, b + 1640, 100, 100),
+                       (b + 720, b + 820, 101, 100),
+                       (b + 960, b + 1060, 101, 100)]
+                gn += [(b + i * 240, b + i * 240 + 100, 42, 80)
+                       for i in range(8)]
+            _smg.write(os.path.join(tmp, "g.mid"), gn, 480, 100)
+            open(os.path.join(chartdrums.DRUM_DIR, "Ghost Kit.txt"),
+                 "w").write("100 snare\n101 snare ghost\n")
+            gc = os.path.join(tmp, "g.chart")
+            open(gc, "w").write(
+                'title: G\nmeter: 4/4\ntempo: 100\n\nband:\n  drums, '
+                'demo "g.mid", drummap "Ghost Kit"\n\nsection A, 2 bars\n'
+                '  chords: C x2\n  drums: from demo bars 1-2\n')
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(gc, os.path.join(tmp, "gb"))
+            gx = open(os.path.join(tmp, "gb", "G — drums.musicxml")).read()
+            m1 = _rg.search(r'<measure.*?</measure>', gx, _rg.S).group(0)
+            hits = [(_rg.search(r'<display-step>(\w)', n_).group(1),
+                     'parentheses' in n_)
+                    for n_ in _rg.findall(r'<note>(.*?)</note>', m1, _rg.S)
+                    if '<unpitched>' in n_ and 'voice>2' in n_]
+            check("a note named 'snare ghost' prints ghosted, alone",
+                  hits == [('F', False), ('C', False), ('C', True),
+                           ('F', False), ('C', True), ('C', False)],
+                  str(hits))
+            check("a drummer's words for strokes and hand percussion",
+                  [_ig.gm_for_words(w) for w in
+                   ("rim shot", "snare flam", "conga slap", "low bongo",
+                    "shaker", "crash choke", "ride sizzle", "woodblock")]
+                  == [38, 38, 62, 61, 82, 49, 51, 76]
+                  and [_ig.drum_artic(w) for w in
+                       ("snare ghost", "flam", "rim shot", "crash choke",
+                        "snare")] == ['ghost', 'flam', 'rimshot', 'choke',
+                                      None])
         finally:
             chartdrums.DRUM_DIR = old_dd
         try:

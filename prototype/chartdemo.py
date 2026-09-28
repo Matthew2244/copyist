@@ -822,8 +822,14 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     slack = beat // 8
     picked = [(n.on, n.off or n.on, n.pitch, n.vel) for n in src
               if lo_t - slack <= n.on < hi_t]
+    named_ghost = set()
     if drums and drum_map:
-        # another maker's kit layout, read as the GM piece it plays
+        # another maker's kit layout, read as the GM piece it plays;
+        # a stroke the drummer NAMED a ghost stays one, whatever the
+        # velocity says
+        dart = getattr(drum_map, 'artic', None) or {}
+        named_ghost = {(on, drum_map.get(p, p)) for on, _f, p, _v
+                       in picked if dart.get(p) == 'ghost'}
         picked = [(on, off, drum_map.get(p, p), v)
                   for on, off, p, v in picked]
     elif drums:
@@ -863,6 +869,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         lag = 0
     moved = [(on - lag - lo_t, off - lag - lo_t, p, v)
              for on, off, p, v in picked]
+    named_ghost = {(max(0, on - lag - lo_t), g) for on, g in named_ghost}
 
     # ---- keyswitches: keys pressed to change the patch's articulation
     # are not music. They leave the notes here (a C0 must never print
@@ -1057,6 +1064,10 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     raw = {q: (min(t[2] for t in lst), max(t[3] for t in lst),
                max(t[4] for t in lst))
            for q, lst in events.items()}
+    # onset -> the pitches there the drummer named ghosts
+    named_ghosts = {q: {t[0] for t in lst if (t[2], t[0]) in named_ghost}
+                    for q, lst in events.items()} if named_ghost else {}
+    named_ghosts = {q: ps for q, ps in named_ghosts.items() if ps}
 
     # ---- monophonic cleanup and legato gap-closing
     timeline = _mono_tl(events, n_units)
@@ -1242,6 +1253,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             'n_units': n_units, 'at': at_bar,
             'bars': (bar_lo, bar_hi), 'dyns': dyns,
             'slurs': slurs, 'ghosts': ghosts, 'detail': detail,
+            'named_ghosts': named_ghosts,
             'spoken_shift': spoken_shift, 'staves': staves_out,
             'bar_ticks': bar_ticks, 'pulse_div': pulse_div,
             'drums': drums, 'drum_cap': drum_cap if drums else None,
@@ -1368,6 +1380,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
             cap = res.get('drum_cap') or DIV
             ghost_on = ({res['timeline'][i][0] for i in res.get('ghosts')
                          or ()})
+            named_g = res.get('named_ghosts') or {}
             nbars = n_units // bar_ticks
             per_bar = {bi: ([], []) for bi in range(nbars)}
             for fam, hits in ((0, cyms), (1, drms)):
@@ -1407,7 +1420,8 @@ def render_range(res, fifths_written, transpose_to_written, fall,
                               (last_artic if (drum_fam and s_ == last_ev)
                                else None) or every,
                               0, bar=bar_ticks, voice=vno,
-                              ghost=drum_fam and s_ in ghost_on,
+                              ghost=(drum_fam and s_ in ghost_on)
+                              or named_g.get(s_, False),
                               drums=True)
                         pos = e_
                     if pos < hi:
@@ -1450,7 +1464,9 @@ def render_range(res, fifths_written, transpose_to_written, fall,
               (last_artic if is_last else None) or ks_marks.get(start)
               or every,
               transpose_to_written, bend=bends.get(ti), bar=bar_ticks,
-              slur=(ti in slur_a, ti in slur_b), ghost=ti in ghosts,
+              slur=(ti in slur_a, ti in slur_b),
+              ghost=(ti in ghosts) or (drums and (res.get('named_ghosts')
+                                                  or {}).get(start, False)),
               lyric=lyr[ti] if lyr else None, cue=cue, slash=slash,
               drums=drums, trill=trill_of(start, pitches),
               trem=trem_of(start, pitches))
@@ -1716,7 +1732,7 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                     lines.append('        <notehead>slash</notehead>')
                 if mod:
                     lines.append(_mod_xml(mod).rstrip())
-                if ghost:
+                if ghost is True or (ghost and p in ghost):
                     # a ghost note prints in parentheses
                     lines.append('        <notehead parentheses="yes">'
                                  f'{dhead if drums else "normal"}'

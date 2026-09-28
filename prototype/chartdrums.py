@@ -61,6 +61,17 @@ def as_gm(words_map):
     return out
 
 
+def artics(words_map):
+    """{note: words} -> {note: 'ghost' | 'flam' | ...} for the strokes
+    a drummer named along with the piece."""
+    out = {}
+    for n, w in words_map.items():
+        a = instruments.drum_artic(w)
+        if a:
+            out[n] = a
+    return out
+
+
 def demo_notes(chart, chart_path, band):
     """Every note a drum part's demo plays: Counter and first bar."""
     here = os.path.dirname(os.path.abspath(chart_path))
@@ -115,8 +126,10 @@ def name_drums(chart_path):
                 f'"{name}".')
             continue
         say(f"{len(todo)} note(s) to name for {b['label']}. Say what each "
-            "is on that kit, like snare roll, cross stick, ride bell or "
-            "china; Enter keeps the General MIDI name.")
+            "is on that kit, like snare roll, cross stick, ride bell, "
+            "china or conga slap. Name the stroke too when there is one: "
+            "snare ghost prints in parentheses. Enter keeps the General "
+            "MIDI name.")
         added = {}
         for n in todo:
             gm = instruments.drum_name(n)
@@ -129,7 +142,7 @@ def name_drums(chart_path):
             if instruments.gm_for_words(ans) is None:
                 say(f"I don't know '{ans}' as a kit piece yet, so note "
                     f"{n} stays {gm}. Try words like snare, kick, hi-hat, "
-                    "ride, crash, china, tom.")
+                    "ride, crash, china, tom, conga or shaker.")
                 continue
             added[n] = ans
             say(f"Note {n} is {ans}.")

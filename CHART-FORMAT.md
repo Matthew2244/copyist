@@ -490,7 +490,10 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
   the General MIDI kit pieces they play before anything else happens,
   from Toontrack's key chart (EZX Latin Cuban Drums, "EZdrummer line").
   A drum take with notes below 35 or above 81 and no map gets a finding
-  suggesting one.
+  suggesting one. A saved map (`~/.config/copyist/drummaps/NAME.txt`,
+  one `NOTE words` per line) layers on a built-in map of the same name;
+  a line naming a ghost stroke (`101 snare ghost`) prints that note in
+  parentheses.
 
   **Road maps** are timed events too: `segno` (or `sign`), `coda`, `to
   coda`, `fine`, and the jump itself, `d.s.`, `d.s. al coda`, `d.s. al

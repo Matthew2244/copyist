@@ -293,10 +293,42 @@ def gm_for_words(text):
         return any(f' {w} ' in t for w in ws)
     if has('kick', 'bass drum', 'bd'):
         return 36
+    # hand percussion first: "conga slap" is a conga, not a snare
+    if has('conga', 'tumba', 'quinto'):
+        return 62 if has('slap', 'mute', 'muted') else \
+            64 if has('low', 'tumba') else 63
+    if has('bongo', 'bongos'):
+        return 61 if has('low') else 60
+    if has('timbale', 'timbales'):
+        return 66 if has('low') else 65
+    if has('agogo'):
+        return 68 if has('low') else 67
+    if has('woodblock', 'wood block', 'block'):
+        return 77 if has('low') else 76
+    if has('cabasa'):
+        return 69
+    if has('maraca', 'maracas'):
+        return 70
+    if has('shaker', 'shakers', 'egg'):
+        return 82
+    if has('guiro'):
+        return 73 if has('short') else 74
+    if has('claves', 'clave'):
+        return 75
+    if has('triangle'):
+        return 80 if has('mute', 'muted', 'closed') else 81
+    if has('vibraslap'):
+        return 58
+    if has('cuica'):
+        return 78 if has('mute', 'muted', 'high') else 79
+    if has('whistle'):
+        return 72 if has('long') else 71
     if has('side stick', 'sidestick', 'cross stick', 'rim click',
            'rimclick'):
         return 37
-    if has('snare', 'sn'):
+    if has('snare', 'sn', 'rimshot', 'rim shot', 'flam', 'drag', 'ruff',
+           'ghost', 'buzz', 'brush', 'brushes', 'sweep', 'swish'):
+        # a snare stroke named by its stroke: the piece is the snare
         return 38
     if has('hat', 'hh', 'hihat', 'hi hat'):
         if has('pedal', 'foot', 'chick', 'splash'):
@@ -304,13 +336,15 @@ def gm_for_words(text):
         if has('open', 'half', 'loose'):
             return 46
         return 42
+    if has('sizzle'):
+        return 57 if has('crash') else 51
     if has('ride'):
         return 53 if has('bell') else 59 if has('2', 'edge') else 51
     if has('china', 'stack', 'trash'):
         return 52
     if has('splash'):
         return 55
-    if has('crash'):
+    if has('crash', 'cymbal', 'choke', 'choked'):
         return 57 if has('2', 'right') else 49
     if has('floor'):
         return 41 if has('2', 'low') else 43
@@ -323,6 +357,22 @@ def gm_for_words(text):
         return 54
     if has('clap'):
         return 39
+    return None
+
+
+def drum_artic(text):
+    '''What the stroke adds to the piece, when a drummer names it:
+    "snare ghost" -> 'ghost', "snare flam" -> 'flam', "rim shot" ->
+    'rimshot', "crash choke" -> 'choke'. None for a plain stroke.'''
+    import re
+    t = ' ' + re.sub(r'[^a-z0-9 ]', ' ', text.lower()) + ' '
+    for word, art in (('ghost', 'ghost'), ('ghosted', 'ghost'),
+                      ('flam', 'flam'), ('rimshot', 'rimshot'),
+                      ('rim shot', 'rimshot'), ('choke', 'choke'),
+                      ('choked', 'choke'), ('drag', 'drag'),
+                      ('ruff', 'drag')):
+        if f' {word} ' in t:
+            return art
     return None
 
 

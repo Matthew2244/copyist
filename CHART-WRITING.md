@@ -345,7 +345,13 @@ take was played on, then goes through each note the take uses ("note
 is it on your kit?"); say it the way a drummer does, snare roll, cross
 stick, ride bell, china, and Enter keeps the General MIDI name. The
 answers are saved as that library's drum map and the part uses it from
-then on. A drum take that uses notes General MIDI doesn't have gets a
+then on. Name the stroke along with the piece when the kit has one: a
+note you call "snare ghost" prints in parentheses every time, whatever
+its velocity, and only that note, never the kick beside it. Rim shot,
+flam, drag, brushes and choke read as the piece they're played on.
+Hand percussion counts too: conga (open, slap, low), bongo, timbale,
+shaker, cabasa, woodblock, claves, triangle, agogo and guiro. A drum
+take that uses notes General MIDI doesn't have gets a
 line in the findings pointing here.
 
 ## Road maps: D.S., D.C., the coda

@@ -1355,18 +1355,24 @@ def keyswitch_map(chart, name, loc='band'):
          f"{KS_DIR}")
 
 
+class DrumMap(dict):
+    artic = {}
+
+
 def drum_map_for(name, loc):
     if not name:
         return None
     import chartdrums
     key = instruments.DRUM_MAP_NAMES.get(name.strip().lower())
     saved = chartdrums.load_saved(name)
-    if key:
+    if key or saved:
         # a built-in map, plus whatever the writer added to it (an AD2
-        # kit's Flexi percussion, a cymbal that is really a china)
-        return dict(instruments.DRUM_MAPS[key], **chartdrums.as_gm(saved))
-    if saved:
-        return chartdrums.as_gm(saved)
+        # kit's Flexi percussion, a cymbal that is really a china);
+        # .artic carries the strokes they named - "snare ghost"
+        m = DrumMap(instruments.DRUM_MAPS[key] if key else {})
+        m.update(chartdrums.as_gm(saved))
+        m.artic = chartdrums.artics(saved)
+        return m
     fail(f"{loc}: no drum map called \"{name}\": Copyist knows "
          "Toontrack's (EZdrummer, Superior Drummer) and XLN's (Addictive "
          "Drums 2), and 'chart TUNE drums' names any other kit's notes "
