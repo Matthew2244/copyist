@@ -2268,7 +2268,8 @@ def check_keyswitches():
             ssaid = subprocess.run(
                 [sys.executable, os.path.join(HERE, "chartread.py"), sc,
                  "--part", "drums"], capture_output=True, text=True,
-                env=dict(os.environ, HOME=os.path.join(tmp, "fh"))).stdout
+                env=dict(os.environ, HOME=os.path.join(tmp, "fh"),
+                         USERPROFILE=os.path.join(tmp, "fh"))).stdout
             check("the read-aloud names each stroke the way a drummer does",
                   all(w in ssaid for w in ("flam on the snare",
                                            "rimshot on the snare",
