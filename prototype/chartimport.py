@@ -945,6 +945,68 @@ def add_words(chart, song, path):
                    f"{len(left)} at the end of the chart, as comments"]
 
 
+def place_waiting_words(path):
+    """Words imported before the tune had a form wait at the top of the
+    chart as comment blocks ("# Verse 1:" then its lines). Once the form
+    exists, each block moves beside the section it belongs to — "Verse
+    1" to the first verse, "Chorus 2" to "chorus 2" — still as comments,
+    so nothing printed changes. Returns how many moved."""
+    lines = open(path, encoding='utf-8').read().split('\n')
+    blocks, i = [], 0
+    while i < len(lines):
+        m = re.fullmatch(r'# ([^:#][^:]*):\s*', lines[i])
+        if m and i + 1 < len(lines) and lines[i + 1].startswith('#   '):
+            j = i + 1
+            words = []
+            while j < len(lines) and lines[j].startswith('#   '):
+                words.append(lines[j][4:])
+                j += 1
+            blocks.append((i, j, m.group(1).strip(), words))
+            i = j
+        else:
+            i += 1
+    secs = [(k, re.match(r'section ([^,]+),', ln).group(1).strip())
+            for k, ln in enumerate(lines)
+            if re.match(r'section [^,]+,', ln)]
+    if not blocks or not secs:
+        return 0
+
+    def norm(n):
+        return re.sub(r'\s+1$', '', n.lower().strip())
+
+    def base(n):
+        return re.sub(r'[\s\d]+$', '', n.lower().strip())
+    used, moves = set(), []
+    for b0, b1, name, words in blocks:
+        hit = next((k for k, sn in secs if k not in used
+                    and norm(sn) == norm(name)), None)
+        if hit is None:
+            hit = next((k for k, sn in secs if k not in used
+                        and base(sn) == base(name)), None)
+        if hit is not None:
+            used.add(hit)
+            moves.append((b0, b1, hit, words))
+    if not moves:
+        return 0
+    inserts = {hit: ["  # " + w.strip() for w in words if w.strip()]
+               for _b0, _b1, hit, words in moves}
+    drop = set()
+    for b0, b1, _hit, _w in moves:
+        drop.update(range(b0, b1))
+        if b1 < len(lines) and not lines[b1].strip():
+            drop.add(b1)            # the blank line after the block
+    out = []
+    for k, ln in enumerate(lines):
+        if k in drop:
+            continue
+        out.append(ln)
+        if k in inserts:
+            out.extend(inserts[k])
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(out))
+    return len(moves)
+
+
 # ------------------------------------------------------------ doors
 
 def import_file(path, out_dir=None, say=print, into=None):

@@ -1758,6 +1758,11 @@ def _new_form(path, ctx):
         _save_lines(path, kept)
         say("Dropped old changes nothing uses now: "
             + ", ".join(dropped) + ".")
+    import chartimport
+    moved = chartimport.place_waiting_words(path)
+    if moved:
+        say(f"The words you brought in went beside their "
+            f"sections: {moved} stanza(s).")
     _report(path)
 
 

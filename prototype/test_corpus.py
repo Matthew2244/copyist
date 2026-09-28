@@ -1806,6 +1806,25 @@ def check_text_import():
     check("text: words alone wait for their tune, the repeat named "
           "Chorus", "# Chorus:" in wtext and "voice" in wtext
           and any(f.startswith("words only") for f in find), wtext)
+    # once the tune has a form, the waiting words move beside it
+    wchart = os.path.join(tmp, "w.chart")
+    open(wchart, "w").write(
+        "title: W\nmeter: 4/4\n\nband:\n  voice\n  piano\n\n"
+        "# Verse 1:\n#   first words\n\n# Chorus:\n#   hold on\n\n"
+        "# Verse 2:\n#   second words\n\n"
+        "section verse, 2 bars\n  chords: C x2\n\n"
+        "section chorus, 2 bars\n  chords: F x2\n\n"
+        "section verse 2, 2 bars\n  chords: C x2\n")
+    moved = chartimport.place_waiting_words(wchart)
+    wt = open(wchart).read()
+    check("text: waiting words move beside their sections once the "
+          "tune has a form",
+          moved == 3 and "section verse, 2 bars\n  # first words" in wt
+          and "section verse 2, 2 bars\n  # second words" in wt
+          and "# Verse 1:" not in wt, wt)
+    with redirect_stdout(io.StringIO()):
+        wb = chartc.compile_chart(wchart, os.path.join(tmp, "wb"))
+    check("text: and the chart still compiles", bool(wb))
     tgt = made["Late Train.md"]
     chartimport.import_file(os.path.join(tmp, "words.txt"), out, into=tgt)
     check("text: --into adds words to a chart without changing a note",
