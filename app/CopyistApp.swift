@@ -786,6 +786,11 @@ struct HomeView: View {
                        title: "Build it",
                        line: "Pages, read-alouds, findings, and the band plays it.",
                        needsChart: true) { $0.run("Build", args: ["build"]) },
+            ActionSpec(id: "keys", icon: "pianokeys.inverse",
+                       title: "Name the keyswitches",
+                       line: "Say once what each key in your demo does; "
+                           + "the page marks it from then on.",
+                       needsChart: true) { m in m.startTalk(["keys"]) },
             ActionSpec(id: "listen", icon: "headphones",
                        title: "Listen",
                        line: "The whole band, or just your chair, from any bar.",
@@ -1019,6 +1024,17 @@ struct RunView: View {
                     .accessibilityLabel("Play the listen MP3")
                 }
                 if !model.running && model.chart != nil {
+                    if model.runOutput.contains("has no name yet") {
+                        Button {
+                            model.startTalk(["keys"])
+                        } label: {
+                            Label("Name the keyswitches",
+                                  systemImage: "pianokeys.inverse")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("Asks what each unnamed key in "
+                                           + "your demo does, one at a time")
+                    }
                     if model.runTitle == "Bring in a file"
                         && model.runOutput.contains("tell me the tune.") {
                         // words with no form yet: the conversation is

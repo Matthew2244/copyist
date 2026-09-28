@@ -306,6 +306,12 @@ save the map for every chart that uses that patch:
     chart keyswitches show "My Violins"
     chart keyswitches
 
+Easiest of all: after a build, if any key has no name, the app shows
+Name the keyswitches (or run `chart yourtune.chart keys`). It asks
+about each key in turn ("violin: F#1 (MIDI 30) is in effect in bar 5.
+What does it do?"), saves your answer in the chart's own list or a saved
+map, links the part to it, and Enter skips one.
+
 `chart keyswitches from-logic` brings in all of Logic Pro's own
 articulation sets (Studio Strings, Horns and Bass) as ready maps, named
 like "Logic Studio Strings - Studio Violins". A library's names can stay

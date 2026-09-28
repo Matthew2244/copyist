@@ -2046,6 +2046,30 @@ def check_keyswitches():
                                   "Logic Studio Strings - Studio Violins")
         check("Logic's articulation sets import as maps",
               lm == {24: 'Sustain', 30: 'Staccato'}, str(lm))
+        # naming the unnamed keys, once, in a conversation
+        import chartkeys
+        cp3 = os.path.join(tmp, "v3.chart")
+        open(cp3, "w").write(body_.replace(
+            ', keyswitches "saved violins"', ''))
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("staccato\n\npizzicato\ntremolo\n")
+        try:
+            with redirect_stdout(io.StringIO()) as talk:
+                chartkeys.name_keys(cp3)
+        finally:
+            sys.stdin = old_stdin
+        linked = open(cp3).read()
+        saved = chartc.keyswitch_map({'keyswitches': {}}, "V violin")
+        check("naming keys saves a map, links the part, skips on Enter",
+              'keyswitches "V violin"' in linked
+              and saved == {24: 'staccato', 28: 'pizzicato', 30: 'tremolo'}
+              and "Named 3 of 4" in talk.getvalue(), str(saved))
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(cp3, os.path.join(tmp, "b3"))
+        f3 = open(os.path.join(tmp, "b3", "V — findings.txt")).read()
+        check("and the next build knows them (only the skipped key is "
+              "still asked about)", f3.count("has no name yet") == 1
+              and "D1 (MIDI 26)" in f3, f3)
         try:
             chartc.keyswitch_map({'keyswitches': {}}, "Nobody's Map")
             got = ""
