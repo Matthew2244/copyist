@@ -388,9 +388,12 @@ def parse_key(text):
     # the compact spellings every writer types: Bm, Ebmin, F#mi
     mode = {'m': 'minor', 'mi': 'minor', 'min': 'minor',
             'maj': 'major'}.get(mode, mode)
-    if root not in KEY_FIFTHS:
+    # G#, D# and A# are real minor keys (five, six, seven sharps); as
+    # majors they fall outside seven fifths and are refused below
+    roots = dict(KEY_FIFTHS, **{'g#': 8, 'd#': 9, 'a#': 10, 'fb': -8})
+    if root not in roots:
         fail(f"cannot read key root '{m.group(1)}'")
-    fifths = KEY_FIFTHS[root] + (-3 if mode == 'minor' else 0)
+    fifths = roots[root] + (-3 if mode == 'minor' else 0)
     if not -7 <= fifths <= 7:
         fail(f"key '{text}' needs {fifths} fifths — respell it")
     return fifths, mode
@@ -766,11 +769,15 @@ def parse_chart(path):
             if re.match(r'figure ', s):
                 fail(f"{loc}: a figure is 'figure <name>, <N> bars:' "
                      "with its source on the next, indented line")
-            m = re.match(r'pickup (\d+) beats((?:,\s*as engraved)?)'
-                         r'(?::\s*(.*))?$', s)
+            m = re.match(r'pickup (\d+(?:\.\d+)?) beats'
+                         r'((?:,\s*as engraved)?)(?::\s*(.*))?$', s)
             if m:
                 texts = re.findall(r'text "([^"]*)"', m.group(3) or '')
-                chart['pickup'] = {'beats': int(m.group(1)),
+                # a pickup may be a beat and a half (a dotted-quarter
+                # lead-in); whole beats stay whole numbers
+                pb = float(m.group(1))
+                chart['pickup'] = {'beats': int(pb) if pb == int(pb)
+                                   else pb,
                                    'engraved': bool(m.group(2)),
                                    'texts': texts}
                 continue
@@ -1080,10 +1087,13 @@ def load_source(path):
 def match_part(label, source_names):
     """Band label -> unique source part name, by token prefix matching."""
     drop = {'in', 'bb', 'eb', 'f', 'c'}
-    lt = [t for t in label.lower().split()]
+    # words only: a score's "I (Trumpet)" must match the label
+    # "i trumpet", so punctuation never counts as part of a word
+    lt = re.findall(r'[\w#]+', label.lower())
     hits = []
     for name in source_names:
-        nt = [t for t in name.lower().split() if t not in drop]
+        nt = [t for t in re.findall(r'[\w#]+', name.lower())
+              if t not in drop]
         if all(any(a.startswith(b) or b.startswith(a) for a in nt) for b in lt):
             hits.append(name)
     if len(hits) == 1:
@@ -2235,8 +2245,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         pk = chart['pickup']
         if pk:
             content = ''
-            if pk['engraved'] and sp and '0' in sp['measures']:
-                content = strip_lifted(sp['measures']['0'], clef == 'percussion')
+            # the source's pickup bar: numbered 0 by most programs, but
+            # some number it 1 and call it implicit — then it is simply
+            # the first bar
+            pk_num = '0' if sp and '0' in sp['measures'] else (
+                next(iter(sp['measures']), None) if sp else None)
+            if pk['engraved'] and sp and pk_num is not None:
+                content = strip_lifted(sp['measures'][pk_num],
+                                       clef == 'percussion')
             if with_directions:
                 if hdr.get('feel'):
                     content = direction(hdr['feel'].capitalize()) + content
@@ -2691,7 +2707,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         return "".join(L)
 
     os.makedirs(outdir, exist_ok=True)
-    title = hdr.get('title', 'chart')
+    # a title can hold a slash ("Take A Brake / What's Going On"); a
+    # file name cannot
+    title = re.sub(r'\s*[/\\:]\s*', ' - ', hdr.get('title', 'chart'))
     score_path = os.path.join(outdir, f'{title} — score.musicxml')
     with open(score_path, 'w', encoding='utf-8') as f:
         f.write(document(labels,

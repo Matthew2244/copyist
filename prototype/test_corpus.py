@@ -1557,6 +1557,121 @@ def check_sibelius_style_files():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_score_import():
+    """
+    `chart import` turns a score into a chart that compiles on the first
+    try (27 of 27 of his book, 25 of 25 Sibelius examples, 2026-09-27).
+    Pinned here on one synthetic score carrying every trap those files
+    taught: an alto's written key is not the chart's key, "Alto" alone
+    is a saxophone by its transposition, chord text beats chord kind,
+    a short first bar is a pickup whatever it is numbered, the
+    numbering may jump, two versions of one tune never overwrite, and
+    what cannot be read is refused in one sentence.
+    """
+    import zipfile
+    import chartimport
+    from chart import verify_measures
+    import chartc
+    tmp = tempfile.mkdtemp()
+
+    def bar(num, body, attrs=''):
+        return f'<measure number="{num}">{attrs}{body}</measure>'
+    whole = ('<note><pitch><step>C</step><octave>5</octave></pitch>'
+             '<duration>4</duration><voice>1</voice><type>whole</type>'
+             '</note>')
+    pick = ('<note><pitch><step>G</step><octave>4</octave></pitch>'
+            '<duration>1</duration><voice>1</voice><type>quarter</type>'
+            '</note>')
+
+    def harm(step, kind, text='', alter=None, beat_off=0):
+        return ('<harmony><root><root-step>' + step + '</root-step>'
+                + (f'<root-alter>{alter}</root-alter>' if alter else '')
+                + '</root><kind' + (f' text="{text}"' if text else '')
+                + f'>{kind}</kind>'
+                + (f'<offset>{beat_off}</offset>' if beat_off else '')
+                + '</harmony>')
+    att = lambda fifths, tr='': (
+        '<attributes><divisions>1</divisions><key><fifths>' + str(fifths)
+        + '</fifths></key><time><beats>4</beats><beat-type>4</beat-type>'
+        '</time><clef><sign>G</sign><line>2</line></clef>' + tr
+        + '</attributes>')
+    reh = lambda t: ('<direction><direction-type><rehearsal>' + t
+                     + '</rehearsal></direction-type></direction>')
+    nums = ['1', '2', '3', '4', '5', '9', '10']
+    piano = [bar(nums[0], pick, att(-1))]
+    alto = [bar(nums[0], pick, att(2, '<transpose><diatonic>-5'
+                                 '</diatonic><chromatic>-9</chromatic>'
+                                 '</transpose>'))]
+    for k, n in enumerate(nums[1:]):
+        h = (harm('F', 'dominant') if k == 0 else
+             harm('B', 'minor-seventh', 'm7b5', alter=-1)
+             + harm('E', 'dominant', '7#9', beat_off=2)
+             if k == 1 else '')
+        mark = reh('A') if k == 0 else reh('B') if k == 3 else ''
+        piano.append(bar(n, mark + h + whole))
+        alto.append(bar(n, mark + whole))
+    xml = ('<?xml version="1.0"?><score-partwise><work><work-title>'
+           'Test &amp; Tune</work-title></work><identification><creator '
+           'type="composer">Matthew Whitaker\narr. Somebody</creator>'
+           '</identification><part-list><score-part id="P1"><part-name>'
+           'Alto</part-name></score-part><score-part id="P2"><part-name>'
+           'Piano</part-name></score-part></part-list>'
+           '<part id="P1">' + "".join(alto) + '</part>'
+           '<part id="P2">' + "".join(piano) + '</part></score-partwise>')
+    src = os.path.join(tmp, "Test.musicxml")
+    open(src, "w").write(xml)
+    out = os.path.join(tmp, "charts")
+    chart, find = chartimport.import_file(src, out)
+    text = open(chart).read()
+    check("the chart's key is concert, not the alto's written D",
+          "key: F" in text, text[:400])
+    check("a bare 'Alto' is an alto sax, by its transposition",
+          "alto = alto sax" in text, text)
+    check("titles and credits come in clean",
+          "title: Test & Tune" in text
+          and "composer: Matthew Whitaker" in text
+          and "arranger: Somebody" in text, text[:300])
+    check("a short first bar is a pickup, whatever its number",
+          "pickup 1 beats, as engraved" in text, text)
+    check("the chord text wins, and beats land where the score put them",
+          "Bbm7b5 E7#9@3" in text, text)
+    check("sections cut at the marks and split where numbering jumps",
+          "section A, 3 bars" in text and "all: as engraved bars 2-4"
+          in text and "as engraved bars 9-10" in text, text)
+    files = chartc.compile_chart(chart, os.path.join(tmp, "b"))
+    check("and the imported chart compiles with every bar whole",
+          files and not verify_measures(files))
+    chart2, find2 = chartimport.import_file(src, out)
+    check("a second import of the same tune never overwrites the first",
+          chart2 != chart and os.path.exists(chart)
+          and "already there" in " ".join(find2), str(find2))
+    z = os.path.join(tmp, "Zipped.mxl")
+    with zipfile.ZipFile(z, "w") as zz:
+        zz.writestr("META-INF/container.xml",
+                    '<container><rootfiles><rootfile full-path="s.xml"/>'
+                    '</rootfiles></container>')
+        zz.writestr("s.xml", xml.replace("Test &amp; Tune", "Zipped"))
+    chart3, _ = chartimport.import_file(z, out)
+    check("compressed MusicXML comes in the same way",
+          os.path.exists(chart3) and "Zipped" in chart3)
+    for ext, word in ((".sib", "Sibelius"), (".mp3", "audio"),
+                      (".gp5", "Guitar Pro"), (".png", "picture")):
+        f = os.path.join(tmp, "x" + ext)
+        open(f, "w").write("x")
+        try:
+            chartimport.import_file(f, out)
+            got = ""
+        except chartimport.ImportTrouble as e:
+            got = str(e)
+        check(f"a {ext} file is refused in a sentence naming the way in",
+              word in got and "\n" not in got, got)
+    midi = os.path.join(tmp, "d.mid")
+    open(midi, "wb").write(b"MThd")
+    check("a MIDI demo goes to the interview",
+          chartimport.import_file(midi, out)[0] == "interview")
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_detail_and_look():
     """
     DESIGN.md 11's last two levels through the chart door — `simplified`
@@ -2564,6 +2679,7 @@ if __name__ == "__main__":
     check_build_entrance()
     check_trills_and_tremolos()
     check_sibelius_style_files()
+    check_score_import()
     check_detail_and_look()
     check_user_chair()
     check_engraver()

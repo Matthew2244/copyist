@@ -52,19 +52,23 @@ def verify_measures(files):
                 if num == '0':
                     continue               # a pickup is partial on purpose
                 expect = div * 4 * tnum // tden
-                total = 0
-                for note in re.findall(r'<note[ >](.*?)</note>', m, re.S):
-                    if '<chord/>' in note or '<grace' in note:
-                        continue
-                    d = re.search(r'<duration>(\d+)</duration>', note)
-                    if d:
-                        total += int(d.group(1))
-                for bk in re.findall(
-                        r'<backup>\s*<duration>(\d+)</duration>', m):
-                    total -= int(bk)
-                for fw in re.findall(
-                        r'<forward>\s*<duration>(\d+)</duration>', m):
-                    total += int(fw)
+                # walk the bar in order and measure how far it reaches:
+                # an engraving may step back after its last note to hang
+                # a chord symbol or a word (every Sibelius export does),
+                # and a bar is as long as its furthest note, not as
+                # wherever the cursor happens to stop
+                pos = total = 0
+                for el in re.finditer(r'<(note|backup|forward)[ >](.*?)'
+                                      r'</\1>', m, re.S):
+                    kind, t = el.group(1), el.group(2)
+                    d = re.search(r'<duration>(\d+)</duration>', t)
+                    d = int(d.group(1)) if d else 0
+                    if kind == 'backup':
+                        pos -= d
+                    elif kind == 'forward' or not (
+                            re.search(r'<chord\s*/>', t) or '<grace' in t):
+                        pos += d
+                    total = max(total, pos)
                 if total not in (0, expect):
                     bad.append(f"{os.path.basename(f)}, part {pid}, "
                                f"bar {num}: {total} of {expect} ticks")
@@ -609,6 +613,58 @@ def list_instruments(want):
             "— or try sax, voice, drum, cymbal, cello.")
 
 
+def run_import(argv):
+    """chart import FILE [--into CHART] [--to FOLDER]: anything a writer
+    has, in; a MIDI demo goes on to the interview. The last line names
+    the chart made, so the app can open it ("chart: <path>")."""
+    import chartimport
+    if not argv or argv[0] in ('-h', '--help'):
+        say("chart import FILE: a score (MusicXML or .mxl), a MIDI demo, "
+            "or any text (ChordPro, a chord sheet, ABC, an iReal Pro "
+            "link, lyrics) from any format. --into CHART adds words to "
+            "a chart you have; --to FOLDER picks where the new tune's "
+            "folder goes.")
+        return
+    path, into, to = argv[0], None, None
+    rest = argv[1:]
+    while rest:
+        if rest[0] == '--into' and len(rest) > 1:
+            into, rest = rest[1], rest[2:]
+        elif rest[0] == '--to' and len(rest) > 1:
+            to, rest = rest[1], rest[2:]
+        else:
+            say(f"I don't know '{rest[0]}' here; --into and --to are "
+                "the words import takes.")
+            sys.exit(2)
+    try:
+        chart, find = chartimport.import_file(path, to, say=say,
+                                              into=into)
+    except chartimport.ImportTrouble as e:
+        say(str(e))
+        sys.exit(1)
+    if chart == 'interview':
+        base = os.path.splitext(os.path.basename(path))[0]
+        folder = os.path.join(to or chartimport.charts_folder(),
+                              chartimport.safe_name(base))
+        os.makedirs(folder, exist_ok=True)
+        out = os.path.join(folder, chartimport.safe_name(base) + '.chart')
+        import chartnew
+        cfg = load_cfg()
+        chartnew.interview(out, os.path.abspath(path),
+                           composer=cfg.get('composer', ''), cfg=cfg)
+        say(f"chart: {out}")
+        return
+    for line in find:
+        say(line[0].upper() + line[1:] + ".")
+    if into:
+        say("The words are in, as comments beside their sections; "
+            "nothing printed changes until you place them.")
+    else:
+        say("Build it to hear it and see the pages, or tell me the "
+            "tune to reshape the form.")
+    say(f"chart: {chart}")
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == 'instruments':
         list_instruments(" ".join(sys.argv[2:]).strip().lower())
@@ -633,6 +689,9 @@ def main():
         return
     if len(sys.argv) > 1 and sys.argv[1] == 'sounds':
         run_sounds()
+        return
+    if len(sys.argv) > 1 and sys.argv[1] in ('import', 'i'):
+        run_import(sys.argv[2:])
         return
     ap = argparse.ArgumentParser(
         description="Compile a chart and make everything a writer "
@@ -720,7 +779,9 @@ def main():
         return
 
     chart = chartc.parse_chart(path)
-    title = chart['header'].get('title', 'chart')
+    # the same file-safe title the compiler writes its files under
+    title = re.sub(r'\s*[/\\:]\s*', ' - ',
+                   chart['header'].get('title', 'chart'))
     labels = [b['label'] for b in chart['band']]
     prev_dir = os.path.join(title_dir, "previous read-alouds")
 
