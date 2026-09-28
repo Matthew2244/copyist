@@ -310,8 +310,41 @@ def _repeat_words(c):
     return c.strip(), reps, open_
 
 
+# a feel said inside a section's words belongs to that section: "8 bar
+# intro in two feel", "16 bar head bossa", "solos over the head latin"
+# (the desk once named a section "intro in 2 feel" and moved the head's
+# bossa up to the whole tune)
+SECTION_FEEL_RX = re.compile(
+    r"(?:\b(?:in|with)\s+(?:a\s+)?)?\b(two[ -]feel|2[ -]feel|in (?:two|2)\b"
+    r"|half[ -]time(?: funk| shuffle)?|double[ -]time(?: swing)?"
+    r"|bossa nova|bossa|samba|afro-cuban(?: 6/8)?|mambo|songo|salsa"
+    r"|latin|funk|swing|shuffle|ballad|rock|gospel|second line"
+    r"|straight (?:eighths|8ths))(?:\s+feel)?\b", re.I)
+
+
+def _section_feel(low):
+    """(clause without its feel words, the feel or None)."""
+    m = SECTION_FEEL_RX.search(low)
+    if not m:
+        return low, None
+    feel = m.group(1).lower()
+    feel = re.sub(r"^(?:2[ -]feel|in (?:two|2))$", "two feel", feel)
+    rest = (low[:m.start()] + " " + low[m.end():]).strip()
+    rest = re.sub(r"\s{2,}", " ", rest).strip(" ,")
+    return rest, feel
+
+
 def parse_clause(c):
-    low = c.lower()
+    low, feel = _section_feel(c.lower())
+    if feel and not low:
+        return None                  # a feel alone is the tune's, not a section
+    p = _parse_clause_core(low)
+    if p is not None and feel:
+        p["feel"] = feel
+    return p
+
+
+def _parse_clause_core(low):
     # story openers fall away: "it opens with an 8 bar intro"
     low = re.sub(r"^(?:it|we|the tune|the song)?\s*"
                  r"(?:opens?|starts?|begins?|kicks?\s+off)\s+"
@@ -894,10 +927,6 @@ def extract_globals(text):
     # rock disco" must never lose its rock), and a lone word inside
     # a section clause ("16 bar bossa intro") is claimed only when
     # no fuller phrase did
-    for f in FEELS:
-        if re.search(r"\b" + f + r"\b", text, re.I):
-            g["_feel_word"] = f
-            break
     return text, g
 
 _PC = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
@@ -1363,6 +1392,7 @@ def _carve(plan):
         nm = letter if seen[letter] == 1 else f"{letter}{seen[letter]}"
         parts.append(_mk(nm, bars=per))
         parts[-1]["family"] = plan["name"]
+        parts[-1]["feel"] = plan.get("feel")
         parts[-1]["letter"] = letter
         parts[-1]["nth"] = seen[letter]
     return parts
@@ -1546,6 +1576,19 @@ def _detect_from_demo(a, plan, ctx):
     return line if not ans.lower().startswith("n") else None
 
 
+def _perc_plays(ctx, lines):
+    """The percussion section plays unless told otherwise, the way a
+    Latin band's does: when the answer was the defaults, or only named
+    soloists, each hand-percussion chair not already mentioned grooves,
+    said out loud (Night Market, 2026-09-28: the congas sat out the
+    intro, the solos and the out)."""
+    named = {ln.split(":")[0].strip() for ln in lines}
+    add = [l for l in ctx.get("perc_labels", ()) if l not in named]
+    if add:
+        say("The percussion plays too: " + ", ".join(add) + ".")
+    return [f"{l}: groove" for l in add]
+
+
 def _who_for(plan, ctx):
     """Who plays this section — directives, defaults stated."""
     if plan["kind"] == "solos":
@@ -1567,13 +1610,13 @@ def _who_for(plan, ctx):
                     ok = False
                     break
             if ok:
-                return picks
+                return picks + _perc_plays(ctx, picks)
     while True:
         a = ask(f"Who plays in {plan['name']}? like 'horns tacet; "
                 "trumpet from demo bars 5-12', or Enter for the "
                 "defaults (rhythm grooves, horns tacet)")
         if not a:
-            return []
+            return _perc_plays(ctx, [])
         while True:
             try:
                 rng = None
@@ -1644,7 +1687,15 @@ def edit(path, demo=None, composer="", cfg=None):
         if os.path.exists(p):
             dm = chartdemo.Demo(p)
     vocab = load_vocab()
+    import chartgroove
+    perc_labels = []
+    for b in chart["band"]:
+        inst = chartc.canonical_instrument(b["instrument"])
+        h, snd = chartc.HORNS.get(inst), chartc.SOUNDS.get(inst)
+        if h and snd and chartgroove.role_of(snd[1], h["clef"]) == "perc":
+            perc_labels.append(b["label"])
     ctx = {"vocab": vocab, "labels": labels, "groupnames": groupnames,
+           "perc_labels": perc_labels,
            "demo": dm, "base": base, "ask": ask, "done": [],
            "meter": meter, "cfg": cfg,
            "key": chart["header"].get("key", "C"),
@@ -1729,11 +1780,6 @@ def _gather_plans(ctx):
                     continue
             kept.append(clause)
         breath = ",".join(kept)
-        w = hdr.pop("_feel_word", None)
-        if w and "feel" not in hdr:
-            hdr["feel"] = w
-            breath = re.sub(r"\b" + re.escape(w) + r"\b", " ",
-                            breath, flags=re.IGNORECASE)
         if hdr:
             say("Tune-level: " +
                 "; ".join(f"{k} {v}" for k, v in hdr.items()) + ".")
@@ -1756,6 +1802,8 @@ def _gather_plans(ctx):
                 b += f" x{p['repeat']}"
             if p["open"]:
                 b += " open"
+            if p.get("feel"):
+                b += f", {p['feel']}"
             bits.append(b)
         say("Placed: " + "; ".join(bits) + ".")
     _resolve_gaps(plans, gaps, vocab)
@@ -1846,6 +1894,7 @@ def _shape_plans(ctx, plans, existing=()):
             fam = []
             for nm, line in secs:
                 q = _mk(nm, bars=per)
+                q["feel"] = p.get("feel")
                 q["section_line"] = line
                 q["letter"] = nm[0]
                 q["nth"] = int(nm[1:]) if len(nm) > 1 else 1
@@ -1899,6 +1948,10 @@ def _realize_plans(ctx, plans, named, extra=()):
             src = _resolve_out(p, pool, named)
             if src:
                 p["bars"] = src["bars"]
+                # the head out plays the head as it was: its feel too,
+                # unless the out named its own
+                if not p.get("feel") and src.get("feel"):
+                    p["feel"] = src["feel"]
                 p["chords_text"] = src.get("chords_text") or \
                     f"nc x{p['bars']}"
             else:
@@ -2582,6 +2635,7 @@ def render(plans, named):
             texts = [s.get("chords_text") or f"nc x{s['bars']}"
                      for s in p["use_sections"]]
             prog_lines.append(f"chords {fam_name}: " + ", ".join(texts))
+    feel_now = None
     for p in plans:
         head = f"section {p['name']}, {p['bars']} bars"
         if p.get("mood"):
@@ -2595,6 +2649,10 @@ def render(plans, named):
             section_lines.append(f"  use chords {p['use']}")
         else:
             section_lines.append(f"  chords: {p['chords_text']}")
+        # a feel holds until another is named, the way a band hears it
+        if p.get("feel") and p["feel"] != feel_now:
+            section_lines.append(f"  feel: {p['feel']}")
+            feel_now = p["feel"]
         for w in p.get("who") or []:
             section_lines.append(f"  {w}")
         section_lines.append("")

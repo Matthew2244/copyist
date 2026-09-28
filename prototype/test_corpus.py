@@ -2755,8 +2755,29 @@ def check_roadmap():
         "swing at 160, 8 bar intro, in the key of e flat minor")
     check("tune-level words leave the breath",
           g["tempo"] == "160" and g["key"] == "Eb minor"
-          and g["_feel_word"] == "swing"
           and "swing" in t and "160" not in t, str((t, g)))
+    plans, gaps = chartedit.parse_form(
+        "8 bar intro in two feel, 16 bar head bossa, solos over the "
+        "head latin, head out")
+    check("a feel said in a section's words is that section's feel",
+          [(p["name"], p.get("feel")) for p in plans[:3]]
+          == [("intro", "two feel"), ("head", "bossa"), ("solos", "latin")]
+          and plans[2]["use"] == "head" and not gaps, str(plans))
+    plans, _ = chartedit.parse_form("8 bar intro with a latin feel, head "
+                                    "is 32 AABA swing")
+    import chartnew
+    band, _ = chartnew.band_from_words("congas, bongos, bell, bells")
+    check("band words: 'bell' is the cowbell, 'bells' the glockenspiel",
+          ("bell", "cowbell") in band and band[-1][1] == "glockenspiel",
+          str(band))
+    ctx_ = {"perc_labels": ["congas", "bell"]}
+    with redirect_stdout(io.StringIO()):
+        got = chartedit._perc_plays(ctx_, ["piano: solo", "congas: tacet"])
+    check("the desk keeps the percussion playing unless it was named",
+          got == ["bell: groove"], str(got))
+    check("'with a latin feel' and a feel after the form name read too",
+          plans[0]["feel"] == "latin" and plans[1]["feel"] == "swing"
+          and plans[1]["bars"] == 32)
     plans, gaps = chartedit.parse_form("i got rhythm, solos over "
                                        "the form twice")
     check("rhythm changes answers to its aliases",

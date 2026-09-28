@@ -85,7 +85,10 @@ def spans(notes, barof):
     return ", ".join(f"{a}-{b}" if a != b else str(a) for a, b in runs)
 
 
-SAX_BY_DEFAULT = {"alto": "alto sax", "tenor": "tenor sax"}
+SAX_BY_DEFAULT = {"alto": "alto sax", "tenor": "tenor sax",
+                  # on a band list "bell" is the cowbell; "bells", plural,
+                  # stays the glockenspiel, like every band room says it
+                  "bell": "cowbell"}
 
 
 def band_from_words(text):
@@ -94,6 +97,7 @@ def band_from_words(text):
     numbered (tenor 1, tenor 2). Unknown words come back separately."""
     wanted, unknown = [], []
     band_from_words.saxed = False
+    band_from_words.belled = False
     text = re.sub(r"\band\b", ",", text)
     for raw in text.split(","):
         w = raw.strip().lower()
@@ -110,11 +114,16 @@ def band_from_words(text):
             inst = chartc.canonical_instrument(w[:-1])   # "trumpets"
         # on a band list a bare alto or tenor is the sax; the singer is
         # "alto voice" (said once, below)
-        bare = w[:-1] if w.endswith("s") and w[:-1] in SAX_BY_DEFAULT \
+        # plurals only for the saxes ("2 tenors"); "bells" is its own
+        # instrument, the glockenspiel
+        bare = w[:-1] if w.endswith("s") and w[:-1] in ("alto", "tenor") \
             else w
         if inst not in chartc.HORNS and bare in SAX_BY_DEFAULT:
             inst = SAX_BY_DEFAULT[bare]
-            band_from_words.saxed = True
+            if bare == "bell":
+                band_from_words.belled = True
+            else:
+                band_from_words.saxed = True
         if inst not in chartc.HORNS:
             unknown.append(raw.strip())
             continue
@@ -154,6 +163,9 @@ def interview_no_demo(out_path, composer='', cfg=None):
         if band_from_words.saxed:
             say("Alto and tenor read as saxes; say 'alto voice' or "
                 "'tenor voice' for a singer.")
+        if band_from_words.belled:
+            say("The bell is the cowbell; say 'bells' for the "
+                "glockenspiel.")
         if unknown:
             say("I don't have " + ", ".join(unknown) + " in the band "
                 "table yet, so they're left out.")
