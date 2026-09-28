@@ -146,6 +146,30 @@ def _expand_repeats(ms):
     return out
 
 
+
+def _note_midi(t, m, transpose):
+    """One <note>'s sounding key: a percussion head decoded through the
+    kit or hand-percussion table (chosen by the part's name), anything
+    else from its written pitch plus the part's transposition."""
+    if '<unpitched' in t or m['percussion']:
+        st = re.search(r'<display-step>(\w)</display-step>', t)
+        oc = re.search(r'<display-octave>(\d)</display-octave>', t)
+        nh = re.search(r'<notehead[^>]*>([a-z-]+)</notehead>', t)
+        hand = bool(re.search(
+            r'percussion|conga|bongo|timbale|shaker|cowbell'
+            r'|clave|guiro|maraca|tambourine|aux',
+            m['name'], re.I)) and not re.search(
+            r'drum|kit|batterie', m['name'], re.I)
+        return drum_midi(st.group(1), int(oc.group(1)),
+                         nh.group(1) if nh else 'normal',
+                         hand=hand) if st and oc else 38
+    st = re.search(r'<step>(\w)</step>', t).group(1)
+    al = re.search(r'<alter>(-?\d+)</alter>', t)
+    oc = int(re.search(r'<octave>(\d+)</octave>', t).group(1))
+    return (STEP[st] + (int(al.group(1)) if al else 0)
+            + (oc + 1) * 12 + transpose)
+
+
 def parse_score(path, only=None):
     """Our emitted listening document -> a playable plan:
     parts: [{name, program, percussion, events: [(q_on, q_dur, midi,
@@ -184,6 +208,7 @@ def parse_score(path, only=None):
         wedges = []                     # (q_start, q_end, 'cresc'|'dim')
         wedge_open = None
         slur_depth = 0
+        pend_grace = {}                 # voice -> grace <note> texts
         for num, meas in _expand_repeats(_measures(body)):
             if num.isdigit():
                 bars.setdefault(int(num), q0)
@@ -259,6 +284,12 @@ def parse_score(path, only=None):
                 # a note
                 if '<grace' in t.split('<duration')[0] \
                         if '<duration' in t else '<grace' in t:
+                    # a grace takes no written time: it is played
+                    # just ahead of the note it leans on (below)
+                    gv = re.search(r'<voice>(\d+)</voice>', t)
+                    if '<chord/>' not in t:
+                        pend_grace.setdefault(
+                            gv.group(1) if gv else '1', []).append(t)
                     continue
                 d = re.search(r'<duration>(\d+)</duration>', t)
                 if not d:
@@ -272,6 +303,8 @@ def parse_score(path, only=None):
                     last_on[voice] = pos
                     pos += dur
                     top = max(top, pos)
+                graces = ([] if chorded else
+                          pend_grace.pop(voice, []))
                 if '<rest' in t or '<cue/>' in t \
                         or '<notehead>slash</notehead>' in t:
                     # cues and slashes print; they never sound — but a
@@ -299,28 +332,7 @@ def parse_score(path, only=None):
                 if slur_depth + starts - stops > 0:
                     art['leg'] = True   # the line carries on past this note
                 slur_depth = max(slur_depth + starts - stops, 0)
-                if '<unpitched' in t or m['percussion']:
-                    st = re.search(r'<display-step>(\w)</display-step>', t)
-                    oc = re.search(r'<display-octave>(\d)</display-octave>',
-                                   t)
-                    nh = re.search(r'<notehead[^>]*>([a-z-]+)</notehead>',
-                                   t)
-                    hand = bool(re.search(
-                        r'percussion|conga|bongo|timbale|shaker|cowbell'
-                        r'|clave|guiro|maraca|tambourine|aux',
-                        m['name'], re.I)) and not re.search(
-                        r'drum|kit|batterie', m['name'], re.I)
-                    midi = drum_midi(st.group(1), int(oc.group(1)),
-                                     nh.group(1) if nh else 'normal',
-                                     hand=hand) \
-                        if st and oc else 38
-                else:
-                    st = re.search(r'<step>(\w)</step>', t).group(1)
-                    al = re.search(r'<alter>(-?\d+)</alter>', t)
-                    oc = int(re.search(r'<octave>(\d+)</octave>',
-                                       t).group(1))
-                    midi = (STEP[st] + (int(al.group(1)) if al else 0)
-                            + (oc + 1) * 12 + transpose)
+                midi = _note_midi(t, m, transpose)
                 q_on = q0 + on / div
                 q_dur = dur / div
                 if 'fermata' in art:
@@ -337,6 +349,15 @@ def parse_score(path, only=None):
                     if '<tie type="start"/>' not in t:
                         del carry[key]
                     continue
+                # graces: a quick crushed run landing on the beat, each
+                # a tenth of a quarter, a little under the main note
+                gq = 0.1
+                for gi, gt in enumerate(graces):
+                    g_on = q_on - (len(graces) - gi) * gq
+                    if g_on >= 0:
+                        events.append((g_on, gq * 0.9,
+                                       _note_midi(gt, m, transpose),
+                                       gain * 0.85, {}))
                 events.append((q_on, q_dur, midi, gain, art))
                 if '<tie type="start"/>' in t:
                     carry[key] = len(events) - 1

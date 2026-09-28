@@ -141,8 +141,10 @@ job is everything before that.
 > **[2026-09-20: no longer true — and the reversal is the story.]**
 > Copyist renders its own pages now (chartengrave.py: pure-stdlib PDF,
 > embedded SMuFL and text fonts, optical spacing, the conductor score)
-> and synthesizes its own audio (chartaudio.py). MuseScore remains only
-> as an optional fallback for grace notes inside lifted engravings.
+> and synthesizes its own audio (chartaudio.py). MuseScore remained only
+> as a fallback for grace notes inside lifted engravings until
+> 2026-09-27, when the engraver learned to draw them and the listen to
+> play them. Nothing is borrowed now.
 
 ### 5.2 Two thin UIs make the protocol load-bearing
 
@@ -894,8 +896,8 @@ directly would make the whole app GPL-3.
 > (163 checks in prototype/test_corpus.py); Copyist draws its own
 > pages and plays its own listen files with no MuseScore; the two
 > GUIs this table scores were retired for dialog apps over the CLI
-> (CopyistApp.applescript, windows/CopyistApp.ps1). The one MuseScore
-> borrow left: grace notes in lifted engravings. The rows below stand
+> (CopyistApp.applescript, windows/CopyistApp.ps1). The last MuseScore
+> borrow, grace notes in lifted engravings, closed 2026-09-27. The rows below stand
 > only as history.
 
 | Area | State |

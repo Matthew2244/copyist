@@ -829,13 +829,10 @@ def main():
             say(f"{len(sentences)} changes since the last build — run "
                 "the diff command for the full list.")
 
-    # ---- pages and the listen file. The listen is Copyist's own —
-    # only the PDF pages still ask MuseScore (for now).
+    # ---- pages and the listen file, both Copyist's own. MuseScore,
+    # when a machine happens to have it, is only a quiet net under an
+    # engraver crash; nobody is told they need it, because they don't.
     mscore = find_mscore()
-    if mscore is None and not (args.no_pages or args.command == 'listen'):
-        say("No MuseScore here, so no PDF pages — it is free at "
-            "musescore.org. The listen file is Copyist's own and comes "
-            "out regardless.")
 
     look = chart['header'].get('look') or cfg['look'] or None
     look_style = write_style(look, title_dir) if look else None

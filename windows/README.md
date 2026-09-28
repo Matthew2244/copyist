@@ -11,9 +11,8 @@ Describe the tune in one breath and Copyist writes the sections.
 You need **Python 3** from [python.org](https://www.python.org)
 (tick "Add python.exe to PATH" in the installer). Optional extras:
 **ffmpeg** (`winget install ffmpeg`) turns the listen file into an
-MP3 — without it you still get a WAV — and **MuseScore 4** covers the
-one thing Copyist does not draw itself yet (grace notes inside lifted
-engravings).
+MP3 — without it you still get a WAV. MuseScore is not needed for
+anything; Copyist draws every page itself.
 
 The terminal works too, exactly like the Mac:
 

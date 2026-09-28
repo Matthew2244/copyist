@@ -1443,24 +1443,52 @@ def check_engraver():
         os.path.join(tmp, "gb", "G — score.musicxml"), gs)
     check("a score holding a grand staff engraves too",
           ok and os.path.getsize(gs) > 2000, f"{ok} {why}")
-    # what still declines does so in a sentence: grace notes from a
-    # lifted engraving
-    bad = os.path.join(tmp, "bad.musicxml")
-    open(bad, "w").write(
+    # grace notes, the last thing that used to decline: a crushed
+    # grace leans on beat 2, a run of three sixteenths on beat 3
+    gx = os.path.join(tmp, "grace.musicxml")
+    open(gx, "w").write(
         '<score-partwise><part-list><score-part id="P1">'
         '<part-name>x</part-name></score-part></part-list>'
         '<part id="P1"><measure number="1">'
-        '<attributes><divisions>24</divisions>'
-        '<time><beats>4</beats><beat-type>4</beat-type></time>'
+        '<attributes><divisions>24</divisions><key><fifths>-1</fifths>'
+        '</key><time><beats>4</beats><beat-type>4</beat-type></time>'
         '<clef><sign>G</sign><line>2</line></clef></attributes>'
-        '<note><grace/><pitch><step>C</step><octave>5</octave></pitch>'
-        '<voice>1</voice><type>eighth</type></note>'
         '<note><pitch><step>C</step><octave>5</octave></pitch>'
-        '<duration>96</duration><voice>1</voice><type>whole</type>'
+        '<duration>24</duration><voice>1</voice><type>quarter</type>'
+        '</note>'
+        '<note><grace slash="yes"/><pitch><step>D</step><alter>1</alter>'
+        '<octave>5</octave></pitch><voice>1</voice><type>eighth</type>'
+        '</note>'
+        '<note><pitch><step>E</step><octave>5</octave></pitch>'
+        '<duration>24</duration><voice>1</voice><type>quarter</type>'
+        '</note>'
+        + ''.join('<note><grace/><pitch><step>%s</step><octave>4</octave>'
+                  '</pitch><voice>1</voice><type>16th</type></note>' % st
+                  for st in 'GAB') +
+        '<note><pitch><step>C</step><octave>5</octave></pitch>'
+        '<duration>48</duration><voice>1</voice><type>half</type>'
         '</note></measure></part></score-partwise>')
-    ok, why = chartengrave.engrave(bad, os.path.join(tmp, "x.pdf"))
-    check("grace notes still decline in a sentence",
-          not ok and "grace" in why, f"{ok} {why}")
+    gxml = open(gx).read()
+    gms, why = chartengrave.parse_part(gxml, "P1")
+    mains = [ns[0] for _p, ns, _s, _v in gms[0]['events']]
+    check("graces take no time and wait for their note",
+          len(mains) == 3 and len(mains[1].graces) == 1
+          and mains[1].graces[0][0].grace_slash
+          and len(mains[2].graces) == 3, str(why))
+    check("a grace's accidental follows the key",
+          mains[1].graces[0][0].show_acc == 1
+          and mains[2].graces[2][0].show_acc == 0)
+    ok, why = chartengrave.engrave(gx, os.path.join(tmp, "g.pdf"))
+    check("grace notes engrave, where they used to decline",
+          ok and os.path.getsize(os.path.join(tmp, "g.pdf")) > 2000,
+          f"{ok} {why}")
+    import chartaudio as _ga
+    gev = _ga.parse_score(gx)['parts'][0]['events']
+    ons = [(round(e[0], 2), e[2]) for e in gev]
+    check("the listen plays graces just ahead of the beat",
+          (0.9, 75) in ons and (2.0, 72) in ons
+          and [(1.7, 67), (1.8, 69), (1.9, 71)]
+          == [o for o in ons if 1.5 < o[0] < 2.0], str(ons))
 
     # the music font: Leland loads, knows its glyphs, and is embedded
     m = chartengrave.music_font()

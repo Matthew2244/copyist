@@ -654,7 +654,8 @@ class Note:
                  'dots', 'chord', 'tie_start', 'tie_stop', 'slur_start',
                  'slur_stop', 'artic', 'slash', 'head', 'parens', 'cue',
                  'lyric', 'fermata',
-                 'tmod', 'measure_rest')
+                 'tmod', 'measure_rest',
+                 'grace', 'grace_slash', 'graces')
 
 
 def _parse_note(t):
@@ -694,10 +695,13 @@ def _parse_note(t):
     n.lyric = (m.group(1), m.group(2), bool(m.group(3))) if m else None
     m = re.search(r'<actual-notes>(\d+)</actual-notes>', t)
     n.tmod = int(m.group(1)) if m else None
+    n.grace = '<grace' in t
+    n.grace_slash = bool(re.search(r'<grace[^>]*slash="yes"', t))
+    n.graces = []
     return n
 
 
-REFUSE = ('<grace',)
+REFUSE = ()
 
 
 KEY_STEPS_SHARP = ['F', 'C', 'G', 'D', 'A', 'E', 'B']
@@ -721,7 +725,7 @@ def mark_accidentals(meas, state):
     for pos, notes, staff, voice in sorted(
             meas['events'], key=lambda e: (e[0], e[2], e[3])):
         perc = state['clefs'].get(staff) == 'percussion'
-        for n in notes:
+        for n in [g for grp in notes[0].graces for g in grp] + notes:
             n.show_acc = None
             if n.rest or n.slash or perc:
                 continue
@@ -783,6 +787,7 @@ def parse_part(xml, pid):
             meas['show']['clef'] = dict(state['clefs'])
         pos = 0
         hi_pos = 0
+        pend_grace = {}
         for el in re.finditer(r'<note[ >].*?</note>|<forward>.*?</forward>'
                               r'|<backup>.*?</backup>'
                               r'|<direction[ >].*?</direction>'
@@ -852,6 +857,21 @@ def parse_part(xml, pid):
             n_staff = int(sv.group(1)) if sv else 1
             vv = re.search(r'<voice>(\d+)</voice>', t)
             n_voice = int(vv.group(1)) if vv else 1
+            if n.grace:
+                # a grace takes no time: it waits for the note it
+                # leans on, in its own staff and voice; a grace chord
+                # stacks on the grace before it
+                waiting = pend_grace.setdefault((n_staff, n_voice), [])
+                if n.chord and waiting:
+                    waiting[-1].append(n)
+                else:
+                    waiting.append([n])
+                continue
+            waiting = pend_grace.pop((n_staff, n_voice), None)
+            if waiting and not n.chord:
+                n.graces = waiting
+            elif waiting:
+                pend_grace[(n_staff, n_voice)] = waiting
             if n.chord:
                 for p2, ns2, st2, vo2 in reversed(meas['events']):
                     if st2 == n_staff and vo2 == n_voice and \
@@ -890,7 +910,9 @@ def parse_part(xml, pid):
                     playing = True
                 row.append((n.rest, n.measure_rest, n.step, n.octave,
                             n.alter, n.ntype, n.dots, n.head, n.parens,
-                            n.artic))
+                            n.artic, tuple((g.step, g.octave, g.alter)
+                                           for grp in n.graces
+                                           for g in grp)))
             evs.append((pos, staff, voice, tuple(row)))
         return tuple(evs) if playing else None
 
@@ -954,6 +976,8 @@ def ink_needs(meas):
                 r = max(r, 2.5 * SP * s)
         if n0.dots:
             r = max(r, (1.9 + 0.7 * n0.dots) * SP)
+        if n0.graces:
+            l += grace_room(n0)
         if n0.artic in ('scoop', 'plop'):
             l += 3.6 * SP
         elif n0.artic in ('falloff', 'doit'):
@@ -961,6 +985,72 @@ def ink_needs(meas):
         pl, pr = needs.get(pos, (0.0, 0.0))
         needs[pos] = (max(pl, l), max(pr, r))
     return needs
+
+
+GRACE_SCALE = 0.62
+GRACE_STEP = 2.1 * SP        # one small head and the air after it
+
+
+def grace_room(n0):
+    """How far a note's graces reach left of its own accidentals."""
+    accs = sum(1 for grp in n0.graces for g in grp
+               if g.show_acc is not None)
+    return len(n0.graces) * GRACE_STEP + accs * 1.2 * SP + 0.6 * SP
+
+
+def draw_graces(pdf, n0, right_x, top, clef):
+    """The small notes before a main note, drawn right to left from
+    `right_x`: stems up, a single grace flagged (and slashed when it is
+    crushed, an acciaccatura), a run of them under one or two beams."""
+    s = GRACE_SCALE
+    groups = n0.graces
+    xs = []
+    x = right_x
+    for grp in reversed(groups):
+        acc = any(g.show_acc is not None for g in grp)
+        xs.append(x)
+        x -= GRACE_STEP + (1.2 * SP if acc else 0)
+    xs.reverse()
+    tips = []
+    for gx, grp in zip(xs, groups):
+        ps = [step_pos(g.step, g.octave, clef) for g in grp]
+        ys = [top - STAFF + p * SP / 2 for p in ps]
+        for p in ps:
+            for lp in (range(-2, p - 1, -2) if p < -1 else
+                       range(10, p + 1, 2) if p > 9 else ()):
+                pdf.line(gx - 1.2 * SP, top - STAFF + lp * SP / 2,
+                         gx + 1.2 * SP, top - STAFF + lp * SP / 2, w=0.6)
+        ax = gx - 1.5 * SP
+        for g, yy in zip(grp, ys):
+            if g.show_acc is not None:
+                draw_accidental(pdf, ax, yy, g.show_acc, scale=s)
+        for yy in ys:
+            notehead(pdf, gx, yy, 'black', scale=s)
+        sx = gx + 1.15 * SP * s
+        tip = max(ys) + 3.0 * SP * s
+        pdf.line(sx, min(ys), sx, tip, w=0.8)
+        tips.append((sx, tip))
+    nflags = min(max(FLAGS.get(groups[0][0].ntype, 1), 1), 2)
+    if len(tips) == 1:
+        sx, tip = tips[0]
+        draw_flag_small = pdf.glyph(sx, tip, ('flag8U' if nflags == 1
+                                              else 'flag16U'),
+                                    4 * SP * s)
+        if not draw_flag_small:
+            draw_flag(pdf, sx, tip, True, nflags)
+    else:
+        top_tip = max(t for _, t in tips)
+        for sx, tip in tips:
+            pdf.line(sx, tip, sx, top_tip, w=0.8)
+        for k in range(nflags):
+            by = top_tip - k * 1.2 * SP * s
+            pdf.poly([(tips[0][0], by), (tips[-1][0], by),
+                      (tips[-1][0], by - 0.5 * SP * s),
+                      (tips[0][0], by - 0.5 * SP * s)], fill=True)
+    if n0.graces and groups[0][0].grace_slash:
+        sx, tip = tips[0]
+        pdf.line(sx - 1.0 * SP * s, tip - 2.2 * SP * s,
+                 sx + 1.4 * SP * s, tip - 0.4 * SP * s, w=0.8)
 
 
 def measure_width(meas):
@@ -1663,6 +1753,10 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             if getattr(n, 'show_acc', None) is not None:
                 draw_accidental(pdf, ax, yy, n.show_acc, scale=scale)
                 ax -= 1.7 * SP
+        if n0.graces:
+            draw_graces(pdf, n0, (ax if ax < cx - 2.1 * SP
+                                  else cx - 1.4 * SP) - GRACE_STEP * 0.6,
+                        top, clef)
         head = ('slash' if n0.slash else DUR_HEADS.get(n0.ntype, 'black'))
         order = sorted(range(len(ps)), key=lambda i: ps[i])
         side = {}

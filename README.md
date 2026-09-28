@@ -68,8 +68,10 @@ language.
 **The playback is Copyist's own too**, which means silence is genuinely silent.
 The old renderer had an audible noise floor under empty bars.
 
-One thing it still declines: grace notes in a lifted engraving. It refuses in a
-sentence rather than guessing at them.
+Grace notes draw and play too, including inside a lifted engraving: small heads
+before their note, a slash through a crushed one, a run of them beamed, and in
+the listen a quick pickup landing on the beat. Nothing in a chart still needs
+MuseScore.
 
 ## What makes it different
 
