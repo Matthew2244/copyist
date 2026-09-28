@@ -456,9 +456,12 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
   restates its own written signature — concert fifths plus its
   transposition — right where the change lands, accidentals follow
   the new key from that bar, and the read-aloud names it. Chord
-  symbols stay exactly as the writer spelled them. Honest limits:
-  a change to C major prints no cancelling naturals yet, and
-  from-demo material spells by the header key. Tempo words (`molto rall.`, `a tempo`, `Colla Voce`, `Tempo I`)
+  symbols stay exactly as the writer spelled them. Naturals cancel
+  what the new key drops: all of the old signature going to C, the
+  dropped ones when the same kind thins out (three sharps to one
+  cancels C-sharp and G-sharp); a switch between sharps and flats
+  prints the new kind only, modern practice. Honest limit: from-demo
+  material spells by the header key. Tempo words (`molto rall.`, `a tempo`, `Colla Voce`, `Tempo I`)
   go through `text` — they are performance language, printed verbatim.
 
 - `use chords <name> [xN]` cites a named progression instead of an inline

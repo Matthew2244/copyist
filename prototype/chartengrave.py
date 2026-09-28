@@ -767,8 +767,12 @@ def parse_part(xml, pid):
             state['time'] = new
         ky = re.search(r'<fifths>(-?\d+)</fifths>', m)
         if ky:
+            old = state['fifths']
             state['fifths'] = int(ky.group(1))
             meas['show']['key'] = state['fifths']
+            gone = cancelled(old, state['fifths']) if measures else 0
+            if gone:
+                meas['show']['cancel'] = (old, gone)
         sv = re.search(r'<staves>(\d+)</staves>', m)
         if sv:
             state['staves'] = int(sv.group(1))
@@ -968,7 +972,7 @@ def measure_width(meas):
     if 'clef' in meas['show']:
         w += 7 * SP
     if 'key' in meas['show']:
-        w += abs(meas['show']['key']) * 2 * SP + SP
+        w += key_width(meas)
     if 'time' in meas['show']:
         w += 5 * SP
     per = {}
@@ -1265,10 +1269,37 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
     return True, None
 
 
+def cancelled(old, new):
+    """How many of the old signature's accidentals a key change
+    cancels with naturals: all of them going to C, the dropped ones
+    when the same kind thins out (three sharps to one cancels C and G).
+    A switch between sharps and flats prints the new kind only — the
+    change of kind already says it, modern engraving practice."""
+    if old == 0 or (old > 0) != (new > 0) and new != 0:
+        return 0
+    return abs(old) - abs(new) if abs(new) < abs(old) else 0
+
+
+def key_width(meas):
+    w = abs(meas['show']['key']) * 2 * SP + SP
+    if meas['show'].get('cancel'):
+        w += meas['show']['cancel'][1] * 2 * SP
+    return w
+
+
 def draw_key(pdf, x, top, fifths, clef, meas):
     order = KEY_SHARPS if fifths > 0 else KEY_FLATS
     base = {'G': 0, 'F': -2, 'C': -1, 'percussion': None}[
         clef if clef in ('G', 'F', 'C') else 'percussion']
+    cancel = (meas or {}).get('show', {}).get('cancel')
+    if base is not None and cancel:
+        # the naturals first, on the very lines the old signature used
+        old, gone = cancel
+        corder = KEY_SHARPS if old > 0 else KEY_FLATS
+        for i in range(abs(old) - gone, abs(old)):
+            yy = top - STAFF + (corder[i] + base) * SP / 2
+            draw_accidental(pdf, x, yy, 0, scale=0.9)
+            x += 2 * SP
     if base is None or fifths == 0:
         return x + SP
     for i in range(abs(fifths)):
@@ -1374,7 +1405,7 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
         for st, stop in enumerate(tops, 1):
             draw_key(pdf, x, stop, meas['show']['key'],
                      state['clefs'].get(st, 'G'), meas)
-        x += abs(meas['show']['key']) * 2 * SP + SP
+        x += key_width(meas)
     if 'time' in meas['show']:
         n, d = meas['show']['time']
         for stop in tops:
