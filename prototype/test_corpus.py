@@ -3760,6 +3760,51 @@ def check_feels_and_technique_for_every_part():
           gx.count("pizz.") == 1 and "arco" in gx)
 
 
+def check_mutes_sound():
+    """
+    Mutes printed and never sounded (no muted brass exists openly), and
+    a mute could only go on at a section's first bar. Now 'harmon mute
+    at bar 3' / 'open at bar 7' place anywhere, and the listen plays the
+    open horn through the shape each mute cuts.
+    """
+    import chartband, chartc, tempfile, math
+    from array import array
+    from contextlib import redirect_stdout
+    check("mutes: the page's words name the mute",
+          chartband.mute_kind("harmon mute - stem out") == "harmon"
+          and chartband.mute_kind("cup mute") == "cup"
+          and chartband.mute_kind("con sord.") == "straight"
+          and chartband.mute_kind("open") is None)
+    sr = 22050
+    tone = array('f', [sum(math.sin(2 * math.pi * 440 * k * i / sr) / k
+                           for k in (1, 2, 3, 4, 5, 6))
+                       for i in range(sr // 4)])
+
+    def amp(seg, f):
+        c = 2 * math.cos(2 * math.pi * f / sr)
+        s1 = s2 = 0.0
+        for x in seg:
+            s1, s2 = x + c * s1 - s2, s1
+        return math.sqrt(max(s1 * s1 + s2 * s2 - c * s1 * s2, 0))
+    cup = chartband.apply_mute((tone, None), "cup", sr)[0]
+    har = chartband.apply_mute((tone, None), "harmon", sr)[0]
+    check("mutes: a cup darkens the top, a harmon thins the bottom",
+          amp(cup, 2640) / amp(cup, 440) < amp(tone, 2640) / amp(tone, 440)
+          / 2.5 and amp(har, 440) / amp(har, 1760)
+          < amp(tone, 440) / amp(tone, 1760) / 2)
+    tmp = tempfile.mkdtemp()
+    open(os.path.join(tmp, "m.chart"), "w").write(
+        "title: M\nkey: C\nmeter: 4/4\ntempo: 90\n\nband:\n  trumpet\n"
+        "\nsection A, 4 bars\n  chords: C x4\n"
+        "  trumpet: groove, harmon mute at bar 2, open at bar 4\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "m.chart"),
+                             os.path.join(tmp, "b"))
+    x = open(os.path.join(tmp, "b", "M — trumpet.musicxml")).read()
+    check("mutes: 'harmon mute at bar 2' and 'open at bar 4' print there",
+          "harmon mute" in x and "<words>open</words>" in x)
+
+
 if __name__ == "__main__":
     print("\ninvariants")
     check_duration_algebra()
@@ -3770,6 +3815,7 @@ if __name__ == "__main__":
     check_starting_from_nothing()
     check_bow_and_chord_room()
     check_feels_and_technique_for_every_part()
+    check_mutes_sound()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

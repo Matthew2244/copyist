@@ -389,6 +389,7 @@ def parse_score(path, only=None):
         pend_grace = {}                 # voice -> grace <note> texts
         pend_hit = False                # a sforzando waits for its note
         pizz = False                    # "pizz." until "arco"
+        mute = None                     # "harmon mute" until "open"
         arco = False                    # "arco" until "pizz." — for the
         # upright bass, plucked unless the page says to bow
         pedals = []                     # (q, 'start'|'stop'|'change')
@@ -464,6 +465,11 @@ def parse_score(path, only=None):
                             pizz, arco = False, True
                         elif re.match(r'\s*ord', w, re.I):
                             pizz = False
+                        if re.match(r'\s*(open|senza sord)', w, re.I):
+                            mute = None
+                        elif re.search(r'mute|con sord', w, re.I):
+                            import chartband as _cb
+                            mute = _cb.mute_kind(w)
                     wd = re.search(r'<wedge [^>]*type="(\w+)"', t)
                     if wd:
                         if wd.group(1) in ('crescendo', 'diminuendo'):
@@ -554,6 +560,8 @@ def parse_score(path, only=None):
                     art['pizz'] = True
                 if arco:
                     art['arco'] = True
+                if mute:
+                    art['mute'] = mute
                 if 'trill' in art:
                     art['trill_step'] = trill_step(t, fifths)
                 ts1 = re.search(r'<tremolo type="single">(\d)', t)

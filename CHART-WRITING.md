@@ -485,6 +485,14 @@ All of these ride on a `from demo` line, after commas:
   bow", "plucked", "pizzicato" and "fingered" (the bass player's word
   for it) work too, and the violins, violas and
   cellos read the same words the other way round, bowed until pizz.
+- **Mutes, where they go on and off.** `trumpet: harmon mute at bar 9`
+  and `open at bar 17` (or `mute cup` at the top of a section) print the
+  mute where the player needs it, in their part and in the score, and
+  the listen plays it: harmon thin and buzzy, cup soft and dark,
+  straight bright and nasal, plunger and bucket muffled, and "con sord."
+  on strings the veiled string mute. Nothing recorded exists for muted
+  brass, so the band plays the open horn through the shape each mute
+  cuts; it is close, not the real mute, and worth knowing.
 - **The feel plays, in the band's own words.** `feel:` on the header
   or a section changes what the rhythm section plays under your slashes,
   not just the word on the page: `swing` walks, `two feel` puts the

@@ -2370,9 +2370,21 @@ def build_plans(chart, band, groups, labels):
                     hits_map[int(m.group(1)) if m.group(1) else None] = \
                         beats
                     continue
-                m = re.match(r'mute (\w+)$', piece)
+                # "mute harmon", "harmon mute at bar 3", "open at bar 7":
+                # either word order, anywhere in the section
+                m = re.match(r'(?:mute (\w+)|(\w+) mute)'
+                             r'(?:\s*-\s*([\w ]+?))?'
+                             r'(?:\s+(?:at|from)\s+bar\s+(\d+))?$', piece)
+                if m and (m.group(1) or m.group(2)) not in ('no',):
+                    kind = m.group(1) or m.group(2)
+                    extra = f' - {m.group(3)}' if m.group(3) else ''
+                    anns.append((int(m.group(4) or 1),
+                                 f'{kind} mute{extra}'))
+                    continue
+                m = re.match(r'(?:open|remove mute|mute off)'
+                             r'\s+(?:at|from)\s+bar\s+(\d+)$', piece)
                 if m:
-                    anns.append((1, f'{m.group(1)} mute'))
+                    anns.append((int(m.group(1)), 'open'))
                     continue
                 # the bow: "arco at bar 9", "pizz at bar 17" — printed
                 # the way string parts print them, and the listen

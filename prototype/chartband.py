@@ -330,6 +330,88 @@ def _choke_map(shelf, part, events):
     return chokes
 
 
+# ---------------------------------------------------------------- mutes
+#
+# No muted brass is recorded anywhere open, so a mute is played the way
+# an engineer would fake one convincingly: the open horn through the
+# shape the mute cuts. RBJ cookbook biquads, in plain Python like the
+# rest of the band. (freq Hz, Q, gain dB) per stage; 'hp'/'lp' are
+# 12 dB/oct, 'pk' a peak; then an overall level.
+_MUTES = {
+    'harmon':   ([('hp', 900, 0.8, 0), ('pk', 1800, 2.0, 9),
+                  ('lp', 5500, 0.7, 0)], -7),
+    'cup':      ([('hp', 220, 0.7, 0), ('lp', 1500, 0.8, 0)], -5),
+    'straight': ([('hp', 550, 0.8, 0), ('pk', 2500, 1.5, 6)], -4),
+    'plunger':  ([('lp', 900, 0.9, 0)], -3),
+    'bucket':   ([('lp', 2000, 0.7, 0)], -4),
+    'strings':  ([('lp', 2600, 0.7, 0), ('pk', 900, 1.0, -3)], -2),
+}
+
+
+def _biquad(kind, f, q, gain_db, sr):
+    a_ = 10 ** (gain_db / 40)
+    w = 2 * math.pi * f / sr
+    cw, sw = math.cos(w), math.sin(w)
+    al = sw / (2 * q)
+    if kind == 'lp':
+        b = ((1 - cw) / 2, 1 - cw, (1 - cw) / 2)
+        a = (1 + al, -2 * cw, 1 - al)
+    elif kind == 'hp':
+        b = ((1 + cw) / 2, -(1 + cw), (1 + cw) / 2)
+        a = (1 + al, -2 * cw, 1 - al)
+    else:
+        b = (1 + al * a_, -2 * cw, 1 - al * a_)
+        a = (1 + al / a_, -2 * cw, 1 - al / a_)
+    return [x / a[0] for x in b], [a[1] / a[0], a[2] / a[0]]
+
+
+def _run(samples, b, a):
+    out = array('f', bytes(4 * len(samples)))
+    x1 = x2 = y1 = y2 = 0.0
+    b0, b1, b2 = b
+    a1, a2 = a
+    for i, x in enumerate(samples):
+        y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        x2, x1, y2, y1 = x1, x, y1, y
+        out[i] = y
+    return out
+
+
+def mute_kind(word):
+    """The mute a page's words put on: 'harmon mute - stem out' ->
+    'harmon'; 'con sord.' on a string part -> the string mute."""
+    w = (word or '').lower()
+    for k in ('harmon', 'cup', 'straight', 'plunger', 'bucket'):
+        if k in w:
+            return k
+    if 'wah' in w:
+        return 'harmon'
+    if 'con sord' in w or 'mute' in w:
+        return 'straight'
+    return None
+
+
+def apply_mute(res, kind, sr, strings=False):
+    """(L, R) of one note -> the same note through the mute."""
+    if not res or not kind:
+        return res
+    stages, level = _MUTES['strings' if strings else kind]
+    g = 10 ** (level / 20)
+    out = []
+    for ch in res:
+        if ch is None:
+            out.append(None)
+            continue
+        y = ch
+        for kind_, f, q, gdb in stages:
+            b, a = _biquad(kind_, f, q, gdb, sr)
+            y = _run(y, b, a)
+        for i in range(len(y)):
+            y[i] *= g
+        out.append(y)
+    return tuple(out)
+
+
 def _variant(voice, art):
     """Which recorded take plays this note: the library's own staccato
     for short marks, its ghost set for ghosts, sustain otherwise."""
@@ -521,6 +603,10 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
                     amps=amps, detune=detunes[idx])
             if res is None:
                 continue
+            if art.get('mute') and not part['percussion']:
+                res = apply_mute(res, art['mute'], SR,
+                                 strings='strings.' in (part.get('sound')
+                                                        or ''))
             pieces.append((a, res))
         pan = (-0.6 + 1.2 * idx / max(n_parts - 1, 1)) \
             if n_parts > 1 else 0.0
