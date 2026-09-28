@@ -96,18 +96,20 @@ def name_drums(chart_path):
             say(f"{b['label']}: I couldn't find its demo.")
             continue
         name = b.get('drummap')
-        if not name or name.strip().lower() in \
-                instruments.DRUM_MAP_NAMES:
-            if name:
-                say(f"{b['label']} reads as {name}'s map already; to "
-                    "name notes yourself, give it a map of its own.")
-                continue
+        builtin = instruments.DRUM_MAPS.get(
+            instruments.DRUM_MAP_NAMES.get((name or '').strip().lower(),
+                                           ''), {})
+        if not name:
             name = ask(f"{b['label']}: which drum library was this take "
                        "played on? That names the map, so every take from "
                        "it reads right.", f"{title} drums").strip() \
                 or f"{title} drums"
         known = load_saved(name)
-        todo = [n for n in sorted(counts) if n not in known]
+        # a built-in map already knows its notes: ask only about the
+        # rest (a kit's Flexi percussion), added on top of it
+        todo = [n for n in sorted(counts)
+                if n not in known and (n not in builtin or builtin[n] >=
+                                       instruments.UNNAMED_DRUM)]
         if not todo:
             say(f'Every note in {b["label"]}\'s take is already in '
                 f'"{name}".')

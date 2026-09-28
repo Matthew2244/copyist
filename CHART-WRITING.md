@@ -330,7 +330,13 @@ on the band line and it reads the kit that was played:
 
     drums = drum set, demo "take.mid", drummap "Toontrack"
 
-(`EZdrummer` and `Superior Drummer` work as names too.) Most other drum
+(`EZdrummer` and `Superior Drummer` work as names too.) XLN Audio's
+Addictive Drums 2 is built in the same way, from its own keymap:
+`drummap "Addictive Drums 2"` (or `XLN`, `AD2`). Its six cymbal slots
+read as crashes, since each AD2 kit loads its own cymbals, and its Flexi
+slots read as "kit percussion" until you name them; Name the drum notes
+asks only about those, and your answers add to the built-in map.
+Most other drum
 libraries (Tony Royster Jr., Addictive Drums, any Kontakt kit) keep
 their map inside the plugin, so tell Copyist once: Name the drum notes
 in the app, or `chart yourtune.chart drums`. It asks which library the

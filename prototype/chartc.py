@@ -1358,16 +1358,19 @@ def keyswitch_map(chart, name, loc='band'):
 def drum_map_for(name, loc):
     if not name:
         return None
-    key = instruments.DRUM_MAP_NAMES.get(name.strip().lower())
-    if key:
-        return instruments.DRUM_MAPS[key]
     import chartdrums
+    key = instruments.DRUM_MAP_NAMES.get(name.strip().lower())
     saved = chartdrums.load_saved(name)
+    if key:
+        # a built-in map, plus whatever the writer added to it (an AD2
+        # kit's Flexi percussion, a cymbal that is really a china)
+        return dict(instruments.DRUM_MAPS[key], **chartdrums.as_gm(saved))
     if saved:
         return chartdrums.as_gm(saved)
     fail(f"{loc}: no drum map called \"{name}\": Copyist knows "
-         "Toontrack's (EZdrummer, Superior Drummer), and 'chart TUNE "
-         "drums' names any other kit's notes once")
+         "Toontrack's (EZdrummer, Superior Drummer) and XLN's (Addictive "
+         "Drums 2), and 'chart TUNE drums' names any other kit's notes "
+         "once")
 
 
 def lifted_rest(piece):

@@ -2130,6 +2130,30 @@ def check_keyswitches():
             else:
                 check("an unmapped take with non-GM drum notes says so",
                       "drummap \"Toontrack\"" in dfind, dfind)
+        # XLN Addictive Drums 2: its own keymap; its Flexi percussion
+        # is never read as the GM piece that shares its number
+        an = [(i * 240, i * 240 + 60, [36, 37, 49, 47][i % 4], 100)
+              for i in range(16)]
+        smf.write(os.path.join(tmp, "a.mid"), an, 480, 100)
+        ac = os.path.join(tmp, "a.chart")
+        open(ac, "w").write(
+            'title: A\nkey: C\nmeter: 4/4\ntempo: 100\n\nband:\n'
+            '  drums = drum set, demo "a.mid", drummap "Addictive Drums 2"'
+            '\n\nsection A, 2 bars\n  chords: C x2\n'
+            '  drums: from demo bars 1-2\n')
+        with redirect_stdout(io.StringIO()):
+            ab = chartc.compile_chart(ac, os.path.join(tmp, "ab"))
+        said = subprocess.run(
+            [sys.executable, os.path.join(HERE, "chartread.py"), ac,
+             "--part", "drums"], capture_output=True, text=True).stdout
+        aplan = chartaudio.parse_score(os.path.join(
+            tmp, "ab", "A — for listening.musicxml"))
+        check("an Addictive Drums 2 take reads as its kit: rimshot is "
+              "snare, 49 is a closed hat, Flexi is kit percussion",
+              "closed hat" in said and "snare" in said
+              and "kit percussion (note 47)" in said and "mid tom" not in
+              said and "crash" not in said and aplan['parts'][0]['events'],
+              said)
         # any other kit, named once: the drums conversation
         import chartdrums
         old_dd = chartdrums.DRUM_DIR

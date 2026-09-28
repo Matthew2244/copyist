@@ -220,6 +220,10 @@ DRUM_NAMES = {
 }
 
 
+# a note a map knows is a kit piece it can't name reads as this plus the
+# note: an x the read-aloud calls "kit percussion (note 47)"
+UNNAMED_DRUM = 300
+
 # Drum maps other than General MIDI: note -> the GM note of the same kit
 # piece, so the page's positions, heads and names and the listen's
 # sounds all apply. Toontrack's layout (EZdrummer / Superior Drummer),
@@ -248,10 +252,36 @@ DRUM_MAPS = {
         56: 56, 122: 56, 123: 56, 124: 56, 125: 56, 126: 56, 127: 56,
         66: 65, 68: 65, 69: 65, 67: 76,
     },
+    # XLN Audio Addictive Drums 2, from its own keymap (Addictive Drums 2
+    # Keymap.pdf, 2021, MIDI numbers printed). Cymbals 1-6 are whatever
+    # each AD2 kit loads, so they read as crashes (1/4 crash, 2/5 crash
+    # 2, 3/6 crash); a kit whose Cymbal 3 is a china says so once with
+    # 'chart TUNE drums'. Flexi slots are kit percussion: left to ask.
+    'addictive drums 2': {
+        36: 36,
+        37: 38, 38: 38, 39: 38, 40: 38, 41: 38, 43: 38,
+        26: 38, 28: 38, 29: 38, 30: 38, 31: 38, 32: 38, 33: 38, 34: 38,
+        35: 38, 42: 37, 44: 37, 75: 37, 5: 38, 6: 38,
+        48: 44, 59: 44, 49: 42, 50: 42, 51: 42, 52: 42, 53: 42,
+        7: 42, 8: 42, 9: 42, 54: 46, 55: 46, 56: 46, 57: 46, 58: 46,
+        71: 48, 72: 48, 69: 47, 70: 47, 67: 45, 68: 45, 65: 43, 66: 43,
+        60: 51, 62: 51, 63: 51, 45: 51, 61: 53, 4: 51,
+        84: 59, 86: 59, 87: 59, 85: 53, 3: 59,
+        77: 49, 78: 49, 46: 49, 79: 57, 80: 57, 81: 49, 82: 49,
+        89: 49, 90: 49, 91: 57, 92: 57, 93: 49, 94: 49,
+        # the Flexi slots: kit percussion nobody has named yet — never
+        # their General MIDI meaning (AD2's 47 is no mid tom)
+        **{n: UNNAMED_DRUM + n for n in (47, 73, 74, 76, 96, 97, 98, 99,
+                                         100, 101, 102, 103)},
+    },
 }
 DRUM_MAP_NAMES = {'toontrack': 'toontrack', 'ezdrummer': 'toontrack',
                   'superior drummer': 'toontrack', 'ezd': 'toontrack',
-                  'sd3': 'toontrack'}
+                  'sd3': 'toontrack',
+                  'addictive drums 2': 'addictive drums 2',
+                  'addictive drums': 'addictive drums 2',
+                  'ad2': 'addictive drums 2', 'xln': 'addictive drums 2',
+                  'xln audio': 'addictive drums 2'}
 def gm_for_words(text):
     '''"snare roll", "cross stick", "ride bell", "floor tom 2", "stack"
     -> the General MIDI drum note of that kit piece, or None. How a
@@ -302,4 +332,6 @@ NOT_GM_DRUMS = set(range(0, 35)) | set(range(82, 128))
 
 
 def drum_name(pitch):
+    if pitch >= UNNAMED_DRUM:
+        return f"kit percussion (note {pitch - UNNAMED_DRUM})"
     return DRUM_NAMES.get(pitch, f"drum {pitch}")
