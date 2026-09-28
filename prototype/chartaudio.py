@@ -168,6 +168,105 @@ def _expand_repeats(ms):
 
 
 
+# the road-map signs, read from the playback attributes a score carries
+# (<sound dalsegno=...>) or, as most engravings only print them, from
+# the words and signs themselves
+_RM_WORDS = [
+    ('ds', re.compile(r'\bD\.?\s?S\.?(?=\s|$|\b)|dal\s+segno', re.I)),
+    ('dc', re.compile(r'\bD\.?\s?C\.?(?=\s|$|\b)|da\s+capo', re.I)),
+    ('tocoda', re.compile(r'\bto\s+coda\b', re.I)),
+    ('fine', re.compile(r'^\s*fine\s*$', re.I)),
+]
+
+
+def roadmap_marks(m):
+    """One measure -> the set of road-map marks it carries."""
+    got = set()
+    if re.search(r'<segno[\s/>]|<sound [^>]*segno=', m):
+        got.add('segno')
+    if re.search(r'<coda[\s/>]|<sound [^>]*coda=', m):
+        got.add('coda')
+    if re.search(r'<sound [^>]*dalsegno=', m):
+        got.add('ds')
+    if re.search(r'<sound [^>]*dacapo="yes"', m):
+        got.add('dc')
+    if re.search(r'<sound [^>]*tocoda=', m):
+        got.add('tocoda')
+    if re.search(r'<sound [^>]*fine=', m):
+        got.add('fine')
+    for w in re.findall(r'<words[^>]*>([^<]*)</words>', m):
+        for kind, rx in _RM_WORDS:
+            if rx.search(w):
+                got.add(kind)
+        if re.search(r'al\s+fine', w, re.I):
+            got.add('alfine')
+        if re.search(r'al\s+coda', w, re.I):
+            got.add('alcoda')
+    # "To Coda" also names a coda; the coda sign itself is the landing
+    if 'tocoda' in got:
+        got.discard('coda')
+    return got
+
+
+def _final_pass(ms):
+    """A stretch played after a D.S. or D.C.: repeats are not taken
+    again, and where there are endings the last one is played — how a
+    band reads it unless the chart says otherwise."""
+    out, i = [], 0
+    last = {}
+    for _n, m in ms:
+        for k in re.findall(r'<ending number="(\d+)" type="start"', m):
+            last[0] = max(last.get(0, 0), int(k))
+    while i < len(ms):
+        num, m = ms[i]
+        em = re.search(r'<ending number="(\d+)" type="start"', m)
+        if em and last and int(em.group(1)) < last[0]:
+            k = int(em.group(1))
+            while i < len(ms) and not re.search(
+                    r'<ending number="%d" type="(?:stop|discontinue)"' % k,
+                    ms[i][1]):
+                i += 1
+            i += 1
+            continue
+        out.append((num, m))
+        i += 1
+    return out
+
+
+def expand_roadmap(ms, marks=None):
+    """The whole walk a player takes: repeats and endings first, then a
+    D.S. back to the sign (or a D.C. to the top), through once more
+    without repeats, and out — at "To Coda" over to the coda, or at
+    Fine to a stop. A chart with no road map is just its repeats."""
+    marks = marks or [roadmap_marks(m) for _n, m in ms]
+    jump = next((i for i, mk in enumerate(marks)
+                 if 'ds' in mk or 'dc' in mk), None)
+    if jump is None:
+        return _expand_repeats(ms)
+    is_ds = 'ds' in marks[jump]
+    start = 0
+    if is_ds:
+        start = next((i for i, mk in enumerate(marks[:jump + 1])
+                      if 'segno' in mk), 0)
+    first = _expand_repeats(ms[:jump + 1])
+    tocoda = next((i for i in range(start, jump + 1)
+                   if 'tocoda' in marks[i]), None)
+    fine = next((i for i in range(start, jump + 1)
+                 if 'fine' in marks[i]), None)
+    coda = next((i for i in range(jump + 1, len(ms))
+                 if 'coda' in marks[i] or 'tocoda' not in marks[i]
+                 and re.search(r'<coda[\s/>]', ms[i][1])), None)
+    if tocoda is not None and 'alfine' not in marks[jump]:
+        second = _final_pass(ms[start:tocoda + 1])
+        rest = _expand_repeats(ms[coda:]) if coda is not None else \
+            _expand_repeats(ms[jump + 1:])
+        return first + second + rest
+    if fine is not None:
+        return first + _final_pass(ms[start:fine + 1])
+    # a D.S. with nowhere marked to leave: once more to the jump, then on
+    second = _final_pass(ms[start:jump + 1])
+    return first + second + _expand_repeats(ms[jump + 1:])
+
 # a dynamic mark's level when the document gives no playback value
 _LEVEL = {'pppp': 12, 'ppp': 23, 'pp': 40, 'p': 54, 'mp': 71, 'mf': 89,
           'f': 106, 'ff': 123, 'fff': 127, 'ffff': 127, 'fffff': 127,
@@ -258,6 +357,15 @@ def parse_score(path, only=None):
                      'sound': snd.group(1) if snd else ''}
 
     parts, tempos, swings, holds = [], {}, {}, {}
+    # the road map is the band's, not one part's: a D.S. printed only on
+    # the first part (our listening document carries words there alone)
+    # sends everyone back to the sign
+    road = None
+    for _pid, body in re.findall(r'<part id="([^"]+)">(.*?)</part>',
+                                 xml, re.S):
+        mk = [roadmap_marks(m) for _n, m in _measures(body)]
+        road = mk if road is None else [
+            a | b for a, b in zip(road, mk)] + road[len(mk):]
     for pid, body in re.findall(r'<part id="([^"]+)">(.*?)</part>',
                                 xml, re.S):
         m = meta.get(pid, {'name': pid, 'program': 1, 'percussion': False})
@@ -281,7 +389,7 @@ def parse_score(path, only=None):
         pend_trem = {}                  # voice -> event index of a
                                         # two-note tremolo's first note
         fifths = 0
-        for num, meas in _expand_repeats(_measures(body)):
+        for num, meas in expand_roadmap(_measures(body), road):
             if num.isdigit():
                 bars.setdefault(int(num), q0)
             dv = re.search(r'<divisions>(\d+)</divisions>', meas)

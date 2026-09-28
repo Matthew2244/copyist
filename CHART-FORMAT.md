@@ -468,7 +468,23 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
       at bar 5: key D
       at bar 7: tempo 96
       at bar 8: fermata
+      at bar 1: segno
+      at bar 6: to coda
+      at bar 8: d.s. al coda
       build: add saxes at 3, add trombones at 11
+
+  **Road maps** are timed events too: `segno` (or `sign`), `coda`, `to
+  coda`, `fine`, and the jump itself, `d.s.`, `d.s. al coda`, `d.s. al
+  fine`, `d.c.`, `d.c. al coda` or `d.c. al fine` (spelled out, `dal
+  segno` and `da capo`, reads as well). The page draws the signs and the
+  words; the listen walks it the way a band does: repeats the first time
+  through, none after the jump, the last ending on the way back; the
+  read-aloud says each mark in words; and the findings read the whole
+  walk back ("bars 1-20, then 13-20, then 5-10, then 21-24"). A road
+  map that goes nowhere is refused: a D.S. needs its sign, "al Coda"
+  needs a To Coda and a coda after the jump, "al Fine" needs a Fine.
+  Road maps in a lifted score come along: its signs, its "To Coda" and
+  "D.S." words stay on the bars, and the listen follows them.
 
   `build:` prints the "+saxes" style entrance cues *Jeannine*'s montuno
   uses, and it is an entrance, not only a word: a named part whose
@@ -536,12 +552,10 @@ restarts on every write.
 
 ## 5. What is deliberately absent
 
-- **Segno, coda, D.S., D.C.** — zero occurrences across all eleven measured
-  scores; every chart writes its form out linearly (with section repeats and
-  voltas). The section model can grow a `goto`-style construct later without
-  breaking anything, but it is not v1 (this revises O9's worry downward:
-  the 13-part reference chart in DESIGN.md §11.3 used D.S., but the current
-  book does not).
+- ~~Segno, coda, D.S., D.C.~~ **Built 2026-09-27.** The first eleven
+  measured scores had none, but the wider book does: his own "I Thought
+  About You" walks segno at 9, To Coda at 36, D.S. al Coda at 58, coda at
+  59. See the road-map events in §3.6.
 - **Pedal marks** — see §3.7.
 - **Nested repeats, in-bar meter tricks, cross-staff inline notation** — the
   inline `notes:` grammar stays small on purpose; the reference path exists

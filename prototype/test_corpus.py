@@ -1839,6 +1839,91 @@ def check_text_import():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_road_maps():
+    """
+    D.S. al Coda, D.C. al Fine and friends: his own "I Thought About
+    You" arrangement walks segno 9, To Coda 36, D.S. al Coda 58, coda
+    59. The listen follows the walk for the whole band (repeats the
+    first time, none after the jump, the last ending), the page draws
+    the signs, a lift keeps the road-map words, the read-aloud says
+    them in words, and a road map that goes nowhere is refused.
+    """
+    import re
+    import chartaudio
+    import chartc
+    import chartengrave
+    tmp = tempfile.mkdtemp()
+    cp = os.path.join(tmp, "r.chart")
+    body = ('title: R\nkey: F\nmeter: 4/4\ntempo: 120\n\nband:\n'
+            '  trumpet\n  piano\n\n'
+            'section intro, 4 bars\n  chords: F x4\n\n'
+            'section A, 8 bars\n  chords: F7 x8\n  at bar 1: segno\n'
+            '  at bar 6: to coda\n\n'
+            'section B, 8 bars, repeat 2x\n  chords: Bb7 x8\n'
+            '  at bar 8: d.s. al coda\n\n'
+            'section coda, 4 bars\n  chords: F7 x4\n  at bar 1: coda\n')
+    open(cp, "w").write(body)
+    out = os.path.join(tmp, "b")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(cp, out)
+    listen = os.path.join(out, "R — for listening.musicxml")
+    plan = chartaudio.parse_score(listen)
+    for part in plan['parts']:
+        check(f"the {part['name']} walks the road map with the band: "
+              "1-20, the repeat, back to the sign, the coda",
+              abs(part['length_q'] - (20 + 8 + 6 + 4) * 4) < 1e-6,
+              str(part['length_q']))
+    fnd = open(os.path.join(out, "R — findings.txt")).read()
+    check("the findings read the walk back",
+          "bars 1-20, then 13-20, then 5-10, then 21-24" in fnd, fnd)
+    x = open(os.path.join(out, "R — piano.musicxml")).read()
+    ms, _ = chartengrave.parse_part(x, re.search(r'<part id="([^"]+)"',
+                                                 x).group(1))
+    check("the page carries the sign and the coda",
+          'segno' in ms[4]['signs'] and 'coda' in ms[20]['signs'])
+    ok, why = chartengrave.engrave(os.path.join(out, "R — piano.musicxml"),
+                                   os.path.join(tmp, "p.pdf"))
+    check("and engraves", ok, str(why))
+    said = subprocess.run([sys.executable, os.path.join(HERE,
+                                                        "chartread.py"),
+                           cp, "--part", "piano"], capture_output=True,
+                          text=True).stdout
+    check("the read-aloud says the road map in words",
+          "back to the sign, then take the coda" in said.lower()
+          and "('road'" not in said, said)
+    for drop, want in (("  at bar 1: segno\n", "no sign to go back to"),
+                       ("  at bar 6: to coda\n", "needs 'to coda'")):
+        bp = os.path.join(tmp, "bad.chart")
+        open(bp, "w").write(body.replace(drop, ""))
+        try:
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(bp, os.path.join(tmp, "x"))
+            got = ""
+        except SystemExit as e:
+            got = str(e)
+        check(f"a road map missing its {drop.split(':')[1].strip()} is "
+              "refused in a sentence", want in got, got)
+    check("a lift keeps the road-map words the compiler would strip",
+          "To Coda" in chartc.strip_lifted(
+              '<direction><direction-type><words>To Coda</words>'
+              '</direction-type></direction><note><rest/></note>')
+          and "Swing" not in chartc.strip_lifted(
+              '<direction><direction-type><words>Swing</words>'
+              '</direction-type></direction><note><rest/></note>'))
+    # D.C. al Fine, and endings on the way back take the last one
+    def bar(n, extra='', bl=''):
+        return (n, extra + '<note><rest/><duration>4</duration></note>'
+                + bl)
+    words = lambda w: ('<direction><direction-type><words>' + w
+                       + '</words></direction-type></direction>')
+    ms2 = [bar('1'), bar('2', words('Fine')), bar('3'),
+           bar('4', words('D.C. al Fine'))]
+    walk = [n for n, _ in chartaudio.expand_roadmap(ms2)]
+    check("D.C. al Fine plays through, back to the top, ends at Fine",
+          walk == ['1', '2', '3', '4', '1', '2'], str(walk))
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_detail_and_look():
     """
     DESIGN.md 11's last two levels through the chart door — `simplified`
@@ -2848,6 +2933,7 @@ if __name__ == "__main__":
     check_sibelius_style_files()
     check_score_import()
     check_text_import()
+    check_road_maps()
     check_detail_and_look()
     check_user_chair()
     check_engraver()

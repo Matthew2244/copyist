@@ -76,6 +76,7 @@ SMUFL = {
     'dyn_p': 0xE520, 'dyn_m': 0xE521, 'dyn_f': 0xE522, 'dyn_r': 0xE523,
     'dyn_s': 0xE524, 'dyn_z': 0xE525, 'dyn_n': 0xE526,
     'pedalPed': 0xE650, 'pedalUp': 0xE655,
+    'segno': 0xE047, 'coda': 0xE048,
     'tremolo1': 0xE220, 'tremolo2': 0xE221, 'tremolo3': 0xE222,
     'tenuto': 0xE4A4,
     'dynP': 0xE520, 'dynF': 0xE522, 'dynMP': 0xE52C, 'dynMF': 0xE52D,
@@ -804,7 +805,7 @@ def parse_part(xml, pid):
         meas = {'num': num, 'events': [], 'show': dict(),
                 'texts': [], 'chords': [], 'dyn': [], 'metronome': None,
                 'rehearsal': None, 'left': None, 'right': None,
-                'wedges': [], 'pedals': [],
+                'wedges': [], 'pedals': [], 'signs': [],
                 'ending': [], 'multi': 0}
         mm = re.search(r'<multiple-rest>(\d+)</multiple-rest>', m)
         if mm:
@@ -891,6 +892,8 @@ def parse_part(xml, pid):
                 w = re.search(r'<words[^>]*>([^<]+)</words>', t)
                 if w and 'print-object="no"' not in t:
                     meas['texts'].append((pos, w.group(1)))
+                for sg in re.findall(r'<(segno|coda)[\s/>]', t):
+                    meas['signs'].append(sg)
                 pd = re.search(r'<pedal [^>]*type="(\w+)"', t)
                 if pd:
                     meas['pedals'].append((pos, pd.group(1)))
@@ -1031,6 +1034,7 @@ def parse_part(xml, pid):
         return not (meas['show'] or meas['rehearsal'] or meas['texts']
                     or meas['chords'] or meas['dyn'] or meas['wedges']
                     or meas['metronome'] or meas['ending']
+                    or meas.get('signs')
                     or meas['multi'] or meas['left'] or meas['right'])
     run = 1
     for prev, meas in zip(measures, measures[1:]):
@@ -1208,7 +1212,7 @@ def header_width(meas):
     (the lane is shared, so a bar narrower than its header pushes the
     next section's box off its own downbeat — Night Story's HEAD,
     2026-09-27)."""
-    w = 0.0
+    w = 5.4 * SP * len(meas.get('signs', ()))
     if meas['rehearsal']:
         w += 11 * 0.72 * len(meas['rehearsal']) + 14
     if meas['metronome']:
@@ -1718,8 +1722,15 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
     if wedge_run is not None and not first_in_system:
         hx0 = wedge_run.get('hx', -1e9)
     tx = max(x0 + 2, hx0)
+    for sg in meas.get('signs', ()):
+        # the road map's own signs lead the header lane, big enough to
+        # find from across the stand
+        if not pdf.glyph(tx, top + 4.4 * SP, sg, 5 * SP):
+            pdf.text(tx, top + 4.4 * SP, 'Segno' if sg == 'segno'
+                     else 'Coda', size=10, font='HB')
+        tx += (pdf.gw(sg, 5 * SP) if pdf.music else 3.4 * SP) + 1.4 * SP
     if meas['rehearsal']:
-        bx = max(x0 - 1, hx0)
+        bx = max(x0 - 1, hx0, tx - 2)     # after any sign, never on it
         pdf.text(bx + 4, top + 4.6 * SP, meas['rehearsal'], size=11,
                  font='HB')
         # the face's own letter widths, not a count of them: wide

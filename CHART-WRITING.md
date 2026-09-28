@@ -277,6 +277,30 @@ shortcut: `chart tune.chart c` checks, `b` builds, `r` reads, `p`
 lists the band, `d` diffs, `l` bounces the listen, `n` interviews,
 `e` is the roadmap conversation.
 
+## Road maps: D.S., D.C., the coda
+
+Write them where they sit, as timed events in the section:
+
+    section A, 8 bars
+      chords: F7 x2, Bb7 x2, F7, C7, F7, C7
+      at bar 1: segno
+      at bar 6: to coda
+
+    section B, 8 bars, repeat 2x
+      chords: Bb7 x4, F7 x4
+      at bar 8: d.s. al coda
+
+    section coda, 4 bars
+      chords: F7, Bb7, F7, F7
+      at bar 1: coda
+
+`d.s. al fine` with a `fine`, and `d.c.` for back to the top, work the
+same way. The page prints the sign and the words, the band plays the
+walk (repeats the first time, not after the jump), the read-aloud says
+"the sign. The D.S. comes back to this bar", and the findings read the
+whole walk back in bar numbers so you can check it before anyone plays
+it. Forget the sign and Copyist tells you which one is missing.
+
 ## The tune-level words a working book prints
 
 The header takes the credits a real book carries. `lyricist:` prints

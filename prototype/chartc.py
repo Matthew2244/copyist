@@ -961,6 +961,15 @@ def parse_chart(path):
         if m:
             cur['events'].append((int(m.group(1)), 'fermata', ''))
             continue
+        m = re.match(r'at bar (\d+):\s*(segno|sign|coda|to coda|fine|'
+                     r'd\.?\s?s\.?(?: al (?:coda|fine))?|'
+                     r'd\.?\s?c\.?(?: al (?:coda|fine))?|'
+                     r'dal segno(?: al (?:coda|fine))?|'
+                     r'da capo(?: al (?:coda|fine))?)$', s, re.I)
+        if m:
+            cur['events'].append((int(m.group(1)), 'road',
+                                  road_kind(m.group(2))))
+            continue
         m = re.match(r'([\w ]+?):\s*(.+)$', s)
         if m:
             cur['directives'].append((m.group(1).strip(), m.group(2).strip(),
@@ -1173,11 +1182,112 @@ def strip_lifted(content, percussion=False):
 
     def keep(m):
         block = m.group(0)
+        # the road map is the engraving's, not ours: "To Coda", "D.S.
+        # al Coda", "Fine" and the signs travel with the bars they sit
+        # on, or the listen could never follow them
+        if re.search(r'<segno|<coda|<sound [^>]*(dalsegno|dacapo|tocoda'
+                     r'|fine|segno|coda)=', block) or re.search(
+                r'<words[^>]*>\s*(D\.?\s?[SC]\.?|To Coda|Fine|Dal Segno'
+                r'|Da Capo)', block, re.I):
+            return block
         if re.search(r'<rehearsal|<words|<metronome', block):
             return ''
         return block
     return re.sub(r'<direction[^>]*>.*?</direction>\s*', keep, content,
                   flags=re.S)
+
+
+# road maps (2026-09-27): his own "I Thought About You" arrangement
+# walks segno at 9, To Coda at 36, D.S. al Coda at 58, coda at 59 —
+# the "zero occurrences" of §5 held only for the first eleven scores
+ROAD_WORDS = {'segno': None, 'coda': None, 'tocoda': 'To Coda',
+              'fine': 'Fine', 'ds': 'D.S.', 'ds_coda': 'D.S. al Coda',
+              'ds_fine': 'D.S. al Fine', 'dc': 'D.C.',
+              'dc_coda': 'D.C. al Coda', 'dc_fine': 'D.C. al Fine'}
+
+
+def road_kind(text):
+    t = re.sub(r'\s+', ' ', text.lower().replace('.', '')).strip()
+    t = t.replace('dal segno', 'ds').replace('da capo', 'dc')
+    t = t.replace('d s', 'ds').replace('d c', 'dc')
+    return {'segno': 'segno', 'sign': 'segno', 'coda': 'coda',
+            'to coda': 'tocoda', 'fine': 'fine', 'ds': 'ds',
+            'ds al coda': 'ds_coda', 'ds al fine': 'ds_fine', 'dc': 'dc',
+            'dc al coda': 'dc_coda', 'dc al fine': 'dc_fine'}[t]
+
+
+def check_road(chart):
+    """A road map that goes nowhere is refused in a sentence: a D.S.
+    needs its sign, "al Coda" needs a To Coda and a coda, "al Fine"
+    needs a Fine."""
+    have = {}
+    start = 1
+    for sec in chart['sections']:
+        for bar, kind, text in sec['events']:
+            if kind == 'road':
+                have.setdefault(text, start + bar - 1)
+        start += sec['bars']
+    if not have:
+        return
+    jumps = [k for k in have if k.startswith(('ds', 'dc'))]
+    if len(jumps) > 1:
+        fail("a chart takes one D.S. or D.C.; this one has "
+             + ", ".join(ROAD_WORDS[k] for k in jumps))
+    for k in jumps:
+        if k.startswith('ds') and 'segno' not in have:
+            fail(f"{ROAD_WORDS[k]} at bar {have[k]} has no sign to go "
+                 "back to: add 'at bar N: segno' where it returns")
+        if k.endswith('coda') and not ('tocoda' in have
+                                       and 'coda' in have):
+            fail(f"{ROAD_WORDS[k]} needs 'to coda' (where it leaves) and "
+                 "'coda' (where it lands)")
+        if k.endswith('fine') and 'fine' not in have:
+            fail(f"{ROAD_WORDS[k]} needs 'at bar N: fine' where it ends")
+        if 'coda' in have and have['coda'] <= have[k]:
+            fail(f"the coda at bar {have['coda']} must come after the "
+                 f"{ROAD_WORDS[k]} at bar {have[k]}")
+
+
+def say_road(listen_path):
+    """The road map read back as the band will walk it, from the very
+    document the listen plays: "bars 1-16, back to the sign: 5-12, then
+    the coda: 17-24"."""
+    import chartaudio
+    xml = re.sub(r'\s+/>', '/>', open(listen_path, encoding='utf-8').read())
+    road, ms = None, None
+    for _pid, body in re.findall(r'<part id="([^"]+)">(.*?)</part>',
+                                 xml, re.S):
+        m_ = chartaudio._measures(body)
+        mk = [chartaudio.roadmap_marks(m) for _n, m in m_]
+        road = mk if road is None else [a | b for a, b in zip(road, mk)]
+        ms = ms or m_
+    walk = [n for n, _m in chartaudio.expand_roadmap(ms, road)
+            if n.isdigit() and n != '0']
+    runs = []
+    for n in map(int, walk):
+        if runs and runs[-1][1] + 1 == n:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    words = [f"{a}-{b}" if a != b else str(a) for a, b in runs]
+    return ("the road map, as the band walks it (repeats included): "
+            "bars " + ", then ".join(words))
+
+
+def road_direction(kind):
+    """A road-map mark as MusicXML: the sign or the words, plus the
+    playback attribute any reader (ours included) follows."""
+    if kind == 'segno':
+        body, snd = '<segno/>', 'segno="segno"'
+    elif kind == 'coda':
+        body, snd = '<coda/>', 'coda="coda"'
+    else:
+        body = f'<words font-style="italic">{ROAD_WORDS[kind]}</words>'
+        snd = {'tocoda': 'tocoda="coda"', 'fine': 'fine="yes"'}.get(
+            kind, 'dacapo="yes"' if kind.startswith('dc')
+            else 'dalsegno="segno"')
+    return ('      <direction placement="above"><direction-type>'
+            f'{body}</direction-type><sound {snd}/></direction>\n')
 
 
 def lifted_rest(piece):
@@ -1443,6 +1553,7 @@ def compile_chart(chart_path, outdir):
                                       if b['label'] == l)['instrument'].lower()}
 
     plans, total = build_plans(chart, band, groups, labels)
+    check_road(chart)
     if source is None and any(
             plan['content'][l][0] == 'engraved'
             for plan in plans for l in labels):
@@ -2193,6 +2304,8 @@ def build_plans(chart, band, groups, labels):
             for l in labels:
                 if kind == 'tempo':
                     plan['texts'][l].append((bar, ('tempo', text)))
+                elif kind == 'road':
+                    plan['texts'][l].append((bar, ('road', text)))
                 elif kind == 'build':
                     plan['texts'][l].append((bar, f"+{text}"))
                 else:
@@ -2469,6 +2582,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     for tbar, text in sorted(plan['texts'][label],
                                              key=lambda t: t[0]):
                         if tbar != off + 1:
+                            continue
+                        if isinstance(text, tuple) and text[0] == 'road':
+                            pieces.append(road_direction(text[1]))
                             continue
                         if isinstance(text, tuple) and text[0] == 'tempo':
                             # in a compound bar the mark is a dotted
@@ -2796,6 +2912,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                          harmony_on=lambda l: l in chord_parts,
                          listen=True))
     written.append(listen_path)
+    if any(k == 'road' for sec in chart['sections']
+           for _b, k, _t in sec['events']):
+        findings.add(say_road(listen_path))
     if realized_bars:
         findings.add("listen: rhythm section realized from the chord "
                      "symbols — "

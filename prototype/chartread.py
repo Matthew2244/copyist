@@ -48,6 +48,20 @@ QUAL = {
 }
 
 
+ROAD_SPOKEN = {
+    'segno': "the sign. The D.S. comes back to this bar.",
+    'coda': "the coda starts here.",
+    'tocoda': "To Coda. On the way back, jump to the coda after this bar.",
+    'fine': "Fine. On the way back, the tune ends at this bar.",
+    'ds': "D.S. Back to the sign.",
+    'ds_coda': "D.S. al Coda. Back to the sign, then take the coda.",
+    'ds_fine': "D.S. al Fine. Back to the sign, and end at Fine.",
+    'dc': "D.C. Back to the top.",
+    'dc_coda': "D.C. al Coda. Back to the top, then take the coda.",
+    'dc_fine': "D.C. al Fine. Back to the top, and end at Fine.",
+}
+
+
 def say_quality(qual):
     """Any quality the compiler accepts, spoken: the table's own words
     first, else spelled out piece by piece ('13#11' -> 'thirteen sharp
@@ -278,6 +292,9 @@ def part_section(plan, label, chord_parts, figures=None):
     if shows_chords:
         lines.append(say_changes(sec))
     for bar, text in texts:
+        if isinstance(text, tuple) and text[0] == 'road':
+            lines.append(f"At bar {bar}: {ROAD_SPOKEN[text[1]]}")
+            continue
         if isinstance(text, tuple) and text[0] == 'tempo':
             lines.append(f"At bar {bar}: tempo changes to {text[1]}.")
         else:
