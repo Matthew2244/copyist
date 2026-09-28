@@ -161,14 +161,29 @@ def apply_vocab(text, vocab):
 
 
 def learn(word, vocab, asker=ask):
-    """Ask once, remember forever — and only through his yes."""
+    """Ask once, remember forever — and only through his yes. A meaning
+    that can't be one (a stray 'yes', the word itself, a whole
+    sentence answering some other question) is refused before it can
+    live in the vocabulary for good."""
     meaning = asker(f"I don't know '{word}'. Tell me what to read it "
                     "as (or Enter to skip)")
-    if meaning:
-        vocab[word.lower()] = meaning
-        save_vocab(vocab)
-        say(f"Learned: '{word}' means '{meaning}', for good. "
-            f"(The vocabulary file is {VOCAB_PATH}.)")
+    if not meaning:
+        return meaning
+    low = meaning.strip().lower().rstrip(".!")
+    if low in YES_WORDS or low in NO_WORDS or low == word.lower() \
+            or len(low.split()) > 6:
+        say(f"'{meaning}' can't be what '{word}' means, so I won't "
+            "learn it. Skipping that word.")
+        return ""
+    yn = asker(f"So '{word}' means '{meaning}' from now on? yes or no",
+               "yes")
+    if not yn.lower().startswith("y"):
+        say(f"Not learned. '{word}' stays unknown.")
+        return ""
+    vocab[word.lower()] = meaning
+    save_vocab(vocab)
+    say(f"Learned: '{word}' means '{meaning}', for good. Your "
+        "vocabulary list is in Copyist's settings.")
     return meaning
 
 
@@ -1149,6 +1164,13 @@ def _who_target(toks, labels, groups):
                     if l.lower() == cand), None)
         if hit:
             return [hit], toks[k:]
+        # a word that names exactly one chair: "bass" for "upright
+        # bass", "piano" for "piano 1" when there is only the one
+        near = [l for l in labels
+                if re.search(r"(?:^|\s)" + re.escape(cand) + r"(?:\s|$)",
+                             l.lower())]
+        if len(near) == 1 and k == 1 and cand not in ("the", "a"):
+            return near, toks[k:]
         if cand.endswith("s"):
             fam = [l for l in labels
                    if re.fullmatch(re.escape(cand[:-1]) + r"(?: \d+)?",
@@ -1222,6 +1244,22 @@ def parse_who(text, labels, groups, vocab=None, melody_range=None):
         elif r in ("grooves", "groove", "time", "plays time", "plays",
                    "play", "walks", "walk", "comps", "comp", "in", ""):
             lines.append(f"{target}: groove")
+        elif re.fullmatch(r"(?:bows?|bowed|arco|(?:plays?\s+)?(?:with\s+"
+                          r"the\s+bow|arco)|takes?\s+the\s+bow|picks?\s+up"
+                          r"\s+the\s+bow)(?:\s+(?:at|from)\s+bar\s+(\d+))?",
+                          r):
+            m = re.search(r"bar\s+(\d+)", r)
+            lines.append(f"{target}: groove")
+            lines.append(f"{target}: arco" + (f" at bar {m.group(1)}"
+                                              if m else ""))
+        elif re.fullmatch(r"(?:plucks?|plucked|fingered|plays\s+fingered|"
+                          r"pizz\.?|pizzicato|(?:goes\s+)?"
+                          r"back\s+to\s+(?:pizz\.?|fingered)|puts?\s+(?:the\s+)?bow\s+"
+                          r"down)(?:\s+(?:at|from)\s+bar\s+(\d+))?", r):
+            m = re.search(r"bar\s+(\d+)", r)
+            lines.append(f"{target}: groove")
+            lines.append(f"{target}: pizz" + (f" at bar {m.group(1)}"
+                                              if m else ""))
         elif r in ("solo", "solos"):
             lines.append(f"{target}: solo")
         elif r in ("solo open", "solos open", "open solo"):

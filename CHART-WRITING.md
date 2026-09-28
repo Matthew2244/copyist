@@ -482,8 +482,22 @@ All of these ride on a `from demo` line, after commas:
   listen changes the sound right there: the upright bass plays plucked
   until the page says arco, then bows (a short note under a staccato is
   a short bow stroke) until it says pizz. again. "bowed", "with the
-  bow", "plucked" and "pizzicato" work too, and the violins, violas and
+  bow", "plucked", "pizzicato" and "fingered" (the bass player's word
+  for it) work too, and the violins, violas and
   cellos read the same words the other way round, bowed until pizz.
+- **The feel plays, in the band's own words.** `feel:` on the header
+  or a section changes what the rhythm section plays under your slashes,
+  not just the word on the page: `swing` walks, `two feel` puts the
+  bass in half notes on 1 and 3, `ballad` holds long notes under a soft
+  ride and brushes, `double time` doubles the walk and the ride,
+  `half time` moves the backbeat to 3, `funk` brings sixteenth hats,
+  ghost notes and a syncopated bass (`1/2 time funk` does both), `bossa
+  nova` plays the bossa bass, clave and comping, `samba` the surdo bass
+  and sixteenths, and `latin`, `afro-cuban`, `mambo`, `songo` or `salsa`
+  the tumbao on the and of 2 and on 4, with cascara and clave.
+  `straight eighths`, `rock` and `pop` play a backbeat, and "straight"
+  said outright beats "swing". Any word it doesn't know still prints,
+  and the band plays straight time under it.
 - **Swing plays.** When your
   `feel:` says swing or shuffle, the listen MP3 actually swings;
   the pages keep the straight-eighth convention with the feel marked

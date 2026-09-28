@@ -3688,6 +3688,78 @@ def check_bow_and_chord_room():
           high > base + 2 * chartengrave.SP, f"{base} -> {high}")
 
 
+def check_feels_and_technique_for_every_part():
+    """
+    Matthew, 2026-09-28 (through Faith on iMessage): "two feel, swing,
+    straight eighths... make sure it can understand all the lingo."
+    Only swing and shuffle had ever changed what the band played; a
+    two feel printed and the bass walked in four regardless. Same
+    night: a technique mark (arco, pizz.) on any part but the top one
+    reached neither the conductor score nor the listen, so a bowed
+    bass played plucked.
+    """
+    import chartgroove, chartc, tempfile, re as _re
+    from contextlib import redirect_stdout
+    so = chartgroove.style_of
+    check("feel words: two feel, ballad, double time read as swing feels",
+          so("two feel") == ("swing", {"two"})
+          and so("ballad") == ("swing", {"ballad"})
+          and so("double time swing") == ("swing", {"double"}))
+    check("feel words: half time funk, bossa, samba, afro-cuban, rock",
+          so("1/2 Time Funk") == ("funk", {"half"})
+          and so("bossa nova")[0] == "bossa" and so("samba")[0] == "samba"
+          and so("afro-cuban")[0] == "latin"
+          and so("rock") == ("straight", set())
+          and so("easy gospel") == ("straight", set()))
+    tmp = tempfile.mkdtemp()
+    feels = ["swing", "two feel", "ballad", "bossa nova", "afro-cuban",
+             "funk"]
+    L = ["title: F", "key: F", "meter: 4/4", "tempo: 120", "", "band:",
+         "  piano", "  bass = upright bass", "  drums", "  cello", ""]
+    for i, f in enumerate(feels):
+        L += [f"section {chr(65 + i)}, 2 bars", f"  feel: {f}",
+              "  chords: F7, Bb7", "  all: groove"]
+        if i == 1:
+            L += ["  cello: pizz"]
+        L += [""]
+    open(os.path.join(tmp, "f.chart"), "w").write("\n".join(L) + "\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "f.chart"),
+                             os.path.join(tmp, "b"))
+    x = open(os.path.join(tmp, "b", "F — for listening.musicxml")).read()
+    parts = _re.findall(r'<part id="P\d">(.*?)</part>', x, _re.S)
+    ms = _re.findall(r'<measure number="\d+"[^>]*>(.*?)</measure>',
+                     parts[1], _re.S)
+    counts = [len([n for n in _re.findall(r'<note\b.*?</note>', ms[2 * i],
+                                          _re.S) if '<rest' not in n])
+              for i in range(len(feels))]
+    check("feel: the bass walks 4 in swing, 2 in two feel, 1 in a ballad, "
+          "and the latin tumbao is 2",
+          counts[0] == 4 and counts[1] == 2 and counts[2] == 1
+          and counts[4] == 2, repr(dict(zip(feels, counts))))
+    check("feel: bossa, afro-cuban and funk each play their own bass",
+          len({counts[3], counts[4], counts[5]}) == 3,
+          repr(dict(zip(feels, counts))))
+    check("technique: a lower part's pizz. reaches the listen",
+          "pizz." in parts[3])
+    sc = open(os.path.join(tmp, "b", "F — score.musicxml")).read()
+    sparts = _re.findall(r'<part id="P\d">(.*?)</part>', sc, _re.S)
+    check("technique: and the conductor score shows it on that staff",
+          "pizz." in sparts[3] and "two feel" not in sparts[3])
+    check("bow: 'fingered' is the bass player's word for pizz",
+          chartc.TECHNIQUE_RE.match("pizz.") is not None)
+    open(os.path.join(tmp, "g.chart"), "w").write(
+        "title: G\nkey: C\nmeter: 4/4\ntempo: 60\n\nband:\n"
+        "  bass = upright bass\n\nsection A, 2 bars\n  chords: C x2\n"
+        "  bass: groove, arco, fingered at bar 2\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "g.chart"),
+                             os.path.join(tmp, "gb"))
+    gx = open(os.path.join(tmp, "gb", "G — bass.musicxml")).read()
+    check("bow: 'fingered at bar 2' prints pizz.",
+          gx.count("pizz.") == 1 and "arco" in gx)
+
+
 if __name__ == "__main__":
     print("\ninvariants")
     check_duration_algebra()
@@ -3697,6 +3769,7 @@ if __name__ == "__main__":
     check_circle_of_fifths()
     check_starting_from_nothing()
     check_bow_and_chord_room()
+    check_feels_and_technique_for_every_part()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

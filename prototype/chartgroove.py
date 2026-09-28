@@ -251,6 +251,66 @@ def _is_swing(feel):
     return any(w in (feel or '').lower() for w in ('swing', 'shuffle'))
 
 
+def style_of(feel):
+    """The bandstand's words for a feel -> (style, traits). The style is
+    what the rhythm section plays (swing, straight, funk, bossa, samba,
+    latin); traits bend it (two, half, double, ballad). Words the
+    section doesn't know leave the old straight-or-swing reading alone,
+    so 'easy gospel' and every chart built before this keeps its band.
+    Matthew, 2026-09-28: two feel, swing, straight eighths, 'all the
+    lingo'."""
+    f = (feel or '').lower()
+    traits = set()
+    if re.search(r'\b(?:two|2)[ -]?(?:feel|beat)\b|\bin (?:two|2)\b', f):
+        traits.add('two')
+    if re.search(r'\b(?:half|1/2)[ -]?time\b', f):
+        traits.add('half')
+    if re.search(r'\bdouble[ -]?time\b', f):
+        traits.add('double')
+    if 'ballad' in f:
+        traits.add('ballad')
+    if 'bossa' in f:
+        style = 'bossa'
+    elif 'samba' in f:
+        style = 'samba'
+    elif re.search(r'latin|afro|mambo|songo|salsa|cha[ -]?cha|montuno|'
+                   r'guaguanc|rumba|tumbao', f):
+        style = 'latin'
+    elif 'funk' in f:
+        style = 'funk'
+    elif re.search(r'straight|even (?:8ths|eighths)|\brock\b|\bpop\b', f):
+        style = 'straight'
+    elif _is_swing(f) or traits & {'two', 'ballad'}:
+        style = 'swing'
+    else:
+        style = 'straight'
+    return style, traits
+
+
+def _new_style(feel, bar):
+    """The styles this module learned 2026-09-28, in 2- and 4-beat
+    quarter-note bars only; None leaves the original swing/straight
+    reading (and its bytes) exactly as it was."""
+    if bar.den != 4 or bar.num not in (2, 4):
+        return None
+    style, traits = style_of(feel)
+    if style in ('bossa', 'samba', 'latin', 'funk'):
+        return style, traits
+    if traits:
+        return style, traits
+    return None
+
+
+def _pattern(bar, beat, pat, sound):
+    """[(beat 1-based, length in beats, velocity)] -> hits of one sound,
+    kept inside the bar."""
+    for b, ln, vel in pat:
+        if b > bar.num + 0.99:
+            continue
+        at = int(round((b - 1) * beat))
+        bar.add(at, max(1, int(round(ln * beat))), ('u', sound, vel))
+
+
 def _chords_in(sec, off, governing):
     listed = [(b, c) for b, c in sec['content'][off] if c is not None]
     if (not listed or listed[0][0] > 1.0) and governing is not None:
@@ -281,6 +341,9 @@ def _chord_at(chords, beat):
 # ------------------------------------------------------------ the bars
 
 # staff positions from instruments.DRUM_MAP, notehead included
+_XSTICK = ('C', 5, 'x')
+_BELL = ('F', 5, 'diamond')
+_COWBELL = ('B', 5, 'triangle')
 _RIDE = ('F', 5, 'x')
 _HATF = ('D', 4, 'x')
 _HAT = ('G', 5, 'x')
@@ -297,6 +360,9 @@ def _drums(bar, absbar, feel, hits):
             at = int(round((b - 1) * beat))
             bar.add(at, half, ('u', _CRASH, None))
             bar.add(at, half, ('u', _KICK, None))
+        return
+    if _new_style(feel, bar):
+        _styled_drums(bar, absbar, *_new_style(feel, bar))
         return
     if bar.den == 8 and bar.num % 3 == 0:
         pulse = 3 * (bar.div // 2)
@@ -339,6 +405,154 @@ def _drums(bar, absbar, feel, hits):
         bar.add((bar.num - 1) * beat + half, half, ('u', _KICK, 68))
 
 
+def _styled_drums(bar, absbar, style, traits):
+    beat = bar.div * 4 // bar.den
+    n = bar.num
+    eighths = [1 + i / 2 for i in range(2 * n)]
+    sixteenths = [1 + i / 4 for i in range(4 * n)]
+    back = [b for b in (2, 4) if b <= n]
+    if style == 'swing':
+        if 'double' in traits:           # the ride skips on every beat
+            for b in range(1, n + 1):
+                _pattern(bar, beat, [(b, .5, 76), (b + .5, .5, 60)], _RIDE)
+        else:
+            soft = 'ballad' in traits
+            for b in range(1, n + 1):
+                _pattern(bar, beat, [(b, 1, 48 if soft else 70)], _RIDE)
+                if b % 2 == 0 and not soft:
+                    _pattern(bar, beat, [(b + .5, .5, 52)], _RIDE)
+        _pattern(bar, beat, [(b, .5, 60) for b in back], _HATF)
+        if 'ballad' in traits:           # brushes, felt more than heard
+            _pattern(bar, beat, [(b, .5, 30) for b in back], _SNARE)
+        else:
+            _pattern(bar, beat, [(b, .5, 22) for b in range(1, n + 1)],
+                     _KICK)
+        return
+    if style == 'bossa':
+        _pattern(bar, beat, [(b, .5, 60 if b % 1 == 0 else 46)
+                             for b in eighths], _RIDE)
+        _pattern(bar, beat, [(1, .5, 70), (2.5, .5, 52), (3, .5, 70),
+                             (4.5, .5, 52)], _KICK)
+        clave = ([(1, .5, 72), (2.5, .5, 72), (4, .5, 72)]
+                 if absbar % 2 else [(2, .5, 72), (3.5, .5, 72)])
+        _pattern(bar, beat, clave, _XSTICK)
+        return
+    if style == 'samba':
+        _pattern(bar, beat, [(b, .25, 58 if (b * 4) % 4 == 1 else 42)
+                             for b in sixteenths], _HAT)
+        _pattern(bar, beat, [(1, .5, 58), (2, .5, 88), (3, .5, 58),
+                             (4, .5, 88)], _KICK)
+        _pattern(bar, beat, [(1.75, .25, 64), (2.5, .25, 64),
+                             (3.75, .25, 64), (4.5, .25, 64)], _XSTICK)
+        return
+    if style == 'latin':
+        cascara = ([(1, .5, 72), (2, .5, 60), (3, .5, 72), (3.5, .5, 60),
+                    (4.5, .5, 60)] if absbar % 2 else
+                   [(1, .5, 72), (2, .5, 60), (2.5, .5, 60),
+                    (3.5, .5, 60), (4.5, .5, 60)])
+        _pattern(bar, beat, cascara, _BELL)
+        _pattern(bar, beat, [(2.5, .5, 60), (4, .5, 72)], _KICK)
+        clave = ([(2, .5, 74), (3, .5, 74)] if absbar % 2 else
+                 [(1, .5, 74), (2.5, .5, 74), (4, .5, 74)])
+        _pattern(bar, beat, clave, _XSTICK)
+        return
+    # straight and funk, with half time and double time bending them
+    hats = sixteenths if (style == 'funk' or 'double' in traits) \
+        else eighths
+    _pattern(bar, beat, [(b, .25 if len(hats) > 2 * n else .5,
+                          70 if b % 1 == 0 else 46) for b in hats], _HAT)
+    if 'half' in traits:
+        snare = [(3, .5, 94)] if n >= 4 else [(2, .5, 94)]
+        kick = [(1, .5, 88)] + ([(2.75, .25, 66), (3.5, .5, 62)]
+                                if style == 'funk' and n >= 4 else [])
+    elif style == 'funk':
+        snare = [(b, .5, 95) for b in back]
+        kick = [(1, .5, 90), (2.75, .25, 72), (3.5, .5, 78)]
+    else:
+        snare = [(b, .5, 84) for b in back]
+        kick = [(b, .5, 86) for b in range(1, n + 1, 2)]
+    _pattern(bar, beat, snare, _SNARE)
+    _pattern(bar, beat, kick, _KICK)
+    if style == 'funk':                  # ghosts between the backbeats
+        _pattern(bar, beat, [(2.75, .25, 28), (3.25, .25, 26),
+                             (4.75, .25, 28)], _SNARE)
+
+
+def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
+                 put):
+    beat = bar.div * 4 // bar.den
+    n = bar.num
+    prev = state.get('bass', 36)
+
+    def tone(b, what):
+        c = _chord_at(chords, b)
+        root = _bass_pc(c)
+        if what == 'r':
+            return _near(root, prev)
+        if what == 'o':
+            return _near(root, prev) + 12
+        if what == 'f':
+            return _near((_root_pc(c) + 7) % 12, prev)
+        if what == '7':
+            ts = _tones(c)
+            sev = next((t for t in (10, 11) if t in ts), 7)
+            return _near((_root_pc(c) + sev) % 12, prev)
+        if what == 'next':
+            return _near(_next_root(sec, off, chords), prev)
+        return _near(root, prev)
+
+    if style == 'swing' and 'double' in traits:
+        for i in range(2 * n):           # walking in eighths
+            b = 1 + i / 2
+            c = _chord_at(chords, b)
+            ts = sorted({(_root_pc(c) + t) % 12 for t in _tones(c)})
+            pc = _bass_pc(c) if i % 4 == 0 else ts[(i // 1) % len(ts)]
+            prev = put(int(round((b - 1) * beat)), beat // 2,
+                       _near(pc, prev))
+        return
+    if style == 'swing' and 'ballad' in traits:
+        marks = sorted({max(1.0, b) for b, c in chords})
+        for i, b in enumerate(marks):
+            end = marks[i + 1] if i + 1 < len(marks) else n + 1
+            prev = put(int(round((b - 1) * beat)),
+                       int(round((end - b) * beat)), tone(b, 'r'), 70)
+        return
+    if style == 'swing':                  # two feel: 1 and 3
+        for b in range(1, n + 1, 2):
+            last = b + 2 > n
+            if last and absbar % 2 == 0 and n >= 4:
+                tgt = tone(b, 'next')
+                midi = tgt + (1 if absbar % 4 else -1)
+            else:
+                midi = tone(b, 'r' if b == 1 else 'f')
+            prev = put(int(round((b - 1) * beat)), 2 * beat - beat // 4,
+                       midi)
+        return
+    pats = {
+        'bossa': [(1, 1.5, 'r'), (2.5, .5, 'r'), (3, 1.5, 'f'),
+                  (4.5, .5, 'f')],
+        'samba': [(1, 1, 'r', 70), (2, 1, 'f', 92), (3, 1, 'r', 70),
+                  (4, 1, 'f', 92)],
+        'latin': [(2.5, 1.5, 'f'), (4, 1, 'next')],
+        'funk': [(1, .5, 'r'), (1.75, .25, 'r'), (2.5, .5, 'o'),
+                 (3.5, .25, 'r'), (3.75, .25, 'r'), (4.5, .5, '7')],
+    }
+    if 'half' in traits:
+        pat = ([(1, 1.5, 'r'), (2.75, .25, 'r'), (3, .5, 'o'),
+                (4, .5, 'f'), (4.5, .5, '7')] if style == 'funk' else
+               [(1, 2.5, 'r'), (3.5, .5, 'f'), (4, 1, 'r')])
+    else:
+        pat = pats.get(style) or [(1, 2, 'r'), (3, 2, 'f')]
+    for item in pat:
+        b, ln, what = item[:3]
+        vel = item[3] if len(item) > 3 else None
+        if b > n + 0.99:
+            continue
+        prev = put(int(round((b - 1) * beat)),
+                   max(1, int(round(ln * beat)) - beat // 8),
+                   tone(b, what), vel)
+
+
 def _bass(bar, state, sec, off, absbar, feel, chords):
     if not chords:
         return
@@ -357,6 +571,10 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
             c = _chord_at(chords, b)
             prev = put(int(round((b - 1) * beat)), beat // 2,
                        _near(_bass_pc(c), prev))
+        return
+    if _new_style(feel, bar):
+        _styled_bass(bar, state, sec, off, absbar, chords,
+                     *_new_style(feel, bar), put)
         return
     if _is_swing(feel) and bar.den == 4:
         target = _near(_next_root(sec, off, chords), prev)
@@ -418,6 +636,40 @@ def _comp(bar, state, absbar, feel, chords, sound_id):
         for b in state['hits']:
             put(int(round((b - 1) * beat)), beat // 2,
                 voicing(_chord_at(chords, b)))
+        return
+    ns = _new_style(feel, bar)
+    if ns and 'organ' not in s:
+        style, traits = ns
+        rhythm = {
+            'bossa': ([(1, 1), (2.5, .5), (3.5, 1)] if absbar % 2 else
+                      [(1.5, .5), (3, .5), (4.5, .5)]),
+            'samba': [(1, .25), (1.75, .25), (2.5, .25), (3, .25),
+                      (3.75, .25), (4.5, .25)],
+            'latin': ([(1, .5), (2.5, .5), (4, .5)] if absbar % 2 else
+                      [(1.5, .5), (3, .5), (4.5, .5)]),
+            'funk': [(1, .25), (1.75, .25), (2.5, .25), (3.75, .25),
+                     (4.5, .25)],
+        }.get(style)
+        if rhythm is None and ('ballad' in traits or 'half' in traits):
+            rhythm = []                  # held chords, below
+        if rhythm is None and style == 'swing':
+            rhythm = ([(2, .5), (4, .5)] if 'two' in traits else
+                      [(b + .5, .5) for b in range(1, bar.num + 1)])
+        if rhythm:
+            for b, ln in rhythm:
+                if b > bar.num + 0.99:
+                    continue
+                put(int(round((b - 1) * beat)),
+                    max(1, int(round(ln * beat))),
+                    voicing(_chord_at(chords, b)),
+                    vel=80 if style == 'funk' else 70)
+            return
+        marks = sorted({max(1.0, b) for b, c in chords})
+        for i, b in enumerate(marks):
+            at = int(round((b - 1) * beat))
+            end = int(round((marks[i + 1] - 1) * beat)) \
+                if i + 1 < len(marks) else bar.barlen
+            put(at, end - at, voicing(_chord_at(chords, b)), vel=58)
         return
     if 'guitar' in s and _is_swing(feel) and bar.den == 4:
         for b in range(bar.num):

@@ -1541,6 +1541,11 @@ def lifted_rest(piece):
                                for n in notes)
 
 
+TECHNIQUE_RE = re.compile(
+    r"\s*(arco|pizz\.?|con sord|senza sord|sul |ord\.?\b|open\b|"
+    r"[\w-]+ mute\b|mute\b)", re.I)
+
+
 def direction(text, placement='above'):
     return (f'      <direction placement="{placement}">'
             f'<direction-type><words>{text}</words></direction-type>'
@@ -2373,11 +2378,12 @@ def build_plans(chart, band, groups, labels):
                 # the way string parts print them, and the listen
                 # changes to the bowed or plucked take right there
                 m = re.match(r'(arco|bowed|with the bow|takes the bow|'
-                             r'pizz\.?|pizzicato|plucked)'
+                             r'pizz\.?|pizzicato|plucked|fingered)'
                              r'(?:\s+(?:at|from)\s+bar\s+(\d+))?$', piece)
                 if m:
+                    # "fingered" is the bass player's word for plucked
                     word = 'pizz.' if m.group(1).startswith(
-                        ('pizz', 'pluck')) else 'arco'
+                        ('pizz', 'pluck', 'finger')) else 'arco'
                     anns.append((int(m.group(2) or 1), word))
                     continue
                 if piece == 'open':
@@ -2815,9 +2821,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     # feel. Only the listening document carries this;
                     # the page says "Swing" in words, and no other
                     # importer ever sees the inverted encoding.
+                    # a swing feel by any name — "two feel", "ballad",
+                    # "double time" — swings; "straight" said outright wins
+                    style_now = chartgroove.style_of(feel_now)[0]
                     want = (not (bmeter[1] == 8 and bmeter[0] % 3 == 0)
-                            and any(w in feel_now
-                                    for w in ('swing', 'shuffle')))
+                            and ((any(w in feel_now
+                                      for w in ('swing', 'shuffle'))
+                                  and style_now != 'straight')
+                                 or style_now == 'swing'))
                     # "Swing 16ths" swings the half-beat — the 8-Bit
                     # book's groove — and a flip between units re-emits
                     unit16 = want and ('16' in feel_now
@@ -2879,33 +2890,40 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         pieces.append(direction(arg))
                     if kind == 'hits' and arg[1]:
                         pieces.append(direction(arg[1]))
-                if with_directions:
-                    for tbar, text in sorted(plan['texts'][label],
-                                             key=lambda t: t[0]):
-                        if tbar != off + 1:
-                            continue
-                        if isinstance(text, tuple) and text[0] == 'road':
-                            pieces.append(road_direction(text[1]))
-                            continue
-                        if isinstance(text, tuple) and text[0] == 'tempo':
-                            # in a compound bar the mark is a dotted
-                            # quarter, and it sounds half again as fast —
-                            # the same convention the header tempo keeps
-                            bcompound = (bmeter[1] == 8
-                                         and bmeter[0] % 3 == 0)
-                            bdot = '<beat-unit-dot/>' if bcompound else ''
-                            bsound = (float(text[1]) * 1.5 if bcompound
-                                      else float(text[1]))
-                            pieces.append(
-                                '      <direction placement="above">'
-                                '<direction-type><metronome>'
-                                f'<beat-unit>quarter</beat-unit>{bdot}'
-                                f'<per-minute>{text[1]}</per-minute>'
-                                '</metronome></direction-type>'
-                                f'<sound tempo="{bsound:g}"/>'
-                                '</direction>\n')
-                        else:
-                            pieces.append(direction(text, 'above'))
+                # the section's own words ride the top staff only; a
+                # player's technique (arco, pizz., a mute) belongs to that
+                # player in the score and the listen alike — the bass's
+                # arco was reaching neither (Bow Ballad, 2026-09-28)
+                for tbar, text in sorted(plan['texts'][label],
+                                         key=lambda t: t[0]):
+                    if tbar != off + 1:
+                        continue
+                    if not (with_directions
+                            or (isinstance(text, str)
+                                and TECHNIQUE_RE.match(text))):
+                        continue
+                    if isinstance(text, tuple) and text[0] == 'road':
+                        pieces.append(road_direction(text[1]))
+                        continue
+                    if isinstance(text, tuple) and text[0] == 'tempo':
+                        # in a compound bar the mark is a dotted
+                        # quarter, and it sounds half again as fast —
+                        # the same convention the header tempo keeps
+                        bcompound = (bmeter[1] == 8
+                                     and bmeter[0] % 3 == 0)
+                        bdot = '<beat-unit-dot/>' if bcompound else ''
+                        bsound = (float(text[1]) * 1.5 if bcompound
+                                  else float(text[1]))
+                        pieces.append(
+                            '      <direction placement="above">'
+                            '<direction-type><metronome>'
+                            f'<beat-unit>quarter</beat-unit>{bdot}'
+                            f'<per-minute>{text[1]}</per-minute>'
+                            '</metronome></direction-type>'
+                            f'<sound tempo="{bsound:g}"/>'
+                            '</direction>\n')
+                    else:
+                        pieces.append(direction(text, 'above'))
                 for wtype, wa, wb in plan.get('wedges', {}).get(label, ()):
                     if wa == off + 1:
                         pieces.append(
