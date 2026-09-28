@@ -1459,12 +1459,19 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
         systems.append(cur)
 
     for si, cols in enumerate(systems):
-        if y - sys_h < M:
+        # a staff whose changes climb over a high note gets that much
+        # more room above it, so the lift never lands in the staff over
+        # it; the rest of the system moves down to make the room
+        lifts = [max((chord_height(measures[j], 0.0, measures[j]['state'])
+                      - 1.5 * SP for j in cols), default=0.0)
+                 for _, measures, _ in parts]
+        if y - sys_h - sum(lifts) < M:
             pdf.new_page()
             y = H - M - SYS_HEAD
         part_tops = []
         py = y
-        for pname, measures, staves in parts:
+        for pi, (pname, measures, staves) in enumerate(parts):
+            py -= lifts[pi]
             part_tops.append(staff_tops(py, staves))
             py -= part_height(staves) + SCORE_GAP
         for (pname, measures, staves), tops in zip(parts, part_tops):
@@ -1514,7 +1521,7 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
                 draw_measure(pdf, measures[j], x, tops, w,
                              first_in_system=(mi == 0),
                              carry=carries[pi],
-                             wedge_run=wedge_runs[pi], lift=False)
+                             wedge_run=wedge_runs[pi])
             x += w
             for i0, i1 in spans:
                 if i1 > i0:
@@ -1714,6 +1721,9 @@ def chord_height(meas, top, state):
     for _p, ns, st_, _v in meas['events']:
         if st_ != 1:
             continue
+        # a chord's accent is drawn over the chord, whichever of its
+        # notes the file hung it on (Matt's Blues bar 143)
+        marked = any(getattr(n, 'marks', None) for n in ns)
         for n in ns:
             if n.rest or not getattr(n, 'step', None):
                 continue
@@ -1721,7 +1731,7 @@ def chord_height(meas, top, state):
             ink = top - STAFF + sp_ * SP / 2 + 1.0 * SP
             if sp_ < 4:              # stem up from below the middle
                 ink += 3.5 * SP
-            elif getattr(n, 'marks', None):
+            elif marked:
                 ink += 1.8 * SP      # an accent or marcato over the head
             y = max(y, ink + 1.3 * SP)
     return y
@@ -1772,8 +1782,6 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
     # INTRO/percussion/A pile-up, 2026-09-22)
     # the changes climb over a high note; the header lane (marks,
     # box, tempo, words) climbs with them so nothing stacks
-    # (the conductor score packs its staves too tight to lift into —
-    # parts only, where the system itself makes the room)
     chord_y = chord_height(meas, top, state) if lift else top + 1.5 * SP
     ht = top + (chord_y - (top + 1.5 * SP))
     hx0 = -1e9

@@ -3686,6 +3686,16 @@ def check_bow_and_chord_room():
     high = chartengrave.chord_height(meas, 100.0, state)
     check("engraver: a chord symbol rises over a note above the staff",
           high > base + 2 * chartengrave.SP, f"{base} -> {high}")
+    top = N('A', 5)
+    low = N('C', 5, marks=['strong-accent'])
+    plain = chartengrave.chord_height(
+        {'chords': [(0, 'E13')], 'events': [(0, [N('A', 5)], 1, 1)]},
+        100.0, {'clefs': {1: 'G'}})
+    marked = chartengrave.chord_height(
+        {'chords': [(0, 'E13')], 'events': [(0, [top, low], 1, 1)]},
+        100.0, {'clefs': {1: 'G'}})
+    check("engraver: a chord's accent lifts the changes, whichever note "
+          "carries it", marked > plain + chartengrave.SP)
 
 
 def check_feels_and_technique_for_every_part():
