@@ -472,9 +472,16 @@ def parse_score(path, only=None):
             last_voice = '1'
             for el in re.finditer(
                     r'<note[ >].*?</note>|<backup>.*?</backup>'
-                    r'|<forward>.*?</forward>|<direction[ >].*?</direction>',
+                    r'|<forward>.*?</forward>|<direction[ >].*?</direction>'
+                    r'|<sound [^>]*tempo="[\d.]+"[^>]*>',
                     meas, re.S):
                 t = el.group(0)
+                if t.startswith('<sound'):
+                    # a tempo can stand in the bar itself, outside any
+                    # direction — an engraving's usual place for it
+                    sd = re.search(r'tempo="([\d.]+)"', t)
+                    tempos[q0 + pos / div] = float(sd.group(1))
+                    continue
                 if t.startswith('<backup'):
                     pos -= int(re.search(r'<duration>(\d+)</duration>',
                                          t).group(1))

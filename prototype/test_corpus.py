@@ -3686,6 +3686,26 @@ def check_braille():
                   f"{errs[:2]} {[(i, a, b) for i, (a, b) in enumerate(zip(want, got)) if a != b][:3]} {len(want)} vs {len(got)}")
 
 
+def check_tempo_in_the_bar():
+    """A tempo that stands in the bar itself, outside any direction, is
+    the tempo — engravings put it there (Matt's Blues played at 120
+    instead of 210 until 2026-09-28)."""
+    import chartaudio
+    tmp = tempfile.mkdtemp()
+    xml = _mx([['C5 w'], ['C5 w'], ['C5 w'], ['C5 w', '|]']])
+    xml = xml.replace('</attributes>', '</attributes><sound tempo="210"/>',
+                      1)
+    p = os.path.join(tmp, 't.musicxml')
+    open(p, 'w').write(xml)
+    plan = chartaudio.parse_score(p)
+    check("a bare <sound tempo> sets the listen's tempo",
+          plan['tempos'] and plan['tempos'][0][1] == 210.0, plan['tempos'])
+    bar3 = chartaudio.first_bar_seconds(p, 3)
+    check("bars fall where 210 puts them",
+          bar3 is not None and abs(bar3 - 2 * 4 * 60 / 210) < 0.05, bar3)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_export_picker():
     """Bars from any bar to any bar, parts by name, score or not."""
     import chart
@@ -4434,6 +4454,7 @@ if __name__ == "__main__":
     check_drum_kit()
     check_braille()
     check_export_picker()
+    check_tempo_in_the_bar()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
