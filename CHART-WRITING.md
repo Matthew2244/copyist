@@ -330,9 +330,17 @@ on the band line and it reads the kit that was played:
 
     drums = drum set, demo "take.mid", drummap "Toontrack"
 
-(`EZdrummer` and `Superior Drummer` work as names too.) A drum take
-without a map that uses notes General MIDI doesn't have gets a line in
-the findings suggesting it.
+(`EZdrummer` and `Superior Drummer` work as names too.) Most other drum
+libraries (Tony Royster Jr., Addictive Drums, any Kontakt kit) keep
+their map inside the plugin, so tell Copyist once: Name the drum notes
+in the app, or `chart yourtune.chart drums`. It asks which library the
+take was played on, then goes through each note the take uses ("note
+39, played 20 times, first in bar 14. General MIDI calls it clap. What
+is it on your kit?"); say it the way a drummer does, snare roll, cross
+stick, ride bell, china, and Enter keeps the General MIDI name. The
+answers are saved as that library's drum map and the part uses it from
+then on. A drum take that uses notes General MIDI doesn't have gets a
+line in the findings pointing here.
 
 ## Road maps: D.S., D.C., the coda
 

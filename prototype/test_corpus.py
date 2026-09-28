@@ -2130,6 +2130,43 @@ def check_keyswitches():
             else:
                 check("an unmapped take with non-GM drum notes says so",
                       "drummap \"Toontrack\"" in dfind, dfind)
+        # any other kit, named once: the drums conversation
+        import chartdrums
+        old_dd = chartdrums.DRUM_DIR
+        chartdrums.DRUM_DIR = os.path.join(tmp, "dm")
+        try:
+            dc2 = os.path.join(tmp, "d2.chart")
+            open(dc2, "w").write(
+                'title: D\nkey: C\nmeter: 4/4\ntempo: 100\n\nband:\n'
+                '  drums = drum set, demo "d.mid"\n\nsection A, 2 bars\n'
+                '  chords: C x2\n  drums: from demo bars 1-2\n')
+            # notes 24, 32, 36, 39 in order: name the library, then each
+            old_stdin = sys.stdin
+            sys.stdin = io.StringIO("Royster Kit\nhi-hat open\ncrash 2\n"
+                                    "\nsnare roll\n")
+            try:
+                with redirect_stdout(io.StringIO()):
+                    chartdrums.name_drums(dc2)
+            finally:
+                sys.stdin = old_stdin
+            check("the drums conversation saves the kit's words and links "
+                  "the part", 'drummap "Royster Kit"' in open(dc2).read()
+                  and chartdrums.load_saved("Royster Kit") ==
+                  {24: 'hi-hat open', 32: 'crash 2', 39: 'snare roll'},
+                  str(chartdrums.load_saved("Royster Kit")))
+            said = subprocess.run(
+                [sys.executable, os.path.join(HERE, "chartread.py"), dc2,
+                 "--part", "drums"], capture_output=True, text=True,
+                env=dict(os.environ, HOME=tmp)).stdout
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(dc2, os.path.join(tmp, "d2b"))
+            d2x = open(os.path.join(tmp, "d2b", "D — drums.musicxml")).read()
+            check("and the next build reads the kit it played: no claps, "
+                  "no mystery drums",
+                  'circle-x' in d2x and '<display-step>A</display-step>'
+                  '<display-octave>5' in d2x, d2x[:120])
+        finally:
+            chartdrums.DRUM_DIR = old_dd
         try:
             chartc.keyswitch_map({'keyswitches': {}}, "Nobody's Map")
             got = ""

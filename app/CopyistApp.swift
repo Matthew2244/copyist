@@ -791,6 +791,11 @@ struct HomeView: View {
                        line: "Say once what each key in your demo does; "
                            + "the page marks it from then on.",
                        needsChart: true) { m in m.startTalk(["keys"]) },
+            ActionSpec(id: "drums", icon: "circle.grid.cross",
+                       title: "Name the drum notes",
+                       line: "Your drum library's own note map, said once "
+                           + "and kept for every take from that kit.",
+                       needsChart: true) { m in m.startTalk(["drums"]) },
             ActionSpec(id: "listen", icon: "headphones",
                        title: "Listen",
                        line: "The whole band, or just your chair, from any bar.",
@@ -1024,6 +1029,18 @@ struct RunView: View {
                     .accessibilityLabel("Play the listen MP3")
                 }
                 if !model.running && model.chart != nil {
+                    if model.runOutput.contains("aren't General MIDI "
+                                                + "drums") {
+                        Button {
+                            model.startTalk(["drums"])
+                        } label: {
+                            Label("Name the drum notes",
+                                  systemImage: "circle.grid.cross")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("Asks what each note of your "
+                                           + "drum take is on your kit")
+                    }
                     if model.runOutput.contains("has no name yet") {
                         Button {
                             model.startTalk(["keys"])

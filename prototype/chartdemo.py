@@ -832,9 +832,10 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         if odd:
             find.add(f"{part_label}: drum note(s) "
                      + ", ".join(str(p) for p in odd)
-                     + " aren't General MIDI drums; if this was played "
-                     "on EZdrummer or Superior Drummer, add "
-                     "drummap \"Toontrack\" to its band line")
+                     + " aren't General MIDI drums: played on EZdrummer "
+                     "or Superior Drummer, add drummap \"Toontrack\" to "
+                     "its band line; on any other kit, Name the drum "
+                     "notes (chart TUNE drums) names them once")
     if not picked:
         raise SystemExit(
             f"chartc: {part_label}: demo bars {bar_lo}-{bar_hi} of "

@@ -95,8 +95,8 @@ def add_to_chart_block(chart_path, name, midi, word):
     open(chart_path, 'w', encoding='utf-8').write('\n'.join(lines))
 
 
-def link_band_line(chart_path, label, name):
-    """Give a part's band line `, keyswitches "NAME"`."""
+def link_band_line(chart_path, label, name, attr='keyswitches'):
+    """Give a part's band line `, keyswitches "NAME"` (or drummap)."""
     lines = open(chart_path, encoding='utf-8').read().split('\n')
     in_band = False
     for i, ln in enumerate(lines):
@@ -107,8 +107,13 @@ def link_band_line(chart_path, label, name):
             in_band = False
         if in_band and ln[:1].isspace() and re.match(
                 r'\s*%s(\s*=|\s*,|\s*$)' % re.escape(label), ln) \
-                and 'keyswitches "' not in ln:
-            lines[i] = ln.rstrip() + f', keyswitches "{name}"'
+                and f'{attr} "' not in ln:
+            if attr == 'keyswitches' and ', drummap "' in ln:
+                # the band line's order: keyswitches before drummap
+                a, b_ = ln.split(', drummap "', 1)
+                lines[i] = a + f', keyswitches "{name}", drummap "' + b_
+            else:
+                lines[i] = ln.rstrip() + f', {attr} "{name}"'
             break
     open(chart_path, 'w', encoding='utf-8').write('\n'.join(lines))
 

@@ -252,6 +252,50 @@ DRUM_MAPS = {
 DRUM_MAP_NAMES = {'toontrack': 'toontrack', 'ezdrummer': 'toontrack',
                   'superior drummer': 'toontrack', 'ezd': 'toontrack',
                   'sd3': 'toontrack'}
+def gm_for_words(text):
+    '''"snare roll", "cross stick", "ride bell", "floor tom 2", "stack"
+    -> the General MIDI drum note of that kit piece, or None. How a
+    drummer names a piece, read into the piece the page can draw.'''
+    import re
+    t = ' ' + re.sub(r'[^a-z0-9 ]', ' ', text.lower()) + ' '
+
+    def has(*ws):
+        return any(f' {w} ' in t for w in ws)
+    if has('kick', 'bass drum', 'bd'):
+        return 36
+    if has('side stick', 'sidestick', 'cross stick', 'rim click',
+           'rimclick'):
+        return 37
+    if has('snare', 'sn'):
+        return 38
+    if has('hat', 'hh', 'hihat', 'hi hat'):
+        if has('pedal', 'foot', 'chick', 'splash'):
+            return 44
+        if has('open', 'half', 'loose'):
+            return 46
+        return 42
+    if has('ride'):
+        return 53 if has('bell') else 59 if has('2', 'edge') else 51
+    if has('china', 'stack', 'trash'):
+        return 52
+    if has('splash'):
+        return 55
+    if has('crash'):
+        return 57 if has('2', 'right') else 49
+    if has('floor'):
+        return 41 if has('2', 'low') else 43
+    if has('tom'):
+        return 48 if has('1', 'high', 'hi', 'rack') else \
+            45 if has('3', 'low') else 47
+    if has('cowbell', 'bell'):
+        return 56
+    if has('tambourine', 'tamb'):
+        return 54
+    if has('clap'):
+        return 39
+    return None
+
+
 # notes a General-MIDI kit never uses, so a take full of them was
 # probably played on another map
 NOT_GM_DRUMS = set(range(0, 35)) | set(range(82, 128))

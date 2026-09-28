@@ -819,7 +819,7 @@ def main():
     ap.add_argument('chart', help="the .chart file")
     ap.add_argument('command', nargs='?', default='build',
                     choices=['build', 'check', 'read', 'parts', 'diff',
-                             'listen', 'new', 'edit', 'keys',
+                             'listen', 'new', 'edit', 'keys', 'drums',
                              'b', 'c', 'r', 'p', 'd', 'l', 'n', 'e'],
                     help="build (default): everything; check: compile "
                          "only; read: speak the chart; parts: list the "
@@ -866,6 +866,10 @@ def main():
     if args.command == 'keys':
         import chartkeys
         sys.exit(chartkeys.name_keys(args.chart))
+
+    if args.command == 'drums':
+        import chartdrums
+        sys.exit(chartdrums.name_drums(args.chart))
 
     if args.command == 'edit':
         import chartedit

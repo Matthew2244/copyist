@@ -1359,10 +1359,15 @@ def drum_map_for(name, loc):
     if not name:
         return None
     key = instruments.DRUM_MAP_NAMES.get(name.strip().lower())
-    if not key:
-        fail(f"{loc}: no drum map called \"{name}\"; Copyist knows "
-             "Toontrack's (EZdrummer, Superior Drummer)")
-    return instruments.DRUM_MAPS[key]
+    if key:
+        return instruments.DRUM_MAPS[key]
+    import chartdrums
+    saved = chartdrums.load_saved(name)
+    if saved:
+        return chartdrums.as_gm(saved)
+    fail(f"{loc}: no drum map called \"{name}\": Copyist knows "
+         "Toontrack's (EZdrummer, Superior Drummer), and 'chart TUNE "
+         "drums' names any other kit's notes once")
 
 
 def lifted_rest(piece):
