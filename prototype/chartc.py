@@ -2044,6 +2044,8 @@ def build_plans(chart, band, groups, labels):
                     plan['texts'][l].append((bar, ('tempo', text)))
                 elif kind == 'build':
                     plan['texts'][l].append((bar, f"+{text}"))
+                else:
+                    plan['texts'][l].append((bar, text))
             if kind == 'build' and bar > 1:
                 # "+bass at 5" means the bass is not playing before 5:
                 # its slashes (and the listen's realized bass) start
@@ -2052,8 +2054,6 @@ def build_plans(chart, band, groups, labels):
                 for t in groups.get(text) or [text]:
                     plan['enters'][t] = min(plan['enters'].get(t, bar),
                                             bar)
-                else:
-                    plan['texts'][l].append((bar, text))
         plans.append(plan)
         start += sec['bars']
     return plans, start - 1

@@ -1227,7 +1227,8 @@ def check_build_entrance():
         'title: E\nkey: C\nmeter: 4/4\ntempo: 120\nfeel: swing\n\n'
         'band:\n  piano\n  bass\n  drums\n  trumpet\n\n'
         'section A, 8 bars\n  chords: C7 x4, F7 x4\n'
-        '  build: add bass at 5, add trumpet at 7\n')
+        '  build: add bass at 5, add trumpet at 7\n'
+        '  at bar 3: text "Swing--"\n')
     out = os.path.join(tmp, "b")
     with redirect_stdout(io.StringIO()):
         chartc.compile_chart(cp, out)
@@ -1243,6 +1244,14 @@ def check_build_entrance():
     pbars = re.findall(r'<measure [^>]*>(.*?)</measure>', piano, re.S)
     check("a part not named keeps its slashes from bar 1",
           'slash' in pbars[0])
+    texts = {}
+    for name in ("piano", "bass", "drums", "trumpet"):
+        x = open(os.path.join(out, f"E — {name}.musicxml")).read()
+        texts[name] = re.findall(r'<words[^>]*>([^<]*)</words>', x)
+    check("timed text reaches every part, and nothing stray does",
+          all(t.count('Swing--') == 1 and 'bass' not in t
+              and 'trumpet' not in t for t in texts.values()),
+          str(texts))
     plan = chartaudio.parse_score(
         os.path.join(out, "E — for listening.musicxml"))
     bs = next(p for p in plan['parts'] if p['name'] == 'bass')
@@ -1764,6 +1773,30 @@ def check_roadmap():
     check("the restated key is each part's own written key",
           "<key><fifths>4</fifths>" in tp
           and "<key><fifths>2</fifths>" in pn)
+    import chartengrave as _ce
+    import re as _re
+    check("a key change cancels what the new key drops",
+          _ce.cancelled(-5, 0) == 5 and _ce.cancelled(3, 2) == 1
+          and _ce.cancelled(-5, 2) == 0 and _ce.cancelled(0, 3) == 0
+          and _ce.cancelled(2, 4) == 0)
+    cpath = os.path.join(tmp3, "c.chart")
+    with open(cpath, "w", encoding="utf-8") as f:
+        f.write("title: C\nkey: Db\nmeter: 4/4\ntempo: 100\n\n"
+                "band:\n  piano\n\nsection A, 8 bars\n"
+                "  chords: Db7 x4, C7 x4\n  at bar 5: key C\n"
+                "  piano: groove\n")
+    with redirect_stdout(io.StringIO()):
+        _cc.compile_chart(cpath, tmp3)
+    cx = open(os.path.join(tmp3, "C — piano.musicxml"),
+              encoding="utf-8").read()
+    cms, why = _ce.parse_part(cx, _re.search(r'<part id="([^"]+)"',
+                                            cx).group(1))
+    check("the page cancels Db's five flats going to C",
+          cms and cms[4]['show'].get('cancel') == (-5, 5)
+          and 'cancel' not in cms[0]['show'], str(why))
+    ok, why = _ce.engrave(os.path.join(tmp3, "C — piano.musicxml"),
+                          os.path.join(tmp3, "c.pdf"))
+    check("and the cancelling page draws", ok, str(why))
     check("hairpins land as wedges",
           pn.count('<wedge type="crescendo"') == 1
           and pn.count('<wedge type="diminuendo"') == 1
