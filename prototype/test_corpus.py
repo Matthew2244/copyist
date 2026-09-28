@@ -3637,6 +3637,57 @@ def check_starting_from_nothing():
           a == "yes" and "needs a yes or a no" in out.getvalue())
 
 
+def check_bow_and_chord_room():
+    """
+    Matthew, 2026-09-28: "anything that says for an upright bass player
+    to switch to bow and switch back?" There was not, outside a demo's
+    keyswitches, and the upright only had a plucked sound. Found on the
+    way: a chord symbol drawn on top of a note climbing over the staff.
+    """
+    import chartc, chartband, chartengrave, tempfile
+    from contextlib import redirect_stdout
+    tmp = tempfile.mkdtemp()
+    open(os.path.join(tmp, "a.chart"), "w").write(
+        "title: A\nkey: D minor\nmeter: 4/4\ntempo: 60\n\nband:\n"
+        "  bass = upright bass\n\nfigure line, 6 bars:\n"
+        "  notes: D3 w, A2 w, D3 w, A2 w, D3 w, A2 w\n\n"
+        "section A, 6 bars\n  chords: Dm x6\n"
+        "  bass: figure line, arco at bar 3, pizz at bar 5\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "a.chart"),
+                             os.path.join(tmp, "b"))
+    x = open(os.path.join(tmp, "b", "A — bass.musicxml")).read()
+    check("bow: 'arco at bar 3' and 'pizz at bar 5' print on the part",
+          "<words>arco</words>" in x.replace(' font-style="italic"', '')
+          or ">arco<" in x)
+    check("bow: pizz. prints where the bow goes down", ">pizz.<" in x)
+    voice = next(v for keys, v in chartband._SFZ_VOICES
+                 if 'strings.contrabass' in keys)
+    check("bow: the upright plays plucked, bowed under arco, short "
+          "bowed under a staccato",
+          chartband._variant(voice, {}) == voice['sus']
+          and chartband._variant(voice, {'arco': True}) == voice['arco']
+          and chartband._variant(voice, {'arco': True, 'stac': True})
+          == voice['arco_stac'] and 'Contrabass' in voice['arco'])
+    import chartread
+    check("bow: the read-aloud says what arco and pizz. mean",
+          chartread.TECHNIQUE_SAID["arco"] == ", with the bow"
+          and chartread.TECHNIQUE_SAID["pizz."] == ", plucked")
+
+    class N:
+        def __init__(self, step, octave, marks=()):
+            self.step, self.octave, self.rest = step, octave, False
+            self.marks = list(marks)
+    meas = {'chords': [(0, 'Dm')],
+            'events': [(0, [N('D', 4)], 1, 1)]}
+    state = {'clefs': {1: 'F'}}
+    base = chartengrave.chord_height({'chords': [(0, 'Dm')],
+                                      'events': []}, 100.0, state)
+    high = chartengrave.chord_height(meas, 100.0, state)
+    check("engraver: a chord symbol rises over a note above the staff",
+          high > base + 2 * chartengrave.SP, f"{base} -> {high}")
+
+
 if __name__ == "__main__":
     print("\ninvariants")
     check_duration_algebra()
@@ -3645,6 +3696,7 @@ if __name__ == "__main__":
     check_hand_percussion_parts()
     check_circle_of_fifths()
     check_starting_from_nothing()
+    check_bow_and_chord_room()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

@@ -301,9 +301,19 @@ def part_section(plan, label, chord_parts, figures=None):
         if isinstance(text, tuple) and text[0] == 'tempo':
             lines.append(f"At bar {bar}: tempo changes to {text[1]}.")
         else:
-            lines.append(f'At bar {bar}: "{text}".'
-                         if bar > 1 else f'Marked: "{text}".')
+            # a technique word says what it means, for anyone who has
+            # never held a bow
+            said = f'"{text}"' + TECHNIQUE_SAID.get(
+                str(text).strip().lower(), "")
+            lines.append(f'At bar {bar}: {said}.'
+                         if bar > 1 else f'Marked: {said}.')
     return ("\n".join(lines) if figures else " ".join(lines))
+
+
+TECHNIQUE_SAID = {"arco": ", with the bow", "pizz.": ", plucked",
+                  "pizz": ", plucked", "con sord.": ", with the mute",
+                  "senza sord.": ", mute off", "sul pont.": ", bow near "
+                  "the bridge", "sul tasto": ", bow over the fingerboard"}
 
 
 def main():

@@ -476,6 +476,14 @@ All of these ride on a `from demo` line, after commas:
   `F4 w trem to C5`. At the editing desk you can say it: "e5 half
   trill", "c quarter trill minor third", "a4 half tremolo". The
   read-aloud names each one: "trill a half step up, to F".
+- **The bow, for strings.** `bass: arco at bar 9` and `bass: pizz at
+  bar 17` print "arco" and "pizz." where a string player looks for them,
+  the read-aloud says "arco, with the bow" and "pizz., plucked", and the
+  listen changes the sound right there: the upright bass plays plucked
+  until the page says arco, then bows (a short note under a staccato is
+  a short bow stroke) until it says pizz. again. "bowed", "with the
+  bow", "plucked" and "pizzicato" work too, and the violins, violas and
+  cellos read the same words the other way round, bowed until pizz.
 - **Swing plays.** When your
   `feel:` says swing or shuffle, the listen MP3 actually swings;
   the pages keep the straight-eighth convention with the feel marked

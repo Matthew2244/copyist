@@ -39,8 +39,14 @@ _V = 'VSCO2-CE-SFZ/'
 _SFZ_VOICES = (
     (('drum.group',),
      {'sus': 'VirtuosityDrums/Programs/02-full-kit.sfz'}),
+    # the upright plays plucked; "arco" on the page picks up the bow —
+    # the orchestra's own contrabass takes, sustained, short and
+    # tremolo
     (('pluck.bass.acoustic', 'strings.contrabass'),
-     {'sus': 'Meatbass/Programs/pizz_six.sfz'}),
+     {'sus': 'Meatbass/Programs/pizz_six.sfz',
+      'arco': _V + 'ContrabassSusVB.sfz',
+      'arco_stac': _V + 'ContrabassSpic.sfz',
+      'arco_trem': _V + 'ContrabassTrem.sfz'}),
     (('pluck.bass',),
      {'sus': 'Bass-black-and-blue-basses/Programs/'
              '05-darkblack_pluck.sfz',
@@ -331,6 +337,12 @@ def _variant(voice, art):
         return None
     if 'pizz' in art and 'pizz' in voice:
         return voice['pizz']
+    if art.get('arco') and 'arco' in voice:
+        if art.get('trem') and 'arco_trem' in voice:
+            return voice['arco_trem']
+        if ('stac' in art or 'marc' in art) and 'arco_stac' in voice:
+            return voice['arco_stac']
+        return voice['arco']
     if art.get('trem') and 'trem' in voice:
         return voice['trem']
     if ('stac' in art or 'marc' in art) and 'stac' in voice:

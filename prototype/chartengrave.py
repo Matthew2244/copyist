@@ -1309,10 +1309,16 @@ def engrave(xml_path, pdf_path, look=None):
     ph = part_height(staves)
 
     for si, system in enumerate(systems):
-        if y - (ph + SYS_GAP) < MARGIN - SYS_GAP:
+        # a bar whose changes climb over a high note lifts its header
+        # lane too; the system comes down the page by the same amount
+        # so the lift never lands in the system above
+        lift = max((chord_height(m, 0.0, m['state']) - 1.5 * SP
+                    for m, _ in system), default=0.0)
+        if y - lift - (ph + SYS_GAP) < MARGIN - SYS_GAP:
             pdf.new_page()
             y = PAGE_H - MARGIN - 2 * SP
             first_page = False
+        y -= lift
         tops = staff_tops(y, staves)
         for stop in tops:
             for i in range(5):
@@ -1508,7 +1514,7 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
                 draw_measure(pdf, measures[j], x, tops, w,
                              first_in_system=(mi == 0),
                              carry=carries[pi],
-                             wedge_run=wedge_runs[pi])
+                             wedge_run=wedge_runs[pi], lift=False)
             x += w
             for i0, i1 in spans:
                 if i1 > i0:
@@ -1698,8 +1704,31 @@ def draw_wedge(pdf, x1, x2, y, kind, open_left=False,
     pdf.line(x1, y - a1, x2, y - a2, 0.9)
 
 
+def chord_height(meas, top, state):
+    """Where a bar's changes print: above the staff, and above any note
+    that climbs over it — a bass part's whole note on a ledger line
+    once wore its Dm like a hat (Arco Test, 2026-09-28)."""
+    y = top + 1.5 * SP
+    if not meas['chords']:
+        return y
+    for _p, ns, st_, _v in meas['events']:
+        if st_ != 1:
+            continue
+        for n in ns:
+            if n.rest or not getattr(n, 'step', None):
+                continue
+            sp_ = step_pos(n.step, n.octave, state['clefs'].get(1, 'G'))
+            ink = top - STAFF + sp_ * SP / 2 + 1.0 * SP
+            if sp_ < 4:              # stem up from below the middle
+                ink += 3.5 * SP
+            elif getattr(n, 'marks', None):
+                ink += 1.8 * SP      # an accent or marcato over the head
+            y = max(y, ink + 1.3 * SP)
+    return y
+
+
 def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
-                 carry=None, wedge_run=None):
+                 carry=None, wedge_run=None, lift=True):
     state = meas['state']
     div = state['div']
     top = tops[0]
@@ -1741,6 +1770,12 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
     # tempo and words advance a shared cursor so a label spilling
     # right can never sit under the next section's box (Victory's
     # INTRO/percussion/A pile-up, 2026-09-22)
+    # the changes climb over a high note; the header lane (marks,
+    # box, tempo, words) climbs with them so nothing stacks
+    # (the conductor score packs its staves too tight to lift into —
+    # parts only, where the system itself makes the room)
+    chord_y = chord_height(meas, top, state) if lift else top + 1.5 * SP
+    ht = top + (chord_y - (top + 1.5 * SP))
     hx0 = -1e9
     if wedge_run is not None and not first_in_system:
         hx0 = wedge_run.get('hx', -1e9)
@@ -1748,32 +1783,32 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
     for sg in meas.get('signs', ()):
         # the road map's own signs lead the header lane, big enough to
         # find from across the stand
-        if not pdf.glyph(tx, top + 4.4 * SP, sg, 5 * SP):
-            pdf.text(tx, top + 4.4 * SP, 'Segno' if sg == 'segno'
+        if not pdf.glyph(tx, ht + 4.4 * SP, sg, 5 * SP):
+            pdf.text(tx, ht + 4.4 * SP, 'Segno' if sg == 'segno'
                      else 'Coda', size=10, font='HB')
         tx += (pdf.gw(sg, 5 * SP) if pdf.music else 3.4 * SP) + 1.4 * SP
     if meas['rehearsal']:
         bx = max(x0 - 1, hx0, tx - 2)     # after any sign, never on it
-        pdf.text(bx + 4, top + 4.6 * SP, meas['rehearsal'], size=11,
+        pdf.text(bx + 4, ht + 4.6 * SP, meas['rehearsal'], size=11,
                  font='HB')
         # the face's own letter widths, not a count of them: wide
         # capitals (HEAD, SOLOS) ran into the right edge of the box
         est = pdf.tw(meas['rehearsal'], 11, 'HB') + 7
-        pdf.poly([(bx, top + 4.2 * SP), (bx + est + 1, top + 4.2 * SP),
-                  (bx + est + 1, top + 4.6 * SP + 11),
-                  (bx, top + 4.6 * SP + 11)], close=True, fill=False,
+        pdf.poly([(bx, ht + 4.2 * SP), (bx + est + 1, ht + 4.2 * SP),
+                  (bx + est + 1, ht + 4.6 * SP + 11),
+                  (bx, ht + 4.6 * SP + 11)], close=True, fill=False,
                  w=0.9)
         tx = bx + est + 7
     if meas['metronome']:
         dot, per = meas['metronome']
-        notehead(pdf, tx + SP, top + 5.2 * SP, 'black', scale=0.5)
-        pdf.line(tx + 1.6 * SP, top + 5.2 * SP, tx + 1.6 * SP,
-                 top + 6.8 * SP, w=0.8)
-        pdf.text(tx + 2.2 * SP, top + 4.8 * SP,
+        notehead(pdf, tx + SP, ht + 5.2 * SP, 'black', scale=0.5)
+        pdf.line(tx + 1.6 * SP, ht + 5.2 * SP, tx + 1.6 * SP,
+                 ht + 6.8 * SP, w=0.8)
+        pdf.text(tx + 2.2 * SP, ht + 4.8 * SP,
                  ("." if dot else "") + " = " + per, size=8.5, font='HB')
         tx += 2.2 * SP + pdf.tw(("." if dot else "") + " = " + per,
                                 8.5, 'HB') + 6
-    ty = top + 4.8 * SP
+    ty = ht + 4.8 * SP
     for pos, words in meas['texts']:
         frac = pos / max(meas['len'], 1)
         wx = x + frac * (x0 + width - x - 2 * SP)
@@ -1844,7 +1879,7 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
         cxs = xat(pos)
         if last_cx is not None:      # two changes never print on top
             cxs = max(cxs, last_cx + 7)
-        last_cx = draw_chord_symbol(pdf, cxs, top + 1.5 * SP, sym)
+        last_cx = draw_chord_symbol(pdf, cxs, chord_y, sym)
     DYN_GLYPH = {'p': 'dynP', 'f': 'dynF', 'mf': 'dynMF',
                  'mp': 'dynMP', 'pp': 'dynPP', 'ff': 'dynFF',
                  'sfz': 'dynSFZ', 'fp': 'dynFP'}

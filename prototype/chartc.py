@@ -2369,6 +2369,17 @@ def build_plans(chart, band, groups, labels):
                 if m:
                     anns.append((1, f'{m.group(1)} mute'))
                     continue
+                # the bow: "arco at bar 9", "pizz at bar 17" — printed
+                # the way string parts print them, and the listen
+                # changes to the bowed or plucked take right there
+                m = re.match(r'(arco|bowed|with the bow|takes the bow|'
+                             r'pizz\.?|pizzicato|plucked)'
+                             r'(?:\s+(?:at|from)\s+bar\s+(\d+))?$', piece)
+                if m:
+                    word = 'pizz.' if m.group(1).startswith(
+                        ('pizz', 'pluck')) else 'arco'
+                    anns.append((int(m.group(2) or 1), word))
+                    continue
                 if piece == 'open':
                     anns.append((1, 'open'))
                     continue
