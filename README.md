@@ -80,6 +80,20 @@ a wide shake between two notes becomes a fingered tremolo. Typed, it's
 `E5 h tr`, `tr minor 3rd`, `tr to D#5`, `trem` or `trem to C5`. The page, the
 read-aloud and the listen all go to the same upper note.
 
+Keyswitches become articulations. If your demo switches a string patch to
+pizzicato or a trumpet to a harmon mute, the page says so at that bar, and the
+switch notes never print as music. Maps for Logic's articulation sets and for
+common sample libraries are built in. For anything else, Name the keyswitches
+asks about each unnamed key once and remembers the answer for every chart that
+uses that patch.
+
+Drum kits read as kits. Toontrack (EZdrummer, Superior Drummer) and Addictive
+Drums 2 note layouts are built in. For any other kit, Name the drum notes goes
+through the notes your take used and saves what you call them. Name the stroke
+too: a note you call "snare ghost" prints in parentheses, a flam gets its grace
+note, a rim shot a slashed head, a cymbal choke its comma. The read-aloud says
+each one.
+
 ## What makes it different
 
 **The output is a chart, not a transcription.** Every other tool in this space
