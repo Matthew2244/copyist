@@ -61,6 +61,7 @@ class Reader:
         self.notes = []
         self.errors = []
         self.event_notes = []
+        self.keyboard = False      # 29.3 (a): every bar marks its octave
         self.down = True           # intervals read downward (9.2)
         self.event = None          # (step, octave, cls, dots) written
         self.cprev = None          # (step, octave) last note of chord
@@ -171,6 +172,8 @@ def decode(brf):
             if all(re.match(r',[A-Z]', w) for w in t.split()):
                 continue                          # chord symbols (27)
             lines.append(re.sub(r'^#[A-J]+ ', '', t))
+    if any(re.match(r"\s*[A-J]+[ ']\.>", l) for l in lines):
+        return _keyboard(lines, head)
     # a longer expression broken between lines runs on (22.3.8)
     joined = []
     for l in lines:
@@ -242,6 +245,8 @@ def read_line(r, s):
             # a space divides measures unless inside a word group
             r.bar()
             in_event = False
+            if r.keyboard:
+                r.fresh()
             if in_accord:                          # 11.1
                 r.fresh()
                 in_accord = False
@@ -279,6 +284,9 @@ def read_line(r, s):
                 i += 1
             r.fresh()
             r.bar()
+            continue
+        if two in ('<C', '*C'):                    # 29.10 pedal down, up
+            i += 2
             continue
         if two == '<L':                            # fermata
             i += 2
@@ -381,3 +389,42 @@ def read_line(r, s):
             continue
         r.errors.append(f'unread sign {c!r} at {s[max(0, i - 8):i + 8]!r}')
         i += 1
+
+
+
+def _keyboard(lines, head):
+    """Bar-over-bar keyboard braille (29.3): each parallel's right-hand
+    line (and its run-overs) joins one stream, the left hand's another;
+    each is read in its own direction for intervals (29.2)."""
+    hands = {'r': [], 'l': []}
+    cur = None
+    for l in lines:
+        m = re.match(r"\s*[A-J]+[ ']\.>'?(.*)$", l)
+        if m:
+            cur = 'r'
+            hands['r'].append(m.group(1))
+            continue
+        m = re.match(r"\s*_>'?(.*)$", l)
+        if m:
+            cur = 'l'
+            hands['l'].append(m.group(1))
+            continue
+        if cur:
+            hands[cur].append(l.strip())            # a run-over line
+    notes, errors = [], []
+    km = re.match(r'(#[A-J][%<]|[%<*]*)#', head or '')
+    for hand, down in (('r', True), ('l', False)):
+        text = ''
+        for seg in hands[hand]:
+            if text.endswith('"'):
+                text = text[:-1] + seg.strip()
+            else:
+                text += (' ' if text else '') + seg.strip()
+        r = Reader(parse_key(km.group(1)) if km else 0)
+        r.down = down
+        r.keyboard = True
+        read_line(r, text)
+        notes += r.notes
+        errors += [f"{'right' if down else 'left'} hand: {e}"
+                   for e in r.errors]
+    return notes, errors

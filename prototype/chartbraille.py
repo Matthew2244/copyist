@@ -298,6 +298,8 @@ class Voice:
         self.tied = {}            # id(note) -> accidental a tie carries
         self.loose_ties = set()   # ties that reach no note of their pitch
         self.added = {}           # id(note) -> accidental braille adds
+        self.ped_down = {}        # id(note) -> pedal goes down before it
+        self.ped_up = {}          # id(note) -> pedal comes up after it
 
     def fresh(self):
         """3.2.1: the next note is marked — a new line, after a word
@@ -327,12 +329,13 @@ def octave_sign(octave):
     return OCTAVE[octave]
 
 
-def _loose_ties(measures):
+def _loose_ties(measures, staff=1):
     """Ties whose next note is not the same pitch: a braille tie joins
     two notes of one pitch, so a dangling print tie is left out rather
     than read as joining two different notes."""
     seq = [n for m in measures
-           for _p, ns, _s, _v in sorted((e for e in m['events'] if e[2] == 1),
+           for _p, ns, _s, _v in sorted((e for e in m['events']
+                                         if e[2] == staff),
                                         key=lambda e: e[0])
            for n in ns[:1] if not n.rest and not n.slash]
     return {id(a) for a, b in zip(seq, seq[1:] + [None])
@@ -466,12 +469,12 @@ def _time_sign(t):
         ''.join(LOWER[d] for d in str(unit))
 
 
-def _slur_plan(meas_list):
+def _slur_plan(meas_list, staff=1):
     """Which notes open and close slurs, and whether each slur is short
     (the single slur after every note but the last) or long (the
     bracket slur, 13.3), decided by how many notes it covers."""
     notes = [n for m in meas_list for _p, ns, st, _v in
-             sorted(m['events'], key=lambda e: e[0]) if st == 1
+             sorted(m['events'], key=lambda e: e[0]) if st == staff
              for n in ns[:1] if not n.rest]
     plan, start = {}, None
     for i, n in enumerate(notes):
@@ -489,18 +492,21 @@ def _slur_plan(meas_list):
     return plan
 
 
-def measure_units(meas, slurs):
+def measure_units(meas, slurs, staff=1, down=None, words=True):
     """One measure -> units in time order: (render, chord). render(voice)
     writes the unit's braille against the running voice, so a unit that
     has to move to a new line can be written again there with the octave
     mark 3.2.1 asks for; chord is the symbol that begins with it (27.1).
     Returns (units, slashed)."""
     units = []
-    chords = sorted(meas['chords'])
-    dyns = sorted(meas['dyn'])
-    texts = sorted(meas['texts'])
-    events = sorted((e for e in meas['events'] if e[2] == 1),
+    chords = sorted(meas['chords']) if words else []
+    dyns = sorted(meas['dyn']) if words else []
+    texts = sorted(meas['texts']) if words else []
+    events = sorted((e for e in meas['events'] if e[2] == staff),
                     key=lambda e: e[0])
+    if down is None:
+        down = _down(meas)
+    full = _bar_length(meas)
     slashed = bool(events) and all(n.slash for _p, ns, _s, _v in events
                                    for n in ns)
     first_ch = chords[0][1] if chords else None
@@ -519,7 +525,7 @@ def measure_units(meas, slurs):
         # mark (3.2.1, a numeric indicator); after plain rests it does not
         units.append((fixed(tok, k > 3), first_ch))
         return units, False
-    if not events or all(n.rest and n.measure_rest
+    if not events or all(n.rest and (n.measure_rest or n.dur >= full)
                          for _p, ns, _s, _v in events for n in ns[:1]):
         f = any(n.fermata for _p, ns, _s, _v in events for n in ns)
         words = [expression(t) for _p, t in texts]
@@ -541,7 +547,7 @@ def measure_units(meas, slurs):
         units.append((fixed(REST['whole']), ' '.join(c for p, c in chords)
                       or None))
         return units, True
-    sides = _sides(meas, events)
+    sides = _sides(meas, events, down)
     added = _side_accidentals(meas, sides) if len(sides) > 1 else {}
     for k, evs in enumerate(sides):
         if k:
@@ -551,7 +557,7 @@ def measure_units(meas, slurs):
         units.extend(_side_units(evs, texts if k == 0 else [],
                                  dyns if k == 0 else [],
                                  chords if k == 0 else [], slurs, added,
-                                 _down(meas), first=not units))
+                                 down, first=not units))
     if len(sides) > 1:
         # 11.1: the bar after an in-accord marks its first octave
         units.append((fixed('', True), None))
@@ -564,7 +570,13 @@ def _down(meas):
     return meas['state']['clefs'].get(1, 'G') != 'F'
 
 
-def _sides(meas, events):
+def _bar_length(meas):
+    st = meas['state']
+    beats, unit = st['time']
+    return round(beats * 4 / unit * st['div'])
+
+
+def _sides(meas, events, down=None):
     """The parts of a bar, one per voice: highest first in a treble
     part, lowest first in a bass part (11.1). Where two voices share a
     staff, each side is filled to a whole bar with the rests print
@@ -578,11 +590,10 @@ def _sides(meas, events):
     def height(evs):
         ps = [_dia(n) for _p, ns, _s, _v in evs for n in ns if not n.rest]
         return sum(ps) / len(ps) if ps else 0
-    order = sorted(by.values(), key=height, reverse=_down(meas))
-    st = meas['state']
-    beats, unit = st['time']
-    full = round(beats * 4 / unit * st['div'])
-    return [_fill(evs, full, st['div']) for evs in order]
+    order = sorted(by.values(), key=height,
+                   reverse=_down(meas) if down is None else down)
+    full = _bar_length(meas)
+    return [_fill(evs, full, meas['state']['div']) for evs in order]
 
 
 class _Gap:
@@ -695,6 +706,11 @@ def _side_units(events, texts, dyns, chords, slurs, added, down,
                 body += SLUR
             if slurs.get(id(n)) == 'close':
                 body += SLUR_CLOSE
+            # 29.10: pedal down before the note, up after it
+            if id(n) in voice.ped_up:
+                body += PED_UP
+            if id(n) in voice.ped_down:
+                trip = PED_DOWN + trip
             tok = _join_expr(pre, first=first) if pre else ''
             if pre and not tok.endswith(' ') and \
                     needs_dot3(trip + opener + body):
@@ -946,11 +962,11 @@ def part_to_brf(xml, pid, title, part_name, chords=True):
     for m in measures:
         ce.mark_accidentals(m, m['state'])
         _mark_tied_accidentals(m, tied)
-        if m['state'].get('staves', 1) > 1:
-            unsupported.append("keyboard music, written bar over bar, "
-                               "is still to come")
+        if m['state'].get('staves', 1) > 2:
+            unsupported.append("a third staff, like an organ's pedal "
+                               "line, is still to come")
             break
-        if m['state']['clefs'].get(1) == 'percussion':
+        if 'percussion' in m['state']['clefs'].values():
             unsupported.append("percussion is still to come")
             break
     if unsupported:
@@ -960,9 +976,11 @@ def part_to_brf(xml, pid, title, part_name, chords=True):
     pager.add(_center(literary(part_name)))
     has_slash = chords and any(n.slash for m in measures for _p, ns, _s, _v in
                     m['events'] for n in ns)
-    has_chords = any(sum(1 for x in ns if not x.rest) > 1
-                     for m in measures for _p, ns, st, _v in m['events']
-                     if st == 1)
+    keys = any(m['state'].get('staves', 1) > 1 for m in measures)
+    # 29.2: in keyboard music the hand signs say which way intervals read
+    has_chords = not keys and any(
+        sum(1 for x in ns if not x.rest) > 1
+        for m in measures for _p, ns, st, _v in m['events'] if st == 1)
     notes = []
     if has_chords:
         # 9.2: the direction intervals read in is stated for the reader
@@ -997,6 +1015,9 @@ def part_to_brf(xml, pid, title, part_name, chords=True):
             m['texts'] = [(0, m['rehearsal'])] + list(m['texts'])
             m['rehearsal'] = ''
     _merge_rests(measures)
+    if any(m['state'].get('staves', 1) > 1 for m in measures):
+        _keyboard(pager, measures, tied, chords)
+        return pager.text(), _later(measures)
     voice = Voice()
     voice.tied = tied
     voice.loose_ties = _loose_ties(measures)
@@ -1109,12 +1130,16 @@ def part_to_brf(xml, pid, title, part_name, chords=True):
         if end or post:
             voice.fresh()                          # 1.10.3, 22.3 (e)
     flush()
+    return pager.text(), _later(measures)
+
+
+def _later(measures):
     later = []
     if any(n.lyric for m in measures for _p, ns, _s, _v in m['events']
            for n in ns):
         later.append("its lyrics are still to come; the notes are all "
                      "there")
-    return pager.text(), later
+    return later
 
 
 _ROAD = ('d.s', 'd. s', 'd.c', 'd. c', 'dal segno', 'da capo', 'fine',
@@ -1126,7 +1151,8 @@ def _plain_rest(m, first=False):
     of a run may carry signs and a letter; they come before it)."""
     return (not m['texts'] and not m['dyn'] and not m['chords'] and
             (first or (not m['signs'] and not m['rehearsal'])) and
-            len(m['events']) <= 1 and
+            all(sum(1 for e in m['events'] if e[2] == st) <= 1
+                for st in {e[2] for e in m['events']}) and
             all(n.rest for _p, ns, _s, _v in m['events'] for n in ns))
 
 
@@ -1347,15 +1373,20 @@ def score_notes(xml, pid):
     and slashes are left out; cue notes stay."""
     ms, _ = ce.parse_part(xml, pid)
     out = []
-    for m in ms or []:
-        ev = sorted((e for e in m['events'] if e[2] == 1),
+    keys = any(m['state'].get('staves', 1) > 1 for m in ms or [])
+    # keyboard braille is read hand by hand: the right hand's whole
+    # part, intervals down, then the left's, intervals up (29.2)
+    for staff, kdown in (((1, True), (2, False)) if keys else ((1, None),)):
+      for m in ms or []:
+        down = _down(m) if kdown is None else kdown
+        ev = sorted((e for e in m['events'] if e[2] == staff),
                     key=lambda e: e[0])
-        for side in _sides(m, ev):
+        for side in _sides(m, ev, down):
             for _p, ns, _s, _v in side:
                 pitched = [x for x in ns if not x.rest and not x.slash]
                 if not pitched:
                     continue
-                w = (max if _down(m) else min)(pitched, key=_dia)
+                w = (max if down else min)(pitched, key=_dia)
                 rest = sorted((x for x in pitched if x is not w),
                               key=lambda x: abs(_dia(x) - _dia(w)))
                 for x in [w] + rest:
@@ -1384,3 +1415,213 @@ def proofread(xml, pid, brf_text):
         out.append(f"the score has {len(want)} notes and the braille "
                    f"reads {len(got)}")
     return out
+
+
+
+# ------------------------------------------------------------ keyboard
+
+RIGHT_HAND = cell(4, 6) + cell(3, 4, 5)       # 29.2: .>
+LEFT_HAND = cell(4, 5, 6) + cell(3, 4, 5)     # 29.2: _>
+PED_DOWN = cell(1, 2, 6) + cell(1, 4)         # 29.10: <c
+PED_UP = cell(1, 6) + cell(1, 4)              # 29.10: *c
+
+
+def _run(units, voice):
+    """Units written one after another, with 22.3 (d)'s dot 3 between
+    a word-sign expression and a sign carrying dot 1, 2 or 3."""
+    out, after_word = '', False
+    for render, _ch in units:
+        t = render(voice)
+        if after_word and t and not t.startswith(WORD) and \
+                not t.startswith(' ') and needs_dot3(t):
+            out += cell(3)
+        after_word = _ends_in_word(t)
+        out += t
+    return out
+
+
+def _mark_pedals(m, lh):
+    """29.10: pedal down before the note it goes with, up after the
+    note it ends on, both in the left hand; a change is a new down."""
+    down, up = {}, {}
+    evs = sorted((e for e in m['events'] if e[2] == lh), key=lambda e: e[0])
+    for pos, kind in m.get('pedals', ()):
+        if kind in ('start', 'change'):
+            at = [e for e in evs if e[0] <= pos]
+            if at:
+                down[id(at[-1][1][0])] = True
+        elif kind == 'stop':
+            at = [e for e in evs if e[0] < pos]
+            if at:
+                up[id(at[-1][1][0])] = True
+    return down, up
+
+
+def _keyboard(pager, measures, tied, chords_on):
+    """Keyboard music in bar-over-bar parallels (28, 29.3): the right
+    hand's line over the left hand's, the chord symbols beneath when
+    there are any (29.17). Each parallel opens with its measure number
+    in upper cells, no numeric indicator, then the hand signs; each
+    bar's parts start aligned, the next bar one space past the longer;
+    every bar's first note in each hand takes an octave mark."""
+    rh, lh = Voice(), Voice()
+    rh.tied = lh.tied = tied
+    rh.loose_ties = _loose_ties(measures, 1)
+    lh.loose_ties = _loose_ties(measures, 2)
+    slurs = {**_slur_plan(measures, 1), **_slur_plan(measures, 2)}
+    nums = [int(m['num']) if str(m['num']).isdigit() else i + 1
+            for i, m in enumerate(measures)]
+    nw = max(len(str(n)) for n in nums)
+    par = {'lines': None}
+    pending = []
+
+    def upper(n):
+        return ''.join(UPPER[d] for d in str(n))
+
+    def flush():
+        p = par['lines']
+        if p is None:
+            return
+        out = [p['r'].rstrip()] + p['rx'] + [p['l'].rstrip()] + p['lx']
+        if p['c'].strip():
+            out.append(p['c'].rstrip())
+        pager.add(*(pending + out))
+        pending.clear()
+        par['lines'] = None
+
+    def start(num, cont=False):
+        flush()
+        head = upper(num).rjust(nw) + (cell(3) if cont else ' ')
+        par['lines'] = {'r': head, 'l': ' ' * len(head), 'c': '',
+                        'rx': [], 'lx': [], 'first': True,
+                        'music': len(head) + 2}
+
+    skip = 0
+    for i, m in enumerate(measures):
+        if skip:
+            skip -= 1
+            continue
+        if m['multi'] and m['multi'] > 1:
+            skip = m['multi'] - 1
+        num = nums[i]
+        if m['rehearsal']:
+            flush()
+            pending.append(WORD + literary(m['rehearsal'], music=True) + WORD)
+        if m['rehearsal'] or m['signs'] or par['lines'] is None:
+            start(num)
+        st = m['state']
+        sig = ''
+        if i > 0 and 'key' in m['show']:
+            sig += _key_sign(st['fifths'])
+        if i > 0 and 'time' in m['show']:
+            sig += _time_sign(st['time'])
+        signs = [SEGNO if s_ == 'segno' else CODA for s_ in m['signs']]
+        attach = ''
+        if (m['left'] or {}).get('repeat') == 'forward':
+            attach += REPEAT_FWD
+        for enum, etype, _left in m.get('ending') or []:
+            if etype == 'start':
+                attach += NUM + ''.join(LOWER[d] for d in str(enum))
+        road = [t for _p, t in m['texts'] if _is_road(t)]
+        m['texts'] = [(p_, t) for p_, t in m['texts'] if not _is_road(t)]
+        post = ''
+        for t in road:
+            w = expression(t)
+            w = w if w.endswith(WORD) else w + WORD
+            post += ' ' + ((CODA + ' ') if t.lower().startswith('to coda')
+                           else '') + w
+        right = m['right'] or {}
+        end = (REPEAT_BACK if right.get('repeat') == 'backward' else
+               FINAL_BAR if right.get('style') == 'light-heavy' else
+               SECTION_BAR if right.get('style') == 'light-light' else '')
+        lh.ped_down, lh.ped_up = _mark_pedals(m, 2)
+        ur, slashed = measure_units(m, slurs, staff=1, down=True)
+        if slashed and par.get('in_slash'):
+            wn = len(m['texts']) + 1        # "slashes" once a passage
+            ur = ur[:wn - 1] + ur[wn:]
+        par['in_slash'] = slashed
+        ul, _ = measure_units(m, slurs, staff=2, down=False, words=False)
+
+        def write(units, voice, lead):
+            voice.fresh()                                     # 29.3 (a)
+            text = _run(units, voice)
+            head = ' '.join(signs) + (' ' if signs else '') if lead else ''
+            if sig:
+                head += sig + ' '
+            if attach:
+                if _starts_longer(text):
+                    text = HYPHEN + ' ' + text
+                elif needs_dot3(text) and attach[-1] in LOWER.values():
+                    text = cell(3) + text                  # 17.1.1
+            return head + attach + text + end
+        snap = (dict(rh.__dict__), dict(lh.__dict__))
+        tr = write(ur, rh, True) + post
+        tl = write(ul, lh, False)
+        ch = ''.join(chord_braille(c) for _p, c in sorted(m['chords'])) \
+            if chords_on else ''
+        p = par['lines']
+
+        def fits(p):
+            col = _col(p)
+            return col + max(len(tr), len(tl), len(ch)) <= LINE
+        if not p['first'] and not fits(p):
+            rh.__dict__.update(snap[0])
+            lh.__dict__.update(snap[1])
+            start(num)
+            tr = write(ur, rh, True) + post
+            tl = write(ul, lh, False)
+            p = par['lines']
+        if p['first']:
+            r = RIGHT_HAND + (cell(3) if needs_dot3(tr) else '')
+            l_ = LEFT_HAND + (cell(3) if needs_dot3(tl) else '')
+            p['r'] += r
+            p['l'] += l_
+            p['c'] = ' ' * len(p['r'])
+            p['first'] = False
+            col = len(p['r'])
+        else:
+            col = _col(p)
+            p['r'] = p['r'].ljust(col)
+            p['l'] = p['l'].ljust(col)
+            p['c'] = p['c'].ljust(col)
+        runover = False
+        for key, text, extra in (('r', tr, 'rx'), ('l', tl, 'lx')):
+            room = LINE - len(p[key])
+            if len(text) <= room:
+                p[key] += text
+                continue
+            # 29.3.2: a run-over line, two cells in from the alignment
+            runover = True
+            pieces = _split_music(text, room, LINE - (len(p[key]) + 2))
+            p[key] += pieces[0]
+            p[extra] += [' ' * (len(p['r']) - len(pieces[0]) + 2) + x
+                         for x in pieces[1:]]
+        p['c'] = p['c'].ljust(max(len(p['c']), col)) + ch
+        if runover or end in (FINAL_BAR,):
+            flush()
+    flush()
+
+
+def _col(p):
+    """Where the next bar starts: one space past the longest line."""
+    return max(len(p['r']), len(p['l']), len(p['c'])) + 1
+
+
+def _split_music(text, first, rest):
+    """Break a hand's bar between signs at spaces or, failing that,
+    anywhere a music hyphen can stand, into pieces that fit."""
+    out, cur = [], text
+    room = first
+    while len(cur) > room:
+        cut = cur.rfind(' ', 0, room)
+        if cut <= 0:
+            cut = room - 1
+            out.append(cur[:cut] + HYPHEN)
+            cur = cur[cut:]
+        else:
+            out.append(cur[:cut])
+            cur = cur[cut + 1:]
+        room = rest
+    out.append(cur)
+    return out
+

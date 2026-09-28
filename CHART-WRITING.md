@@ -788,8 +788,9 @@ on a grid. A finding is a question for your ear, not an apology.
 
 ## Braille
 
-Every part a single player reads (horns, strings, voice, bass, guitar)
-comes out as a braille music file, a `.brf`, beside its PDF:
+Every part a player reads — horns, strings, voice, bass, guitar, and
+piano or organ on two staves — comes out as a braille music file, a
+`.brf`, beside its PDF:
 
     python3 prototype/chart.py "Uptown Local.chart" braille
 
@@ -805,6 +806,14 @@ two voices in a bar as an in-accord, repeats and endings, D.S. and the
 coda, dynamics and every word on the page are all brailled by the
 code's own rules.
 
+Piano and organ come out in bar-over-bar parallels, the keyboard
+layout: each parallel opens with its bar number, then the right hand's
+line over the left hand's, every bar's music starting in the same
+column in both, the chord symbols as a third line beneath. The hand
+signs say which way intervals read (down in the right hand, up in the
+left), every bar's first note in each hand carries its octave mark,
+and the pedal marks ride in the left hand.
+
 Print slashes have no sign in braille music. Copyist writes the word
 *slashes*, then a rest for each slash, with the changes underneath,
 and a transcriber's note at the top of the part says so. When a part
@@ -814,9 +823,10 @@ Before a build keeps any braille, a separate reader, written apart
 from the braille writer on purpose, reads every file back by the
 code's rules and compares it with the score note by note: pitch,
 octave, accidental, value and dot. The build says so when every part
-agrees and names the note when one does not. Keyboard music (bar over
-bar) and percussion are not brailled yet, and a vocal part's braille
-carries its notes but not yet its lyrics; the build names each one.
+agrees and names the note when one does not. Percussion and an organ's
+third staff (the pedal line) are not brailled yet, and a vocal part's
+braille carries its notes but not yet its lyrics; the build names each
+one.
 
 **Braille pages** draws the braille as dots, one PDF page for every
 braille page, raised dots solid and the empty places in each cell

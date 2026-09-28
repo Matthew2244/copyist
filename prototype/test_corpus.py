@@ -3282,21 +3282,35 @@ def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test'):
     beats, unit = time
     full = beats * 96 // unit
     held = {}
+    grand = any(isinstance(b, dict) for b in bars)
     for bi, bar in enumerate(bars):
         out.append(f'<measure number="{bi + 1}">')
         if bi == 0:
             sign, line = ('G', 2) if clef == 'G' else ('F', 4)
+            clefs = (f'<clef><sign>{sign}</sign><line>{line}</line></clef>'
+                     if not grand else
+                     '<staves>2</staves><clef number="1"><sign>G</sign>'
+                     '<line>2</line></clef><clef number="2"><sign>F</sign>'
+                     '<line>4</line></clef>')
             out.append(f'<attributes><divisions>24</divisions><key>'
                        f'<fifths>{fifths}</fifths></key><time><beats>'
                        f'{beats}</beats><beat-type>{unit}</beat-type></time>'
-                       f'<clef><sign>{sign}</sign><line>{line}</line></clef>'
-                       f'</attributes>')
-        voices = bar if isinstance(bar, tuple) else (bar,)
+                       f'{clefs}</attributes>')
+        if isinstance(bar, dict):
+            voices = (bar['r'], bar['l'])
+        else:
+            voices = bar if isinstance(bar, tuple) else (bar,)
         right = ''
         for vi, toks in enumerate(voices):
             if vi:
                 out.append(f'<backup><duration>{full}</duration></backup>')
             for t in toks:
+                if t in ('ped', '*'):
+                    out.append('<direction placement="below"><direction-'
+                               'type><pedal type="'
+                               + ('start' if t == 'ped' else 'stop') +
+                               '"/></direction-type></direction>')
+                    continue
                 if t.startswith('{'):
                     root, kind = t[1], t[2:-1]
                     out.append(f'<harmony><root><root-step>{root}'
@@ -3330,6 +3344,7 @@ def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test'):
                     right = t
                     continue
                 parts = t.split()
+                stf = f'<staff>{vi + 1}</staff>' if grand else ''
                 tmod = None
                 if parts[0] in ('t3', 't6'):
                     tmod = int(parts[0][1])
@@ -3350,7 +3365,7 @@ def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test'):
                     whole = ' measure="yes"' if dur == 'w' and \
                         len(toks) == 1 else ''
                     out.append(f'<note><rest{whole}/><duration>{d}</duration>'
-                               f'<voice>{vi + 1}</voice><type>{_TYPE[dur[0]]}'
+                               f'<voice>{vi + 1}</voice>{stf}<type>{_TYPE[dur[0]]}'
                                f'</type>{"<dot/>" * dots}{tm}</note>')
                     continue
                 for k, p in enumerate(pitch.split('+')):
@@ -3372,7 +3387,7 @@ def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test'):
                         f'<pitch><step>{step}</step>' +
                         (f'<alter>{alter}</alter>' if alter else '') +
                         f'<octave>{octv}</octave></pitch><duration>{d}'
-                        f'</duration>{ties}<voice>{vi + 1}</voice><type>'
+                        f'</duration>{ties}<voice>{vi + 1}</voice>{stf}<type>'
                         f'{_TYPE[dur[0]]}</type>{"<dot/>" * dots}{tm}' +
                         ('<notehead>slash</notehead>' if 'slash' in flags
                          else '') +
@@ -3563,14 +3578,35 @@ def check_braille():
               said)
         check("the build proofreads the braille and says so",
               "read back note for note" in said, said)
-        check("the build names a part it cannot braille yet",
-              "No braille yet for piano" in said, said)
+        check("the build brailles the piano part too, bar over bar",
+              os.path.exists(os.path.join(tmp, "Braille Test — piano.brf")),
+              said)
         raw = open(brf_path, 'rb').read()
         check("a BRF is plain ASCII with CRLF lines",
               raw.isascii() and b'\r\n' in raw and b'\n\n' not in
               raw.replace(b'\r\n', b''))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+    # 29.3: keyboard parallels — number, hand signs, bars aligned
+    kbars = [{'r': ['{C7}', 'E5+C5 h', 'G5+E5 h'],
+              'l': ['ped', 'C3 w', '*']},
+             {'r': ['F5+C5+A4 q', 'r q', 'D5 h'],
+              'l': ['F2+C3 h', 'G2 h']},
+             {'r': ['C5 w', '|]'], 'l': ['C3 w', '|]']}]
+    got = music(brf(kbars))
+    check("braille: keyboard parallel opens with number and hand signs",
+          got[0].startswith(' A .>') or got[0].startswith('A .>'), got)
+    check("braille: the left hand sits under the right hand sign",
+          got[1].index('_>') == got[0].index('.>'), got)
+    check("braille: right hand reads intervals down, left hand up",
+          '.Q+' in got[0] and '_Q9' in got[1] or '^Q9' in got[1], got)
+    check("braille: pedal down before, up after, in the left hand",
+          '<C' in got[1] and '*C' in got[1], got)
+    check("braille: chord symbols make the parallel's third line",
+          any(l.strip().startswith(',C') for l in got), got)
+    check("braille: no interval note for keyboard (the hand signs say it)",
+          'READING' not in ' '.join(brf(kbars).split()))
 
     # everything above, read back by the proofreader, note for note
     cases = {
@@ -3588,13 +3624,17 @@ def check_braille():
         'flats': ([['Bb4 q', 'Eb5 q', 'Ab4 q', 'Db5 q'],
                    ['Gb4 w', '|]']], {'fifths': -6}),
         'long': (long_bars, {}),
+        'keyboard': (kbars, {}),
+        'keyboard, long': ([{'r': ['C5+E5+G5 e', 'D5+F5 e'] * 4,
+                             'l': ['C3+G3 q'] * 4}] * 40 +
+                           [{'r': ['C5 w', '|]'], 'l': ['C3 w', '|]']}], {}),
     }
     for name, (bs, kw) in cases.items():
         for chords in (True, False):
             got, errs = rd.decode(cb.part_to_brf(_mx(bs, **kw), 'P1', 'T',
                                                  'Test part',
                                                  chords=chords)[0])
-            want = score_notes(bs, **kw)
+            want = cb.score_notes(_mx(bs, **kw), 'P1')
             check(f"braille reads back note for note: {name}"
                   f"{'' if chords else ', melody only'}",
                   got == want and not errs,
