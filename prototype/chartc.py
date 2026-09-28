@@ -72,6 +72,7 @@ HORNS = {
     'baritone sax':      _inst(21, (36, 78),  'G', 3, (37, 68)),
     # brass
     'trumpet':           _inst(2,  (54, 98),  'G', 2, (54, 82)),
+    'c trumpet':         _inst(0,  (54, 96),  'G', 0, (54, 80)),
     'flugelhorn':        _inst(2,  (54, 91),  'G', 2, (54, 80)),
     'french horn':       _inst(7,  (35, 77),  'G', 1, (41, 74)),
     'trombone':          _inst(0,  (34, 82),  'F', 0, (40, 70)),
@@ -92,8 +93,9 @@ HORNS = {
                                grand=True),
     # orchestral doubles and colors
     'english horn':      _inst(7,  (52, 81),  'G', 1, (52, 79)),
-    'alto flute':        _inst(5,  (55, 91),  'G', 1, (55, 88)),
-    'eb clarinet':       _inst(-3, (55, 96),  'G', -1, (55, 91)),
+    'alto flute':        _inst(5,  (55, 91),  'G', -1, (55, 88)),
+    'eb clarinet':       _inst(-3, (55, 96),  'G', 3, (55, 91)),
+    'a clarinet':        _inst(3,  (49, 93),  'G', -3, (49, 86)),
     'cornet':            _inst(2,  (54, 94),  'G', 2, (54, 82)),
     'euphonium':         _inst(0,  (34, 70),  'F', 0, (40, 67)),
     'harp':              _inst(0,  (24, 103), 'G', 0, (24, 103), poly=True,
@@ -178,6 +180,7 @@ SOUNDS = {
     'tenor sax':      ('Tenor Saxophone', 'wind.reed.saxophone.tenor', 67),
     'baritone sax':   ('Baritone Saxophone', 'wind.reed.saxophone.baritone', 68),
     'trumpet':        ('Trumpet', 'brass.trumpet.bflat', 57),
+    'c trumpet':      ('Trumpet in C', 'brass.trumpet.c', 57),
     'flugelhorn':     ('Flugelhorn', 'brass.flugelhorn', 57),
     'french horn':    ('Horn in F', 'brass.french-horn', 61),
     'trombone':       ('Trombone', 'brass.trombone', 58),
@@ -195,6 +198,7 @@ SOUNDS = {
     'english horn':   ('English Horn', 'wind.reed.english-horn', 70),
     'alto flute':     ('Alto Flute', 'wind.flutes.flute.alto', 74),
     'eb clarinet':    ('Eb Clarinet', 'wind.reed.clarinet.eflat', 72),
+    'a clarinet':     ('Clarinet in A', 'wind.reed.clarinet.a', 72),
     'cornet':         ('Cornet', 'brass.cornet', 57),
     'euphonium':      ('Euphonium', 'brass.euphonium', 58),
     'harp':           ('Harp', 'pluck.harp', 47),
@@ -328,6 +332,11 @@ INSTRUMENT_ALIASES = {
     'bari sax': 'baritone sax', 'bari': 'baritone sax',
     'sop sax': 'soprano sax',
     'horn': 'french horn', 'f horn': 'french horn',
+    'clarinet in a': 'a clarinet', 'clarinet in bb': 'clarinet',
+    'bb clarinet': 'clarinet', 'clarinet in eb': 'eb clarinet',
+    'e flat clarinet': 'eb clarinet', 'alto flute in g': 'alto flute',
+    'trumpet in bb': 'trumpet', 'bb trumpet': 'trumpet',
+    'trumpet in c': 'c trumpet',
     'horn in f': 'french horn',
     'bone': 'trombone', 't-bone': 'trombone',
     'flugel': 'flugelhorn', 'picc': 'piccolo',
@@ -1084,10 +1093,11 @@ def parse_chart(path):
             kf = parse_key(text)
             for b in chart['band']:
                 h = HORNS.get(canonical_instrument(b['instrument']))
-                if h and not -7 <= kf[0] + h['foff'] <= 7:
+                wk = kf[0] + written_foff(h['foff'], kf[0]) if h else 0
+                if h and not -7 <= wk <= 7:
                     fail(f"the key change to {text} lands "
                          f"{b['label']}'s written key at "
-                         f"{kf[0] + h['foff']} fifths — respell it")
+                         f"{wk} fifths — respell it")
             keys.append((absbar, kf))
         start += sec['bars']
     keys.sort(key=lambda x: x[0])
@@ -1121,6 +1131,23 @@ parse_chart.defs_ref = {}
 
 
 # ------------------------------------------------ spelling by the chord
+
+def written_foff(foff, concert_fifths):
+    """A transposing part's fifths offset in this key, respelled the way
+    publishers respell: E major on alto sax is C# major (seven sharps),
+    B major would be G# major (eight, not a key at all) — both print in
+    flats instead, Db and Ab. Beyond six sharps or flats a written key
+    moves twelve fifths, the same sounds on the other side of the
+    circle. Concert-pitch parts keep the key the writer chose."""
+    if not foff:
+        return 0
+    w = concert_fifths + foff
+    if w > 6:
+        return foff - 12
+    if w < -6:
+        return foff + 12
+    return foff
+
 
 # a chord tone's distance from its root on the line of fifths: the major
 # third is four fifths up, the minor third three down, and so on — the
@@ -1195,7 +1222,7 @@ def chord_spelling(syms, foff=0):
                               + 7 * {'b': -1, '#': 1, '': 0}[m.group(2)])
         for f in places:
             st, al, pc = spell_fifth(f + foff)
-            if abs(al) > 1:
+            if abs(al) > 2:
                 continue
             if pc in out and out[pc] != (st, al):
                 clash.add(pc)
@@ -1214,7 +1241,9 @@ def spelling_hints(chart, key, foff=0):
 
     def chords_at(b):
         if b not in cache:
-            cache[b] = chord_spelling(bars.get(b, ()), foff)
+            kf = key_at(keys_, b if b is not None else 1)[0]
+            cache[b] = chord_spelling(bars.get(b, ()),
+                                      written_foff(foff, kf))
         return cache[b]
     return (lambda b: key_at(keys_, b if b is not None else 1)[1]
             == 'minor', chords_at)
@@ -1526,10 +1555,25 @@ def rehearsal(mark):
 _NAT_PC = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
 
 
-def transpose_chord(chord, t):
+def transpose_chord(chord, t, foff=None):
     """The printed changes move with the horn: a Bb player's F7 is
     written G7. Letters move along the scale (so Bb reads as written C,
-    never B-sharp) and the alter takes up the difference."""
+    never B-sharp) and the alter takes up the difference. Given the
+    part's written fifths offset, the chord moves along the circle
+    instead, so it follows a respelled key (Ab, not G#, for the alto
+    in B major)."""
+    if foff is not None and t % 12:
+        def by_fifths(step, alter):
+            f = 'FCGDAEB'.index(step) + 7 * alter + foff
+            return 'FCGDAEB'[f % 7], f // 7
+        step, alter, qual, bass = chord
+        step, alter = by_fifths(step, alter)
+        if bass:
+            m = re.fullmatch(r'([A-G])([b#]?)', bass)
+            bs, ba = by_fifths(m.group(1),
+                               {'b': -1, '#': 1, '': 0}[m.group(2)])
+            bass = bs + {-2: 'bb', -1: 'b', 0: '', 1: '#', 2: '##'}[ba]
+        return (step, alter, qual, bass)
     if t % 12 == 0:
         return chord
 
@@ -1809,7 +1853,9 @@ def compile_chart(chart_path, outdir):
             keys_ = chart.get('keys') or [(1, key)]
             fig_f = key_at(keys_, item['res']['at'])[0]
             minor_at, chords_at = spelling_hints(chart, key, foff)
-            ms = chartdemo.render_range(item['res'], fig_f + foff, tr,
+            ms = chartdemo.render_range(item['res'],
+                                        fig_f + written_foff(foff, fig_f),
+                                        tr,
                                         item['fall'], findings,
                                         short=item['short'],
                                         every=item['every'],
@@ -1817,7 +1863,8 @@ def compile_chart(chart_path, outdir):
                                         scoops=item['scoops'],
                                         cue=item.get('cue', False),
                                         fifths_at=lambda b, k=keys_, f=foff:
-                                        key_at(k, b)[0] + f,
+                                        key_at(k, b)[0] + written_foff(
+                                            f, key_at(k, b)[0]),
                                         minor_at=minor_at,
                                         chords_at=chords_at)
             for bar, xml in ms.items():
@@ -1958,12 +2005,13 @@ def compile_chart(chart_path, outdir):
         def wname(p, bar, _f=h['foff'], _k=keys_):
             # spelled in the key of ITS bar, as the page spells it
             kb = key_at(_k, bar - shift)
+            wf = written_foff(_f, kb[0])
             table = chartdemo.spelling_table(
-                kb[0] + _f, chartdemo.Findings(),
+                kb[0] + wf, chartdemo.Findings(),
                 minor=kb[1] == 'minor',
                 chords=chord_spelling(
                     (chart.get('chord_bars') or {}).get(bar - shift, ()),
-                    _f))
+                    wf))
             s_, a_, o_ = chartdemo.convert.spell(p + tr, table)
             return f"{s_}{'b' if a_ == -1 else '#' if a_ == 1 else ''}{o_}"
         edge = ""
@@ -2568,6 +2616,7 @@ TRANSPOSE_XML = {
     21:  ('-5', '-9', '-1'),     # Eb baritone, octave down
     5:   ('-3', '-5', None),     # alto flute in G
     -3:  ('2', '3', None),       # Eb clarinet
+    3:   ('-2', '-3', None),     # A clarinet
     -12: ('0', '0', '1'),        # piccolo, xylophone, celesta
     -24: ('0', '0', '2'),        # glockenspiel
 }
@@ -2614,8 +2663,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         grand = bool(horn and horn.get('grand')) and sp is None
         staves = sp['staves'] if sp else (2 if grand else 1)
         clef = sp['clef'] if sp else (horn['clef'] if horn else 'G')
-        fifths = sp['fifths'] if sp else (key[0] + horn['foff'] if horn
-                                          else key[0])
+        fifths = sp['fifths'] if sp else (
+            key[0] + written_foff(horn['foff'], key[0]) if horn
+            else key[0])
         governing = [None]      # printed-chord state, carried across bars
         out = []
         # the listening document's rhythm section: what this chair
@@ -2629,6 +2679,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             tr = ''
             if horn and horn['transpose'] in TRANSPOSE_XML:
                 d, c, o = TRANSPOSE_XML[horn['transpose']]
+                # a respelled written key (Ab for G#) sits one letter
+                # further from concert: the diatonic step follows it
+                moved = written_foff(horn['foff'], key[0]) - horn['foff']
+                if moved and not sp:
+                    d = str(int(d) + (-1 if moved < 0 else 1))
                 tr = (f'<transpose><diatonic>{d}</diatonic>'
                       f'<chromatic>{c}</chromatic>'
                       + (f'<octave-change>{o}</octave-change>' if o else '')
@@ -2717,7 +2772,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     # the horn's offset, the same sum as bar one
                     kf, kmode = key_at(keys_map, absbar)
                     pieces.append('      <attributes><key>'
-                                  f'<fifths>{kf + (horn["foff"] if horn else 0)}'
+                                  f'<fifths>{kf + (written_foff(horn["foff"], kf) if horn else 0)}'
                                   '</fifths>'
                                   f'<mode>{kmode}</mode></key>'
                                   '</attributes>\n')
@@ -2891,8 +2946,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         if chord != governing[0] or off == 0:
                             pc = chord
                             if horn and not listen:
-                                pc = transpose_chord(pc,
-                                                     horn['transpose'])
+                                pc = transpose_chord(
+                                    pc, horn['transpose'],
+                                    written_foff(
+                                        horn['foff'],
+                                        key_at(keys_map, absbar)[0]))
                             pieces.append(harmony_xml(
                                 pc, beat, div * 4 // bmeter[1]))
                         governing[0] = chord

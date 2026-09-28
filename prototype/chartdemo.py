@@ -159,11 +159,16 @@ _DEMOS = {}
 
 
 def load_demo(path):
-    if path not in _DEMOS:
-        if not os.path.exists(path):
-            raise SystemExit(f"chartc: demo file '{path}' not found")
-        _DEMOS[path] = Demo(path)
-    return _DEMOS[path]
+    # keyed on the file's size and time as well as its name: a writer
+    # re-exporting the take while the editing desk is open must get the
+    # new one, not the take the desk read an hour ago
+    if not os.path.exists(path):
+        raise SystemExit(f"chartc: demo file '{path}' not found")
+    st = os.stat(path)
+    key = (path, st.st_mtime_ns, st.st_size)
+    if key not in _DEMOS:
+        _DEMOS[key] = Demo(path)
+    return _DEMOS[key]
 
 
 def find_trills(notes, beat):

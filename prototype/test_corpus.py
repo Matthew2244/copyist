@@ -3476,12 +3476,112 @@ def check_hand_percussion_parts():
                                         'percussion': True}, 0) != 60)
 
 
+def check_circle_of_fifths():
+    """
+    Every key, all the way sharp and all the way flat, major and minor,
+    through every kind of transposition: a scale, the dominant seventh, a
+    secondary dominant and (in minor) the raised sixth and seventh, each
+    note checked against its line-of-fifths spelling. The sweep that
+    became this test (2026-09-28) found written keys of eight, nine and
+    ten sharps on alto and bari (now respelled in flats, as publishers
+    do), F double-sharp printing as G in C# major's D#7, and the alto
+    flute and Eb clarinet transposing their key signatures the wrong way
+    round the circle.
+    """
+    import re, chartc, smf, tempfile
+    from contextlib import redirect_stdout
+    bad = [k for k, v in chartc.HORNS.items()
+           if v['clef'] != 'percussion'
+           and ((7 * v['transpose']) % 12 + 6) % 12 - 6 != v['foff']]
+    check("every instrument's key offset follows from its transposition",
+          not bad, f"wrong: {bad}")
+    STEPS = "FCGDAEB"
+    BASE = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+
+    def sp(f):
+        return STEPS[f % 7], f // 7
+
+    def nm(f):
+        s_, a_ = sp(f)
+        return s_ + {-2: 'bb', -1: 'b', 0: '', 1: '#', 2: '##'}[a_]
+    MAJ, MIN = [0, 2, 4, -1, 1, 3, 5], [0, 2, -3, -1, 1, -4, -2]
+    wrong, keysigs, total = [], [], 0
+    tmp = tempfile.mkdtemp()
+    for kf in range(-7, 8):
+        for minor in (False, True):
+            tonic = kf + 1 + (3 if minor else 0)
+            sc, q = (MIN, 'm') if minor else (MAJ, '')
+            bars = [([tonic + d for d in (sc[0], sc[2], sc[4], sc[0])],
+                     nm(tonic) + q),
+                    ([tonic + d for d in (sc[4:] if not minor
+                                          else [1, 3, 5])] + [tonic],
+                     nm(tonic) + q),
+                    ([tonic + 1, tonic + 5, tonic + 2, tonic - 1],
+                     nm(tonic + 1) + '7'),
+                    ([tonic + 2, tonic + 6, tonic + 3, tonic],
+                     nm(tonic + 2) + '7')]
+            for inst in ('flute', 'trumpet', 'alto sax', 'french horn',
+                         'alto flute', 'eb clarinet', 'a clarinet'):
+                h = chartc.HORNS[inst]
+                ev, t = [], 0
+                for fifs, _ in bars:
+                    ps, prev = [], None
+                    for f in fifs:
+                        s_, a_ = sp(f)
+                        p = 60 + BASE[s_] + a_
+                        if prev is not None:
+                            while p < prev - 6:
+                                p += 12
+                            while p > prev + 6:
+                                p -= 12
+                        ps.append(p)
+                        prev = p
+                    lo, hi = h['fold']
+                    while min(ps) < lo + 2:
+                        ps = [p + 12 for p in ps]
+                    while max(ps) > hi - 2:
+                        ps = [p - 12 for p in ps]
+                    ev += [(t + i * 480, t + i * 480 + 400, p, 90)
+                           for i, p in enumerate(ps)]
+                    t += 1920
+                smf.write(os.path.join(tmp, "d.mid"), ev, 480, 100)
+                key = nm(tonic) + (" minor" if minor else "")
+                open(os.path.join(tmp, "t.chart"), "w").write(
+                    f"title: T\nkey: {key}\nmeter: 4/4\ntempo: 100\n\n"
+                    f'band:\n  p = {inst}, demo "d.mid"\n\n'
+                    f"section A, 4 bars\n  chords: "
+                    + ", ".join(c for _, c in bars)
+                    + "\n  p: from demo bars 1-4, eighths\n")
+                with redirect_stdout(io.StringIO()):
+                    chartc.compile_chart(os.path.join(tmp, "t.chart"),
+                                         os.path.join(tmp, "b"))
+                x = open(os.path.join(tmp, "b", "T — p.musicxml")).read()
+                wf = int(re.search(r'<fifths>(-?\d+)</fifths>', x).group(1))
+                if not -7 <= wf <= 7 or (h['foff'] and abs(wf) > 6):
+                    keysigs.append(f"{key} {inst}: {wf}")
+                shift = wf - kf
+                got = [(s_, int(a_ or 0)) for s_, a_ in re.findall(
+                    r'<pitch><step>(\w)</step>(?:<alter>(-?\d)</alter>)?',
+                    x)]
+                want = [sp(f + shift) for fifs, _ in bars for f in fifs]
+                total += len(want)
+                if got != want:
+                    wrong.append(f"{key} {inst}")
+    check(f"circle of fifths: {total} notes in 30 keys and 7 "
+          "transpositions spell by the book", not wrong,
+          "; ".join(wrong[:8]))
+    check("circle of fifths: every written key signature is a real key, "
+          "a transposing part never past six", not keysigs,
+          "; ".join(keysigs[:8]))
+
+
 if __name__ == "__main__":
     print("\ninvariants")
     check_duration_algebra()
     check_key_names_are_usable()
     check_minor_and_chord_spelling()
     check_hand_percussion_parts()
+    check_circle_of_fifths()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

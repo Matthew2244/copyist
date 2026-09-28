@@ -70,6 +70,13 @@ The worked example below is an invented tune called *Uptown Local*.
   it, so a G sharp under an E7 in C prints G sharp. A note the key
   signature already names keeps the key's spelling, whatever chord
   sits in the bar.
+- **A transposing player never reads past six sharps or flats.** A
+  tune in B major puts the alto sax in G sharp major, eight sharps, so
+  Copyist respells the alto's part in A flat, the way published parts
+  do; the notes, the signature and the chord symbols all move together.
+  Every key from seven flats to seven sharps, major and minor, is
+  checked through every transposing instrument, including clarinet in
+  A, E flat clarinet, alto flute and trumpet in C.
 
 ## The band
 
