@@ -1678,13 +1678,19 @@ def compile_chart(chart_path, outdir):
         for item in resolved[l]:
             h = horn_of[l]
             tr, foff = h['transpose'], h['foff']
-            ms = chartdemo.render_range(item['res'], key[0] + foff, tr,
+            # the key where this figure lands, not the header's: a tune
+            # that modulates spells its later bars in their own key
+            keys_ = chart.get('keys') or [(1, key)]
+            fig_f = key_at(keys_, item['res']['at'])[0]
+            ms = chartdemo.render_range(item['res'], fig_f + foff, tr,
                                         item['fall'], findings,
                                         short=item['short'],
                                         every=item['every'],
                                         doit=item['doit'],
                                         scoops=item['scoops'],
-                                        cue=item.get('cue', False))
+                                        cue=item.get('cue', False),
+                                        fifths_at=lambda b, k=keys_, f=foff:
+                                        key_at(k, b)[0] + f)
             for bar, xml in ms.items():
                 if bar in demo_measures[l]:
                     fail(f"'{l}' has two demo figures landing on bar {bar}")

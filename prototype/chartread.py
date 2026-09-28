@@ -221,7 +221,8 @@ def part_section(plan, label, chord_parts, figures=None):
                                         item['fall'],
                                         short=item.get('short', False),
                                         doit=item.get('doit', False),
-                                        scoops=item.get('scoops'))
+                                        scoops=item.get('scoops'),
+                                        fifths_at=item.get('fifths_at'))
             for bar in sorted(prose):
                 lines.append(f"Bar {bar}: {prose[bar]}")
         rest = sec['bars'] - sum(
@@ -322,7 +323,10 @@ def main():
                                                  a.chart, findings, meter)
     for l in labels:
         for item in resolved[l]:
-            item['concert_fifths'] = key[0]
+            item['concert_fifths'] = chartc.key_at(
+                chart.get('keys') or [(1, key)], item['res']['at'])[0]
+            item['fifths_at'] = (lambda b, k=chart.get('keys') or
+                                 [(1, key)]: chartc.key_at(k, b)[0])
     chord_parts = {l for l in labels
                    if l in groups['rhythm'] and
                    'drum' not in next(b for b in band

@@ -2728,6 +2728,31 @@ def check_roadmap():
               encoding="utf-8").read()
     pn = open(os.path.join(tmp3, "K — piano.musicxml"),
               encoding="utf-8").read()
+    # played material across a modulation spells each side in its key
+    import re as _re
+    kn = [(0, 400, 61, 90), (480, 880, 65, 90), (960, 1360, 68, 90),
+          (1920, 2300, 66, 90), (2400, 2800, 73, 90)]
+    import smf as _smf
+    _smf.write(os.path.join(tmp3, "km.mid"), kn, 480, 100)
+    kc = os.path.join(tmp3, "km.chart")
+    open(kc, "w").write('title: KM\nkey: Db\nmeter: 4/4\ntempo: 100\n\n'
+                        'band:\n  flute, demo "km.mid"\n\nsection A, 2 '
+                        'bars\n  chords: Db, D\n  at bar 2: key D\n'
+                        '  flute: from demo bars 1-2\n')
+    with redirect_stdout(io.StringIO()):
+        _cc.compile_chart(kc, os.path.join(tmp3, "kmb"))
+    kx = open(os.path.join(tmp3, "kmb", "KM — flute.musicxml")).read()
+    sp_ = _re.findall(r'<step>(\w)</step>(?:<alter>(-?\d)</alter>)?'
+                     r'<octave>', kx)
+    ksaid = subprocess.run([sys.executable, os.path.join(HERE,
+                                                         "chartread.py"),
+                            kc, "--part", "flute"], capture_output=True,
+                           text=True).stdout
+    check("a figure crossing a key change spells each side in its key",
+          sp_ == [('D', '-1'), ('F', ''), ('A', '-1'), ('F', '1'),
+                  ('C', '1')]
+          and "F sharp 4" in ksaid and "G flat" not in ksaid,
+          str(sp_) + ksaid[-200:])
     check("the restated key is each part's own written key",
           "<key><fifths>4</fifths>" in tp
           and "<key><fifths>2</fifths>" in pn)

@@ -1268,16 +1268,40 @@ def bend_indices(res, bends):
     return out
 
 
+class KeyedTable:
+    '''A spelling table that follows the key bar by bar: whoever emits a
+    bar sets .at first, and every lookup spells in that bar's key. A
+    figure crossing a modulation spells each side in its own key.'''
+    def __init__(self, fifths_at, find):
+        self.fifths_at, self.find, self.at = fifths_at, find, None
+        self._cache = {}
+
+    def _t(self):
+        f = self.fifths_at(self.at) if self.at is not None else \
+            self.fifths_at(None)
+        if f not in self._cache:
+            self._cache[f] = spelling_table(f, self.find)
+        return self._cache[f]
+
+    def __getitem__(self, k):
+        return self._t()[k]
+
+    def get(self, k, d=None):
+        return self._t().get(k, d)
+
+
 def render_range(res, fifths_written, transpose_to_written, fall,
                  findings=None, short=False, every=None, doit=False,
-                 scoops=None, cue=False):
+                 scoops=None, cue=False, fifths_at=None):
     """Resolved timeline -> {abs_bar: MusicXML measure content}."""
     find = findings if findings is not None else Findings()
     at_bar = res['at']
     n_units = res['n_units']
     timeline = res['timeline']
     grids_chart = res['grids']
-    table = spelling_table(fifths_written, find)
+    table = (KeyedTable(lambda b: fifths_at(b) if b is not None
+                        else fifths_written, find)
+             if fifths_at else spelling_table(fifths_written, find))
     trills = res.setdefault('trills', {})
 
     def trill_of(start, pitches):
@@ -1611,6 +1635,8 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
         bar_no = at_bar + a // bar
         if bar_no not in out:
             continue
+        if isinstance(table, KeyedTable):
+            table.at = bar_no
         first, last = pi == 0, pi == len(pieces) - 1
         sub = grids.get(a // DIV, 4)
         if pitches is None and a % bar == 0 and b - a == bar:
@@ -1957,6 +1983,10 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
                and ((j + 1) in ghosts) == (i in ghosts)):
             j += 1
         bar = at_bar + start // bar_ticks
+        if isinstance(table, KeyedTable):
+            # speak in the key of the printed bar (spoken bars carry
+            # the count-in; the key map counts printed bars)
+            table.at = bar - getattr(table, 'shift', 0)
         clauses = out.setdefault(bar, [])
         where = _say_beat(start, bar_ticks, pulse)
         def word(k):
@@ -2046,11 +2076,15 @@ def say_ornaments(res, table, fifths=0):
 
 
 def say_range(res, concert_fifths, fall=False, findings=None, short=False,
-              doit=False, scoops=None):
+              doit=False, scoops=None, fifths_at=None):
     """Resolved timeline -> {abs_bar: prose}, spoken at concert pitch."""
     find = findings if findings is not None else Findings()
-    table = (None if res.get('drums')
+    table = (None if res.get('drums') else
+             KeyedTable(lambda b: fifths_at(b) if b is not None
+                        else concert_fifths, find) if fifths_at
              else spelling_table(concert_fifths, find))
+    if isinstance(table, KeyedTable):
+        table.shift = res.get('spoken_shift', 0)
     orn = say_ornaments(res, table, concert_fifths)
     at_bar = res['at'] + res.get('spoken_shift', 0)
     bar_ticks = res.get('bar_ticks', BAR)
