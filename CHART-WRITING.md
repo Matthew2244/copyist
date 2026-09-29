@@ -581,6 +581,18 @@ All of these ride on a `from demo` line, after commas:
   section split between them. A pianist keeps left-hand shells under
   the line; a drummer takes a drum solo. The page keeps its slashes and
   the word, and a solo you played in from MIDI plays exactly as played.
+- **Backgrounds, written or on the spot.** Give a horn notes behind
+  the solo and they play as written. Say just `backgrounds` (or
+  `horns: backgrounds`) and the page prints slashes under the changes
+  while the listen makes them up the way a section does on the spot:
+  each chord voiced across the horns on backgrounds, top horn on top,
+  held soft as pads. `backgrounds riff` plays one short figure the
+  whole section shares instead; `on cue` after it waits for the
+  second half.
+- **Vamps.** `section vamp, 2 bars, vamp till cue` (or `open`, `open
+  till cue`, `repeat till cue`) prints once between repeat signs with
+  the words, and goes round a few times in the listen, about eight bars
+  of it, a soloist over it playing something new each time round.
 - **Words perform.** `rit.`, `rall.`, `slow down` (`molto` more,
   `poco` less) slow the band from the word to the next `a tempo`,
   tempo mark or the end; `accel.` speeds it up; `fade out` turns the

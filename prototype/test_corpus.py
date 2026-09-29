@@ -4932,6 +4932,51 @@ def check_solos_and_endings():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_backgrounds_and_vamps():
+    """Backgrounds with no notes are made up behind the soloist, the
+    horns voicing each chord top-down (pads, or a riff, 'on cue' from
+    halfway); the page prints slashes and changes. An open section or
+    'vamp till cue' prints once between repeat signs and goes round a
+    few times in the listen, the solo over it new each pass."""
+    import chartaudio
+    import chartc
+    tmp = tempfile.mkdtemp()
+    open(os.path.join(tmp, "t.chart"), "w").write(
+        "title: T\nkey: F\nmeter: 4/4\ntempo: 120\n\nband:\n"
+        "  tenor = tenor sax\n  trumpet\n  alto = alto sax\n"
+        "  bone = trombone\n  piano\n  bass\n  drums\n\n"
+        "section A, 8 bars\n  chords: F7, Bb7, F7, C7, F7, Bb7, C7, F7\n"
+        "  tenor: solo\n  trumpet: backgrounds\n  alto: backgrounds\n"
+        "  bone: backgrounds\n\nsection vamp, 2 bars, vamp till cue\n"
+        "  chords: Gm7, C7\n  tenor: solo\n")
+    out = os.path.join(tmp, "b")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(os.path.join(tmp, "t.chart"), out)
+    pl = chartaudio.parse_score(os.path.join(out,
+                                             "T — for listening.musicxml"))
+    ev = {p["name"]: p["events"] for p in pl["parts"]}
+    first = {n: [e[2] for e in ev[n] if e[0] < 1] for n in
+             ("trumpet", "alto", "bone")}
+    check("backgrounds voice the chord across the horns, top horn on top",
+          all(first.values()) and first["trumpet"][0] > first["alto"][0]
+          > first["bone"][0], first)
+    check("no false 'never plays' alarm for backgrounds",
+          "NEVER PLAYS" not in buf.getvalue())
+    tp = open(os.path.join(out, "T — trumpet.musicxml")).read()
+    check("backgrounds print slashes under the changes",
+          "slash" in tp and "<harmony" in tp)
+    tn = open(os.path.join(out, "T — tenor.musicxml")).read()
+    check("a vamp prints once between repeat signs, till cue",
+          'repeat direction="forward"' in tn and "vamp till cue" in tn)
+    check("the vamp goes round in the listen", abs(pl["end_q"] - 64) < .01)
+    passes = [[e[2] for e in ev["tenor"] if 32 + 8 * k <= e[0] < 40 + 8 * k]
+              for k in range(4)]
+    check("each pass round the vamp is new", len(
+        {tuple(p) for p in passes}) == 4, passes)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -4989,6 +5034,7 @@ if __name__ == "__main__":
     check_head_out_plays_the_head()
     check_words_perform()
     check_solos_and_endings()
+    check_backgrounds_and_vamps()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

@@ -839,13 +839,15 @@ def parse_chart(path):
                          r'(?:,\s*(\d+) bars)?'
                          r'(?:,\s*label "([^"]*)")?'
                          r'(?:,\s*repeat (\d+)x)?'
-                         r'(,\s*open)?\s*$', s)
+                         r'(,\s*(?:open(?: till cue)?|vamp(?: till cue)?|'
+                         r'repeat till cue))?\s*$', s)
             if m:
                 if m.group(2) is None:
                     fail(f"{loc}: section {m.group(1)} must declare its length")
                 cur = {'name': m.group(1).strip(), 'bars': int(m.group(2)),
                        'label': m.group(3), 'repeat': int(m.group(4) or 0),
                        'open': bool(m.group(5)), 'content': None,
+                       'vamp': bool(m.group(5)) and 'vamp' in m.group(5),
                        'feel': None, 'directives': [], 'events': [],
                        'endings': []}
                 chart['sections'].append(cur)
@@ -1961,6 +1963,8 @@ def compile_chart(chart_path, outdir):
                 what = "written figures"
             elif solo:
                 what = "solo"
+            elif plan.get('bg', {}).get(l):
+                what = "backgrounds, made up in the listen"
             elif kind == 'engraved':
                 what = "the engraving"
             elif kind == 'hits':
@@ -2343,13 +2347,14 @@ def build_plans(chart, band, groups, labels):
                 'overlays': {l: [] for l in labels},
                 'lifts': {l: [] for l in labels},
                 'enters': {},
-                'doubles': {}, 'cues': {}}
+                'doubles': {}, 'cues': {}, 'bg': {}}
         for target, instr, loc in sec['directives']:
             tgts = groups.get(target) or ([target] if target in labels else None)
             if tgts is None:
                 fail(f"{loc}: '{target}' is not a band part or group")
             anns, engraved, groove_words = [], None, None
             solo_slashes = False
+            bg_style = None
             demo_refs, fall, quant, short = [], False, None, False
             legato, ghost = False, False
             no_trills = False
@@ -2610,12 +2615,19 @@ def build_plans(chart, band, groups, labels):
                                  or sec['open'] else 'Solo'))
                     solo_slashes = True
                     continue
-                if piece == 'backgrounds':
+                m = re.fullmatch(r'backgrounds?(?:\s+(riffs?|pads?|'
+                                 r'ad lib))?', piece)
+                if m:
+                    # backgrounds with no notes are made up on the spot,
+                    # the way a jazz horn section does behind a solo
                     anns.append((1, 'backgrounds'))
+                    bg_style = 'riff' if (m.group(1) or '').startswith(
+                        'riff') else 'pads'
                     continue
                 if piece == 'on cue':
                     if anns and anns[-1][1] == 'backgrounds':
                         anns[-1] = (anns[-1][0], 'backgrounds on cue')
+                        bg_style = (bg_style or 'pads') + ' cue'
                     else:
                         anns.append((1, 'on cue'))
                     continue
@@ -2653,6 +2665,12 @@ def build_plans(chart, band, groups, labels):
                     # empty bars — rests with chords over them look like
                     # unfinished engraving (Matthew's ruling, 2026-09-21)
                     plan['content'][l] = ('groove', '')
+                if bg_style and not demo_refs and not fig_lifts \
+                        and plan['content'][l][0] == 'default':
+                    # made-up backgrounds read as slashes under the
+                    # changes; written ones stay exactly as written
+                    plan['content'][l] = ('groove', '')
+                    plan['bg'][l] = bg_style
                 for ref in demo_refs:
                     plan['overlays'][l].append(dict(ref, fall=fall,
                                                     quant=quant,
@@ -2723,6 +2741,12 @@ SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
              'sfz': 112, 'fp': 98}
 
 
+def vamp_passes(sec):
+    """How many times round an open section goes in the listen: about
+    eight bars of it, two to four passes."""
+    return max(2, min(4, round(8 / max(sec['bars'], 1))))
+
+
 def _inject_fermata(piece):
     """A fermata on this bar's last note or rest — the phrase-end
     hold every ballad page carries (Aria of the Soul, at every
@@ -2742,6 +2766,18 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     # ---- the ending: words and a fermata on the pages, the whole
     # performance in the listen (chartending)
     import chartending
+    for pl in plans:
+        if pl['sec'].get('open') and not pl['sec']['repeat']:
+            said = 'vamp till cue' if pl['sec'].get('vamp') \
+                else 'open, till cue'
+            for l in labels:
+                if not any(t == (1, said) for t in pl['texts'][l]):
+                    pl['texts'][l].append((1, said))
+            if findings is not None:
+                findings.add(f"listen: {pl['sec']['label'] or pl['sec']['name']}"
+                             f" is open — it goes round "
+                             f"{vamp_passes(pl['sec'])} times in the "
+                             "listen, till the cue on the gig")
     for i, pl in enumerate(plans):
         got = pl['sec'].get('ending')
         if not got:
@@ -2829,9 +2865,33 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     return True
         return False
 
+    # ---- backgrounds made up on the spot, in the listen
+    def bg_bar(clef, staves, fifths, sec, off, absbar, bmeter, div, horn,
+               label, state, governing, plan):
+        """The horns on backgrounds voice the chords together, top horn
+        on top: held pads, or a riff every horn plays; 'on cue' waits
+        for the second half (Matthew, 2026-09-29: backgrounds can
+        happen on the spot, like in jazz, or be written)."""
+        style = plan['bg'][label]
+        if 'cue' in style and off < sec['bars'] // 2:
+            return None
+        who = [x['label'] for x in band if plan['bg'].get(x['label'])]
+        who.sort(key=lambda l: -(horn_of.get(l) or {}).get(
+            'comf', (0, 70))[1])
+        k = who.index(label)
+        bar = chartgroove.Bar(div, bmeter, fifths, staves,
+                              shift=horn['transpose'] if horn else 0)
+        chords = chartgroove._chords_in(sec, off, governing)
+        lo, hi = horn['comf'] if horn else (55, 79)
+        chartgroove.backgrounds(bar, state, chords, k, len(who), lo, hi,
+                                'riff' if style.startswith('riff')
+                                else 'pads', off, sec['name'])
+        return bar.xml()
+
     # ---- a soloist's bar in the listen
     def solo_bar(sound_id, clef, staves, fifths, sec, off, absbar, bmeter,
-                 div, horn, label, state, governing, plan):
+                 div, horn, label, state, governing, plan, cur_pass=0,
+                 passes=1):
         """The page says solo and nothing was played in: the soloist
         plays over the changes, in the listen only (Matthew,
         2026-09-29). A drummer takes a drum solo; a pianist keeps
@@ -2846,12 +2906,15 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             isinstance(t[1], str) and t[1].lower().startswith('solo')
             for t in plan['texts'].get(x['label'], ()))]
         k = who.index(label) if label in who else 0
-        each = max(sec['bars'] // max(len(who), 1), 1)
+        walk = sec['bars'] * passes         # a vamp's bars, every pass
+        at = cur_pass * sec['bars'] + off
+        absbar = absbar + 1000 * cur_pass   # a new pass, new notes
+        each = max(walk // max(len(who), 1), 1)
         lo_bar = k * each
-        hi_bar = sec['bars'] if k == len(who) - 1 else lo_bar + each
-        if not lo_bar <= off < hi_bar:
+        hi_bar = walk if k == len(who) - 1 else lo_bar + each
+        if not lo_bar <= at < hi_bar:
             return None
-        pos, total = off - lo_bar, hi_bar - lo_bar
+        pos, total = at - lo_bar, hi_bar - lo_bar
         if role == 'drums':
             chartgroove.drum_solo(bar, absbar, pos, total, label)
             return bar.xml()
@@ -2977,7 +3040,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     and written_notes(sp, lo_, lo_ + sec['bars'] - 1):
                 kind, arg = 'engraved', (lo_, lo_ + sec['bars'] - 1, 1)
                 played_written.setdefault(label, []).append(sec['name'])
-            for off in range(sec['bars']):
+            # an open section vamps: the page shows it once between
+            # repeat signs, the listen writes it out a few times round
+            # so a soloist over it keeps going instead of looping
+            passes = vamp_passes(sec) if listen and sec.get('open') and \
+                not sec['repeat'] else 1
+            for off, cur_pass in [(o, k) for k in range(passes)
+                                  for o in range(sec['bars'])]:
                 absbar = plan['start'] + off
                 bmeter = meter_at(meters, absbar)
                 pieces = []
@@ -3209,7 +3278,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     # restated
                     governing[0] = None
                 elif with_harmony and clef != 'percussion' and (
-                        label in chord_parts or any(
+                        label in chord_parts
+                        or plan.get('bg', {}).get(label) or any(
                             isinstance(t[1], str) and
                             t[1].lower().startswith('solo') for t in
                             plan['texts'][label])):
@@ -3304,11 +3374,18 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                           '</attributes>\n')
                             resume_div = cur_div
                             cur_div = gdiv
-                        if soloing:
+                        if plan.get('bg', {}).get(label) and \
+                                not soloing:
+                            made = bg_bar(clef, staves, fifths, sec, off,
+                                          absbar, bmeter, gdiv, horn,
+                                          label, groove_state,
+                                          active_chord[0], plan)
+                        elif soloing:
                             made = solo_bar(
                                 sound_id, clef, staves, fifths, sec,
                                 off, absbar, bmeter, gdiv, horn, label,
-                                groove_state, active_chord[0], plan)
+                                groove_state, active_chord[0], plan,
+                                cur_pass, passes)
                         else:
                             made = chartgroove.realize(
                                 'groove', arg, sound_id, clef, staves,
@@ -3334,7 +3411,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 barline = ''
                 open_bl = ''
                 ends = sec.get('endings') or []
-                if sec['repeat'] and off == 0:
+                vamp_page = sec.get('open') and not sec['repeat'] \
+                    and not listen
+                if (sec['repeat'] or vamp_page) and off == 0:
                     open_bl = ('      <barline location="left">'
                                '<bar-style>heavy-light</bar-style>'
                                '<repeat direction="forward"/></barline>\n')
@@ -3368,6 +3447,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                '<bar-style>light-heavy</bar-style>'
                                f'<repeat direction="backward" '
                                f'times="{sec["repeat"]}"/></barline>\n')
+                elif vamp_page and off == sec['bars'] - 1:
+                    # an open vamp: round again until the cue
+                    barline = ('      <barline location="right">'
+                               '<bar-style>light-heavy</bar-style>'
+                               '<repeat direction="backward"/>'
+                               '</barline>\n')
+                elif off == sec['bars'] - 1 and cur_pass < passes - 1:
+                    barline = ''                # the vamp goes round
                 elif off == sec['bars'] - 1:
                     # every section closes with a double bar; the last
                     # section closes the chart with a final bar
@@ -3404,7 +3491,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                    or p.lstrip().startswith(
                                        ('<direction', '<attributes'))
                                    for p in pieces))
-                out.append((f'    <measure number="{absbar}">\n' + open_bl +
+                mnum = absbar if not cur_pass else f'{absbar}x{cur_pass}'
+                out.append((f'    <measure number="{mnum}">\n' + open_bl +
                             "".join(pieces) + barline + '    </measure>\n',
                             pure_rest, head_ok))
 
@@ -3558,8 +3646,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     if road_said:
         findings.add(road_said)
     if realized_bars:
-        findings.add("listen: rhythm section realized from the chord "
-                     "symbols — "
+        findings.add("listen: made up from the chord symbols (the "
+                     "rhythm section, solos and backgrounds) — "
                      + ", ".join(f"{src_of.get(l, l)} ({n} bars)"
                                  for l, n in realized_bars.items())
                      + " — the pages keep their slashes")

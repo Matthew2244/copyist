@@ -1373,3 +1373,54 @@ def drum_solo(bar, absbar, pos, total, seed):
             bar.add(t, step, ('u', drum, max(30, min(vel, 120))))
         if b % 2 == 0 and d() < 0.7:
             bar.add(b * beat, beat // 2, ('u', _KICK, 84))
+
+
+def backgrounds(bar, state, chords, voice, voices, lo, hi, style, off,
+                seed):
+    """One horn's share of made-up backgrounds: each chord voiced across
+    the section top-down (voice 0 highest), every horn near its last
+    note so the lines move smoothly. Pads hold through each change,
+    soft; a riff is one two-bar figure the whole section plays."""
+    beat = bar.div * 4 // bar.den
+    n = bar.num if bar.den == 4 else max(bar.num // 2, 1)
+    if bar.den == 8:
+        beat = 3 * (bar.div // 2)
+    if style == 'riff':
+        d = _Dice(seed, 'riff')
+        shapes = [[(2.5, 0.5, 74), (4.0, 1.0, 78)],
+                  [(1.0, 1.5, 76), (3.5, 0.5, 72)],
+                  [(1.5, 0.5, 72), (2.5, 1.5, 78)]]
+        cycle = shapes[int(d() * len(shapes)) % len(shapes)]
+        hits = cycle if off % 2 == 0 else [(1.0, 2.0, 70)]
+        hits = [(b, ln, v) for b, ln, v in hits if b <= n + 0.99]
+    else:
+        hits = []
+        for i, (b, c) in enumerate(chords):
+            nxt = chords[i + 1][0] if i + 1 < len(chords) else n + 1
+            hits.append((b, nxt - b, 60))
+    for b, ln, vel in hits:
+        c = _chord_at(chords, b)
+        if c is None:
+            continue
+        root = _root_pc(c)
+        pcs = _guide(c)
+        for t in _tones(c):
+            pc = (root + t) % 12
+            if pc not in pcs and pc != root:
+                pcs.append(pc)
+        pcs = pcs + [root]
+        # top voice takes the first colour, each next voice the next
+        # tone down the stack
+        pc = pcs[voice % len(pcs)]
+        anchor = state.get('bg_last') or int(lo + (hi - lo) * (
+            0.7 - 0.5 * voice / max(voices, 1)))
+        m = _near(pc, anchor)
+        while m > hi:
+            m -= 12
+        while m < lo:
+            m += 12
+        bar.add(int(round((b - 1) * beat)),
+                max(1, int(round(ln * beat)) - (beat // 8 if style ==
+                                                'riff' else 0)),
+                ('p', m, vel))
+        state['bg_last'] = m
