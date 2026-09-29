@@ -185,6 +185,21 @@ final class AppModel: ObservableObject {
     @Published var parts: [String] = []
     @Published var showExport = false
     @Published var askEmboss = false
+    /// set when Emboss finds no embosser: Settings puts VoiceOver on
+    /// the Embosser picker itself, not the top of the window
+    @Published var wantEmbosser = false
+
+    /// Emboss, from the Build tab or the Chart menu: ask first, or say
+    /// what is missing and take VoiceOver to where it gets fixed.
+    func emboss() {
+        if embosser().isEmpty {
+            userSwitch = false
+            wantEmbosser = true
+            tab = .settings
+        } else {
+            askEmboss = true
+        }
+    }
 
     /// The embosser setting, if one is chosen.
     func embosser() -> String {
@@ -893,6 +908,8 @@ struct DeskCommands: Commands {
             Button("Braille") { model?.run("Braille", args: ["braille"]) }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
                 .disabled(model?.chart == nil)
+            Button("Emboss…") { model?.emboss() }
+                .disabled(model?.chart == nil)
             Divider()
             Button("Listen…") { model?.tab = .listen }
                 .keyboardShortcut("l", modifiers: .command)
@@ -962,9 +979,39 @@ struct ContentView: View {
         .preferredColorScheme(model.vibe == .stage ? .dark :
                               model.vibe == .manuscript ? .light : nil)
         .foregroundStyle(pal.text)
+        // Export and Emboss belong to the window, not one tab: Command E
+        // from the Chart tab used to do nothing, then pop the sheet up
+        // later, the moment the Build tab appeared
+        .sheet(isPresented: $model.showExport) {
+            ExportSheet(pal: pal).environmentObject(model)
+        }
+        .confirmationDialog("Emboss every part's braille on "
+                            + model.embosser() + "?",
+                            isPresented: $model.askEmboss) {
+            Button("Emboss") { model.run("Emboss", args: ["emboss"]) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Each part the braille covers goes to the embosser, "
+                 + "on the paper size in Settings. Anything the "
+                 + "proofreader disagrees with is held back.")
+        }
         .environmentObject(model)
         .focusedSceneObject(model)
         .onAppear { model.loadParts() }
+        // a .chart opened from the Finder (double-click, Open With)
+        // lands in the window in front, like File > Open a Chart
+        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
+        .onOpenURL { url in
+            guard url.isFileURL else { return }
+            if url.pathExtension.lowercased() == "chart" {
+                model.choose(url.path)
+                announce("Working on "
+                         + url.deletingPathExtension().lastPathComponent
+                         + ".")
+            } else {
+                model.bringIn(url.path)
+            }
+        }
         .onChange(of: model.tab) { t in
             guard model.userSwitch else { return }
             // the heading takes VoiceOver there and says the tab's name;
@@ -1370,13 +1417,7 @@ struct BuildTab: View {
                                  + "after you say yes.",
                              keys: "", pal: pal,
                              enabled: model.chart != nil) {
-                    if model.embosser().isEmpty {
-                        announce("Pick your embosser in Settings first, "
-                                 + "under Braille.")
-                        model.tab = .settings
-                    } else {
-                        model.askEmboss = true
-                    }
+                    model.emboss()
                 }
                 ActionButton(icon: "hand.point.up.braille",
                              title: "Braille",
@@ -1393,19 +1434,6 @@ struct BuildTab: View {
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 20)
-        .sheet(isPresented: $model.showExport) {
-            ExportSheet(pal: pal).environmentObject(model)
-        }
-        .confirmationDialog("Emboss every part's braille on "
-                            + model.embosser() + "?",
-                            isPresented: $model.askEmboss) {
-            Button("Emboss") { model.run("Emboss", args: ["emboss"]) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Each part the braille covers goes to the embosser, "
-                 + "on the paper size in Settings. Anything the "
-                 + "proofreader disagrees with is held back.")
-        }
     }
 }
 
@@ -1445,14 +1473,16 @@ struct ExportSheet: View {
                     Toggle("The whole song", isOn: $whole)
                     if !whole {
                         HStack {
-                            TextField("From bar", text: $fromBar)
+                            // the field speaks its own contents; a
+                            // placeholder AND a label said the name twice
+                            TextField("", text: $fromBar,
+                                      prompt: Text("From bar"))
                                 .frame(width: 90)
-                                .accessibilityLabel("From bar, now "
-                                    + (fromBar.isEmpty ? "empty" : fromBar))
-                            TextField("To bar", text: $toBar)
+                                .accessibilityLabel("From bar")
+                            TextField("", text: $toBar,
+                                      prompt: Text("To bar"))
                                 .frame(width: 90)
-                                .accessibilityLabel("To bar, now "
-                                    + (toBar.isEmpty ? "empty" : toBar))
+                                .accessibilityLabel("To bar")
                             Text("as printed on the pages")
                                 .font(.system(size: 11))
                                 .foregroundStyle(pal.sub)
@@ -1463,8 +1493,17 @@ struct ExportSheet: View {
                 box("Parts") {
                     Toggle("The score", isOn: $score)
                     HStack {
-                        Button("Every part") { chosen = Set(model.parts) }
-                        Button("No parts") { chosen = [] }
+                        // seven boxes changing at once must say so
+                        Button("Every part") {
+                            chosen = Set(model.parts)
+                            announce("All \(model.parts.count) parts "
+                                     + "picked.")
+                        }
+                        Button("No parts") {
+                            chosen = []
+                            announce("No parts picked. The score is "
+                                     + (score ? "still on." : "off too."))
+                        }
                     }
                     ForEach(model.parts, id: \.self) { p in
                         Toggle(p, isOn: Binding(
@@ -1583,20 +1622,39 @@ struct ExportSheet: View {
     }
 
     func export() {
+        let f = fromBar.trimmingCharacters(in: .whitespaces)
+        let t = toBar.trimmingCharacters(in: .whitespaces)
+        if !whole && (Int(f) == nil || !(t.isEmpty || Int(t) != nil)) {
+            // left empty, the engine quietly made the whole song
+            note = f.isEmpty
+                ? "Type the bar to start from, or check The whole song."
+                : "Bars are numbers, like 9 and 24."
+            say(note)
+            return
+        }
         if !score && chosen.isEmpty {
             note = "Pick the score or at least one part."
-            announce(note)
+            say(note)
             return
         }
         if makes.isEmpty {
             note = "Pick at least one thing to make."
-            announce(note)
+            say(note)
             return
         }
         let order = formats.map { $0.0 }.filter { makes.contains($0) }
         dismiss()
         model.run("Export", args: ["build", "--exports",
                                    order.joined(separator: ", ")] + pick())
+    }
+
+    /// A warning in the sheet: the note text appears, and the spoken line
+    /// follows a beat later so VoiceOver does not lose it under the
+    /// note's own arrival.
+    func say(_ text: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            announce(text)
+        }
     }
 
     func drawSample() {
@@ -2205,11 +2263,13 @@ struct SettingsView: View {
     @State private var composer = ""
     @State private var countin = ""
     @State private var printers: [String] = []
+    @AccessibilityFocusState private var onEmbosser: Bool
 
     let looks = ["", "jazz", "handwritten", "engraved", "plain"]
     let quants = ["", "eighths", "straight", "sixteenths", "triplets"]
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 TabHeading(tab: .settings, pal: pal)
@@ -2266,10 +2326,21 @@ struct SettingsView: View {
                         Text("Letter, 34 by 25").tag("letter")
                         Text("A4, 35 by 28").tag("a4")
                     }
-                    Picker("Embosser", selection: bind("embosser")) {
-                        Text("None chosen").tag("")
-                        ForEach(printers, id: \.self) { Text($0).tag($0) }
+                    // the label drawn beside the popup, not inside it:
+                    // VoiceOver focus on a labelled Picker lands on the
+                    // word, one step short of the control
+                    HStack {
+                        Text("Embosser").accessibilityHidden(true)
+                        Picker("Embosser", selection: bind("embosser")) {
+                            Text("None chosen").tag("")
+                            ForEach(printers, id: \.self) {
+                                Text($0).tag($0)
+                            }
+                        }
+                        .labelsHidden()
+                        .accessibilityFocused($onEmbosser)
                     }
+                    .id("embosser")
                     Text("An embosser shows up here once it is added in "
                          + "System Settings, Printers and Scanners.")
                         .font(.system(size: 11))
@@ -2369,6 +2440,30 @@ struct SettingsView: View {
                     .readDataToEndOfFile(), as: UTF8.self)
                     .split(separator: "\n").map(String.init)
             }
+            showEmbosser(proxy)
+        }
+        .onChange(of: model.wantEmbosser) { _ in showEmbosser(proxy) }
+        }
+    }
+
+    /// Emboss with no embosser chosen lands here: the picker takes
+    /// VoiceOver (it says "None chosen, Embosser"), then the reason
+    /// follows a beat later — posted with the focus move, VoiceOver
+    /// drops it.
+    func showEmbosser(_ proxy: ScrollViewProxy) {
+        guard model.wantEmbosser else { return }
+        model.wantEmbosser = false
+        proxy.scrollTo("embosser", anchor: .center)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            onEmbosser = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            // no printer count: an ordinary printer in this list is
+            // not an embosser, and raw braille must never go to one
+            announce("Choose the embosser here, then Emboss again."
+                     + (printers.isEmpty
+                        ? " No printers are set up on this Mac yet."
+                        : ""), queued: true)
         }
     }
 

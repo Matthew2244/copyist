@@ -42,11 +42,35 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleExecutable</key>      <string>Copyist</string>
     <key>CFBundleIconFile</key>        <string>Copyist</string>
     <key>CFBundlePackageType</key>     <string>APPL</string>
-    <key>CFBundleShortVersionString</key> <string>2.19.3</string>
-    <key>CFBundleVersion</key>         <string>2.19.3</string>
+    <key>CFBundleShortVersionString</key> <string>2.20.0</string>
+    <key>CFBundleVersion</key>         <string>2.20.0</string>
     <key>LSMinimumSystemVersion</key>  <string>13.0</string>
     <key>NSPrincipalClass</key>        <string>NSApplication</string>
     <key>NSHighResolutionCapable</key> <true/>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>      <string>Copyist chart</string>
+            <key>CFBundleTypeRole</key>      <string>Editor</string>
+            <key>LSHandlerRank</key>         <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array><string>net.matthewwhitaker.copyist.chart</string></array>
+        </dict>
+    </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>      <string>net.matthewwhitaker.copyist.chart</string>
+            <key>UTTypeDescription</key>     <string>Copyist chart</string>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.plain-text</string></array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array><string>chart</string></array>
+            </dict>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST

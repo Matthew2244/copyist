@@ -149,7 +149,11 @@ value, and the roadmap conversation held in a chat view. A build shows a
 real progress bar fed by the engine itself ("the band is playing it in,
 46%"), and you can walk away from it: Home shows a live chip that takes
 you back, and File > New Window opens a second chart while the first one
-renders. Settings also choose where finished files land, a folder each
+renders. Double-click a `.chart` in the Finder and it opens in the window
+in front. Export (Command E) and Emboss work from every tab and live in
+the Chart menu too; Emboss asks before anything goes to the embosser, and
+with none chosen it takes you straight to the Embosser setting. Settings
+also choose where finished files land, a folder each
 for PDF pages, listen MP3s and spoken read-alouds. The app and the
 terminal share one conversation engine over a JSON line protocol
 (`COPYIST_PORCELAIN=1`), so they can't drift apart. The engine and fonts are bundled inside the app, so
