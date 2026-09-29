@@ -2681,6 +2681,51 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     keys_map = chart.get('keys') or [(1, (0, 'major'))]
     m_num, m_den = meter_at(meters, 1)
 
+    # ---- where each section sits in the source. The page may print
+    # slashes where the source writes the player's real notes: the
+    # listen plays what is written, and realizes from the chords only
+    # where the source has nothing (Matthew, 2026-09-28: "keep the
+    # slashes, I'm just saying extra notes was being played"). A
+    # section is placed by any part lifted whole from the source; one
+    # with none (an open solo) by the sections either side, only when
+    # the gap is exactly its length.
+    sec_src = [None] * len(plans)
+    for i, pl in enumerate(plans):
+        for kind_, arg_ in pl['content'].values():
+            if kind_ == 'engraved' and isinstance(arg_, tuple) and \
+                    arg_[2] == 1 and arg_[1] - arg_[0] + 1 == \
+                    pl['sec']['bars']:
+                sec_src[i] = arg_[0]
+                break
+    i = 0
+    while i < len(plans):
+        if sec_src[i] is not None:
+            i += 1
+            continue
+        j = i
+        while j < len(plans) and sec_src[j] is None:
+            j += 1
+        if i > 0 and j < len(plans):
+            at = sec_src[i - 1] + plans[i - 1]['sec']['bars']
+            if at + sum(plans[k]['sec']['bars'] for k in range(i, j)) \
+                    == sec_src[j]:
+                for k in range(i, j):
+                    sec_src[k] = at
+                    at += plans[k]['sec']['bars']
+        i = j
+    played_written = {}
+
+    def written_notes(sp_, lo, hi):
+        """Does the source give this player real notes in these bars
+        — not rests, not slashes?"""
+        for n in range(lo, hi + 1):
+            m = sp_['measures'].get(str(n), '')
+            for note in re.findall(r'<note\b.*?</note>', m, re.S):
+                if '<rest' not in note and \
+                        not re.search(r'<notehead[^>]*>slash', note):
+                    return True
+        return False
+
     # ---- emit one part's measures
     def part_measures(label, with_directions, with_harmony, listen=False,
                       part_mode=False):
@@ -2767,12 +2812,17 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         resume_div = None
         fine_div = None
         marks = div_marks.get(label, {})
-        for plan in plans:
+        for pi_, plan in enumerate(plans):
             sec = plan['sec']
             kind, arg = plan['content'][label]
             if kind == 'default':
                 kind = 'groove' if default_groove else 'tacet'
                 arg = '' if kind == 'groove' else None
+            lo_ = sec_src[pi_]
+            if listen and kind == 'groove' and sp and lo_ is not None \
+                    and written_notes(sp, lo_, lo_ + sec['bars'] - 1):
+                kind, arg = 'engraved', (lo_, lo_ + sec['bars'] - 1, 1)
+                played_written.setdefault(label, []).append(sec['name'])
             for off in range(sec['bars']):
                 absbar = plan['start'] + off
                 bmeter = meter_at(meters, absbar)
@@ -2849,16 +2899,30 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     # importer ever sees the inverted encoding.
                     # a swing feel by any name — "two feel", "ballad",
                     # "double time" — swings; "straight" said outright wins
-                    style_now = chartgroove.style_of(feel_now)[0]
+                    style_now, traits_now = chartgroove.style_of(feel_now)
+                    swung_funk = style_now == 'funk' and \
+                        'swung' in traits_now
                     want = (not (bmeter[1] == 8 and bmeter[0] % 3 == 0)
-                            and ((any(w in feel_now
-                                      for w in ('swing', 'shuffle'))
-                                  and style_now != 'straight')
-                                 or style_now == 'swing'))
+                            and (swung_funk
+                                 or ((any(w in feel_now
+                                          for w in ('swing', 'shuffle'))
+                                      and style_now not in ('straight',
+                                                            'funk'))
+                                     or style_now in ('swing', 'shuffle')
+                                     or (style_now in ('waltz', 'hiphop')
+                                         and 'swung' in traits_now))))
                     # "Swing 16ths" swings the half-beat — the 8-Bit
-                    # book's groove — and a flip between units re-emits
+                    # book's groove — and a flip between units re-emits.
+                    # Swung funk swings its sixteenths, which in half
+                    # time ARE the written eighths
                     unit16 = want and ('16' in feel_now
-                                       or 'sixteen' in feel_now)
+                                       or 'sixteen' in feel_now
+                                       or ((swung_funk
+                                            or style_now == 'hiphop')
+                                           and 'half' not in traits_now
+                                           and not re.search(
+                                               r'\b8ths?\b|eighth',
+                                               feel_now)))
                     if (want, unit16) != was_swing:
                         # spec-correct MusicXML (first:second = 2:1 is
                         # triplet swing): only chartaudio plays this
@@ -3303,6 +3367,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                      + ", ".join(f"{src_of.get(l, l)} ({n} bars)"
                                  for l, n in realized_bars.items())
                      + " — the pages keep their slashes")
+    if played_written:
+        findings.add("listen: under the slashes, the source's own notes "
+                     "play — "
+                     + "; ".join(f"{src_of.get(l, l)} in "
+                                 + ", ".join(dict.fromkeys(names))
+                                 for l, names in played_written.items())
+                     + " — only sections the source leaves empty are made "
+                     "up from the chords")
     for l in labels:
         p = os.path.join(outdir, f'{title} — {src_of.get(l, l)}.musicxml')
         with open(p, 'w', encoding='utf-8') as f:

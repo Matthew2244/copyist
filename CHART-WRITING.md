@@ -536,13 +536,35 @@ All of these ride on a `from demo` line, after commas:
   bass in half notes on 1 and 3, `ballad` holds long notes under a soft
   ride and brushes, `double time` doubles the walk and the ride,
   `half time` moves the backbeat to 3, `funk` brings sixteenth hats,
-  ghost notes and a syncopated bass (`1/2 time funk` does both), `bossa
+  ghost notes and a syncopated bass, and `1/2 time funk` does both,
+  with the hats in eighths so the half-time pulse still gets its
+  sixteenths. Funk is straight unless you say otherwise, even in a
+  swing tune. `swung funk` (or `swing funk`, `funk shuffle`) swings it:
+  the sixteenths at full time, and in `1/2 time swung funk` the
+  eighths, which is the half-time shuffle. `bossa
   nova` plays the bossa bass, clave and comping, `samba` the surdo bass
   and sixteenths, and `latin`, `afro-cuban`, `mambo`, `songo` or `salsa`
   the tumbao on the and of 2 and on 4, with cascara and clave.
-  `straight eighths`, `rock` and `pop` play a backbeat, and "straight"
-  said outright beats "swing". Any word it doesn't know still prints,
-  and the band plays straight time under it.
+  `shuffle` (or `blues shuffle`) plays the shuffle, not swing: hats on
+  every swung eighth, the snare ghosting the lets, the bass rocking
+  root-3-5-6 up and back down. `second line` (or `New Orleans`) plays
+  the parade snare and the sousaphone line, `reggae` or `one drop`
+  drops the kick and rim onto 3 and skanks the chords on 2 and 4,
+  `Motown` puts the snare on all four beats, and `hip hop` or `boom
+  bap` plays the kick off 1 and the and of 3 (`swung hip hop` or
+  `Dilla` swings its sixteenths). In 3/4, `waltz` is oom-pah-pah and
+  `jazz waltz` swings: ding, ding-ga ding on the ride, the bass
+  walking in three. `straight eighths`, `rock` and `pop` play a
+  backbeat, and "straight" said outright beats "swing". Any word it
+  doesn't know still prints, and the band plays straight time under it.
+- **Slashes on the page, the real part in the listen.** When the chart
+  lifts from a score (`source:`) and a rhythm player's line says
+  `groove`, the page prints slashes, but the listen plays what that
+  score writes for the player in those bars: the bass line, the drum
+  part, the voicings. Only a section the score leaves empty is made up
+  from the chords. An open solo section with nothing lifted in it is
+  placed by the sections on either side. The build's findings say
+  which parts played the score and where.
 - **The percussion section grooves too, each instrument its own way.**
   Congas, bongos, timbales, cowbell (or bell), claves, shaker, maracas,
   cabasa, tambourine, guiro, agogo, triangle and woodblock each play the

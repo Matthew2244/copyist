@@ -3762,6 +3762,140 @@ def check_note_off_wins():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_new_feels():
+    """Shuffle, second line, reggae, Motown, hip-hop and the waltz each
+    play their own drums, bass and comping (2026-09-28)."""
+    import chartgroove as g
+    for feel, style, n in (('blues shuffle', 'shuffle', 4),
+                           ('second line', 'secondline', 4),
+                           ('reggae one drop', 'reggae', 4),
+                           ('Motown', 'motown', 4),
+                           ('boom bap hip hop', 'hiphop', 4),
+                           ('jazz waltz', 'waltz', 3),
+                           ('waltz', 'waltz', 3)):
+        check(f"'{feel}' reads as {style}", g.style_of(feel)[0] == style,
+              g.style_of(feel))
+        bar = g.Bar(24, (n, 4), 0, 1)
+        got = g._new_style(feel, bar)
+        g._styled_drums(bar, 1, *got)
+        drums = len(bar.onsets)
+        notes = []
+
+        def put(at, ticks, midi, vel=None):
+            notes.append(midi)
+            return midi
+        c = ('C', 0, '7', None)
+        sec = {'bars': 2, 'content': [[(1, c)], [(1, ('F', 0, '7', None))]]}
+        g._styled_bass(g.Bar(24, (n, 4), 0, 1), {}, sec, 0, 1, [(1, c)],
+                       *got, put)
+        check(f"'{feel}' plays drums and a bass line",
+              drums >= n and len(notes) >= 1
+              and all(24 <= m <= 60 for m in notes), (drums, notes))
+    reg = g.Bar(24, (4, 4), 0, 1)
+    g._styled_drums(reg, 1, 'reggae', set())
+    check("one drop leaves beat 1 empty of kick",
+          not any(x[1] == g._KICK for x in reg.onsets.get(0, (0, []))[1]))
+
+
+def check_slashes_play_whats_written():
+    """Slashes on the page, the source's notes in the listen: a part
+    that prints `groove` plays what the source writes for it there,
+    and a section with no lifted part (an open solo) is placed by the
+    sections either side (Matthew, 2026-09-28: "keep the slashes, I'm
+    just saying extra notes was being played")."""
+    import chartc as _cc
+    tmp = tempfile.mkdtemp()
+
+    def part(pid, bars):
+        out = [f'<part id="{pid}">']
+        for i, notes in enumerate(bars):
+            out.append(f'<measure number="{i + 1}">')
+            if i == 0:
+                out.append('<attributes><divisions>2</divisions><key>'
+                           '<fifths>0</fifths></key><time><beats>4</beats>'
+                           '<beat-type>4</beat-type></time><clef><sign>F'
+                           '</sign><line>4</line></clef></attributes>')
+            for step in notes:
+                out.append('<note><rest/><duration>8</duration><type>whole'
+                           '</type></note>' if step == 'r' else
+                           f'<note><pitch><step>{step}</step><octave>2'
+                           '</octave></pitch><duration>2</duration><type>'
+                           'quarter</type></note>')
+            out.append('</measure>')
+        return ''.join(out) + '</part>'
+    bass = [['C', 'D', 'E', 'F'], ['G', 'A', 'B', 'C'], ['D', 'E', 'F', 'G'],
+            ['A', 'B', 'C', 'D'], ['E', 'F', 'G', 'A'], ['B', 'C', 'D', 'E']]
+    tpt = [['r'], ['r'], ['r'], ['r'], ['r'], ['r']]
+    src = ('<?xml version="1.0" encoding="UTF-8"?><score-partwise '
+           'version="3.1"><part-list><score-part id="P1"><part-name>Trumpet'
+           '</part-name></score-part><score-part id="P2"><part-name>Bass'
+           '</part-name></score-part></part-list>'
+           + part('P1', tpt) + part('P2', bass) + '</score-partwise>')
+    open(os.path.join(tmp, 'src.musicxml'), 'w').write(src)
+    c = os.path.join(tmp, 's.chart')
+    open(c, 'w').write(
+        'title: S\nkey: C\nmeter: 4/4\ntempo: 120\n'
+        'source: "src.musicxml"\n\nband:\n  trumpet\n  bass\n\n'
+        'section A, 2 bars\n  chords: C7 x2\n'
+        '  trumpet: as engraved bars 1-2\n  bass: groove\n\n'
+        'section B, 2 bars\n  chords: F7 x2\n  bass: groove\n'
+        '  trumpet: solo open\n\n'
+        'section C, 2 bars\n  chords: C7 x2\n'
+        '  trumpet: as engraved bars 5-6\n  bass: groove\n')
+    with redirect_stdout(io.StringIO()):
+        _cc.compile_chart(c, tmp)
+    import re
+    lx = open(os.path.join(tmp, 'S — for listening.musicxml'),
+              encoding='utf-8').read()
+    pb = re.findall(r'<part id="[^"]+">(.*?)</part>', lx, re.S)[1]
+    steps = ''.join(re.findall(r'<step>(\w)</step>', pb))
+    check("the listen plays the bass the source writes, solo included",
+          steps == 'CDEFGABCDEFGABCDEFGABCDE', steps)
+    pg = [f for f in os.listdir(tmp) if f.endswith('Bass.musicxml')]
+    page = open(os.path.join(tmp, pg[0]), encoding='utf-8').read() \
+        if pg else ''
+    check("while the bass page keeps its slashes",
+          'slash' in page, pg)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_swung_and_straight_funk():
+    """Swung funk is its own feel: the funk band with its subdivision
+    swung — the eighths in half time, the sixteenths at full time.
+    Plain funk stays straight, even in a swing tune (Matthew,
+    2026-09-28: "Matt's Blues is swung funk")."""
+    import chartgroove as g
+    import chartc as _cc
+    so = g.style_of
+    check("'1/2 Time Swung Funk' is half-time funk, swung",
+          so('1/2 Time Swung Funk') == ('funk', {'half', 'swung'}))
+    check("'funk shuffle' is swung funk",
+          so('funk shuffle') == ('funk', {'swung'}))
+    check("plain funk and straight funk are straight",
+          so('funk') == ('funk', set())
+          and so('straight funk') == ('funk', set()))
+    tmp = tempfile.mkdtemp()
+    for feel, want in (('1/2 Time Swung Funk', 'eighth'),
+                       ('Swung Funk', '16th'), ('Funk', None)):
+        c = os.path.join(tmp, 'f.chart')
+        open(c, 'w').write("title: F\nkey: Bb\nmeter: 4/4\ntempo: 200\n"
+                           "feel: swing\n\nband:\n  bass\n  drums\n\n"
+                           "section A, 4 bars\n  feel: " + feel + "\n"
+                           "  chords: Bb7 x4\n  rhythm: groove\n")
+        with redirect_stdout(io.StringIO()):
+            _cc.compile_chart(c, tmp)
+        lx = open(os.path.join(tmp, "F — for listening.musicxml"),
+                  encoding="utf-8").read()
+        import re
+        got = re.search(r"<swing-type>(\w+)</swing-type>", lx)
+        straight = '<straight/>' in lx or got is None
+        check(f"'{feel}' in a swing tune plays "
+              + (f"swung {want}s" if want else "straight"),
+              (got and got.group(1) == want) if want else straight,
+              got.group(1) if got else 'straight')
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_half_time_funk():
     """Half-time funk halves the hats with the pulse: eighths, not
     sixteenths, and the bass lays four notes down — sixteenths played
@@ -4595,6 +4729,9 @@ if __name__ == "__main__":
     check_note_off_wins()
     check_cc_gates()
     check_half_time_funk()
+    check_slashes_play_whats_written()
+    check_new_feels()
+    check_swung_and_straight_funk()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

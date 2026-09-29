@@ -279,7 +279,30 @@ def style_of(feel):
         traits.add('double')
     if 'ballad' in f:
         traits.add('ballad')
-    if 'bossa' in f:
+    # swung funk is its own feel, not swing: the funk band with its
+    # subdivision swung — Purdie's half-time shuffle, Matt's Blues'
+    # head (Matthew, 2026-09-28: "straight funk, swung funk ... Matt's
+    # Blues is swung funk"). Plain "funk" stays straight, even in a
+    # swing tune.
+    if 'funk' in f and re.search(r'\bswung\b|\bswing(?:ing)?\b|'
+                                 r'\bshuffle\b', f) and \
+            not re.search(r'\bstraight\b', f):
+        traits.add('swung')
+    if re.search(r'\bjazz waltz\b', f) or ('waltz' in f and _is_swing(f)):
+        traits.add('swung')
+    if 'waltz' in f:
+        style = 'waltz'
+    elif re.search(r'second[ -]?line|new orleans|nola\b', f):
+        style = 'secondline'
+    elif re.search(r'reggae|one[ -]?drop|rocksteady|ska\b', f):
+        style = 'reggae'
+    elif 'motown' in f:
+        style = 'motown'
+    elif re.search(r'hip[ -]?hop|boom[ -]?bap|\bdilla\b', f):
+        style = 'hiphop'
+        if re.search(r'\bswung\b|\bswing(?:ing)?\b|\bdilla\b', f):
+            traits.add('swung')
+    elif 'bossa' in f:
         style = 'bossa'
     elif 'samba' in f:
         style = 'samba'
@@ -290,6 +313,11 @@ def style_of(feel):
         style = 'funk'
     elif re.search(r'straight|even (?:8ths|eighths)|\brock\b|\bpop\b', f):
         style = 'straight'
+    elif re.search(r'\bshuffle\b', f) and not traits & {'two', 'ballad',
+                                                         'double'}:
+        # a shuffle is not swing: the triplet pattern on the hats and
+        # snare, the bass rocking root-3-5-6. Its eighths swing.
+        style = 'shuffle'
     elif _is_swing(f) or traits & {'two', 'ballad'}:
         style = 'swing'
     else:
@@ -301,10 +329,13 @@ def _new_style(feel, bar):
     """The styles this module learned 2026-09-28, in 2- and 4-beat
     quarter-note bars only; None leaves the original swing/straight
     reading (and its bytes) exactly as it was."""
+    style, traits = style_of(feel)
+    if style == 'waltz' and bar.den == 4 and bar.num == 3:
+        return style, traits
     if bar.den != 4 or bar.num not in (2, 4):
         return None
-    style, traits = style_of(feel)
-    if style in ('bossa', 'samba', 'latin', 'funk'):
+    if style in ('bossa', 'samba', 'latin', 'funk', 'shuffle',
+                 'secondline', 'reggae', 'motown', 'hiphop'):
         return style, traits
     if traits:
         return style, traits
@@ -465,6 +496,66 @@ def _styled_drums(bar, absbar, style, traits):
         clave = ([(2, .5, 74), (3, .5, 74)] if absbar % 2 else
                  [(1, .5, 74), (2.5, .5, 74), (4, .5, 74)])
         _pattern(bar, beat, clave, _XSTICK)
+        return
+    if style == 'waltz':
+        if 'swung' in traits:            # jazz waltz: ding, ding-ga ding
+            _pattern(bar, beat, [(1, 1, 72), (2, .5, 60), (2.5, .5, 54),
+                                 (3, 1, 64)], _RIDE)
+            _pattern(bar, beat, [(2, .5, 58), (3, .5, 50)], _HATF)
+            _pattern(bar, beat, [(1, .5, 30)], _KICK)
+            if absbar % 4 == 3:
+                _pattern(bar, beat, [(3.5, .5, 48)], _SNARE)
+        else:                            # oom-pah-pah
+            _pattern(bar, beat, [(1, .5, 80)], _KICK)
+            _pattern(bar, beat, [(2, .5, 60), (3, .5, 56)], _XSTICK)
+            _pattern(bar, beat, [(b, .5, 58) for b in (1, 2, 3)], _HAT)
+        return
+    if style == 'shuffle':
+        # the eighths swing in the listen; hats ride every one, the
+        # snare's ghost on each "let" and the backbeat on 2 and 4
+        _pattern(bar, beat, [(b, .5, 72 if b % 1 == 0 else 52)
+                             for b in eighths], _HAT)
+        _pattern(bar, beat, [(b, .5, 90) for b in back], _SNARE)
+        _pattern(bar, beat, [(b + .5, .5, 30) for b in range(1, n + 1)
+                             if b not in back], _SNARE)
+        _pattern(bar, beat, [(1, .5, 86), (3, .5, 80)]
+                 + ([(2.5, .5, 60)] if absbar % 2 else []), _KICK)
+        return
+    if style == 'secondline':
+        # the parade: snare rolling off the and of 1 into 2 and 4, the
+        # bass drum and its cymbal on the push beats
+        _pattern(bar, beat, [(1.5, .5, 68), (2, .5, 92), (2.75, .25, 46),
+                             (3.5, .5, 70), (4, .5, 92), (4.5, .5, 58),
+                             (4.75, .25, 50)], _SNARE)
+        kick = [(1, .5, 88), (2.5, .5, 72), (3, .5, 66), (4.5, .5, 74)]
+        _pattern(bar, beat, kick, _KICK)
+        _pattern(bar, beat, [(b, ln, v - 20) for b, ln, v in kick], _RIDE)
+        return
+    if style == 'reggae':
+        # one drop: nothing on 1, kick and rim together on 3
+        _pattern(bar, beat, [(b, .5, 62 if b % 1 == 0 else 44)
+                             for b in eighths], _HAT)
+        _pattern(bar, beat, [(3, .5, 90)], _KICK)
+        _pattern(bar, beat, [(3, .5, 86)], _XSTICK)
+        if absbar % 4 == 0:
+            _pattern(bar, beat, [(4.5, .5, 52)], _XSTICK)
+        return
+    if style == 'motown':
+        # the snare on all four, 2 and 4 on top; eighth hats
+        _pattern(bar, beat, [(b, .5, 64 if b % 1 == 0 else 46)
+                             for b in eighths], _HAT)
+        _pattern(bar, beat, [(b, .5, 92 if b in back else 64)
+                             for b in range(1, n + 1)], _SNARE)
+        _pattern(bar, beat, [(1, .5, 84), (2.5, .5, 58), (3, .5, 78),
+                             (4.5, .5, 56)], _KICK)
+        return
+    if style == 'hiphop':
+        # boom bap: the kick off 1, the and-a of 1, the and of 3
+        _pattern(bar, beat, [(b, .5, 66 if b % 1 == 0 else 48)
+                             for b in eighths], _HAT)
+        _pattern(bar, beat, [(b, .5, 96) for b in back], _SNARE)
+        _pattern(bar, beat, [(1, .5, 96), (1.75, .25, 70), (3.5, .5, 86)]
+                 + ([(4.75, .25, 60)] if absbar % 2 else []), _KICK)
         return
     # straight and funk, with half time and double time bending them.
     # Half time halves the hats too: sixteenths of the half-time pulse
@@ -753,6 +844,33 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
             return nxt + (1 if nxt <= prev else -1)
         return _near(root, prev)
 
+    if style == 'shuffle':
+        # the boogie: root, 3, 5, 6 up one bar, b7, 6, 5, 3 down the next
+        c = _chord_at(chords, 1)
+        root = _near(_bass_pc(c), prev)
+        if root > 43:
+            root -= 12
+        third = 3 if 3 in _tones(c) and 4 not in _tones(c) else 4
+        up = [0, third, 7, 9]
+        line = up if absbar % 2 else [10, 9, 7, third]
+        for i, iv in enumerate(line[:n]):
+            put(int(i * beat), beat - beat // 8, root + iv)
+        state['bass'] = root
+        return
+    if style == 'waltz':
+        if 'swung' in traits:            # walking in three
+            c = _chord_at(chords, 1)
+            ts = sorted({(_root_pc(c) + t) % 12 for t in _tones(c)})
+            got = put(0, beat - beat // 8, tone(1, 'r'))
+            prev = got
+            mid = _near(ts[(absbar % (len(ts) - 1)) + 1], prev)
+            prev = put(beat, beat - beat // 8, mid)
+            prev = put(2 * beat, beat - beat // 8, tone(3, 'appr'))
+        else:                            # the oom, on 1
+            prev = put(0, beat - beat // 8, tone(1, 'r' if absbar % 2
+                                               else 'f'))
+        state['bass'] = prev
+        return
     if style == 'swing' and 'double' in traits:
         for i in range(2 * n):           # walking in eighths
             b = 1 + i / 2
@@ -788,6 +906,15 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
         'latin': [(2.5, 1.5, 'f'), (4, 1, 'next')],
         'funk': [(1, .5, 'r'), (1.75, .25, 'r'), (2.5, .5, 'o'),
                  (3.5, .25, 'r'), (3.75, .25, 'r'), (4.5, .5, '7')],
+        # the sousaphone's parade line
+        'secondline': [(1, 1.5, 'r'), (2.5, .5, 'f'), (3, 1, 'f'),
+                       (4, .5, 'r'), (4.5, .5, 'appr')],
+        # one drop: the bass carries the tune, leaves room on 1
+        'reggae': [(1, 1.5, 'r', 84), (2.5, .5, 'r'), (3.5, .5, 'f'),
+                   (4, 1, '7')],
+        'motown': [(1, 1, 'r'), (2, .5, 'r'), (2.5, .5, 'f'), (3, 1, 'o'),
+                   (4, .5, 'f'), (4.5, .5, 'appr')],
+        'hiphop': [(1, .75, 'r', 92), (1.75, .25, 'r'), (3.5, 1, 'f')],
     }
     if 'half' in traits:
         # four notes, the way a player lays half time down: the root
@@ -919,6 +1046,12 @@ def _comp(bar, state, absbar, feel, chords, sound_id):
                       [(1.5, .5), (3, .5), (4.5, .5)]),
             'funk': [(1, .25), (1.75, .25), (2.5, .25), (3.75, .25),
                      (4.5, .25)],
+            'shuffle': [(2, .25), (4, .25)],
+            'secondline': [(1, .5), (2.5, .5), (3.5, .5)],
+            'reggae': [(2, .25), (4, .25)],          # the skank
+            'motown': [(2, .5), (4, .5)],
+            'waltz': ([(1, .5), (2.5, .5)] if 'swung' in traits else
+                      [(2, .5), (3, .5)]),
         }.get(style)
         if rhythm is None and ('ballad' in traits or 'half' in traits):
             rhythm = []                  # held chords, below
