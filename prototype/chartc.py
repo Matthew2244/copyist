@@ -936,6 +936,10 @@ def parse_chart(path):
         if m:
             cur['feel'] = m.group(1).strip()
             continue
+        m = re.match(r'ending:\s*(.+)$', s)
+        if m:
+            cur['ending'] = (m.group(1).strip(), loc)
+            continue
         m = re.match(r'chords:\s*(.+)$', s)
         if m:
             cur['content'] = parse_bars(m.group(1),
@@ -2735,6 +2739,45 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                   findings=None, meter=(4, 4), div_marks=None):
     demo_measures = demo_measures or {l: {} for l in labels}
     div_marks = div_marks or {}
+    # ---- the ending: words and a fermata on the pages, the whole
+    # performance in the listen (chartending)
+    import chartending
+    for i, pl in enumerate(plans):
+        got = pl['sec'].get('ending')
+        if not got:
+            continue
+        etext, eloc = got
+        if i != len(plans) - 1:
+            fail(f"{eloc}: an ending goes on the last section — "
+                 f"'{pl['sec']['name']}' is not the last")
+        try:
+            steps = chartending.parse(etext, labels)
+        except chartending.EndingError as e:
+            fail(f"{eloc}: {e}")
+        sh = chartending.shape(steps)
+        pl['ending'] = sh
+        nb = pl['sec']['bars']
+        players = [l for l in labels
+                   if pl['content'][l][0] not in ('tacet', 'default')
+                   or pl['overlays'].get(l)
+                   or (pl['content'][l][0] == 'default'
+                       and l in groups['rhythm'])]
+        said = chartending.words(steps)
+        players += [l for l in sh['noodle'] + sh['fill']
+                    if l and l not in players]
+        for l in set(players) | {labels[0]}:
+            if said:
+                pl['texts'][l].append((nb, said))
+            if sh['rit']:
+                pl['texts'][l].append((max(1, nb - 1), 'rit.'))
+            if sh['fade']:
+                pl['texts'][l].append((max(1, nb - 3), 'fade out'))
+        if sh['held'] and not any(b == nb and k == 'fermata'
+                                  for b, k, _ in pl['sec']['events']):
+            pl['sec']['events'].append((nb, 'fermata', ''))
+        if findings is not None:
+            findings.add("ending: " + (said or etext) + " — the listen "
+                         "plays it; the pages say it over the last bar")
     horn_of = horn_of or {}
     realized_bars = {}          # label -> listening bars the band realized
     meters = chart.get('meters') or [(1, meter)]
@@ -2785,6 +2828,57 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         not re.search(r'<notehead[^>]*>slash', note):
                     return True
         return False
+
+    # ---- a soloist's bar in the listen
+    def solo_bar(sound_id, clef, staves, fifths, sec, off, absbar, bmeter,
+                 div, horn, label, state, governing, plan):
+        """The page says solo and nothing was played in: the soloist
+        plays over the changes, in the listen only (Matthew,
+        2026-09-29). A drummer takes a drum solo; a pianist keeps
+        left-hand shells under the line."""
+        role = chartgroove.role_of(sound_id, clef)
+        bar = chartgroove.Bar(div, bmeter, fifths, staves,
+                              shift=horn['transpose'] if horn else 0)
+        feel = sec['feel'] or hdr.get('feel') or ''
+        # soloists named together take turns, in band order, the
+        # section split between them (a real band never blows at once)
+        who = [x['label'] for x in band if any(
+            isinstance(t[1], str) and t[1].lower().startswith('solo')
+            for t in plan['texts'].get(x['label'], ()))]
+        k = who.index(label) if label in who else 0
+        each = max(sec['bars'] // max(len(who), 1), 1)
+        lo_bar = k * each
+        hi_bar = sec['bars'] if k == len(who) - 1 else lo_bar + each
+        if not lo_bar <= off < hi_bar:
+            return None
+        pos, total = off - lo_bar, hi_bar - lo_bar
+        if role == 'drums':
+            chartgroove.drum_solo(bar, absbar, pos, total, label)
+            return bar.xml()
+        if role == 'perc':
+            return chartgroove.realize('groove', '', sound_id, clef,
+                                       staves, fifths, sec, off, absbar,
+                                       bmeter, div, feel, state,
+                                       governing)
+        chords = chartgroove._chords_in(sec, off, governing)
+        nxt = None
+        if off + 1 < sec['bars']:
+            nxt = next((c for _b, c in sec['content'][off + 1]
+                        if c is not None), None)
+        if role == 'bass':
+            lo, hi = 36, 62
+        elif role == 'comp':
+            lo, hi = (55, 79) if 'guitar' in sound_id else (62, 86)
+        elif horn:
+            lo, hi = horn['comf']
+            lo = max(lo, horn['fold'][0])
+        else:
+            lo, hi = 55, 79
+        chartgroove.improvise(bar, state, chords, nxt, feel, lo, hi,
+                              absbar, pos, total, label)
+        if role == 'comp' and 'guitar' not in sound_id:
+            chartgroove.comp_shells(bar, state, chords)
+        return bar.xml()
 
     # ---- emit one part's measures
     def part_measures(label, with_directions, with_harmony, listen=False,
@@ -3210,13 +3304,19 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                           '</attributes>\n')
                             resume_div = cur_div
                             cur_div = gdiv
-                        made = chartgroove.realize(
-                            'groove', arg, sound_id, clef, staves,
-                            fifths, sec, off, absbar, bmeter, gdiv,
-                            sec['feel'] or hdr.get('feel') or '',
-                            groove_state, active_chord[0],
-                            written_shift=horn['transpose']
-                            if horn else 0)
+                        if soloing:
+                            made = solo_bar(
+                                sound_id, clef, staves, fifths, sec,
+                                off, absbar, bmeter, gdiv, horn, label,
+                                groove_state, active_chord[0], plan)
+                        else:
+                            made = chartgroove.realize(
+                                'groove', arg, sound_id, clef, staves,
+                                fifths, sec, off, absbar, bmeter, gdiv,
+                                sec['feel'] or hdr.get('feel') or '',
+                                groove_state, active_chord[0],
+                                written_shift=horn['transpose']
+                                if horn else 0)
                         pieces.append(made or rest_bar(cur_div, staves,
                                                        bmeter))
                         if made:
@@ -3307,6 +3407,42 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 out.append((f'    <measure number="{absbar}">\n' + open_bl +
                             "".join(pieces) + barline + '    </measure>\n',
                             pure_rest, head_ok))
+
+        # ---- the ending, in the listen: the last bar held, whatever
+        # plays over it, and the hit on the cue
+        endsh = plans[-1].get('ending') if plans else None
+        if listen and endsh and out:
+            last_pl = plans[-1]
+            last_abs = last_pl['start'] + last_pl['sec']['bars'] - 1
+            kind_l = last_pl['content'][label][0]
+            realized = (kind_l in ('groove', 'hits')
+                        or (kind_l == 'default' and default_groove)) \
+                and last_abs not in demo_measures[label] \
+                and not last_pl['overlays'].get(label)
+            xml0 = out[-1][0]
+            got = chartending.listen_bars(
+                xml0, chartgroove.role_of(sound_id, clef), sound_id,
+                active_chord[0], meter_at(meters, last_abs),
+                horn['transpose'] if horn else 0, fifths, staves, endsh,
+                label, not realized, label)
+            if got:
+                body, extras = got
+                bl = re.search(r'<barline location="right">.*?</barline>\n?',
+                               xml0, re.S)
+                bl = bl.group(0) if bl else ''
+                if body is not None:
+                    head = re.match(r'\s*<measure number="\d+">\n', xml0)
+                    keep = re.findall(r'      <direction.*?</direction>\n',
+                                      xml0, re.S)
+                    out[-1] = (head.group(0) + ''.join(keep) + body
+                               + ('' if extras else bl)
+                               + '    </measure>\n', False, False)
+                elif extras and bl:
+                    out[-1] = (out[-1][0].replace(bl, ''), False, False)
+                for k, ex in enumerate(extras, 1):
+                    out.append((f'    <measure number="{last_abs + k}">\n'
+                                + ex + (bl if k == len(extras) else '')
+                                + '    </measure>\n', False, False))
 
         # ---- multirests, parts only: a stretch of waiting prints as one
         # bar carrying its count. Runs break naturally at anything a

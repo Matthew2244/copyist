@@ -573,6 +573,40 @@ All of these ride on a `from demo` line, after commas:
   walking in three. `straight eighths`, `rock` and `pop` play a
   backbeat, and "straight" said outright beats "swing". Any word it
   doesn't know still prints, and the band plays straight time under it.
+- **Solos play.** A line that says `solo` with nothing played in
+  for it gets a soloist in the listen: a line over the changes, chord
+  tones on the strong beats, scale steps and half-step approaches
+  between, two-bar phrases with room to breathe, building through the
+  solo. Soloists named in one section take turns in band order, the
+  section split between them. A pianist keeps left-hand shells under
+  the line; a drummer takes a drum solo. The page keeps its slashes and
+  the word, and a solo you played in from MIDI plays exactly as played.
+- **Words perform.** `rit.`, `rall.`, `slow down` (`molto` more,
+  `poco` less) slow the band from the word to the next `a tempo`,
+  tempo mark or the end; `accel.` speeds it up; `fade out` turns the
+  whole band down to nothing by the last note. They work on words
+  lifted from an engraving too.
+- **Endings play.** On the last section, `ending:` names the steps in
+  order, the way you'd call them:
+
+      ending: hold, drums fill, last hit on cue
+      ending: rit, hold, alto noodles over the last chord, last hit on cue
+      ending: trash can
+      ending: cold
+      ending: button
+      ending: fade
+
+  `hold` lands the band on the last chord and lets it ring (a written
+  part holds its own last note); `roll`, `drums fill`, `<part> fills`
+  and `<part> noodles` (or solos, plays over the last chord) play over
+  the hold, and a player the ending names comes in for it even if they
+  were resting; `last hit` (`on cue`) is one short hit together after
+  the hold; `button` is that hit straight after the last bar; `cold`
+  stops dead on the last downbeat; `trash can` is everything at once,
+  loud, until the hit. The pages print the steps in words over the last
+  bar of every part that plays there, with a fermata when the band
+  holds. Words for anyone else go on as usual: `horns: text "watch me"
+  at bar 12`.
 - **Slashes on the page, the real part in the listen.** When the chart
   lifts from a score (`source:`) and a rhythm player's line says
   `groove`, the page prints slashes, but the listen plays what that

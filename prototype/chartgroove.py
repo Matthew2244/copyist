@@ -1145,3 +1145,231 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         _comp(bar, state, absbar, feel, chords, sound_id)
     state['hits'] = None
     return bar.xml()
+
+
+# ------------------------------------------------------------ the solo
+
+# A chart that says "solo" used to leave the soloist silent in the
+# listen: notation software's silence, the gap Matthew named
+# (2026-09-29). The soloist plays now, over the changes, in the
+# listening document only; the page keeps its slashes and the word.
+# Deterministic like every other realized bar: the notes come from the
+# bar number and the player's name, never a dice roll.
+
+def _scale(chord):
+    """The chord-scale a player reaches for, as semitones above the
+    root."""
+    q = (chord[2] if chord else '') or 'maj'
+    if q in ('m7b5', 'm9b5'):
+        return (0, 1, 3, 5, 6, 8, 10)
+    if q.startswith('dim'):
+        return (0, 2, 3, 5, 6, 8, 9, 11)
+    if q in ('aug', 'maj7#5', 'm#5'):
+        return (0, 2, 4, 6, 8, 10)
+    if q in ('mmaj7', 'mmaj9'):
+        return (0, 2, 3, 5, 7, 9, 11)
+    if q.startswith('m') and not q.startswith('maj'):
+        return (0, 2, 3, 5, 7, 8, 10) if q == 'mb6' else \
+            (0, 2, 3, 5, 7, 9, 10)
+    if q == 'alt' or any(t in q for t in ('b9', '#9', 'b13', '#5')) \
+            and q[0].isdigit():
+        return (0, 1, 3, 4, 6, 8, 10)
+    if q[0].isdigit() and '#11' in q:
+        return (0, 2, 4, 6, 7, 9, 10)
+    if q[0].isdigit() or 'sus' in q:
+        return (0, 2, 4, 5, 7, 9, 10)
+    if '#11' in q:
+        return (0, 2, 4, 6, 7, 9, 11)
+    if q == '5':
+        return (0, 3, 5, 7, 10)
+    return (0, 2, 4, 5, 7, 9, 11)
+
+
+class _Dice:
+    """A seeded LCG: the same bar and player always roll the same."""
+    def __init__(self, *seed):
+        import zlib
+        self.s = zlib.crc32(repr(seed).encode()) or 1
+
+    def __call__(self):
+        self.s = (self.s * 1103515245 + 12345) & 0x7fffffff
+        return self.s / 0x7fffffff
+
+
+def _pcs_near(pcs, anchor, lo, hi):
+    """Every pitch of these pitch classes inside lo..hi, nearest to the
+    anchor first."""
+    got = [m for m in range(lo, hi + 1) if m % 12 in pcs]
+    return sorted(got, key=lambda m: (abs(m - anchor), m)) or [anchor]
+
+
+def improvise(bar, state, chords, next_chord, feel, lo, hi, absbar,
+              pos, total, seed, mode='solo'):
+    """One bar of a soloist over these chords. pos/total place the bar
+    in its solo, so the line breathes in two-bar phrases and builds
+    through the solo; 'noodle' is the quiet version, a few notes in the
+    gaps, for fills and noodling over a held chord."""
+    import math
+    beat = bar.div * 4 // bar.den
+    half = beat // 2
+    n = bar.num if bar.den == 4 else max(bar.num // 2, 1)
+    if bar.den == 8:
+        beat = 3 * (bar.div // 2)
+        half = beat // 3
+    d = _Dice(seed, absbar)
+    x = (pos + 0.5) / max(total, 1)
+    heat = 0.3 + 0.55 * math.sin(math.pi * min(x, 1.0)) ** 0.8
+    if mode == 'noodle':
+        heat *= 0.45
+    style, traits = style_of(feel)
+    sixteenths = style in ('funk', 'samba', 'hiphop') and heat > 0.55 \
+        and bar.den == 4
+    center = lo + (hi - lo) * (0.35 + 0.35 * heat)
+    last = state.get('sol_last') or int(center)
+    direction = state.get('sol_dir', 1)
+    phrase_bar = pos % 2
+    # where this bar plays: the first bar of a phrase from beat 1 (or a
+    # pickup), the second until its line lands; noodling only answers
+    if mode == 'noodle':
+        if phrase_bar == 0 and d() < 0.6:
+            return
+        start = int(n * 0.5) + (1 if d() < 0.5 else 0)
+        stop = n
+    elif phrase_bar == 0:
+        start = 0 if d() < 0.7 else 1
+        stop = n
+    else:
+        start = 0
+        stop = max(2, int(round(n * (0.55 + 0.3 * heat))))
+    base_vel = 58 if mode == 'noodle' else int(70 + 22 * heat)
+    slots = []
+    for b in range(start, min(stop, n)):
+        t0 = b * beat
+        r = d()
+        if bar.den == 8:
+            cell = [(0, half), (half, half), (2 * half, half)] if \
+                r < heat else [(0, beat)]
+        elif sixteenths and r < heat * 0.6:
+            q = beat // 4
+            cell = [(i * q, q) for i in range(4)]
+        elif style == 'swing' and r < heat * 0.25:
+            t = beat // 3
+            cell = [(0, t), (t, t), (2 * t, t)]
+        elif r < 0.25 + heat * 0.6:
+            cell = [(0, half), (half, half)]
+        elif r < 0.25 + heat * 0.75:
+            cell = [(half, half)]           # an anticipation
+        else:
+            cell = [(0, beat)]
+        slots += [(t0 + a, ln) for a, ln in cell]
+    if not slots:
+        return
+    # the phrase's last note lands long, on a chord tone
+    ends_phrase = mode == 'noodle' or phrase_bar == 1 or stop < n
+    for i, (tick, ln) in enumerate(slots):
+        c = _chord_at(chords, tick / beat + 1) or (chords[0][1]
+                                                   if chords else None)
+        if c is None:
+            continue
+        root = _root_pc(c)
+        tones = {(root + t) % 12 for t in _tones(c)}
+        scale = {(root + t) % 12 for t in _scale(c)}
+        strong = tick % beat == 0 and (tick // beat) % 2 == 0
+        final = i == len(slots) - 1
+        if last > hi - 3:
+            direction = -1
+        elif last < lo + 3:
+            direction = 1
+        elif d() < 0.18:
+            direction = -direction
+        if final and not ends_phrase and next_chord is not None:
+            # lead into the next bar's chord from a half step away
+            nroot = _root_pc(next_chord)
+            target = _pcs_near({(nroot + t) % 12 for t in
+                                _tones(next_chord)[1:3]},
+                               last + direction, lo, hi)[0]
+            m = target - direction
+        elif strong or final:
+            ahead = [p for p in _pcs_near(tones, last + 2 * direction,
+                                          lo, hi)
+                     if (p - last) * direction > 0] or \
+                _pcs_near(tones, last, lo, hi)
+            m = ahead[0]
+        elif d() < 0.12 + 0.2 * heat:
+            # a leap up the chord, the arpeggio
+            ahead = [p for p in _pcs_near(tones, last + 4 * direction,
+                                          lo, hi)
+                     if (p - last) * direction >= 3]
+            m = ahead[0] if ahead else last
+        else:
+            ahead = [p for p in range(last + direction,
+                                      last + 3 * direction, direction)
+                     if p % 12 in scale and lo <= p <= hi]
+            m = ahead[0] if ahead else last - direction
+        m = min(max(m, lo), hi)
+        if final and ends_phrase:
+            ln = max(ln, min(beat * 2, bar.barlen - tick))
+        vel = base_vel + (6 if tick % beat and style in (
+            'swing', 'shuffle') else 0) + int((d() - 0.5) * 10)
+        if final and ends_phrase:
+            vel -= 4
+        bar.add(tick, ln, ('p', m, max(30, min(vel, 118))))
+        last = m
+    state['sol_last'] = last
+    state['sol_dir'] = direction
+
+
+def comp_shells(bar, state, chords):
+    """A pianist soloing still comps under the line: left-hand guide
+    tones on the chord changes."""
+    beat = bar.div * 4 // bar.den
+    for b, c in chords:
+        if c is None:
+            continue
+        root = _root_pc(c)
+        g = _guide(c)
+        anchor = state.get('shell', 53)
+        for pc in g[:2]:
+            m = _near(pc, anchor)
+            m = min(max(m, 45), 62)
+            bar.add(int(round((b - 1) * beat)), beat * 2, ('p', m, 58))
+        state['shell'] = _near(g[0], anchor)
+
+
+def drum_solo(bar, absbar, pos, total, seed):
+    """A drummer's solo chorus: two-bar phrases of snare and tom
+    figures over the kick, the hat foot keeping 2 and 4, a crash where
+    each four-bar phrase starts."""
+    import math
+    beat = bar.div * 4 // bar.den
+    q = beat // 4
+    n = bar.num
+    d = _Dice(seed, 'drums', absbar)
+    heat = 0.4 + 0.5 * math.sin(math.pi * min((pos + 0.5) /
+                                              max(total, 1), 1.0))
+    toms = [('E', 5, 'normal'), ('D', 5, 'normal'), ('A', 4, 'normal')]
+    if pos % 4 == 0:
+        bar.add(0, beat, ('u', _CRASH, 100))
+        bar.add(0, beat, ('u', _KICK, 96))
+    for b in range(n):
+        if b % 2 == 1:
+            bar.add(b * beat, beat // 2, ('u', _HATF, 60))
+    fill_bar = pos % 2 == 1
+    for b in range(n):
+        if b == 0 and pos % 4 == 0:
+            continue
+        r = d()
+        dense = fill_bar and b >= n - 2 or r < heat * 0.5
+        step = q if dense and r < heat else 2 * q
+        for k in range(0, beat, step):
+            t = b * beat + k
+            if fill_bar and b >= n - 2:
+                drum = toms[min(int((t - (n - 2) * beat) /
+                                    (2 * beat / 3)), 2)]
+            else:
+                drum = _SNARE if d() < 0.6 else toms[int(d() * 3) % 3]
+            vel = 70 + int(30 * heat) - (18 if k else 0) + \
+                int((d() - 0.5) * 12)
+            bar.add(t, step, ('u', drum, max(30, min(vel, 120))))
+        if b % 2 == 0 and d() < 0.7:
+            bar.add(b * beat, beat // 2, ('u', _KICK, 84))

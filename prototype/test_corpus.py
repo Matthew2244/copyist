@@ -4859,6 +4859,79 @@ def check_words_perform():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_solos_and_endings():
+    """The page says solo and nothing was played in: the soloist plays
+    over the changes in the listen, soloists named together take turns,
+    a played-in solo still wins. An ending line performs: hold, fills,
+    noodling over the last chord, the hit on the cue, cold, button,
+    trash can (Matthew, 2026-09-29)."""
+    import re as _re
+    import chartaudio
+    import chartc
+    import chartending
+    st = chartending.parse("hold, drums fill, last hit on cue",
+                           ["drums", "tenor"])
+    check("ending steps read in order, the cue on the hit",
+          st == [("hold", None), ("fill", "drums"), ("hit", "cue")])
+    try:
+        chartending.parse("hold, kazoo solo", ["drums"])
+        bad = None
+    except chartending.EndingError as e:
+        bad = str(e)
+    check("an unknown ending step is named", bad and "kazoo" in bad)
+    tmp = tempfile.mkdtemp()
+
+    def build(sections):
+        open(os.path.join(tmp, "t.chart"), "w").write(
+            "title: T\nkey: F\nmeter: 4/4\ntempo: 120\n\nband:\n"
+            "  tenor = tenor sax\n  trumpet\n  piano\n  bass\n"
+            "  drums\n\nfigure mel, 4 bars:\n"
+            "  notes: F4 w, G4 w, A4 w, F4 w\n\n" + sections)
+        out = os.path.join(tmp, "b")
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(os.path.join(tmp, "t.chart"), out)
+        return out, chartaudio.parse_score(
+            os.path.join(out, "T — for listening.musicxml"))
+    out, pl = build("section A, 8 bars\n  chords: F, Bb7, F, C7, "
+                    "F, Bb7, C7, F\n  tenor: solo\n  trumpet: solo\n")
+    ev = {p["name"]: p["events"] for p in pl["parts"]}
+    check("soloists play over the changes, taking turns",
+          ev["tenor"] and ev["trumpet"]
+          and max(e[0] for e in ev["tenor"]) < 16
+          and min(e[0] for e in ev["trumpet"]) >= 16)
+    tpage = open(os.path.join(out, "T — tenor.musicxml")).read()
+    check("the page keeps its slashes and the word",
+          "slash" in tpage and ">Solo<" in tpage)
+    out, pl = build("section A, 4 bars\n  chords: F, Bb7, C7, F\n"
+                    "  tenor: figure mel\n  ending: hold, trumpet "
+                    "noodles, drums fill, last hit on cue\n")
+    ev = {p["name"]: p["events"] for p in pl["parts"]}
+    tp = open(os.path.join(out, "T — tenor.musicxml")).read()
+    check("the hold rings two bars past the last, the hit after it",
+          abs(pl["end_q"] - 28.0) < 0.01
+          and any(abs(e[0] - 24.0) < 0.01 for e in ev["drums"]))
+    check("the tenor holds its own written last note",
+          any(e[2] == 65 and e[1] >= 11 for e in ev["tenor"]))
+    check("a player the ending names comes in for it",
+          any(e[0] > 12.5 for e in ev["trumpet"]))
+    check("the page says the ending and holds",
+          "last hit on cue" in tp and "<fermata" in tp)
+    out, pl = build("section A, 4 bars\n  chords: F, Bb7, C7, F\n"
+                    "  ending: cold\n")
+    check("cold: one hit on the last downbeat",
+          all(e[0] <= 12.0 + 1e-6 for p in pl["parts"]
+              for e in p["events"] if e[0] >= 12))
+    try:
+        build("section A, 4 bars\n  chords: F, Bb7, C7, F\n"
+              "  ending: cold\nsection B, 4 bars\n  chords: F x4\n")
+        wrong = None
+    except SystemExit as e:
+        wrong = str(e.code)
+    check("an ending must sit on the last section",
+          wrong and "last section" in wrong)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -4915,6 +4988,7 @@ if __name__ == "__main__":
     check_double_an_octave_off()
     check_head_out_plays_the_head()
     check_words_perform()
+    check_solos_and_endings()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()
