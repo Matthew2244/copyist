@@ -162,6 +162,7 @@ class Bar:
     def _one(self, note, ticks, chorded):
         kind, what, vel = note[:3]
         arts = note[3] if len(note) > 3 else ()
+        ties = note[4] if len(note) > 4 else ()
         t, dot = self._type_of(ticks)
         out = ['      <note%s>' % (f' dynamics="{vel}"' if vel else '')]
         if chorded:
@@ -182,6 +183,8 @@ class Bar:
                        + (f'<alter>{al}</alter>' if al else '')
                        + f'<octave>{what // 12 - 1}</octave></pitch>')
         out.append(f'        <duration>{ticks}</duration>')
+        for tt in ties:                  # a long note over the barline
+            out.append(f'        <tie type="{tt}"/>')
         out.append('        <voice>1</voice>')
         out.append(f'        <type>{t}</type>')
         if dot:
@@ -1010,14 +1013,44 @@ _COMP_RHYTHMS = (
 )
 
 
-def _comp(bar, state, absbar, feel, chords, sound_id):
+def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
     if not chords:
         return
     beat = bar.div * 4 // bar.den
     anchor = state.get('comp', 62)
     s = (sound_id or '').lower()
+    # the tune's arc: early on the comping says less (two-note shells,
+    # a hit left out now and then), later it opens into rootless
+    # voicings with the extensions (Matthew, 2026-09-29: "don't put
+    # everything in all at once ... same for the comping")
+    heat = 0.6 if heat is None else heat
+    d = _Dice(sound_id, absbar, 'comp')
 
     def voicing(c, guides_only=False):
+        if not guides_only:
+            root = _root_pc(c)
+            iv = _tones(c)
+            third = next((i for i in iv if i % 12 in (3, 4)), None)
+            sev = next((i for i in iv if i % 12 in (9, 10, 11)), None)
+            pcs = [(root + i) % 12 for i in (third, sev) if i is not None]
+            size = 2 if heat < 0.45 else 3 if heat < 0.72 else 4
+            if 'guitar' in s:
+                size = min(size, 3)
+            for extra in list(_colors(c)) + [7]:
+                if len(pcs) >= size:
+                    break
+                pc = (root + extra) % 12
+                if pc not in pcs:
+                    pcs.append(pc)
+            if len(pcs) < 2:
+                pcs = _guide(c)
+            v = sorted(_near(pc, anchor) for pc in pcs)
+            # no half-step rub at the bottom of the hand
+            if len(v) > 1 and v[1] - v[0] == 1:
+                v[1] += 12
+                v.sort()
+            state['comp'] = sum(v) // len(v)
+            return v
         pcs = _guide(c)
         if guides_only:
             # two notes a guitar can ring four to the bar: the 3rd and
@@ -1031,7 +1064,12 @@ def _comp(bar, state, absbar, feel, chords, sound_id):
         state['comp'] = sum(v) // len(v)
         return v
 
-    def put(at, ticks, notes, vel=None):
+    def put(at, ticks, notes, vel=None, may_rest=True):
+        # a comper early in the tune leaves space: some hits go unplayed
+        if may_rest and d() < max(0.0, 0.5 - heat) * 0.8:
+            return
+        if vel is not None:
+            vel = int(vel * (0.85 + 0.25 * heat))
         for n in notes:
             bar.add(at, ticks, ('p', n, vel))
 
@@ -1071,20 +1109,22 @@ def _comp(bar, state, absbar, feel, chords, sound_id):
                 put(int(round((b - 1) * beat)),
                     max(1, int(round(ln * beat))),
                     voicing(_chord_at(chords, b)),
-                    vel=80 if style == 'funk' else 70)
+                    vel=80 if style == 'funk' else 70,
+                    may_rest=style == 'swing')   # an ostinato IS the groove
             return
         marks = sorted({max(1.0, b) for b, c in chords})
         for i, b in enumerate(marks):
             at = int(round((b - 1) * beat))
             end = int(round((marks[i + 1] - 1) * beat)) \
                 if i + 1 < len(marks) else bar.barlen
-            put(at, end - at, voicing(_chord_at(chords, b)), vel=58)
+            put(at, end - at, voicing(_chord_at(chords, b)), vel=58,
+                may_rest=False)
         return
     if 'guitar' in s and _is_swing(feel) and bar.den == 4:
         for b in range(bar.num):
             put(b * beat, beat,
                 voicing(_chord_at(chords, b + 1.0), guides_only=True),
-                vel=76 if b % 2 else 66)
+                vel=76 if b % 2 else 66, may_rest=False)
         return
     if 'organ' in s or not _is_swing(feel):
         marks = sorted({max(1.0, b) for b, c in chords})
@@ -1092,7 +1132,8 @@ def _comp(bar, state, absbar, feel, chords, sound_id):
             at = int(round((b - 1) * beat))
             end = int(round((marks[i + 1] - 1) * beat)) \
                 if i + 1 < len(marks) else bar.barlen
-            put(at, end - at, voicing(_chord_at(chords, b)))
+            put(at, end - at, voicing(_chord_at(chords, b)),
+                may_rest=False)
         return
     for b, ticks_beats in _COMP_RHYTHMS[absbar % len(_COMP_RHYTHMS)]:
         if b > bar.num:
@@ -1141,16 +1182,48 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         _horn_hits(bar, state, chords, state['hits'], bmeter)
         state['hits'] = None
         return bar.xml() if bar.onsets else None
+    heat = _heat(sec, off)
     if role == 'perc':
         _perc(bar, absbar, feel, sound_id, state['hits'])
     elif role == 'drums':
         _drums(bar, absbar, feel, state['hits'])
+        if state['hits'] is None:
+            _drummer_marks(bar, sec, off, absbar, heat)
     elif role == 'bass':
         _bass(bar, state, sec, off, absbar, feel, chords)
     else:
-        _comp(bar, state, absbar, feel, chords, sound_id)
+        _comp(bar, state, absbar, feel, chords, sound_id, heat)
     state['hits'] = None
     return bar.xml()
+
+
+def _heat(sec, off):
+    """How far the tune has built, 0 to 1: where this section sits in
+    the tune, plus a little across the section itself."""
+    arc = sec.get('_arc', 0.5)
+    return min(1.0, 0.3 + 0.55 * arc + 0.12 * off / max(sec['bars'], 1))
+
+
+def _drummer_marks(bar, sec, off, absbar, heat):
+    """What a drummer does with the form: a crash where a new section
+    starts, and now and then a short fill into the next phrase — more
+    as the tune builds, never every time."""
+    beat = bar.div * 4 // bar.den
+    d = _Dice('marks', absbar)
+    if off == 0 and sec.get('_arc', 0) > 0:
+        bar.add(0, beat, ('u', _CRASH, int(80 + 25 * heat)))
+    phrase_end = (off + 1) % 8 == 0 or off == sec['bars'] - 1
+    if phrase_end and bar.num >= 3 and d() < 0.25 + 0.45 * heat:
+        start = (bar.num - (2 if heat > 0.7 and d() < 0.5 else 1)) * beat
+        toms = [_SNARE, ('E', 5, 'normal'), ('D', 5, 'normal'),
+                ('A', 4, 'normal')]
+        step = beat // 4
+        n = (bar.barlen - start) // step
+        for i in range(n):
+            if d() < 0.15:
+                continue
+            bar.add(start + i * step, step,
+                    ('u', toms[min(i * 4 // n, 3)], int(62 + 38 * i / n)))
 
 
 # ------------------------------------------------------------ the solo
@@ -1430,3 +1503,269 @@ def backgrounds(bar, state, chords, voice, voices, lo, hi, style, off,
                                                 'riff' else 0)),
                 ('p', m, vel))
         state['bg_last'] = m
+
+
+# ------------------------------------------------- the solo as a story
+
+# Matthew, 2026-09-29: "for soloing, tell a story... don't put
+# everything in all at once... you got extensions with those chords...
+# think from every instrument's and singer's point of view." So a solo
+# is planned whole before its first note: a motif stated with space
+# around it, developed (answered, sequenced, displaced), built to a
+# peak (higher, busier, a riff, a run), then brought home to a long
+# last note. Phrases cross barlines and breathe; a horn or a singer
+# never plays longer than a breath; the color tones arrive as it
+# develops.
+
+def _colors(chord):
+    """The extensions a player reaches for over this chord, as
+    semitones above the root."""
+    q = (chord[2] if chord else '') or 'maj'
+    if q in ('m7b5', 'm9b5'):
+        return (5, 8)                    # 11, b13
+    if q.startswith('dim'):
+        return (2, 5, 11)
+    if q.startswith('m') and not q.startswith('maj'):
+        return (2, 5)                    # 9, 11
+    if q == 'alt' or any(t in q for t in ('b9', '#9', 'b13', '#5')) \
+            and q[0].isdigit():
+        return (1, 3, 8)                 # b9, #9, b13
+    if q[0].isdigit() or 'sus' in q:
+        return (2, 9) + ((6,) if '#11' in q else ())   # 9, 13
+    return (2, 6, 9)                     # maj: 9, #11, 13
+
+
+_VOICES = {
+    # most beats a phrase may run, runs allowed, eighth-line density
+    'horn': (10, True, 0.85), 'voice': (7, False, 0.6),
+    'keys': (16, True, 1.0), 'guitar': (12, True, 0.9),
+    'bass': (8, False, 0.55),
+}
+
+
+def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
+              voice='horn'):
+    """The whole solo, before its first note: [(beat, length, midi,
+    velocity)], beats counted from the solo's first downbeat.
+    chord_fn(beat) is the chord sounding there."""
+    d = _Dice(seed, 'story')
+    max_len, runs_ok, dens = _VOICES.get(voice, _VOICES['horn'])
+    style, traits = style_of(feel)
+    swingy = style in ('swing', 'shuffle', 'waltz') or 'swung' in traits
+    total = total_bars * bar_beats
+    notes = []
+    # the motif: three to five notes inside two beats, a shape in scale
+    # steps the rest of the solo keeps coming back to
+    n_mot = 3 + int(d() * 3)
+    cells = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+    onsets = sorted(set([0.0] + [cells[1 + int(d() * 4)]
+                                 for _ in range(n_mot - 1)]))
+    shape = [0] + [int(d() * 5) - 2 or 1 for _ in onsets[1:]]
+    motif = list(zip(onsets, shape))
+    cur = int(lo + (hi - lo) * 0.4)
+
+    def act(t):
+        x = t / max(total, 1)
+        return ('state' if x < 0.3 else 'develop' if x < 0.72 else
+                'peak' if x < 0.9 else 'home')
+
+    def scale_move(p, steps, c):
+        root = _root_pc(c)
+        sc = sorted({(root + i) % 12 for i in _scale(c)})
+        m, left = p, abs(steps)
+        dirn = 1 if steps > 0 else -1
+        while left:
+            m += dirn
+            if m % 12 in sc:
+                left -= 1
+        return m
+
+    def snap(p, c, pool):
+        root = _root_pc(c)
+        pcs = {(root + i) % 12 for i in pool}
+        cands = [m for m in range(p - 6, p + 7) if m % 12 in pcs]
+        return min(cands, key=lambda m: (abs(m - p), m)) if cands else p
+
+    def bounds(a):
+        top = hi if a == 'peak' else hi - (hi - lo) // 5
+        bot = lo + (hi - lo) // 6 if a == 'state' else lo
+        return bot, top
+
+    def fit(p, a):
+        bot, top = bounds(a)
+        while p > top:
+            p -= 12
+        while p < bot:
+            p += 12
+        return p
+
+    def vel(a):
+        return {'state': 72, 'develop': 80, 'peak': 92, 'home': 72}[a]
+
+    t = 0.5 if d() < 0.5 else 0.0            # sometimes a pickup in
+    last_kind = None
+    told = 0                                 # phrases so far in act one
+    while t < total - 0.5:
+        a = act(t)
+        if a == 'state':
+            # state it, answer it, lift it, stretch it
+            kind = ['motif', 'answer', 'lifted', 'stretched'][told % 4]
+            told += 1
+            length = min(bar_beats * (1 + 0.5 * d()), max_len)
+            rest = bar_beats * (1.0 + 0.8 * d())
+        elif a == 'develop':
+            kind = ['sequence', 'line', 'displaced', 'line'][
+                int(d() * 4) % 4]
+            length = min(bar_beats * (1.5 + d()), max_len)
+            rest = bar_beats * (0.4 + 0.6 * d())
+        elif a == 'peak':
+            kind = ['riff', 'line', 'run'][int(d() * 3) % 3]
+            if kind == 'run' and not runs_ok:
+                kind = 'line'
+            length = min(bar_beats * (2 + d()), max_len)
+            rest = bar_beats * (0.25 + 0.35 * d())
+        else:
+            kind = 'home'
+            length = total - t
+            rest = 0
+        length = max(1.0, min(length, total - t))
+        # each act has its register, chosen, not drifted into
+        aim = lo + (hi - lo) * {'state': 0.45, 'develop': 0.55,
+                                'peak': 0.78, 'home': 0.5}[a]
+        cur = int(round(cur + (aim - cur) * 0.6))
+        c0 = chord_fn(t)
+        if c0 is None:
+            t += length + rest
+            continue
+        v = vel(a)
+        if kind in ('motif', 'answer', 'displaced', 'sequence', 'lifted',
+                    'stretched'):
+            reps = 3 if kind == 'sequence' else 1
+            shift = 0.5 if kind == 'displaced' else 0.0
+            flip = -1 if kind == 'answer' else 1
+            p = fit(snap(cur, c0, _tones(c0)), a)
+            if kind == 'lifted':
+                p = fit(snap(scale_move(p, 2, c0), c0, _tones(c0)), a)
+            for r in range(reps):
+                base = t + r * 2.0 + shift
+                if base >= t + length:
+                    break
+                q = p
+                for i, (on, stp) in enumerate(motif):
+                    at = base + on
+                    if at >= min(t + length, total):
+                        break
+                    c = chord_fn(at) or c0
+                    q = fit(scale_move(q, stp * flip, c) if i else q, a)
+                    if at % 1 == 0 and a != 'state':
+                        q = snap(q, c, _tones(c) + _colors(c))
+                    nxt = motif[i + 1][0] if i + 1 < len(motif) else 2.0
+                    notes.append((at, (nxt - on) * 0.9, q, v))
+                # a sequence climbs a step each time round
+                p = fit(scale_move(p, 1, chord_fn(base + 2.0) or c0), a)
+            if kind == 'stretched':
+                # the idea again, then it keeps talking: a short tail
+                tail = t + motif[-1][0] + 0.5
+                for i in range(3):
+                    at = tail + 0.5 * i
+                    if at >= min(t + length, total):
+                        break
+                    c = chord_fn(at) or c0
+                    q = fit(scale_move(q, -1 if i < 2 else 2, c), a)
+                    notes.append((at, 0.45 if i < 2 else 1.2, q, v))
+            cur = q
+        elif kind == 'line':
+            step = 0.5
+            n = int(length / step * dens) or 1
+            q = fit(snap(cur, c0, _tones(c0)), a)
+            dirn = 1 if q < (lo + hi) / 2 else -1
+            for i in range(n):
+                at = t + i * step
+                c = chord_fn(at) or c0
+                bot, top = bounds(a)
+                nq = scale_move(q, dirn, c)
+                if not bot <= nq <= top:
+                    # a player turns the line around at the edge of the
+                    # horn, never jumps an octave to stay inside it
+                    dirn = -dirn
+                    nq = scale_move(q, dirn, c)
+                if at % 1 == 0:
+                    pool = _tones(c) + (_colors(c) if a != 'state' else ())
+                    nq = snap(nq, c, pool)
+                q = nq
+                if d() < 0.15:
+                    dirn = -dirn
+                notes.append((at, step * 0.95, q, v + (4 if at % 1 else 0)
+                              if swingy else v))
+            cur = q
+        elif kind == 'riff':
+            c = c0
+            root = _root_pc(c)
+            top = fit(snap(cur + 5, c, _tones(c)), a)
+            cell = [(0.0, top), (0.5, scale_move(top, -1, c)),
+                    (1.0, snap(top - 3, c, _tones(c)))]
+            for r in range(3):
+                for on, q in cell:
+                    at = t + r * 2.0 + on
+                    if at < min(t + length, total):
+                        notes.append((at, 0.45, q, v + 4))
+            cur = top
+        elif kind == 'run':
+            step = 1 / 3 if swingy else 0.25
+            n = int(min(length, 2.0) / step)
+            bot, top = bounds(a)
+            # the run climbs to the top of the horn from wherever it
+            # has room to start
+            q = max(bot, min(cur - 5, top - 2 * n))
+            for i in range(n):
+                at = t + i * step
+                c = chord_fn(at) or c0
+                q = min(scale_move(q, 1, c), top)
+                notes.append((at, step * 0.9, q, v + int(8 * i / n)))
+            land = t + n * step
+            if land < total:
+                c = chord_fn(land) or c0
+                notes.append((land, 1.5, snap(q, c, _tones(c)), v + 6))
+            cur = q
+        else:                                    # home
+            p = fit(snap(cur, c0, _tones(c0)), 'home')
+            for i, (on, stp) in enumerate(motif):
+                at = t + on
+                if at >= total - 1:
+                    break
+                c = chord_fn(at) or c0
+                p = scale_move(p, stp, c) if i else p
+                notes.append((at, 0.45, fit(p, 'home'), 70))
+            at = min(t + 2.5, total - 1.0)
+            if at > t:
+                c = chord_fn(at) or c0
+                root = _root_pc(c)
+                goal = snap(p, c, (0, 4 if 4 in _tones(c) else 3))
+                notes.append((at, total - at, fit(goal, 'home'), 68))
+            break
+        last_kind = kind
+        t += length + rest
+        # the next phrase may come in on an upbeat
+        if d() < 0.4:
+            t += 0.5
+    return notes
+
+
+def play_planned(bar, plan, pos, bar_beats):
+    """This bar's share of a planned solo; a note that would ring over
+    the barline stops at it."""
+    beat = bar.div * 4 // bar.den
+    if bar.den == 8:
+        beat = bar.div // 2
+    t0, t1 = pos * bar_beats, (pos + 1) * bar_beats
+    for at, ln, m, v in plan:
+        end = at + ln
+        if end <= t0 + 1e-6 or at >= t1:
+            continue
+        # a note that rings over a barline is tied, never re-struck
+        ties = (('stop',) if at < t0 - 1e-6 else ()) + \
+            (('start',) if end > t1 + 1e-6 else ())
+        a, e = max(at, t0), min(end, t1)
+        bar.add(int(round((a - t0) * beat)),
+                max(1, int(round((e - a) * beat))),
+                ('p', m, max(30, min(v, 118)), (), ties))

@@ -2875,6 +2875,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                              f" is open — it goes round "
                              f"{vamp_passes(pl['sec'])} times in the "
                              "listen, till the cue on the gig")
+    for i, pl in enumerate(plans):
+        # where each section sits in the tune: the band builds across it
+        pl['sec']['_arc'] = i / max(len(plans) - 1, 1)
     keys_l = next((b['label'] for b in band if canonical_instrument(
         b['instrument']) in ('piano', 'organ', 'keyboard', 'rhodes')),
         None)
@@ -3072,8 +3075,43 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             lo = max(lo, horn['fold'][0])
         else:
             lo, hi = 55, 79
-        chartgroove.improvise(bar, state, chords, nxt, feel, lo, hi,
-                              absbar, pos, total, label)
+        # the whole solo is planned before its first note, so it can
+        # tell a story over the changes it will actually meet
+        bar_beats = bmeter[0]
+        key = ('story', label, sec['name'], lo_bar, walk)
+        if state.get('story_key') != key:
+            per_bar, carry = [], governing
+            for w in range(lo_bar, hi_bar):
+                o = w % sec['bars']
+                got = [(b, c) for b, c in sec['content'][o]
+                       if c is not None]
+                if not got or got[0][0] > 1.0:
+                    got = [(1.0, carry)] + got
+                carry = got[-1][1]
+                per_bar.append(got)
+
+            def chord_fn(t):
+                i = min(int(t // bar_beats), len(per_bar) - 1)
+                beat_in = t - i * bar_beats + 1
+                c = per_bar[i][0][1]
+                for b, cc in per_bar[i]:
+                    if b <= beat_in + 1e-6:
+                        c = cc
+                return c
+            if 'voice' in sound_id:
+                voice = 'voice'
+            elif role == 'bass':
+                voice = 'bass'
+            elif role == 'comp':
+                voice = 'guitar' if 'guitar' in sound_id else 'keys'
+            else:
+                voice = 'horn'
+            state['story_key'] = key
+            state['story'] = chartgroove.plan_solo(
+                chord_fn, hi_bar - lo_bar, bar_beats, lo, hi, feel,
+                (hdr.get('title', ''), label, sec['name'], lo_bar),
+                voice)
+        chartgroove.play_planned(bar, state['story'], pos, bar_beats)
         if role == 'comp' and 'guitar' not in sound_id:
             chartgroove.comp_shells(bar, state, chords)
         return bar.xml()
@@ -3180,6 +3218,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             # so a soloist over it keeps going instead of looping
             passes = vamp_passes(sec) if listen and sec.get('open') and \
                 not sec['repeat'] else 1
+            # a repeated solo section is written out in the listen, so
+            # the solo tells one story across every chorus instead of
+            # the same chorus three times
+            solo_rep = listen and sec['repeat'] and not \
+                sec.get('endings') and any(
+                    isinstance(t[1], str) and t[1].lower().startswith(
+                        'solo') for ll in labels
+                    for t in plan['texts'].get(ll, ()))
+            if solo_rep:
+                passes = max(sec['repeat'], 1)
             for off, cur_pass in [(o, k) for k in range(passes)
                                   for o in range(sec['bars'])]:
                 absbar = plan['start'] + off
@@ -3554,7 +3602,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 ends = sec.get('endings') or []
                 vamp_page = sec.get('open') and not sec['repeat'] \
                     and not listen
-                if (sec['repeat'] or vamp_page) and off == 0:
+                if ((sec['repeat'] and not solo_rep) or vamp_page) \
+                        and off == 0 and cur_pass == 0:
                     open_bl = ('      <barline location="left">'
                                '<bar-style>heavy-light</bar-style>'
                                '<repeat direction="forward"/></barline>\n')
@@ -3583,7 +3632,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                        f'<bar-style>{style}</bar-style>'
                                        f'<ending number="{k}" '
                                        'type="discontinue"/></barline>\n')
-                elif sec['repeat'] and off == sec['bars'] - 1:
+                elif sec['repeat'] and not solo_rep and \
+                        off == sec['bars'] - 1:
                     barline = ('      <barline location="right">'
                                '<bar-style>light-heavy</bar-style>'
                                f'<repeat direction="backward" '

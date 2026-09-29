@@ -5105,6 +5105,51 @@ def check_endings_feel_natural():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_solos_tell_a_story():
+    """A solo is planned whole and tells a story (Matthew, 2026-09-29):
+    space around the idea early, higher and busier at the peak, home to
+    a long last note held over the barlines; a repeated solo section is
+    one story across every chorus. Comping grows through the tune, two
+    notes early, the extensions later."""
+    import chartaudio
+    import chartc
+    import chartgroove as G
+    tmp = tempfile.mkdtemp()
+    open(os.path.join(tmp, "t.chart"), "w").write(
+        "title: Story\nkey: F\nmeter: 4/4\ntempo: 140\nfeel: swing\n\n"
+        "band:\n  tenor = tenor sax\n  piano\n  bass\n  drums\n\n"
+        "chords blues: F7, Bb7, F7, Cm7 F7, Bb7, Bdim7, F7, Am7 D7, "
+        "Gm7, C7, F7 D7, Gm7 C7\n\n"
+        "section solos, 12 bars, repeat 3x\n  use chords blues\n"
+        "  tenor: solo\n  ending: as written\n")
+    out = os.path.join(tmp, "b")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "t.chart"), out)
+    pl = chartaudio.parse_score(os.path.join(out,
+                                             "Story — for listening.musicxml"))
+    t = next(p for p in pl["parts"] if p["name"] == "tenor")["events"]
+    early = [e for e in t if e[0] < 40]
+    peak = [e for e in t if 96 <= e[0] < 128]
+    check("the solo spans every chorus of a repeated section",
+          max(e[0] for e in t) > 120 and abs(pl["end_q"] - 144) < .01)
+    check("early on there is space: fewer notes than at the peak",
+          len(early) * 1.5 < len(peak), (len(early), len(peak)))
+    check("the peak sits higher than the opening",
+          sum(e[2] for e in peak) / len(peak)
+          > sum(e[2] for e in early) / len(early) + 3)
+    check("it lands home on a long note",
+          t[-1][1] >= 4 and t[-1][0] + t[-1][1] > 140)
+    got = {}
+    for heat in (0.3, 0.9):
+        b = G.Bar(24, (4, 4), 0, 1)
+        G._comp(b, {}, 5, "ballad", [(1.0, ("F", 0, "7", None))],
+                "keyboard.piano", heat)
+        got[heat] = max(len(n) for _, n in b.onsets.values())
+    check("comping grows: two notes early, four with extensions later",
+          got[0.3] == 2 and got[0.9] == 4, got)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5165,6 +5210,7 @@ if __name__ == "__main__":
     check_backgrounds_and_vamps()
     check_explode()
     check_endings_feel_natural()
+    check_solos_tell_a_story()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

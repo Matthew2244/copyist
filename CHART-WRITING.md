@@ -592,14 +592,25 @@ All of these ride on a `from demo` line, after commas:
   walking in three. `straight eighths`, `rock` and `pop` play a
   backbeat, and "straight" said outright beats "swing". Any word it
   doesn't know still prints, and the band plays straight time under it.
-- **Solos play.** A line that says `solo` with nothing played in
-  for it gets a soloist in the listen: a line over the changes, chord
-  tones on the strong beats, scale steps and half-step approaches
-  between, two-bar phrases with room to breathe, building through the
-  solo. Soloists named in one section take turns in band order, the
+- **Solos play, and tell a story.** A line that says `solo` with
+  nothing played in for it gets a soloist in the listen, planned whole
+  before its first note: a short idea stated with space around it,
+  answered, lifted and stretched; developed in sequences and longer
+  lines as the extensions (9ths, 11ths, 13ths) come in; built to a peak,
+  higher and busier, a riff or a run; then home, the idea once more and
+  a long last note. Phrases cross barlines and breathe; a horn or a
+  singer never plays longer than a breath, a singer scats simply, keys
+  run longer lines, a bass solo stays low and spare. A repeated solo
+  section is one story across every chorus. Soloists named in one section take turns in band order, the
   section split between them. A pianist keeps left-hand shells under
   the line; a drummer takes a drum solo. The page keeps its slashes and
   the word, and a solo you played in from MIDI plays exactly as played.
+- **The band builds through the tune.** Comping starts with two-note
+  shells and a hit left out now and then, and opens into rootless
+  voicings with the extensions as the tune goes on; time-keeping parts
+  (Freddie Green quarters, a latin or funk pattern) never drop a beat.
+  The drummer marks each new section with a crash and now and then
+  fills into the next phrase, more as it builds, never every time.
 - **Backgrounds, written or on the spot.** Give a horn notes behind
   the solo and they play as written. Say just `backgrounds` (or
   `horns: backgrounds`) and the page prints slashes under the changes
