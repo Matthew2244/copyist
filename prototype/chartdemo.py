@@ -353,29 +353,68 @@ def find_keyswitches(notes, sounding_range, beat, mapped=frozenset()):
     return kept, sorted(ks)
 
 
-def assign_keyswitches(notes, switches, beat):
+def assign_keyswitches(notes, switches, beat, one_shot=None):
     """Which switch governs each musical note, by its raw onset. A
     switch latches until the next one; a switch HELD across notes for
     more than a beat governs only while held, then the latched one
     returns. A switch pressed a hair after the note it meant (a 32nd)
-    still counts for it."""
+    still counts for it.
+
+    one_shot(pitch, velocity) names the gestures that end ONE note — a
+    fall, a doit — which never latch, the way Logic's Studio Horns
+    trigger them. Whenever the key goes down, the page must look the
+    same (Matthew, 2026-09-28: "press the fall key before hitting the
+    note itself or hit the fall key while holding the actual note"):
+    pressed while a note sounds, that note; in a gap, the nearer of
+    the note that just ended and the one coming; held down while notes
+    start, each of them."""
     slack = beat / 8
+    gestures = [s for s in switches
+                if one_shot is not None and one_shot(s[2], s[3])]
+    switches = [s for s in switches if s not in gestures]
     latched_order = [s for s in switches if s[1] - s[0] <= beat * 0.9]
     held = [s for s in switches if s[1] - s[0] > beat * 0.9]
     out = {}
-    for on, _off, _p, _v in notes:
+    for on, off, _p, _v in notes:
+        # in the moment a switch lands late: up to a sixteenth into the
+        # note (half of a shorter one) it was meant for this note
+        late = max(slack, min(beat / 4, (off - on) / 2))
         cur = None
         for s_on, s_off, sp, sv in held:
-            if s_on - slack <= on < s_off:
+            if s_on - late <= on < s_off:
                 cur = (sp, sv)
         if cur is None:
             for s_on, _s_off, sp, sv in latched_order:
-                if s_on - slack <= on:
+                if s_on - late <= on:
                     cur = (sp, sv)
                 else:
                     break
         if cur is not None:
             out[on] = cur
+    onsets = sorted({n[0] for n in notes})
+    for g_on, g_off, gp, gv in gestures:
+        targets = [on for on in onsets if g_on - slack <= on < g_off]
+        if not targets:
+            sounding = [n[0] for n in notes
+                        if n[0] + slack < g_on < n[1]]
+            if sounding:
+                targets = [max(sounding)]
+            else:
+                before = [n for n in notes if n[1] <= g_on]
+                after = [on for on in onsets if on >= g_on]
+                prev = max(before, key=lambda n: n[1]) if before else None
+                nxt = after[0] if after else None
+                # a press that lands on a release belongs to it; any
+                # other press in a gap is getting ready for the next
+                on_release = prev is not None and \
+                    g_on - prev[1] <= slack / 2 and \
+                    (nxt is None or 3 * (g_on - prev[1]) < nxt - g_on)
+                if nxt is not None and not on_release:
+                    targets = [nxt]
+                elif prev is not None:
+                    targets = [prev[0]]
+        for on in targets:
+            out[on] = (gp, gv)
     return out
 
 
@@ -898,7 +937,14 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         moved, switches = find_keyswitches(moved, shifted_rng, beat,
                                            set(ks_map or ()))
         if switches:
-            gov = assign_keyswitches(moved, switches, beat)
+            def one_shot(sp, sv):
+                w = ks_word_for((ks_map or {}).get(sp), sv)
+                if not w:
+                    return False
+                _m, text, _l, orn = ks_meaning(w)
+                return orn in ('falloff', 'doit') or text == 'shake'
+
+            gov = assign_keyswitches(moved, switches, beat, one_shot)
             for on, (sp, sv) in gov.items():
                 word = ks_word_for((ks_map or {}).get(sp), sv)
                 if word is None:

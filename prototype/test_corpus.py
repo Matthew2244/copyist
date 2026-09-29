@@ -3762,6 +3762,50 @@ def check_note_off_wins():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_fall_keyswitch_any_timing():
+    """A fall or doit keyswitch marks the same note whenever the key
+    goes down: before the note, while it is held, held across it, or
+    just after it ends (Logic's Studio Horns attach it on the fly).
+    It never latches onto the notes after (Matthew, 2026-09-28)."""
+    import chartdemo as cd
+    beat = 480
+    notes = [(0, 400, 60, 90), (480, 900, 62, 90), (960, 1400, 64, 90),
+             (1440, 1900, 65, 90)]
+    fall = lambda sp, sv: sp == 24
+    stac = (10, 30, 25, 90)                      # latched staccato first
+
+    def fell(switches):
+        gov = cd.assign_keyswitches(notes, [stac] + switches, beat, fall)
+        return [on for on, (sp, _v) in sorted(gov.items()) if sp == 24], gov
+    f, _ = fell([(420, 440, 24, 90)])
+    check("a fall pressed just before a note marks that note",
+          f == [480], f)
+    f, gov = fell([(700, 720, 24, 90)])
+    check("a fall pressed while the note is held marks the held note",
+          f == [480], f)
+    check("and the notes after keep the latched articulation",
+          gov.get(960) == (25, 90) and gov.get(1440) == (25, 90), gov)
+    f, _ = fell([(470, 1000, 24, 90)])
+    check("a fall key held down marks every note started under it",
+          f == [480, 960], f)
+    f, _ = fell([(905, 915, 24, 90)])
+    check("a fall pressed right after a note ends marks the note it "
+          "followed", f == [480], f)
+    f, gov = fell([])
+    late = cd.assign_keyswitches(notes, [(10, 30, 25, 90),
+                                         (560, 580, 26, 90)], beat, fall)
+    check("any switch pressed a little late counts for the note it "
+          "meant, and latches on", late.get(480) == (26, 90)
+          and late.get(960) == (26, 90) and late.get(0) == (25, 90), late)
+    mid = cd.assign_keyswitches(notes, [(10, 30, 25, 90),
+                                        (800, 820, 26, 90)], beat, fall)
+    check("a switch pressed deep into a held note waits for the next",
+          mid.get(480) == (25, 90) and mid.get(960) == (26, 90), mid)
+    check("a library's fall or doit reads as a one-note gesture",
+          cd.ks_meaning('Fall Short')[3] == 'falloff'
+          and cd.ks_meaning('Doit')[3] == 'doit')
+
+
 def check_new_feels():
     """Shuffle, second line, reggae, Motown, hip-hop and the waltz each
     play their own drums, bass and comping (2026-09-28)."""
@@ -4731,6 +4775,7 @@ if __name__ == "__main__":
     check_half_time_funk()
     check_slashes_play_whats_written()
     check_new_feels()
+    check_fall_keyswitch_any_timing()
     check_swung_and_straight_funk()
 
     run_fixture("two-hand-piano", "C# minor",

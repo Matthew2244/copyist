@@ -383,6 +383,16 @@ Copyist finds the musical word inside, ignores the sampler's own modes
 doesn't know as the word itself. A key you haven't named yet is listed
 in the findings with the bars it covers.
 
+**When you hit the key doesn't matter.** You play the take, and a
+switch lands where it lands, in any library. A switch pressed up to a
+sixteenth after a note starts still counts for that note, then stays
+in effect like the sampler's. One pressed deep into a held note is
+getting ready for the next note. Falls, doits and shakes end one
+note, so they mark that note however you played them: pressed just
+before it, while you hold it, held down under it, or right as you let
+go. They never carry on to the notes after, which keep the
+articulation you had.
+
 ## Drum takes from EZdrummer and Superior Drummer
 
 Toontrack's drum instruments don't use the General MIDI drum map: their
