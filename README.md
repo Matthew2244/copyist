@@ -82,7 +82,10 @@ read-aloud and the listen all go to the same upper note.
 
 Keyswitches become articulations. If your demo switches a string patch to
 pizzicato or a trumpet to a harmon mute, the page says so at that bar, and the
-switch notes never print as music. Maps for Logic's articulation sets and for
+switch notes never print as music. When you hit the switch is forgiving: hold a
+note as long as you like and fire a fall, shake or trill on it, or press a
+switch a little late, and the page still marks the note you meant. Maps for
+Logic's articulation sets and for
 common sample libraries are built in. For anything else, Name the keyswitches
 asks about each unnamed key once and remembers the answer for every chart that
 uses that patch.

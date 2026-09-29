@@ -485,11 +485,17 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
   or a saved file `~/.config/copyist/keyswitches/NAME.txt` of the same
   lines (`chart keyswitches set/show/from-logic` manage them). Notes an
   octave past the instrument's sounding range are keyswitches whether
-  or not a map is named: they leave the notes, latch until the next
-  (a switch held over a beat governs only while held), and a named one
-  becomes marks, printed technique words (with their release: arco,
-  open, senza sord., ord.), slurs, tremolos, trills, falls, doits and
-  scoops.
+  or not a map is named: they leave the notes, and a named one becomes
+  marks, printed technique words (with their release: arco, open,
+  senza sord., ord.), slurs, tremolos, trills, falls, doits and scoops.
+  Timing is forgiving, the way a take is played (2026-09-28). A switch
+  that shapes a note's start latches until the next (one held over a
+  beat governs only while held) and counts for a note up to an eighth
+  after it starts. A gesture that happens to a sounding note (fall,
+  doit, shake, trill, tremolo, flz., growl, gliss., cresc.) marks the
+  note sounding when its key goes down, however long it has been held.
+  It also marks that note when pressed just before it, held across it,
+  or pressed right at its release, and it never latches.
 
   **Drum maps**: a drum part's band line may add `drummap "Toontrack"`
   (also `EZdrummer`, `Superior Drummer`): the take's notes are read as
