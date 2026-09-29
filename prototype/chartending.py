@@ -229,13 +229,16 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         bar = G.Bar(div, (num, den), fifths, staves)
         beat = div * 4 // den
         if role == 'drums':
-            for d in (G._CRASH, G._KICK, G._SNARE):
-                bar.add(0, beat // 2, ('u', d, 118))
+            # an accent, not a jump scare: the mix is normalized
+            # to its loudest moment, so a hit at full tilt would
+            # turn the whole song down under it
+            for d, v in ((G._CRASH, 100), (G._KICK, 96), (G._SNARE, 88)):
+                bar.add(0, beat // 2, ('u', d, v))
         elif role == 'perc':
-            bar.add(0, beat // 2, ('u', ('C', 5, 'normal'), 110))
+            bar.add(0, beat // 2, ('u', ('C', 5, 'normal'), 96))
         elif pitches:
             for p in pitches:
-                bar.add(0, beat // 2, ('p', p, 116))
+                bar.add(0, beat // 2, ('p', p, 100))
         return bar.xml() or _rest(div, num, den, staves)
 
     extras = []
