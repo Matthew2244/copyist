@@ -92,6 +92,11 @@ def _drum_decode():
 
 _DRUM_TABLES = None
 
+# brush stirs on the snare line, by notehead (Swirly Drums' own keys:
+# 60 the long stir, 64 the short one)
+_STIR_HEADS = {'circle-x': 60, 'diamond': 64}
+_STIRS = set(_STIR_HEADS.values())
+
 
 def _height(step, octave):
     return octave * 7 + 'CDEFGAB'.index(step)
@@ -369,6 +374,10 @@ def _note_midi(t, m, transpose):
                     or re.search(hand_rx, m.get('sound', ''), re.I)) \
             and not re.search(r'drum|kit|batterie', m['name'], re.I) \
             and not m.get('sound', '').startswith('drum.group')
+        if st and oc and not hand and st.group(1) == 'C' and \
+                oc.group(1) == '5' and nh and nh.group(1) in _STIR_HEADS:
+            # the brush stirs: the circle across the snare head
+            return _STIR_HEADS[nh.group(1)]
         if st and oc:
             own = hand_midi(m.get('sound', ''), st.group(1),
                             int(oc.group(1)), nh.group(1) if nh else
@@ -437,6 +446,8 @@ def parse_score(path, only=None):
         slur_depth = 0
         pend_grace = {}                 # voice -> grace <note> texts
         pend_hit = False                # a sforzando waits for its note
+        brush = False                   # "brushes" until "sticks"
+        mallets = False                 # "mallets" until "sticks"
         pizz = False                    # "pizz." until "arco"
         mute = None                     # "harmon mute" until "open"
         arco = False                    # "arco" until "pizz." — for the
@@ -518,6 +529,12 @@ def parse_score(path, only=None):
                         pw = perform_word(w)
                         if pw:
                             perf.setdefault(round(q0 + pos / div, 4), pw)
+                        if re.search(r'\bbrush(?:es)?\b', w, re.I):
+                            brush, mallets = True, False
+                        elif re.search(r'\bmallets?\b', w, re.I):
+                            brush, mallets = False, True
+                        elif re.search(r'\bsticks?\b', w, re.I):
+                            brush = mallets = False
                         if re.match(r'\s*pizz', w, re.I):
                             pizz, arco = True, False
                         elif re.match(r'\s*arco', w, re.I):
@@ -634,6 +651,17 @@ def parse_score(path, only=None):
                     art['leg'] = True   # the line carries on past this note
                 slur_depth = max(slur_depth + starts - stops, 0)
                 midi = _note_midi(t, m, transpose)
+                if midi in _STIRS and m['percussion']:
+                    if brush:
+                        art['brush'] = True
+                    else:
+                        # a stir needs brushes in the hand; with sticks
+                        # it is a whisper on the snare
+                        midi, art['ghost'] = 38, True
+                elif brush and m['percussion']:
+                    art['brush'] = True
+                if mallets and m['percussion']:
+                    art['mallets'] = True
                 q_on = q0 + on / div
                 q_dur = dur / div
                 if 'fermata' in art:

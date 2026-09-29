@@ -1186,15 +1186,109 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
     if role == 'perc':
         _perc(bar, absbar, feel, sound_id, state['hits'])
     elif role == 'drums':
-        _drums(bar, absbar, feel, state['hits'])
-        if state['hits'] is None:
+        words = ((arg if isinstance(arg, str) else '') + ' ' + (feel or '')
+                 ).lower()
+        impl = implement(words, feel)
+        state['impl'] = impl
+        if state['hits'] is None and impl == 'brushes':
+            _brush_drums(bar, absbar, feel, heat)
+        elif state['hits'] is None and impl == 'mallets':
+            _mallet_drums(bar, absbar, heat)
+        else:
+            _drums(bar, absbar, feel, state['hits'])
+        if state['hits'] is None and impl != 'mallets':
             _drummer_marks(bar, sec, off, absbar, heat)
+        if re.search(r'cross[ -]?stick|rim ?click|side ?stick', words):
+            # the backbeat on the rim, the way a quiet groove wants it
+            for tick, (ln, ns) in bar.onsets.items():
+                bar.onsets[tick] = (ln, [('u', _XSTICK, n[2])
+                                         if n[0] == 'u' and n[1] == _SNARE
+                                         else n for n in ns])
     elif role == 'bass':
         _bass(bar, state, sec, off, absbar, feel, chords)
     else:
         _comp(bar, state, absbar, feel, chords, sound_id, heat)
     state['hits'] = None
     return bar.xml()
+
+
+_STIR_LONG = ('C', 5, 'circle-x')       # brush stirs, read by the listen
+_STIR_SHORT = ('C', 5, 'diamond')
+
+
+def implement(words, feel):
+    """What's in the drummer's hands: what the chart says ('brushes',
+    'sticks', 'mallets'), else what the feel asks for — a ballad gets
+    brushes, the way most drummers would play it."""
+    w = (words or '').lower()
+    if re.search(r'\bsticks?\b', w):
+        return 'sticks'
+    if re.search(r'\bbrush(?:es)?\b', w):
+        return 'brushes'
+    if re.search(r'\bmallets?\b', w):
+        return 'mallets'
+    style, traits = style_of(feel or '')
+    if 'ballad' in traits or 'ballad' in (feel or '').lower():
+        return 'brushes'
+    return 'sticks'
+
+
+def _brush_drums(bar, absbar, feel, heat):
+    """Brushes: the left hand stirs circles on the snare, the right
+    taps the time on it (the ride pattern, or straight eighths), the hat
+    foot on 2 and 4, the kick barely there."""
+    beat = bar.div * 4 // bar.den
+    half = beat // 2
+    n = bar.num if bar.den == 4 else max(bar.num // 3, 1)
+    style, traits = style_of(feel or '')
+    ballad = 'ballad' in traits or 'ballad' in (feel or '').lower()
+    if bar.den == 8:
+        beat = 3 * (bar.div // 2)
+        half = beat // 3
+    # the stir: one circle a bar in a ballad, one every two beats else
+    if ballad or n < 4:
+        bar.add(0, bar.barlen, ('u', _STIR_LONG, int(56 + 20 * heat)))
+    else:
+        for b in range(0, n, 2):
+            bar.add(b * beat, 2 * beat,
+                    ('u', _STIR_LONG, int(52 + 20 * heat)))
+    swingy = style in ('swing', 'shuffle', 'waltz') or 'swung' in traits
+    for b in range(n):
+        at = b * beat
+        back = b % 2 == 1
+        if ballad:
+            if back:
+                bar.add(at, half, ('u', _SNARE, int(34 + 16 * heat)))
+            continue
+        bar.add(at, half, ('u', _SNARE, int((50 if back else 40)
+                                           + 18 * heat)))
+        if swingy and back:
+            bar.add(at + beat * 2 // 3, beat // 3,
+                    ('u', _SNARE, int(32 + 14 * heat)))
+        elif not swingy:
+            bar.add(at + half, half, ('u', _SNARE, int(30 + 14 * heat)))
+        if back:
+            bar.add(at, half, ('u', _HATF, 52))
+        bar.add(at, half, ('u', _KICK, 20))
+    if heat > 0.7 and n >= 4:
+        # a short stir to lift the phrase as the tune builds
+        bar.add((n - 1) * beat + half, half,
+                ('u', _STIR_SHORT, int(60 + 20 * heat)))
+
+
+def _mallet_drums(bar, absbar, heat):
+    """Mallets: cymbal swells and soft toms, colour more than time —
+    an intro, a rubato verse."""
+    beat = bar.div * 4 // bar.den
+    step = max(beat // 4, 1)
+    span = bar.barlen
+    for t in range(0, span, step):
+        v = int(24 + (36 + 20 * heat) * (t / span) ** 1.6)
+        bar.add(t, step, ('u', _RIDE, v))
+    bar.add(0, beat, ('u', ('A', 4, 'normal'), int(50 + 20 * heat)))
+    if bar.num >= 4 and absbar % 2:
+        bar.add(2 * beat, beat, ('u', ('D', 5, 'normal'),
+                                 int(44 + 16 * heat)))
 
 
 def _heat(sec, off):
@@ -1543,11 +1637,33 @@ _VOICES = {
 }
 
 
+def last_phrase(plan, total):
+    """The soloist's closing phrase, as the next player heard it:
+    the notes after its last real breath, [(beat from the phrase's
+    start, length, midi)]."""
+    if not plan:
+        return None
+    notes = sorted(plan)
+    start = len(notes) - 1
+    while start > 0 and notes[start][0] - (notes[start - 1][0]
+                                           + notes[start - 1][1]) < 0.9:
+        start -= 1
+    got = notes[start:start + 6]
+    t0 = got[0][0]
+    return [(at - t0, min(ln, 1.0), m) for at, ln, m, _v in got]
+
+
 def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
-              voice='horn'):
+              voice='horn', echo=None, start_after=0.0,
+              next_soloist=False):
     """The whole solo, before its first note: [(beat, length, midi,
     velocity)], beats counted from the solo's first downbeat.
-    chord_fn(beat) is the chord sounding there."""
+    chord_fn(beat) is the chord sounding there. echo is how the soloist
+    before ended, which this one answers first; start_after keeps clear
+    of a line still spilling over from them. With a soloist after it,
+    the end may spill over the barline into their first bar (Matthew,
+    2026-09-29: "a phrase that goes over into the next soloist, the
+    next soloist could react ... by playing that same phrase")."""
     d = _Dice(seed, 'story')
     max_len, runs_ok, dens = _VOICES.get(voice, _VOICES['horn'])
     style, traits = style_of(feel)
@@ -1563,6 +1679,31 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
     shape = [0] + [int(d() * 5) - 2 or 1 for _ in onsets[1:]]
     motif = list(zip(onsets, shape))
     cur = int(lo + (hi - lo) * 0.4)
+    t_open = 0.0
+    if echo:
+        # the answer: the last player's closing phrase, in this
+        # player's own register, and it becomes this solo's idea
+        mid = sum(m for _a, _l, m in echo) / len(echo)
+        aim = lo + (hi - lo) * 0.45
+        shift = 12 * round((aim - mid) / 12)
+        base = max(start_after, 0.0)
+        base = float(int(base * 2 + 0.999)) / 2          # to an eighth
+        for at, ln, m in echo:
+            q = m + shift
+            while q > hi:
+                q -= 12
+            while q < lo:
+                q += 12
+            notes.append((base + at, ln * 0.9, q, 74))
+            cur = q
+        t_open = base + echo[-1][0] + echo[-1][1] + bar_beats * 0.5
+        if len(echo) >= 3:
+            ons = [a for a, _l, _m in echo[:5] if a < 2.5]
+            if len(ons) >= 3:
+                motif = [(a, 0 if i == 0 else
+                          (1 if echo[i][2] > echo[i - 1][2] else -1)
+                          * (1 + (abs(echo[i][2] - echo[i - 1][2]) > 3)))
+                         for i, a in enumerate(ons)]
 
     def act(t):
         x = t / max(total, 1)
@@ -1602,7 +1743,7 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
     def vel(a):
         return {'state': 72, 'develop': 80, 'peak': 92, 'home': 72}[a]
 
-    t = 0.5 if d() < 0.5 else 0.0            # sometimes a pickup in
+    t = t_open or (0.5 if d() < 0.5 else 0.0)   # sometimes a pickup in
     last_kind = None
     told = 0                                 # phrases so far in act one
     while t < total - 0.5:
@@ -1729,6 +1870,44 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             cur = q
         else:                                    # home
             p = fit(snap(cur, c0, _tones(c0)), 'home')
+            r_end = d()
+            if next_soloist and r_end < 0.4:
+                # the line keeps going over the barline, into the next
+                # player's first bar
+                at = max(t, total - bar_beats * 0.75)
+                q = fit(snap(cur, c0, _tones(c0)), 'develop')
+                dirn = -1 if q > (lo + hi) / 2 else 1
+                i = 0
+                while at < total + bar_beats * (0.75 + 0.5 * d()):
+                    c = chord_fn(at) or c0
+                    bot, top = bounds('develop')
+                    nq = scale_move(q, dirn, c)
+                    if not bot + 2 <= nq <= top:
+                        dirn = -dirn
+                        nq = scale_move(q, dirn, c)
+                    q = nq
+                    if at % 1 == 0:
+                        q = snap(q, c, _tones(c) + _colors(c))
+                    notes.append((at, 0.47, q, 78))
+                    at += 0.5
+                    i += 1
+                c = chord_fn(at) or c0
+                notes.append((at, 0.9, snap(q, c, _tones(c)), 74))
+                break
+            if r_end < 0.7:
+                # short: the idea once more, clipped off, then air
+                for i, (on, stp) in enumerate(motif):
+                    at = t + on
+                    if at >= total - 0.5:
+                        break
+                    c = chord_fn(at) or c0
+                    p = scale_move(p, stp, c) if i else p
+                    notes.append((at, 0.45, fit(p, 'home'), 72))
+                at = min(t + motif[-1][0] + 0.5, total - 0.5)
+                c = chord_fn(at) or c0
+                notes.append((at, 0.35, fit(snap(p, c, _tones(c)), 'home'),
+                              76))
+                break
             for i, (on, stp) in enumerate(motif):
                 at = t + on
                 if at >= total - 1:

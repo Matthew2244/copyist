@@ -208,6 +208,12 @@ class SfzInstrument:
                 tail = k[len(base_name) + 5:]
             elif k.startswith(base_name + '_cc'):
                 tail = k[len(base_name) + 3:]
+            elif k.startswith(base_name + 'cc') and \
+                    k[len(base_name) + 2:].isdigit():
+                # SFZ 1's spelling, ampeg_attackcc55: Swirly Drums sets
+                # its brush stirs' length this way; unread, every stir
+                # lasted no time at all
+                tail = k[len(base_name) + 2:]
             else:
                 continue
             try:

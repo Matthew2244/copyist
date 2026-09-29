@@ -3026,6 +3026,120 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                 else 'pads', off, sec['name'])
         return bar.xml()
 
+    # ---- a mute nobody wrote: the brass's own call on made-up parts
+    def band_mute(label, sec, kind):
+        """'harmon mute', 'cup mute', 'plunger mute' or None: what a
+        brass player reaches for on a solo or backgrounds when the chart
+        leaves it to them (Matthew, 2026-09-29: "same goes for mutes ...
+        from the roadmap or on the spot"). A mute the chart names always
+        wins; the choice comes from the tune, the same every build."""
+        inst = canonical_instrument(next(
+            x['instrument'] for x in band if x['label'] == label))
+        if inst not in ('trumpet', 'c trumpet', 'cornet', 'trombone',
+                        'bass trombone'):
+            return None
+        for pl in plans:
+            if pl['sec'] is sec and any(
+                    isinstance(t[1], str) and re.search(
+                        r'mute|con sord|open', t[1], re.I)
+                    for t in pl['texts'].get(label, ())):
+                return None
+        feel = (sec['feel'] or hdr.get('feel') or '').lower()
+        style, traits = chartgroove.style_of(feel)
+        if style in ('funk', 'latin', 'samba', 'straight', 'motown',
+                     'hiphop', 'reggae', 'secondline'):
+            return None
+        soft = 'ballad' in traits or 'ballad' in feel
+        bluesy = style == 'shuffle' or 'blues' in feel
+        # a section's backgrounds all go into the same mute together
+        d = chartgroove._Dice(hdr.get('title', ''), sec['name'], kind,
+                              label if kind == 'solo' else 'section')
+        r = d()
+        if kind == 'bg':
+            return 'cup mute' if soft and r < 0.55 else None
+        if 'trombone' in inst:
+            if bluesy and r < 0.35:
+                return 'plunger mute'
+            return 'cup mute' if soft and r < 0.3 else None
+        if soft:
+            return 'harmon mute' if r < 0.45 else \
+                'cup mute' if r < 0.6 else None
+        return 'harmon mute' if r < 0.18 else None
+
+    # ---- each soloist's whole solo, planned once, heard by the next
+    stories = {}
+
+    def solo_story(label, sec, who, walk, bar_beats):
+        """A soloist's planned solo over its share of the section. The
+        soloist after it hears how it ended: a line spilling over the
+        barline, or the last phrase to answer."""
+        k = who.index(label)
+        key = (sec['name'], label, walk)
+        if key in stories:
+            return stories[key]
+        each = max(walk // max(len(who), 1), 1)
+        lo_bar = k * each
+        hi_bar = walk if k == len(who) - 1 else lo_bar + each
+        b = next(x for x in band if x['label'] == label)
+        inst = canonical_instrument(b['instrument'])
+        h = HORNS.get(inst) or {}
+        snd = SOUNDS.get(inst)
+        sid = snd[1] if snd else ''
+        role = chartgroove.role_of(sid, h.get('clef', 'G'))
+        if role == 'bass':
+            lo, hi = 36, 62
+        elif role == 'comp':
+            lo, hi = (55, 79) if 'guitar' in sid else (62, 86)
+        elif h:
+            lo, hi = h['comf']
+            lo = max(lo, h['fold'][0])
+        else:
+            lo, hi = 55, 79
+        per_bar, carry = [], None
+        for w in range(0, walk):
+            o = w % sec['bars']
+            got = [(bb, c) for bb, c in sec['content'][o] if c is not None]
+            if (not got or got[0][0] > 1.0) and carry is not None:
+                got = [(1.0, carry)] + got
+            if got:
+                carry = got[-1][1]
+            per_bar.append(got)
+
+        def chord_fn(t, base=lo_bar):
+            i = min(max(int(t // bar_beats) + base, 0), len(per_bar) - 1)
+            beat_in = t - (i - base) * bar_beats + 1
+            if not per_bar[i]:
+                return carry
+            c = per_bar[i][0][1]
+            for bb, cc in per_bar[i]:
+                if bb <= beat_in + 1e-6:
+                    c = cc
+            return c
+        if 'voice' in sid:
+            voice = 'voice'
+        elif role == 'bass':
+            voice = 'bass'
+        elif role == 'comp':
+            voice = 'guitar' if 'guitar' in sid else 'keys'
+        else:
+            voice = 'horn'
+        echo, after = None, 0.0
+        if k > 0:
+            prev = solo_story(who[k - 1], sec, who, walk, bar_beats)
+            prev_total = each * bar_beats
+            over = [n for n in prev if n[0] >= prev_total - 1e-6]
+            if over:
+                after = max(n[0] + n[1] for n in over) - prev_total + 0.5
+            echo = chartgroove.last_phrase(prev, prev_total)
+        feel = sec['feel'] or hdr.get('feel') or ''
+        plan_ = chartgroove.plan_solo(
+            chord_fn, hi_bar - lo_bar, bar_beats, lo, hi, feel,
+            (hdr.get('title', ''), label, sec['name'], lo_bar), voice,
+            echo=echo, start_after=after,
+            next_soloist=k < len(who) - 1)
+        stories[key] = plan_
+        return plan_
+
     # ---- a soloist's bar in the listen
     def solo_bar(sound_id, clef, staves, fifths, sec, off, absbar, bmeter,
                  div, horn, label, state, governing, plan, cur_pass=0,
@@ -3050,7 +3164,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         each = max(walk // max(len(who), 1), 1)
         lo_bar = k * each
         hi_bar = walk if k == len(who) - 1 else lo_bar + each
-        if not lo_bar <= at < hi_bar:
+        spill = at >= hi_bar and at < hi_bar + 2 and role not in (
+            'drums', 'perc')
+        if not lo_bar <= at < hi_bar and not spill:
             return None
         pos, total = at - lo_bar, hi_bar - lo_bar
         if role == 'drums':
@@ -3076,42 +3192,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         else:
             lo, hi = 55, 79
         # the whole solo is planned before its first note, so it can
-        # tell a story over the changes it will actually meet
+        # tell a story over the changes it will actually meet, and it
+        # hears the soloist before it
         bar_beats = bmeter[0]
-        key = ('story', label, sec['name'], lo_bar, walk)
-        if state.get('story_key') != key:
-            per_bar, carry = [], governing
-            for w in range(lo_bar, hi_bar):
-                o = w % sec['bars']
-                got = [(b, c) for b, c in sec['content'][o]
-                       if c is not None]
-                if not got or got[0][0] > 1.0:
-                    got = [(1.0, carry)] + got
-                carry = got[-1][1]
-                per_bar.append(got)
-
-            def chord_fn(t):
-                i = min(int(t // bar_beats), len(per_bar) - 1)
-                beat_in = t - i * bar_beats + 1
-                c = per_bar[i][0][1]
-                for b, cc in per_bar[i]:
-                    if b <= beat_in + 1e-6:
-                        c = cc
-                return c
-            if 'voice' in sound_id:
-                voice = 'voice'
-            elif role == 'bass':
-                voice = 'bass'
-            elif role == 'comp':
-                voice = 'guitar' if 'guitar' in sound_id else 'keys'
-            else:
-                voice = 'horn'
-            state['story_key'] = key
-            state['story'] = chartgroove.plan_solo(
-                chord_fn, hi_bar - lo_bar, bar_beats, lo, hi, feel,
-                (hdr.get('title', ''), label, sec['name'], lo_bar),
-                voice)
-        chartgroove.play_planned(bar, state['story'], pos, bar_beats)
+        story = solo_story(label, sec, who, walk, bar_beats)
+        chartgroove.play_planned(bar, story, pos, bar_beats)
         if role == 'comp' and 'guitar' not in sound_id:
             chartgroove.comp_shells(bar, state, chords)
         return bar.xml()
@@ -3583,8 +3668,29 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                 groove_state, active_chord[0],
                                 written_shift=horn['transpose']
                                 if horn else 0)
+                        bgs = plan.get('bg', {}).get(label)
+                        if (soloing or bgs) and off == 0 and \
+                                cur_pass == 0:
+                            mw = band_mute(label, sec,
+                                           'bg' if bgs and not soloing
+                                           else 'solo')
+                            groove_state['muted'] = mw
+                            if mw:
+                                pieces.append(direction(mw))
+                        impl = groove_state.get('impl')
+                        if impl and impl != groove_state.get('impl_said'):
+                            # the listen hears what's in the drummer's
+                            # hands: brushes pick up the brush kit
+                            pieces.append(direction(impl))
+                            groove_state['impl_said'] = impl
                         pieces.append(made or rest_bar(cur_div, staves,
                                                        bmeter))
+                        if groove_state.get('muted') and \
+                                off == sec['bars'] - 1 and \
+                                cur_pass == passes - 1:
+                            # the mute comes out for whatever is next
+                            pieces.append(direction('open'))
+                            groove_state['muted'] = None
                         if made:
                             realized_bars[label] = \
                                 realized_bars.get(label, 0) + 1

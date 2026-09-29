@@ -601,7 +601,22 @@ All of these ride on a `from demo` line, after commas:
   a long last note. Phrases cross barlines and breathe; a horn or a
   singer never plays longer than a breath, a singer scats simply, keys
   run longer lines, a bass solo stays low and spare. A repeated solo
-  section is one story across every chorus. Soloists named in one section take turns in band order, the
+  section is one story across every chorus. Soloists listen to each other: one
+  may end on a long note, a short clipped phrase, or a line that spills
+  over into the next player's first bar, and the next opens by
+  answering the phrase it just heard, in its own register, and builds
+  from there.
+- **The drummer changes implements.** `brushes`, `sticks`, `mallets`
+  or `cross stick` in a drum line's words (`drums: groove "brushes"`)
+  put them in the drummer's hands; a ballad gets brushes unless you say
+  sticks. Brushes play the Swirly brush kit: the left hand stirs
+  circles on the snare, the right taps the time. The same words written
+  on a lifted drum part switch the kit too.
+- **Mutes, written or on the spot.** A mute the chart names always
+  plays. On a made-up solo or backgrounds the brass decide for
+  themselves: a trumpet on a ballad may reach for a harmon or a cup, a
+  trombone in a blues for the plunger, brass backgrounds behind a quiet
+  solo go into cups together; the mute comes out for whatever's next. Soloists named in one section take turns in band order, the
   section split between them. A pianist keeps left-hand shells under
   the line; a drummer takes a drum solo. The page keeps its slashes and
   the word, and a solo you played in from MIDI plays exactly as played.

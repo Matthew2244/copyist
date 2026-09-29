@@ -38,7 +38,9 @@ import sfz as sfzmod
 _V = 'VSCO2-CE-SFZ/'
 _SFZ_VOICES = (
     (('drum.group',),
-     {'sus': 'VirtuosityDrums/Programs/02-full-kit.sfz'}),
+     {'sus': 'VirtuosityDrums/Programs/02-full-kit.sfz',
+      # brushes: Karoryfer's Swirly Drums, stirs and all
+      'brush': 'SwirlyDrums/Programs/Full_kit.sfz'}),
     # the upright plays plucked; "arco" on the page picks up the bow —
     # the orchestra's own contrabass takes, sustained, short and
     # tremolo. ONE bass: pizz_six is a section of six, each detuned
@@ -576,6 +578,8 @@ def _variant(voice, art):
     for short marks, its ghost set for ghosts, sustain otherwise."""
     if voice is None:
         return None
+    if art.get('brush') and 'brush' in voice:
+        return voice['brush']
     if 'pizz' in art and 'pizz' in voice:
         return voice['pizz']
     if art.get('arco') and 'arco' in voice:

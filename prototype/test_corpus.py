@@ -5150,6 +5150,72 @@ def check_solos_tell_a_story():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_players_listen_to_each_other():
+    """Players react (Matthew, 2026-09-29): a soloist's end may spill
+    into the next one's first bar, and the next opens by answering the
+    phrase it heard; drummers change implements (brushes on a ballad or
+    when the chart says, stirs on the brush kit, sticks back); brass
+    reach for mutes on made-up parts when the chart leaves it to them,
+    and a mute the chart names always wins."""
+    import chartaudio
+    import chartc
+    import chartgroove as G
+    import sfz
+    plan = [(0, .5, 60, 70), (0.5, .5, 62, 70), (4, .5, 65, 70),
+            (4.5, .5, 67, 70), (5, 1, 69, 70)]
+    ph = G.last_phrase(plan, 8)
+    check("the next soloist hears the last phrase, after the breath",
+          [m for _a, _l, m in ph] == [65, 67, 69] and ph[0][0] == 0)
+    check("brushes on a ballad, sticks when the chart says",
+          G.implement("", "ballad") == "brushes"
+          and G.implement('sticks', "ballad") == "sticks"
+          and G.implement("", "swing") == "sticks")
+    inst = sfz.SfzInstrument.__new__(sfz.SfzInstrument)
+    inst.cc = {55: 63.5}
+    check("SFZ 1 envelope CCs are read (the brush stirs' length)",
+          abs(inst._mod({"ampeg_attackcc55": "2"}, "ampeg_attack", 0)
+              - 1.0) < 0.01)
+    tmp = tempfile.mkdtemp()
+    open(os.path.join(tmp, "t.chart"), "w").write(
+        "title: Trade Test\nkey: F\nmeter: 4/4\ntempo: 140\n"
+        "feel: swing\n\nband:\n  tenor = tenor sax\n  trumpet\n"
+        "  piano\n  bass\n  drums\n\nchords blues: F7, Bb7, F7, "
+        "Cm7 F7, Bb7, Bdim7, F7, Am7 D7, Gm7, C7, F7 D7, Gm7 C7\n\n"
+        "section solos, 12 bars, repeat 4x\n  use chords blues\n"
+        "  tenor: solo\n  trumpet: solo\n  ending: as written\n\n"
+        "section ballad, 4 bars\n  chords: Fmaj7, Gm7, C7, Fmaj7\n"
+        "  feel: ballad\n  ending: as written\n")
+    out = os.path.join(tmp, "b")
+    try:
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(os.path.join(tmp, "t.chart"), out)
+        ok = True
+    except SystemExit as e:
+        ok = str(e.code)
+    check("two ending lines: only the last section may carry one",
+          ok is not True and "last section" in ok)
+    txt = open(os.path.join(tmp, "t.chart")).read().replace(
+        "  tenor: solo\n  trumpet: solo\n  ending: as written\n",
+        "  tenor: solo\n  trumpet: solo\n")
+    open(os.path.join(tmp, "t.chart"), "w").write(txt)
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "t.chart"), out)
+    pl = chartaudio.parse_score(os.path.join(
+        out, "Trade Test — for listening.musicxml"))
+    ev = {p["name"]: p["events"] for p in pl["parts"]}
+    tr = ev["trumpet"]
+    first = min(e[0] for e in tr)
+    check("the second soloist waits its turn",
+          first >= 96 - 1e-6, first)
+    dr = [e for e in ev["drums"] if e[0] >= 192]
+    check("the ballad's drummer picks up brushes, stirs and all",
+          dr and all(e[4].get("brush") for e in dr)
+          and any(e[2] == 60 for e in dr))
+    check("the swing choruses stay on sticks",
+          not any(e[4].get("brush") for e in ev["drums"] if e[0] < 192))
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5211,6 +5277,7 @@ if __name__ == "__main__":
     check_explode()
     check_endings_feel_natural()
     check_solos_tell_a_story()
+    check_players_listen_to_each_other()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()
