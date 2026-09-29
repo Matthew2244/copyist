@@ -201,8 +201,9 @@ def part_section(plan, label, chord_parts, figures=None):
                              "small here as a cue — not yours to play.")
                 continue
             if item.get('src_label'):
-                lines.append(f"You double the {item['src_label']} — "
-                             "the same line, written for you.")
+                oct_ = chartc.octave_words(item.get('octaves', 0))
+                lines.append(f"You double the {item['src_label']}{oct_} "
+                             "— the same line, written for you.")
             lo, hi = item['res']['bars']
             words = {'strong-accent': 'marcato — short and fat',
                      'staccato': 'staccato', 'tenuto': 'tenuto — full value',

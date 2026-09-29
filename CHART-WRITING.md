@@ -481,7 +481,11 @@ point of a fermata. On any part's line, `cresc bars 2-4` or
 
 `double` puts another part's line on this part's page, rewritten for
 THIS player's key and clef; the classic unison out-head is one line of
-chart. `cue` prints another part's line small, labelled "(trumpet
+chart. Say the octave when the double sits off it: `tenor: double
+trumpet an octave down` (or `an octave up`, `two octaves down`, `8va`,
+`8vb`); the page, the listen, the findings and the read-aloud all move
+with it, and the range report still tells you if that takes the horn
+past its low note. `cue` prints another part's line small, labelled "(trumpet
 cue)", never played and never counted in your range. It's there so you
 can find your entrance. `build: add trumpet at 11` prints "+trumpet" in
 every part at that bar, the montuno entrance cue. And `on pass 2: mute

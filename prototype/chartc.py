@@ -1939,8 +1939,9 @@ def compile_chart(chart_path, outdir):
                        and t[1].lower().startswith('solo')
                        for t in plan['texts'][l])
             if played:
-                srcs = sorted({i['src_label'] for i in played
-                               if i.get('src_label')})
+                srcs = sorted({i['src_label'] + octave_words(
+                                   i.get('octaves', 0))
+                               for i in played if i.get('src_label')})
                 if srcs:
                     what = "doubles the " + " and ".join(srcs)
                 elif any(i['res'].get('detail') == 'rhythmic-slashes'
@@ -2200,7 +2201,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
     for plan in plans:
         for kind_map, is_cue in ((plan['doubles'], False),
                                  (plan['cues'], True)):
-            for target, (srcl, loc) in kind_map.items():
+            for target, (srcl, shift, loc) in kind_map.items():
                 word = "cue" if is_cue else "double"
                 if srcl not in labels:
                     fail(f"{loc}: '{srcl}' is not a band part to {word}")
@@ -2217,10 +2218,65 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     if r.get('lyrics'):
                         # a double plays the line; only the voice sings
                         r = dict(r, lyrics=None, lyrics_text=None)
+                    if shift:
+                        r = shift_res(r, shift)
                     resolved[target].append(dict(i, res=r, cue=is_cue,
-                                                 src_label=srcl))
+                                                 src_label=srcl,
+                                                 octaves=shift // 12))
 
     return resolved, horn_of, (fifths, mode)
+
+
+_OCT_WORDS = {'an': 1, 'one': 1, 'a': 1, 'two': 2, 'three': 3}
+
+
+def octave_phrase(text):
+    """'trumpet an octave down' -> ('trumpet', -12). The arranger's way
+    of saying a double sits an octave off: 'an octave down/up/lower/
+    higher/below/above', 'two octaves down', '8vb', '8va', '15ma', '15mb'.
+    A bare part name comes back unshifted."""
+    t = text.strip()
+    m = re.match(r'(.+?)\s+(?:at\s+)?(8va|8vb|15ma|15mb|loco)$', t)
+    if m:
+        return m.group(1).strip(), {'8va': 12, '8vb': -12, '15ma': 24,
+                                    '15mb': -24, 'loco': 0}[m.group(2)]
+    m = re.match(r'(.+?)\s+(an|one|a|two|three|\d)\s+octaves?\s+'
+                 r'(down|up|lower|higher|below|above)$', t)
+    if m:
+        n = _OCT_WORDS.get(m.group(2)) or int(m.group(2))
+        sign = 1 if m.group(3) in ('up', 'higher', 'above') else -1
+        return m.group(1).strip(), sign * 12 * n
+    return t, 0
+
+
+def octave_words(n):
+    """' an octave down', ' two octaves up', or '' — said after a part
+    name, the way the double was asked for."""
+    if not n:
+        return ''
+    count = {1: 'an octave', 2: 'two octaves', 3: 'three octaves'}.get(
+        abs(n), f'{abs(n)} octaves')
+    return f" {count} {'up' if n > 0 else 'down'}"
+
+
+def shift_res(res, semis):
+    """A resolved line moved by whole octaves: every pitch, plus the
+    maps keyed on pitch (trills with their targets, tremolos,
+    keyswitch marks) and any grand-staff voices. Rhythm, marks and
+    words are untouched."""
+    def tl(line):
+        return [(a, b, [p + semis for p in ps]) for a, b, ps in line]
+    out = dict(res, timeline=tl(res.get('timeline') or []))
+    if res.get('trills'):
+        out['trills'] = {(q, p + semis): (aux + semis,) + tuple(rest)
+                         for (q, p), (aux, *rest) in res['trills'].items()}
+    for k in ('trems', 'ks'):
+        if res.get(k):
+            out[k] = {(q, p + semis): v for (q, p), v in res[k].items()}
+    if res.get('staves'):
+        out['staves'] = [dict(st, voices=[tl(v) for v in st['voices']])
+                         for st in res['staves']]
+    return out
 
 
 def demo_window(dm, ref, fig_meter, meters, shift, label, findings):
@@ -2506,11 +2562,11 @@ def build_plans(chart, band, groups, labels):
                     continue
                 m = re.match(r'double ([\w ]+)$', piece)
                 if m:
-                    doubles = m.group(1).strip()
+                    doubles = octave_phrase(m.group(1).strip())
                     continue
                 m = re.match(r'cue ([\w ]+)$', piece)
                 if m:
-                    cues = m.group(1).strip()
+                    cues = octave_phrase(m.group(1).strip())
                     continue
                 m = re.match(r'on pass (\d+):\s*(.+)$', piece)
                 if m:
@@ -2572,9 +2628,9 @@ def build_plans(chart, band, groups, labels):
                 fail(f"{loc}: instruction '{piece}' is not built yet")
             for l in tgts:
                 if doubles:
-                    plan['doubles'][l] = (doubles, loc)
+                    plan['doubles'][l] = doubles + (loc,)
                 if cues:
-                    plan['cues'][l] = (cues, loc)
+                    plan['cues'][l] = cues + (loc,)
                 if engraved == 'tacet':
                     plan['content'][l] = ('tacet', None)
                 elif engraved:

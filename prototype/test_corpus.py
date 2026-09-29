@@ -4700,6 +4700,64 @@ def check_mutes_sound():
           "harmon mute" in x and "<words>open</words>" in x)
 
 
+def check_double_an_octave_off():
+    """An arranger's double sits an octave off as often as not: 'tenor:
+    double trumpet an octave down', '8vb', 'two octaves up'. The line
+    moves by the octave on the page, in the listen and in the words
+    (findings and the read-aloud say it), and the verb can come first on
+    the command line: 'chart check song.chart'."""
+    import subprocess
+    import chartaudio
+    import chartc
+    import smf
+    check("octave phrase: an octave down",
+          chartc.octave_phrase("trumpet an octave down") == ("trumpet", -12))
+    check("octave phrase: 8va, two octaves, bare name",
+          chartc.octave_phrase("trumpet 1 8va") == ("trumpet 1", 12)
+          and chartc.octave_phrase("flute two octaves lower")
+          == ("flute", -24)
+          and chartc.octave_phrase("alto") == ("alto", 0))
+    tmp = tempfile.mkdtemp()
+    div = 480
+    smf.write(os.path.join(tmp, "d.mid"),
+              [(i * div, i * div + 400, 60 + i, 90) for i in range(8)],
+              div, 100)
+    chart = os.path.join(tmp, "f.chart")
+    open(chart, "w").write(
+        'title: D\nkey: C\nmeter: 4/4\ntempo: 100\ndemo: d.mid\n\n'
+        'band:\n  trumpet\n  tenor = tenor sax\n  flute\n\n'
+        'section A, 4 bars\n  chords: C, F, G, C\n'
+        '  trumpet: from demo bars 1-2\n'
+        '  tenor: double trumpet an octave down\n'
+        '  flute: double trumpet 8va\n')
+    out = os.path.join(tmp, "b")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(chart, out)
+    plan = chartaudio.parse_score(
+        os.path.join(out, "D — for listening.musicxml"))
+    ev = {p['name']: [e[2] for e in p['events']] for p in plan['parts']}
+    check("an octave down plays an octave down",
+          ev['tenor'] == [n - 12 for n in ev['trumpet']] and ev['tenor'])
+    check("8va plays an octave up",
+          ev['flute'] == [n + 12 for n in ev['trumpet']])
+    check("the findings say the octave",
+          "doubles the trumpet an octave down" in buf.getvalue())
+    env = dict(os.environ, HOME=tmp, USERPROFILE=tmp)
+    here = os.path.dirname(os.path.abspath(__file__))
+    r = subprocess.run([sys.executable, os.path.join(here, "chart.py"),
+                        "check", chart], capture_output=True, text=True,
+                       env=env, cwd=tmp)
+    check("the verb can come first", r.returncode == 0
+          and "compiles" in r.stdout + r.stderr)
+    r = subprocess.run([sys.executable, os.path.join(here, "chart.py"),
+                        chart, "read", "--part", "tenor"],
+                       capture_output=True, text=True, env=env, cwd=tmp)
+    check("the read-aloud says the octave",
+          "double the trumpet an octave down" in r.stdout)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -4753,6 +4811,7 @@ if __name__ == "__main__":
     check_feels_and_technique_for_every_part()
     check_mutes_sound()
     check_percussion_section_grooves()
+    check_double_an_octave_off()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

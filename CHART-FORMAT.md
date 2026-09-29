@@ -454,7 +454,7 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
   | `backgrounds, on cue` | the figure marked "backgrounds on cue" |
   | `tacet` | whole-section multirest in the part |
   | `as demo` | "as demo" over slashes — symbols-level (DESIGN.md §11) |
-  | `double <part>` | this part plays another part's line (printed full size) |
+  | `double <part>` | this part plays another part's line (printed full size); `double <part> an octave down` / `up`, `two octaves down`, `8va`, `8vb` move it by octaves (so does `cue`) |
   | `cue <part>` | another part's line printed cue-size, not played — "(Piano cue)" |
   | `cresc bars A-B` / `dim bars A-B` | a hairpin under those bars — printed as a wedge, played as a swell; `crescendo`, `diminuendo` and `decresc` all read |
   | `text "words" [at bar N]` | the words, verbatim, at that (section-relative) bar |

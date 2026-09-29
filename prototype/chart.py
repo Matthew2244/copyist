@@ -1116,7 +1116,7 @@ def main():
         description="Compile a chart and make everything a writer "
                     "needs. 'chart settings' shows the defaults desk.")
     ap.add_argument('chart', help="the .chart file")
-    ap.add_argument('command', nargs='?', default='build',
+    verb_arg = ap.add_argument('command', nargs='?', default='build',
                     choices=['build', 'check', 'read', 'parts', 'diff',
                              'listen', 'braille', 'emboss', 'preview',
                              'new', 'edit',
@@ -1177,7 +1177,16 @@ def main():
     ap.add_argument('--labels', action='store_true',
                     help="with parts: one part label per line, for the "
                          "apps' pick lists")
-    args = ap.parse_args()
+    # "chart check song.chart" is how people say it too: the verb first.
+    # Take either order rather than answering with a usage dump.
+    verbs = verb_arg.choices
+    argv = sys.argv[1:]
+    words = [i for i, w in enumerate(argv) if not w.startswith('-')]
+    if len(words) >= 2 and argv[words[0]] in verbs \
+            and argv[words[1]] not in verbs:
+        i, j = words[0], words[1]
+        argv[i], argv[j] = argv[j], argv[i]
+    args = ap.parse_args(argv)
     args.command = {'b': 'build', 'c': 'check', 'r': 'read',
                     'p': 'parts', 'd': 'diff', 'l': 'listen',
                     'n': 'new', 'e': 'edit'}.get(args.command,
