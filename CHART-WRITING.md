@@ -617,27 +617,38 @@ All of these ride on a `from demo` line, after commas:
   tempo mark or the end; `accel.` speeds it up; `fade out` turns the
   whole band down to nothing by the last note. They work on words
   lifted from an engraving too.
-- **Endings play.** On the last section, `ending:` names the steps in
-  order, the way you'd call them:
+- **Endings play, and they breathe.** On the last section, `ending:`
+  names the steps in order, the way you'd call them:
 
       ending: hold, drums fill, last hit on cue
-      ending: rit, hold, alto noodles over the last chord, last hit on cue
-      ending: trash can
+      ending: rit, hold, horns fall
+      ending: hold, piano gliss, watch each other
+      ending: trash can, drums tag
       ending: cold
-      ending: button
-      ending: fade
+      ending: button, drums tag "floor tom, floor tom, bass drum"
 
-  `hold` lands the band on the last chord and lets it ring (a written
-  part holds its own last note); `roll`, `drums fill`, `<part> fills`
-  and `<part> noodles` (or solos, plays over the last chord) play over
-  the hold, and a player the ending names comes in for it even if they
-  were resting; `last hit` (`on cue`) is one short hit together after
-  the hold; `button` is that hit straight after the last bar; `cold`
-  stops dead on the last downbeat; `trash can` is everything at once,
-  loud, until the hit. The pages print the steps in words over the last
-  bar of every part that plays there, with a fermata when the band
-  holds. Words for anyone else go on as usual: `horns: text "watch me"
-  at bar 12`.
+  Only what you name happens: a hold with no hit rings and the band lets
+  go together; no fill unless you ask. Nothing lands on the grid: the
+  hold lasts as long as it feels, a little different in every tune,
+  each player lands and lets go a hair apart, and `watch each other`
+  (or `watch me`) pulls that in. The steps: `hold`, `roll`, `trash
+  can`, `fill` or `<part> fills`, `<part> noodles` (over the last
+  chord), `piano gliss` / `organ gliss`, `<part> falls` (or doits,
+  scoops, plops; a group or `everyone` too), `last hit` (`on cue`),
+  `button`, `cold`, `rit`, `fade`, `drums tag` (the drummer's own
+  little thing after the last note, or spelled out in quotes), and `as
+  written` for nothing added. A player the ending names comes in for
+  it. The pages print the steps over the last bar with a fermata when
+  the band holds.
+
+  **Say nothing and the band decides**, in the moment, from the feel,
+  its own call in every tune: a ballad slows and rings, funk or latin
+  usually stops on a hit, swing might hold and let go or hold and hit;
+  sometimes a keys gliss, sometimes a drum tag. It never rewrites a
+  written ending, the pages stay as you wrote them, and the findings
+  say what the band chose so you can write it in if you like it.
+  `ending: band's choice` asks for the same thing out loud, after any
+  steps you do want (`hold, band's choice`).
 - **Slashes on the page, the real part in the listen.** When the chart
   lifts from a score (`source:`) and a rhythm player's line says
   `groove`, the page prints slashes, but the listen plays what that

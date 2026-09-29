@@ -160,7 +160,8 @@ class Bar:
         return '16th', False
 
     def _one(self, note, ticks, chorded):
-        kind, what, vel = note
+        kind, what, vel = note[:3]
+        arts = note[3] if len(note) > 3 else ()
         t, dot = self._type_of(ticks)
         out = ['      <note%s>' % (f' dynamics="{vel}"' if vel else '')]
         if chorded:
@@ -191,6 +192,11 @@ class Bar:
                 out.append(f'        <notehead>{head}</notehead>')
         if self.staves > 1:
             out.append('        <staff>1</staff>')
+        if arts:
+            # a fall, doit or scoop the listen performs (endings)
+            out.append('        <notations><articulations>'
+                       + ''.join(f'<{a}/>' for a in arts)
+                       + '</articulations></notations>')
         out.append('      </note>')
         return '\n'.join(out) + '\n'
 

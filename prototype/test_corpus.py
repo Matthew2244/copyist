@@ -712,7 +712,8 @@ def check_audio():
         "title: A\nkey: C\nmeter: 4/4\ntempo: 120\n\nband:\n"
         '  flute, demo "a.mid"\n  drums\n\n'
         "section A, 3 bars\n  chords: C, C, C\n"
-        "  flute: from demo bars 1-3\n  drums: groove\n")
+        "  flute: from demo bars 1-3\n  drums: groove\n"
+        "  ending: as written\n")
     with redirect_stdout(io.StringIO()):
         chartc.compile_chart(os.path.join(tmp, "a.chart"),
                              os.path.join(tmp, "ab"))
@@ -4833,7 +4834,8 @@ def check_words_perform():
         open(os.path.join(tmp, "t.chart"), "w").write(
             "title: T\nkey: C\nmeter: 4/4\ntempo: 120\n\nband:\n"
             "  piano\n  bass\n  drums\n\nsection A, 8 bars\n"
-            "  chords: C, F, G, C, C, F, G7, C\n" + extra)
+            "  chords: C, F, G, C, C, F, G7, C\n"
+            "  ending: as written\n" + extra)
         out = os.path.join(tmp, "b")
         with redirect_stdout(io.StringIO()):
             chartc.compile_chart(os.path.join(tmp, "t.chart"), out)
@@ -4907,9 +4909,11 @@ def check_solos_and_endings():
                     "noodles, drums fill, last hit on cue\n")
     ev = {p["name"]: p["events"] for p in pl["parts"]}
     tp = open(os.path.join(out, "T — tenor.musicxml")).read()
-    check("the hold rings two bars past the last, the hit after it",
-          abs(pl["end_q"] - 28.0) < 0.01
-          and any(abs(e[0] - 24.0) < 0.01 for e in ev["drums"]))
+    hit_at = max(e[0] for e in ev["drums"])
+    check("the hold rings past the last bar, then one hit, off the grid",
+          16.0 < hit_at < 28.0 and pl["end_q"] > hit_at
+          and len({round(e[0], 3) for e in ev["drums"]
+                   if e[0] >= hit_at - 0.01}) == 1, hit_at)
     check("the tenor holds its own written last note",
           any(e[2] == 65 and e[1] >= 11 for e in ev["tenor"]))
     check("a player the ending names comes in for it",
@@ -4919,7 +4923,7 @@ def check_solos_and_endings():
     out, pl = build("section A, 4 bars\n  chords: F, Bb7, C7, F\n"
                     "  ending: cold\n")
     check("cold: one hit on the last downbeat",
-          all(e[0] <= 12.0 + 1e-6 for p in pl["parts"]
+          all(e[0] <= 12.2 for p in pl["parts"]
               for e in p["events"] if e[0] >= 12))
     try:
         build("section A, 4 bars\n  chords: F, Bb7, C7, F\n"
@@ -4948,7 +4952,7 @@ def check_backgrounds_and_vamps():
         "section A, 8 bars\n  chords: F7, Bb7, F7, C7, F7, Bb7, C7, F7\n"
         "  tenor: solo\n  trumpet: backgrounds\n  alto: backgrounds\n"
         "  bone: backgrounds\n\nsection vamp, 2 bars, vamp till cue\n"
-        "  chords: Gm7, C7\n  tenor: solo\n")
+        "  chords: Gm7, C7\n  tenor: solo\n  ending: as written\n")
     out = os.path.join(tmp, "b")
     buf = io.StringIO()
     with redirect_stdout(buf):
@@ -5032,6 +5036,75 @@ def check_explode():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_endings_feel_natural():
+    """Endings played, not placed (Matthew, 2026-09-29): only what the
+    roadmap says; where it says nothing the band chooses from the feel,
+    differently in every tune, never rewriting a written ending; hits
+    land a hair apart; 'as written' adds nothing; a drummer's tag and a
+    keys gliss are steps; the band's choice never contradicts what the
+    roadmap already said."""
+    import chartaudio
+    import chartc
+    import chartending
+    st = chartending.parse('button, drums tag "floor tom, floor tom, '
+                           'bass drum"', ["drums"])
+    check("a drummer's tag spelled out, commas inside the quotes",
+          st[1] == ("tag", ("drums", ["floor tom", "floor tom",
+                                      "bass drum"])))
+    check("a keys gliss and horns falling are steps",
+          chartending.parse("hold, piano gliss, horns fall",
+                            ["piano"], {"horns": ["trumpet"]})
+          == [("hold", None), ("gliss", "piano"),
+              ("art", ("horns", "falloff"))])
+    picks = {tuple(k for k, _ in chartending.band_choice(
+        "swing", (t, "A"), True, True)) for t in
+        ("Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot")}
+    check("left to the band, swing tunes end in different ways",
+          len(picks) >= 3, picks)
+    tmp = tempfile.mkdtemp()
+
+    def build(ending, title="T"):
+        open(os.path.join(tmp, "t.chart"), "w").write(
+            f"title: {title}\nkey: F\nmeter: 4/4\ntempo: 120\n\nband:\n"
+            "  tenor = tenor sax\n  piano\n  bass\n  drums\n\n"
+            "figure mel, 4 bars:\n  notes: F4 w, G4 w, A4 w, F4 w\n\n"
+            "section A, 4 bars\n  chords: F, Bb7, C7, F\n"
+            "  tenor: figure mel\n" + (f"  ending: {ending}\n"
+                                        if ending else ""))
+        out = os.path.join(tmp, "b")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            chartc.compile_chart(os.path.join(tmp, "t.chart"), out)
+        return buf.getvalue(), out, chartaudio.parse_score(os.path.join(
+            out, f"{title} — for listening.musicxml"))
+    said, out, pl = build("")
+    tn = open(os.path.join(out, "T — tenor.musicxml")).read()
+    ev = {p["name"]: p["events"] for p in pl["parts"]}
+    check("no ending in the roadmap: the band's choice is said, the page "
+          "untouched", "the band chose one" in said
+          and "<fermata" not in tn)
+    check("the band's choice leaves a written last note as written",
+          [e[1] for e in ev["tenor"]][-1] < 4.01)
+    _, _, pl = build("as written")
+    check("'as written' ends where the notes end",
+          abs(pl["end_q"] - 16) < 0.01)
+    _, _, pl = build("hold, last hit")
+    hits = sorted(e[0] for p in pl["parts"] for e in p["events"]
+                  if e[0] > 16)
+    _, _, plw = build("hold, watch each other, last hit")
+    hitsw = sorted(e[0] for p in plw["parts"] for e in p["events"]
+                   if e[0] > 16)
+    check("the last hit lands a hair apart, tighter when they watch",
+          hits and hits[-1] - hits[0] > 0
+          and hitsw[-1] - hitsw[0] < hits[-1] - hits[0], (hits, hitsw))
+    _, _, pl = build("hold, piano gliss")
+    pn = [e for e in {p["name"]: p["events"] for p in pl["parts"]}
+          ["piano"] if e[0] > 12]
+    check("the piano glisses up off the last chord",
+          len(pn) > 10 and pn[-1][2] > pn[5][2])
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5091,6 +5164,7 @@ if __name__ == "__main__":
     check_solos_and_endings()
     check_backgrounds_and_vamps()
     check_explode()
+    check_endings_feel_natural()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

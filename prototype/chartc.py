@@ -2875,8 +2875,18 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                              f" is open — it goes round "
                              f"{vamp_passes(pl['sec'])} times in the "
                              "listen, till the cue on the gig")
+    keys_l = next((b['label'] for b in band if canonical_instrument(
+        b['instrument']) in ('piano', 'organ', 'keyboard', 'rhodes')),
+        None)
     for i, pl in enumerate(plans):
         got = pl['sec'].get('ending')
+        auto = False
+        if not got and i == len(plans) - 1:
+            # the roadmap says nothing: the band decides in the moment,
+            # from the feel, its own call in every tune — the listen
+            # only; the pages keep what the roadmap wrote
+            got, auto = ("band's choice", f"section {pl['sec']['name']}"), \
+                True
         if not got:
             continue
         etext, eloc = got
@@ -2884,19 +2894,47 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             fail(f"{eloc}: an ending goes on the last section — "
                  f"'{pl['sec']['name']}' is not the last")
         try:
-            steps = chartending.parse(etext, labels)
+            steps = chartending.parse(etext, labels, groups)
         except chartending.EndingError as e:
             fail(f"{eloc}: {e}")
-        sh = chartending.shape(steps)
+        if [k for k, _ in steps] == ['asis']:
+            continue                    # the notes stop where they stop
+        song = (hdr.get('title', ''), pl['sec']['name'])
+        if any(k == 'choice' for k, _ in steps):
+            chosen = chartending.band_choice(
+                pl['sec']['feel'] or hdr.get('feel') or '', song,
+                keys_l is not None, bool(groups.get('horns')))
+            j = next(n for n, (k, _) in enumerate(steps) if k == 'choice')
+            have = {k for k, _ in steps}
+            # what the roadmap already says stands; the band fills in
+            # the rest, never contradicting it
+            if have & {'stop', 'hit', 'button'}:
+                chosen = [c for c in chosen
+                          if c[0] not in ('stop', 'hit', 'button')]
+            chosen = [c for c in chosen if c[0] not in have]
+            steps = steps[:j] + chosen + steps[j + 1:]
+        sh = chartending.shape(steps, labels, groups)
+        sh['keys'] = keys_l
+        sh['auto'] = auto
+        sh['song'] = song
         pl['ending'] = sh
         nb = pl['sec']['bars']
+        said = chartending.words(steps)
+        if auto:
+            if sh['rit']:
+                pl.setdefault('listen_words', []).append(
+                    (max(1, nb - 1), 'rit.'))
+            if findings is not None:
+                findings.add("listen: the roadmap names no ending, so the "
+                             f"band chose one: {said}. Write 'ending:' on "
+                             "the last section to decide it yourself")
+            continue
         players = [l for l in labels
                    if pl['content'][l][0] not in ('tacet', 'default')
                    or pl['overlays'].get(l)
                    or (pl['content'][l][0] == 'default'
                        and l in groups['rhythm'])]
-        said = chartending.words(steps)
-        players += [l for l in sh['noodle'] + sh['fill']
+        players += [l for l in sh['noodle'] + sh['fill'] + sh['gliss']
                     if l and l not in players]
         for l in set(players) | {labels[0]}:
             if said:
@@ -3304,6 +3342,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 # player's technique (arco, pizz., a mute) belongs to that
                 # player in the score and the listen alike — the bass's
                 # arco was reaching neither (Bow Ballad, 2026-09-28)
+                if listen and with_directions:
+                    # the band's own calls (a rit. nobody wrote) reach
+                    # the listen, never the page
+                    for tbar, text in plan.get('listen_words', ()):
+                        if tbar == off + 1:
+                            pieces.append(direction(text))
                 for tbar, text in sorted(plan['texts'][label],
                                          key=lambda t: t[0]):
                     if tbar != off + 1:
@@ -3603,20 +3647,27 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             realized = (kind_l in ('groove', 'hits')
                         or (kind_l == 'default' and default_groove)) \
                 and last_abs not in demo_measures[label] \
-                and not last_pl['overlays'].get(label)
+                and not last_pl['overlays'].get(label) \
+                and last_pl['sec']['name'] not in played_written.get(
+                    label, ())
             xml0 = out[-1][0]
-            got = chartending.listen_bars(
-                xml0, chartgroove.role_of(sound_id, clef), sound_id,
-                active_chord[0], meter_at(meters, last_abs),
-                horn['transpose'] if horn else 0, fifths, staves, endsh,
-                label, not realized, label)
+            # the band's own call never rewrites a written ending: only
+            # the chairs that were making it up end it their way
+            got = None if (endsh.get('auto') and not realized) else \
+                chartending.listen_bars(
+                    xml0, chartgroove.role_of(sound_id, clef), sound_id,
+                    active_chord[0], meter_at(meters, last_abs),
+                    horn['transpose'] if horn else 0, fifths, staves,
+                    endsh, label, not realized, label,
+                    song=endsh.get('song', ''))
             if got:
                 body, extras = got
                 bl = re.search(r'<barline location="right">.*?</barline>\n?',
                                xml0, re.S)
                 bl = bl.group(0) if bl else ''
                 if body is not None:
-                    head = re.match(r'\s*<measure number="\d+">\n', xml0)
+                    head = re.match(r'\s*<measure number="[^"]+">\n',
+                                    xml0)
                     keep = re.findall(r'      <direction.*?</direction>\n',
                                       xml0, re.S)
                     out[-1] = (head.group(0) + ''.join(keep) + body
