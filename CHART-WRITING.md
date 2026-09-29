@@ -635,6 +635,25 @@ All of these ride on a `from demo` line, after commas:
   section split between them. A pianist keeps left-hand shells under
   the line; a drummer takes a drum solo. The page keeps its slashes and
   the word, and a solo you played in from MIDI plays exactly as played.
+- **The band plays like professionals.** Every chair is levelled
+  before the mix (the libraries differ by as much as 45 dB raw), then
+  set the way an engineer would: horns out front, trumpet just over the
+  tenor, bass a few dB under, comping well under, the kit between; the
+  bass and kick sit in the middle, the rest spread by role. A rhythm
+  player taking a solo gets the fader pushed up. The pianist plays with
+  two hands across the keyboard — a low left-hand shell, colour and
+  rhythm above, on a ballad a spread tenth near the bottom and the
+  rootless voicing high — in rootless A and B forms that move least,
+  changing texture every couple of bars (stabs, left hand holding
+  while the right answers, laying out, modal fourths where the harmony
+  sits still), never the same twice running. Soloists land chord tones
+  on the beat, the 3rd or 7th at each change, with approach notes
+  between, and each has a personality (lyrical, bebop, bluesy,
+  modern), the next one contrasting the last. The piano leaves room
+  when the soloist is busy and answers when they breathe; the drummer
+  drops bombs in the gaps, sets up each phrase, crashes in each new
+  soloist, and fills from a whole vocabulary, never the same fill twice
+  running. `listen_feather=no` stops the feathered kick in swing.
 - **The band builds through the tune.** Comping starts with two-note
   shells and a hit left out now and then, and opens into rootless
   voicings with the extensions as the tune goes on; time-keeping parts

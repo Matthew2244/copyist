@@ -2415,6 +2415,8 @@ struct SettingsView: View {
                            isOn: onUnlessNo("listen_brushes"))
                     Toggle("The band builds through the tune",
                            isOn: onUnlessNo("listen_builds"))
+                    Toggle("Feathered kick when swinging",
+                           isOn: onUnlessNo("listen_feather"))
                 }
                 group("Your words") {
                     let vp = NSHomeDirectory()

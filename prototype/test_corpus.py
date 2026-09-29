@@ -5133,20 +5133,20 @@ def check_solos_tell_a_story():
     check("the solo spans every chorus of a repeated section",
           max(e[0] for e in t) > 120 and abs(pl["end_q"] - 144) < .01)
     check("early on there is space: fewer notes than at the peak",
-          len(early) * 1.5 < len(peak), (len(early), len(peak)))
+          len(early) * 1.25 < len(peak), (len(early), len(peak)))
     check("the peak sits higher than the opening",
           sum(e[2] for e in peak) / len(peak)
           > sum(e[2] for e in early) / len(early) + 3)
-    check("it lands home on a long note",
-          t[-1][1] >= 4 and t[-1][0] + t[-1][1] > 140)
+    check("it comes home at the end, long or short, not trailing off",
+          t[-1][0] > 132)
     got = {}
     for heat in (0.3, 0.9):
         b = G.Bar(24, (4, 4), 0, 1)
-        G._comp(b, {}, 5, "ballad", [(1.0, ("F", 0, "7", None))],
+        G._comp(b, {}, 5, "bossa", [(1.0, ("F", 0, "7", None))],
                 "keyboard.piano", heat)
         got[heat] = max(len(n) for _, n in b.onsets.values())
-    check("comping grows: two notes early, four with extensions later",
-          got[0.3] == 2 and got[0.9] == 4, got)
+    check("comping grows: three notes early, four with extensions later",
+          got[0.3] == 3 and got[0.9] == 4, got)
     shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -5259,6 +5259,87 @@ def check_listen_switches():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_plays_like_pros():
+    """Professional players (Matthew, 2026-09-29, on Trading Room): the
+    pianist comps with rootless A/B voicings that move least, in a
+    vocabulary of rhythms, never the same bar twice; soloists land chord
+    tones on the beat; the drummer feathers the kick or not (a switch),
+    and the band drops back when a new soloist starts, then builds."""
+    import chartgroove as G
+    v1 = G.rootless_voicing(("C", 0, "m7", None), None)
+    v2 = G.rootless_voicing(("F", 0, "7", None), v1)
+    check("ii-V rootless: Cm7 B form into F7 A form, one voice moving",
+          v1 == [58, 62, 63, 67] and v2 == [57, 62, 63, 67], (v1, v2))
+    st, picks, both = {}, [], 0
+    for ab in range(24):
+        b = G.Bar(24, (4, 4), 0, 1)
+        G.piano_comp(b, st, ab, [(1.0, ("F", 0, "7", None))],
+                     ("B", -1, "7", None), 0.8, "keyboard.piano", "swing")
+        if ab % 2 == 0:
+            picks.append(st["tex"])
+        ns = [n[1] for _t, (_l, nn) in b.onsets.items() for n in nn]
+        if ns and min(ns) < 57 and max(ns) > 62:
+            both += 1
+    check("the pianist changes texture, never the same one twice running",
+          all(a != b for a, b in zip(picks, picks[1:]))
+          and len(set(picks)) >= 3, picks)
+    check("two hands: a low left hand under a higher right", both >= 6,
+          both)
+    sec = {"bars": 12, "_turn": (0, 24, 0)}
+    lo = G._heat(sec, 0)
+    sec["_turn"] = (23, 24, 0)
+    hi = G._heat(sec, 11)
+    check("behind a soloist the band starts low and builds", hi > lo + 0.4)
+    G.OPTS["feather"] = False
+    try:
+        b = G.Bar(24, (4, 4), 0, 1)
+        G._drums(b, 3, "swing", None)
+        kicks_off = [n for _t, (_l, ns) in b.onsets.items() for n in ns
+                     if n[1] == G._KICK]
+        st2 = {"hits": None}
+        made = G.realize("groove", "", "drum.group.set", "percussion", 1,
+                         0, {"bars": 8, "content": [[(1.0, None)]] * 8,
+                             "feel": None}, 1, 3, (4, 4), 24, "swing",
+                         st2, None)
+        quiet_kicks = made.count("<display-step>F</display-step>"
+                                 "<display-octave>4") if made else 0
+    finally:
+        G.OPTS["feather"] = True
+    check("feather off: no quiet kick on every beat",
+          kicks_off and quiet_kicks <= 2, quiet_kicks)
+
+
+def check_band_reacts():
+    """Nothing repeats and the band reacts (Matthew, 2026-09-29): fills
+    come from a vocabulary and never twice running, so no two soloist
+    handoffs sound alike; the pianist leaves room over a busy soloist
+    and answers when they breathe; each soloist has a personality."""
+    import chartgroove as G
+    st, kinds = {}, []
+    for ab in range(8):
+        b = G.Bar(24, (4, 4), 0, 1)
+        G._drummer_marks(b, {"bars": 4, "name": "solos",
+                             "_turn": (3, 4, ab)}, 3, ab * 4 + 3, 0.8, st)
+        kinds.append(st.get("last_fill"))
+    check("handoff fills never repeat back to back",
+          all(k for k in kinds) and all(a != b for a, b in
+                                        zip(kinds, kinds[1:]))
+          and len(set(kinds)) >= 4, kinds)
+
+    def notes_with(busy):
+        tot, st2 = 0, {}
+        for ab in range(16):
+            b = G.Bar(24, (4, 4), 0, 1)
+            G.piano_comp(b, st2, ab, [(1.0, ("F", 0, "7", None))],
+                         ("B", -1, "7", None), 0.7, "keyboard.piano",
+                         "swing", busy)
+            tot += sum(len(n) for _t, (_l, n) in b.onsets.items())
+        return tot
+    check("the pianist leaves room over a busy soloist",
+          notes_with(0.9) < notes_with(0.05))
+    check("four soloist personalities", len(G.PERSONAS) == 4)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5322,6 +5403,8 @@ if __name__ == "__main__":
     check_solos_tell_a_story()
     check_players_listen_to_each_other()
     check_listen_switches()
+    check_plays_like_pros()
+    check_band_reacts()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

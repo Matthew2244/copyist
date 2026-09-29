@@ -282,7 +282,8 @@ $settingGroups = [ordered]@{
                                              'listen_endings',
                                              'listen_mutes',
                                              'listen_brushes',
-                                             'listen_builds')
+                                             'listen_builds',
+                                             'listen_feather')
 }
 
 function Do-Settings {

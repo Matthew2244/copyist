@@ -2842,7 +2842,7 @@ SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
 # settings, listen_*): set by the front door before a build.
 LISTEN_OPTS = {'grooves': True, 'solos': True, 'backgrounds': True,
                'endings': True, 'mutes': True, 'brushes': True,
-               'builds': True}
+               'builds': True, 'feather': True}
 
 
 def vamp_passes(sec):
@@ -2883,7 +2883,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                              f"{vamp_passes(pl['sec'])} times in the "
                              "listen, till the cue on the gig")
     chartgroove.OPTS.update(builds=LISTEN_OPTS['builds'],
-                            brushes=LISTEN_OPTS['brushes'])
+                            brushes=LISTEN_OPTS['brushes'],
+                            feather=LISTEN_OPTS.get('feather', True))
     off_now = [k for k, v in LISTEN_OPTS.items() if not v]
     if off_now and findings is not None:
         findings.add("listen: turned off in settings, so the band leaves "
@@ -3039,6 +3040,37 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                 else 'pads', off, sec['name'])
         return bar.xml()
 
+    # ---- where the band is inside a soloist's turn, for dynamics
+    def solo_turn(sec, off, cur_pass, passes, plan):
+        """(bar in the current soloist's turn, turn length) or None
+        when nobody solos here."""
+        who = [x['label'] for x in band if any(
+            isinstance(t[1], str) and t[1].lower().startswith('solo')
+            for t in plan['texts'].get(x['label'], ()))]
+        if not who or not LISTEN_OPTS['solos']:
+            return None
+        walk = sec['bars'] * passes
+        each = max(walk // len(who), 1)
+        at = cur_pass * sec['bars'] + off
+        k = min(at // each, len(who) - 1)
+        length = walk - k * each if k == len(who) - 1 else each
+        return (at - k * each, length, k)
+
+    def solo_busy(sec, plan, passes, bar_beats):
+        """How busy the soloist is in this bar, 0 (resting) to 1 (a
+        solid line of eighths), so the band can leave room or answer."""
+        turn = sec.get('_turn')
+        if not turn:
+            return None
+        who = [x['label'] for x in band if any(
+            isinstance(t[1], str) and t[1].lower().startswith('solo')
+            for t in plan['texts'].get(x['label'], ()))]
+        walk = sec['bars'] * passes
+        story = solo_story(who[turn[2]], sec, who, walk, bar_beats)
+        t0, t1 = turn[0] * bar_beats, (turn[0] + 1) * bar_beats
+        n = sum(1 for at, *_r in story if t0 <= at < t1)
+        return min(n / (2.0 * bar_beats), 1.0)
+
     # ---- a mute nobody wrote: the brass's own call on made-up parts
     def band_mute(label, sec, kind):
         """'harmon mute', 'cup mute', 'plunger mute' or None: what a
@@ -3083,6 +3115,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
 
     # ---- each soloist's whole solo, planned once, heard by the next
     stories = {}
+    personas = {}
 
     def solo_story(label, sec, who, walk, bar_beats):
         """A soloist's planned solo over its share of the section. The
@@ -3147,11 +3180,19 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 after = max(n[0] + n[1] for n in over) - prev_total + 0.5
             echo = chartgroove.last_phrase(prev, prev_total)
         feel = sec['feel'] or hdr.get('feel') or ''
+        # each soloist is their own player; the next one contrasts the
+        # one before
+        seed = (hdr.get('title', ''), label, sec['name'], lo_bar)
+        pd = chartgroove._Dice(seed, 'persona')
+        persona = chartgroove.PERSONAS[int(pd() * 4) % 4]
+        if k > 0 and persona == personas.get((sec['name'], who[k - 1])):
+            persona = chartgroove.PERSONAS[
+                (chartgroove.PERSONAS.index(persona) + 1) % 4]
+        personas[(sec['name'], label)] = persona
         plan_ = chartgroove.plan_solo(
             chord_fn, hi_bar - lo_bar, bar_beats, lo, hi, feel,
-            (hdr.get('title', ''), label, sec['name'], lo_bar), voice,
-            echo=echo, start_after=after,
-            next_soloist=k < len(who) - 1)
+            seed, voice, echo=echo, start_after=after,
+            next_soloist=k < len(who) - 1, persona=persona)
         stories[key] = plan_
         return plan_
 
@@ -3664,6 +3705,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                           '</attributes>\n')
                             resume_div = cur_div
                             cur_div = gdiv
+                        sec['_turn'] = solo_turn(sec, off, cur_pass,
+                                                 passes, plan)
+                        sec['_busy'] = solo_busy(sec, plan, passes,
+                                                 bmeter[0])
                         if soloing and not LISTEN_OPTS['solos'] or \
                                 plan.get('bg', {}).get(label) and \
                                 not soloing and \

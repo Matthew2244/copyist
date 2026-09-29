@@ -241,10 +241,13 @@ SETTINGS = (
     ('listen_builds', 'yes', "the band builds through the tune: comping "
                              "opens up, the drummer marks sections and "
                              "fills; no keeps it even"),
+    ('listen_feather', 'yes', "the drummer feathers the kick on every "
+                              "beat when swinging; no keeps the kick for "
+                              "bombs, setups and fills"),
 )
 LISTEN_KEYS = ('listen_grooves', 'listen_solos', 'listen_backgrounds',
                'listen_endings', 'listen_mutes', 'listen_brushes',
-               'listen_builds')
+               'listen_builds', 'listen_feather')
 
 EXPORTS = (('pages', 'the PDF charts'), ('listen', 'the listen MP3'),
            ('braille', 'a braille file for each part'),
@@ -664,7 +667,8 @@ def run_settings(argv):
                 'listen_endings': "the band's own ending",
                 'listen_mutes': "mutes on the spot",
                 'listen_brushes': "brushes on a ballad",
-                'listen_builds': "the band building through the tune"}[k]
+                'listen_builds': "the band building through the tune",
+                'listen_feather': "a feathered kick when swinging"}[k]
         lines[k] = (f"{k} is on — {what}, in every listen."
                     if v == 'yes' else
                     f"{k} is off — no {what}; the next build leaves it "

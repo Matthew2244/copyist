@@ -159,17 +159,17 @@ _SEATS = (
     # the reference, the rhythm section under them. Set on Trading Room
     # by measured loudness per chair (2026-09-29): comping chords stack
     # three or four notes, so keys and guitar sit well down.
-    ('saxophone.tenor', -1.5, -0.30), ('saxophone.alto', -1.0, -0.20),
+    ('saxophone.tenor', -0.5, -0.30), ('saxophone.alto', -1.0, -0.20),
     ('saxophone.soprano', -1.0, -0.15), ('saxophone.baritone', -1.0,
                                          -0.40),
-    ('brass.trumpet', 1.5, 0.25), ('brass.flugelhorn', 1.0, 0.25),
-    ('brass.cornet', 1.5, 0.25), ('brass.trombone', 0.0, 0.40),
+    ('brass.trumpet', -1.5, 0.25), ('brass.flugelhorn', -1.5, 0.25),
+    ('brass.cornet', -1.5, 0.25), ('brass.trombone', -3.0, 0.40),
     ('brass.', 0.0, 0.3),
     ('pluck.bass', -4.5, 0.0), ('strings.contrabass', -4.0, 0.0),
     ('keyboard.piano', -11.0, 0.30), ('keyboard.organ', -12.0, 0.25),
     ('keyboard', -11.0, 0.25), ('pluck.guitar', -10.0, -0.35),
     ('mallet.vibraphone', -8.0, 0.35),
-    ('drum.group', 2.0, 0.0),
+    ('drum.group', 0.0, 0.0),
     ('drum.', -4.0, 0.45), ('metal.', -5.0, 0.45), ('wood.', -5.0, 0.45),
     ('rattle.', -6.0, 0.45),
     ('voice', 1.0, 0.0),
@@ -181,14 +181,16 @@ _LEVEL_TARGET = 500.0     # every chair's heard loudness, before its seat (libra
 _LEVELS = None            # cache: (voice, key, vel) -> loudness
 
 
-def _heard(res, sr):
+def _heard(res, sr, secs=1.0):
     """How loud a rendered note sounds, roughly the way an ear weighs
     it: the lows the ear barely hears are filtered off first (a one-pole
-    high-pass near 150 Hz), then the RMS of its first second."""
+    high-pass near 150 Hz), then the RMS over the note's own length —
+    a trombone that swells as it sustains and a trumpet that fades
+    measure alike over one second and 6 dB apart over four."""
     if not res:
         return 0.0
     L = res[0]
-    n = min(len(L), sr)
+    n = min(len(L), int(sr * max(secs, 0.2)))
     if n < 10:
         return 0.0
     a = math.exp(-2 * math.pi * 150.0 / sr)
@@ -224,7 +226,7 @@ def _save_levels():
         pass
 
 
-def calibrate(shelf, voice, part, sr):
+def calibrate(shelf, voice, part, sr, note_secs=1.0):
     """The gain that brings this chair to the common heard loudness,
     measured where the part actually plays (its middle note) at the
     band's ordinary weight. The libraries differ by 45 dB raw (Trading
@@ -242,19 +244,21 @@ def calibrate(shelf, voice, part, sr):
     inst = (voice or {}).get('sus') if voice else None
     tag = (getattr(inst, 'path', None) or
            f"sf2:{part['program']}:{part['percussion']}")
-    ck = f"{tag}|{key}"
+    secs = 1.0 if part['percussion'] else \
+        min(max(round(note_secs * 2) / 2, 0.5), 4.0)
+    ck = f"{tag}|{key}|{secs}"
     cache = _levels_cache()
     if ck not in cache:
         res = None
         if inst is not None:
             k2, cc = _kit_key(inst, key) if part['percussion'] \
                 else (key, None)
-            res = inst.render_note(k2, 72, 1.2, sr, cc=cc)
+            res = inst.render_note(k2, 72, secs + 0.2, sr, cc=cc)
         if res is None and shelf.sf2 is not None:
             res = sf2mod.render_note(
                 shelf.sf2, 128 if part['percussion'] else 0,
-                max(part['program'] - 1, 0), key, 72, 1.2, sr)
-        cache[ck] = _heard(res, sr)
+                max(part['program'] - 1, 0), key, 72, secs + 0.2, sr)
+        cache[ck] = _heard(res, sr, secs)
         _save_levels()
     loud = cache[ck]
     if loud <= 1e-9:
@@ -772,7 +776,12 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         detunes.append(((nth % 4) - 1.5) * 0.04 if sid else 0.0)
 
     # every chair to one heard loudness first; the seats set the mix
-    cal = [calibrate(shelf, voices[i], p, SR) if seat_of(
+    def typical_secs(p):
+        # the chair's own note length, measured where it plays
+        ds = sorted(sec_of(q + d_) - sec_of(q)
+                    for q, d_, *_ in p['events'])
+        return ds[len(ds) // 2] if ds else 1.0
+    cal = [calibrate(shelf, voices[i], p, SR, typical_secs(p)) if seat_of(
         p.get('sound', '')) is not None else 1.0
         for i, p in enumerate(plan['parts'])]
 
