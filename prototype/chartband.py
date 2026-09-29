@@ -68,9 +68,10 @@ _SFZ_VOICES = (
      {'sus': 'Salamander/SalamanderGrandPianoV3.sfz'}),
     (('keyboard.organ',),
      {'sus': 'Copyist-Extras/organ-gospel-slow.sfz'}),
-    (('pluck.guitar',),
-     {'sus': 'BlackAndGreenGuitars/Programs/04-green_twang.sfz',
-      'stac': 'BlackAndGreenGuitars/Programs/05-green_staccato.sfz'}),
+    # no SFZ guitar: every recording in Black And Green Guitars is
+    # limited flat into full scale (crest ~7 dB against the SoundFont's
+    # 15-20), which is the distortion Matthew kept hearing — "clippy
+    # white noise" (2026-09-28). Guitars play the GM SoundFont's own.
     (('saxophone.alto',),
      {'sus': 'Weresax/Programs/Sax.sfz'}),
     (('saxophone.soprano',),
@@ -137,7 +138,6 @@ _SFZ_VOICES = (
 # (2026-09-28). The hi-hat is not trimmed back: it
 # had an open hat ringing under every closed one.
 _MAKEUP = {
-    'BlackAndGreenGuitars/': 9.0,
     'Bass-black-and-blue-basses/': 10.0,
     'VirtuosityDrums/': 8.0,
     'Meatbass/Programs/pizz_basic': 7.0,    # one bass where six stood
@@ -636,6 +636,10 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         sound_count[sid] = nth + 1
         voices.append(shelf.voice(sid, part['percussion'],
                                   part.get('name', '')))
+        if 'pluck.guitar' in sid and not 25 <= part['program'] <= 32:
+            # a guitar with no program of its own would fall to the
+            # piano: jazz guitar, or nylon for an acoustic
+            part['program'] = 25 if 'acoustic' in sid else 27
         detunes.append(((nth % 4) - 1.5) * 0.04 if sid else 0.0)
 
     jobs = []    # (t, dur, idx, key, vel, bright, bend, amps, fam, art)
