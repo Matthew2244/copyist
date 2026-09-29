@@ -708,7 +708,12 @@ parts take your own words as their names. Then you describe the tune.
 Say "trumpet and saxes play the melody" with no demo to take it from
 and Copyist asks for the melody as soon as the form is written: say it
 in notes or play it in from a MIDI file. The first player gets the
-line and the others double it, each written for their own horn.
+line and the others double it, each written for their own horn. A
+horn or singer named alone in a section ("alto") has the tune too;
+slashes on a horn page were never what that meant. When A2 or A3 has
+A's changes, Copyist offers A's melody, so an AABA head is said twice,
+A and B, not four times. The percussion keeps playing whoever else you
+name, the way the rhythm section does, unless you say it lays out.
 
 ## Describing the tune: the roadmap conversation
 
@@ -733,7 +738,11 @@ It places what it understood, reads the placement back, and asks one
 question at a time about only the gaps. An AABA head offers to carve
 itself into lettered 8s; a later A offers "same changes as A?"; solos
 over a form ride that form's own changes; the out on the last A plays
-the last A's changes without you typing them twice. If the chart
+the last A's changes without you typing them twice. A head out
+over a carved head plays the whole head again, A, A, B, A, and Enter
+at its who-plays question plays it the way the head went: the same
+players, and the head's melody placed bar for bar, nothing asked
+twice. If the chart
 doesn't exist yet, the `new` interview runs first and the roadmap
 picks up where it stops.
 

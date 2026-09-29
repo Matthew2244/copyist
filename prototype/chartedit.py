@@ -1209,7 +1209,8 @@ def _who_target(toks, labels, groups):
     return None
 
 
-def parse_who(text, labels, groups, vocab=None, melody_range=None):
+def parse_who(text, labels, groups, vocab=None, melody_range=None,
+              tune_labels=()):
     """'horns tacet; bass walks, piano comps; voice sings the melody'
     -> directive lines, in bandstand language.  Raises SpokenError on
     a target or instruction it cannot read."""
@@ -1248,6 +1249,12 @@ def parse_who(text, labels, groups, vocab=None, melody_range=None):
             raise SpokenError(toks[0], phrase)
         r = " ".join(rest).lower().strip()
         one = re.sub(r"^(plays?|is|are)\s+", "", r)
+        if not one and targets and all(t in tune_labels
+                                       for t in targets):
+            # a horn (or a singer) named alone in a section has the
+            # tune; slashes on a horn page were never what "alto"
+            # meant (Harbor Lights, 2026-09-29)
+            one = r = "melody"
         if one in MELODY_WORDS and melody_range is None:
             later += targets
             continue
@@ -1256,7 +1263,8 @@ def parse_who(text, labels, groups, vocab=None, melody_range=None):
             # a time, so this never comes back here
             for t in targets:
                 lines += parse_who(t + " " + r, labels, groups,
-                                   melody_range=melody_range)
+                                   melody_range=melody_range,
+                                   tune_labels=tune_labels)
             continue
         target = targets[0]
         r = re.sub(r"^(plays?|is|are)\s+", "", r)
@@ -1576,12 +1584,60 @@ def _detect_from_demo(a, plan, ctx):
     return line if not ans.lower().startswith("n") else None
 
 
+def _lineup_words(fam, ctx):
+    """The head's lineup, said: 'alto has the melody; congas groove'."""
+    mel = _family_melody(fam, ctx)
+    rest = []
+    for q in fam:
+        for ln in q.get("who") or ():
+            who, _, what = ln.partition(":")
+            what = what.strip()
+            if what.startswith(("figure", "double")) or who in mel:
+                continue
+            w = f"{who.strip()} {'grooves' if what == 'groove' else what}"
+            if w not in rest:
+                rest.append(w)
+    bits = ([" and ".join(mel) + " has the melody"] if mel else []) + rest
+    return "; ".join(bits) or "rhythm grooves, horns tacet"
+
+
+def _family_melody(fam, ctx):
+    """Who carried the tune in the head (the melody-later players)."""
+    names = {q["name"] for q in fam}
+    out = []
+    for targets, sec, *_ in ctx.get("melody_later", ()):
+        if sec in names:
+            out += [t for t in targets if t not in out]
+    return out
+
+
+def _head_lineup(plan, fam, ctx):
+    """The head out, Enter pressed: the head's groove/tacet/solo lines
+    again, and its melody placed from the head's own figures once they
+    are written (_melodies_now copies them, bar for bar)."""
+    lines = []
+    for q in fam:
+        for ln in q.get("who") or ():
+            what = ln.partition(":")[2].strip()
+            if what.startswith(("figure", "double")) or ln in lines:
+                continue
+            lines.append(ln)
+    mel = _family_melody(fam, ctx)
+    if mel:
+        ctx.setdefault("melody_later", []).append(
+            (mel, plan["name"], [q["name"] for q in fam]))
+    say("The out plays it the way the head went: "
+        + _lineup_words(fam, ctx) + ".")
+    return lines
+
+
 def _perc_plays(ctx, lines):
     """The percussion section plays unless told otherwise, the way a
-    Latin band's does: when the answer was the defaults, or only named
-    soloists, each hand-percussion chair not already mentioned grooves,
+    Latin band's does, and the way the rhythm section grooves unless
+    told: each hand-percussion chair the answer did not mention grooves,
     said out loud (Night Market, 2026-09-28: the congas sat out the
-    intro, the solos and the out)."""
+    intro, the solos and the out; Harbor Lights, 2026-09-29: naming the
+    alto sent them out of the head)."""
     named = {ln.split(":")[0].strip() for ln in lines}
     add = [l for l in ctx.get("perc_labels", ()) if l not in named]
     if add:
@@ -1611,10 +1667,17 @@ def _who_for(plan, ctx):
                     break
             if ok:
                 return picks + _perc_plays(ctx, picks)
+    head = plan.get("out_of") if plan["kind"] == "out" else None
     while True:
-        a = ask(f"Who plays in {plan['name']}? like 'horns tacet; "
-                "trumpet from demo bars 5-12', or Enter for the "
-                "defaults (rhythm grooves, horns tacet)")
+        if head:
+            a = ask(f"Who plays in {plan['name']}? Enter plays it the "
+                    "way the head went: " + _lineup_words(head, ctx))
+            if not a:
+                return _head_lineup(plan, head, ctx)
+        else:
+            a = ask(f"Who plays in {plan['name']}? like 'horns tacet; "
+                    "trumpet from demo bars 5-12', or Enter for the "
+                    "defaults (rhythm grooves, horns tacet)")
         if not a:
             return _perc_plays(ctx, [])
         while True:
@@ -1625,22 +1688,28 @@ def _who_for(plan, ctx):
                     rng = (plan["start_demo"],
                            plan["start_demo"] + plan["bars"] - 1)
                 lines = parse_who(a, ctx["labels"], ctx["groupnames"],
-                                  ctx["vocab"], melody_range=rng)
+                                  ctx["vocab"], melody_range=rng,
+                                  tune_labels=ctx.get("tune_labels", ()))
                 # his standing quant setting rides every from-demo lift
                 q = ctx["cfg"].get("quant")
                 if q:
                     lines = [ln + f", {q}" if "from demo bars" in ln
                              else ln for ln in lines]
-                return lines
+                return lines + _perc_plays(ctx, lines)
             except MelodyLater as e:
                 who = " and ".join(e.targets)
-                say(f"No demo yet, so there's no melody to lift for "
-                    f"{who}. I'll ask you for it as soon as the form "
-                    "is written: say it in notes, or play it in from a "
-                    "MIDI file.")
+                if ctx.get("melody_later") and any(
+                        t == e.targets for t, *_ in ctx["melody_later"]):
+                    say(f"{who} has the melody here too; I'll ask for it "
+                        "with the others once the form is written.")
+                else:
+                    say(f"No demo yet, so there's no melody to lift for "
+                        f"{who}. I'll ask you for it as soon as the "
+                        "form is written: say it in notes, or play it "
+                        "in from a MIDI file.")
                 ctx.setdefault("melody_later", []).append(
                     (e.targets, plan["name"]))
-                return e.lines
+                return e.lines + _perc_plays(ctx, e.lines)
             except SpokenError as e:
                 if e.word in MELODY_WORDS:
                     say("This chart names no demo to lift the melody "
@@ -1688,14 +1757,18 @@ def edit(path, demo=None, composer="", cfg=None):
             dm = chartdemo.Demo(p)
     vocab = load_vocab()
     import chartgroove
-    perc_labels = []
+    perc_labels, tune_labels = [], []
     for b in chart["band"]:
         inst = chartc.canonical_instrument(b["instrument"])
         h, snd = chartc.HORNS.get(inst), chartc.SOUNDS.get(inst)
-        if h and snd and chartgroove.role_of(snd[1], h["clef"]) == "perc":
+        role = chartgroove.role_of(snd[1], h["clef"]) if h and snd \
+            else "?"
+        if role == "perc":
             perc_labels.append(b["label"])
+        elif role is None:
+            tune_labels.append(b["label"])
     ctx = {"vocab": vocab, "labels": labels, "groupnames": groupnames,
-           "perc_labels": perc_labels,
+           "perc_labels": perc_labels, "tune_labels": tune_labels,
            "demo": dm, "base": base, "ask": ask, "done": [],
            "meter": meter, "cfg": cfg,
            "key": chart["header"].get("key", "C"),
@@ -1717,11 +1790,16 @@ def _melodies_now(path, ctx):
     """The melodies promised with no demo to lift them from: asked for
     right after the form lands, while the writer is still here. The
     first player gets the line; the others double it."""
-    for targets, sec in ctx.get("melody_later", []):
+    for entry in ctx.get("melody_later", []):
+        targets, sec = entry[0], entry[1]
+        if len(entry) > 2:
+            _copy_head_melody(path, targets, sec, entry[2])
+            continue
         say(f"Now the melody in {sec} for "
             + " and ".join(targets) + ".")
         chart = chartc.parse_chart(path)
-        _notes_for(path, ctx, chart, targets[0], sec)
+        if not _same_melody(path, ctx, chart, targets[0], sec):
+            _notes_for(path, ctx, chart, targets[0], sec)
         lines = _lines(path)
         span = _section_span(lines, sec)
         if not span or not any(
@@ -1747,6 +1825,77 @@ def _melodies_now(path, ctx):
         if targets[1:]:
             say(", ".join(targets[1:]) + f" double the {targets[0]} "
                 f"in {sec}, written for each horn.")
+
+
+def _same_melody(path, ctx, chart, target, sec):
+    """A2 and A3 carry A's changes, and nearly always A's tune: offer
+    the melody already written for an earlier section with the same
+    changes, so an AABA head is said once, not three times. Yes places
+    the same figure; no asks for the new line as usual."""
+    secs = {q["name"]: q for q in chart["sections"]}
+    me = secs.get(sec)
+    if not me:
+        return False
+    for q in chart["sections"]:
+        if q["name"] == sec:
+            return False
+        if q["content"] != me["content"] or q["bars"] != me["bars"]:
+            continue
+        figs = [w for who, w, _ in q["directives"]
+                if who == target and w.startswith("figure ")]
+        if not figs:
+            continue
+        yn = ask(f"{sec} has the same changes as {q['name']}. Same "
+                 f"melody as {q['name']}? yes or no", "yes")
+        if yn.lower().startswith("n"):
+            return False
+        lines = _lines(path)
+        span = _section_span(lines, sec)
+        j = span[1]
+        while j > span[0] + 1 and not lines[j - 1].strip():
+            j -= 1
+        lines[j:j] = [f"  {target}: {w}" for w in figs]
+        _save_lines(path, lines)
+        say(f"{target} plays {q['name']}'s melody in {sec}.")
+        return True
+    return False
+
+
+def _copy_head_melody(path, targets, out_sec, head_secs):
+    """The head out plays the head's melody: every figure and double
+    the head's sections placed, again in the out, bar for bar."""
+    lines = _lines(path)
+    chart = chartc.parse_chart(path)
+    bars = {s["name"]: s["bars"] for s in chart["sections"]}
+    got, off = [], 0
+    for h in head_secs:
+        span = _section_span(lines, h)
+        for l in (lines[span[0] + 1:span[1]] if span else ()):
+            who, _, what = l.strip().partition(":")
+            what = what.strip()
+            if who not in targets and not what.startswith("double"):
+                continue
+            m = re.fullmatch(r"figure (.+?)(?: at bar (\d+))?", what)
+            if m:
+                at = int(m.group(2) or 1) + off
+                got.append(f"  {who}: figure {m.group(1)} at bar {at}")
+            elif what.startswith("double") and \
+                    f"  {who}: {what}" not in got:
+                got.append(f"  {who}: {what}")
+        off += bars.get(h, 0)
+    if not any(": figure" in g for g in got):
+        say(f"The head's melody isn't written yet, so the {out_sec} "
+            f"waits for it too: say 'notes for {targets[0]} in "
+            f"{out_sec}' at the desk.")
+        return
+    span = _section_span(lines, out_sec)
+    j = span[1]
+    while j > span[0] + 1 and not lines[j - 1].strip():
+        j -= 1
+    lines[j:j] = got
+    _save_lines(path, lines)
+    say(f"The {out_sec} plays the head's melody: "
+        + " and ".join(targets) + ", the same figures, bar for bar.")
 
 
 # ---------------------------------------------- the new-form road
@@ -1947,6 +2096,7 @@ def _realize_plans(ctx, plans, named, extra=()):
         elif p["kind"] == "out":
             src = _resolve_out(p, pool, named)
             if src:
+                p["out_of"] = src.get("out_sections") or [src]
                 p["bars"] = src["bars"]
                 # the head out plays the head as it was: its feel too,
                 # unless the out named its own
@@ -2622,6 +2772,14 @@ def _resolve_out(p, plans, named):
     fam = _resolve_family(src, plans, named)
     if fam and len(fam) == 1:
         return fam[0]
+    if fam and all(q.get("bars") for q in fam):
+        # "head out" over a carved head: the whole family again, its
+        # changes in order (A, A, B, A), its feel from the top
+        return {"bars": sum(q["bars"] for q in fam),
+                "feel": fam[0].get("feel"), "out_sections": fam,
+                "chords_text": ", ".join(q.get("chords_text")
+                                         or f"nc x{q['bars']}"
+                                         for q in fam)}
     return None
 
 

@@ -341,6 +341,10 @@ INSTRUMENT_ALIASES = {
     'bone': 'trombone', 't-bone': 'trombone',
     'flugel': 'flugelhorn', 'picc': 'piccolo',
     'upright bass': 'double bass', 'string bass': 'double bass',
+    # on a bandstand "upright" alone is the bass player
+    'upright': 'double bass', 'stand-up bass': 'double bass',
+    'standup bass': 'double bass', 'stand up bass': 'double bass',
+    'upright piano': 'piano',
     'acoustic bass': 'double bass', 'contrabass': 'double bass',
     'bass': 'electric bass', 'bass guitar': 'electric bass',
     'keys': 'piano', 'keyboard': 'piano', 'rhodes': 'piano',

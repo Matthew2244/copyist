@@ -4758,6 +4758,61 @@ def check_double_an_octave_off():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_head_out_plays_the_head():
+    """Harbor Lights, a tune told from nothing (2026-09-29): "upright"
+    dropped the bass player; "head out" over a head carved AABA asked
+    its bars (the out could borrow only one section); naming the alto
+    in the head printed slashes on a horn page and sent the congas out;
+    the out went tacet on the horns; and the same A melody had to be
+    said three times. Now the out plays the head's lineup and melody,
+    A2 and A3 offer A's tune, and a horn named alone has the tune."""
+    import subprocess
+    import chartedit, chartnew
+    band, unknown = chartnew.band_from_words("upright, stand-up bass")
+    check("upright is the bass player",
+          [i for _, i in band] == ["double bass", "double bass"]
+          and not unknown, repr((band, unknown)))
+    L = ["alto", "trumpet", "piano", "congas"]
+    try:
+        chartedit.parse_who("alto", L, [], tune_labels=["alto", "trumpet"])
+        got = None
+    except chartedit.MelodyLater as e:
+        got = e.targets
+    check("a horn named alone has the tune", got == ["alto"], repr(got))
+    check("a rhythm player named alone still grooves",
+          chartedit.parse_who("piano", L, [], tune_labels=["alto"])
+          == ["piano: groove"])
+    tmp = tempfile.mkdtemp()
+    chart = os.path.join(tmp, "h.chart")
+    open(chart, "w").write("title: H\nkey: F\nmeter: 4/4\ntempo: 120\n\n"
+                           "band:\n  alto = alto sax\n  piano\n"
+                           "  bass\n  drums\n  congas\n")
+    A = "F4 w, G4 w, A4 w, C5 w"
+    B = "Bb4 w, A4 w, G4 w, F4 w"
+    answers = ["head is 16 bars AABA, solos over the head, head out",
+               "carve", "F, Gm7, C7, F", "alto", "yes", "alto",
+               "Bb, Bbm, F, C7", "alto", "yes", "alto", "alto", "",
+               A, "1", "yes", "yes", B, "1", "yes", "yes", "", "", ""]
+    env = dict(os.environ, HOME=tmp, USERPROFILE=tmp)
+    here = os.path.dirname(os.path.abspath(__file__))
+    r = subprocess.run([sys.executable, os.path.join(here, "chart.py"),
+                        chart, "edit"], input="\n".join(answers) + "\n",
+                       capture_output=True, text=True, env=env, cwd=tmp)
+    txt = open(chart).read()
+    out = txt[txt.index("section out"):]
+    check("the head out plays the head's figures, bar for bar",
+          "alto: figure alto A bar 1 at bar 1" in out
+          and "alto: figure alto B bar 1 at bar 9" in out
+          and "alto: figure alto A bar 1 at bar 13" in out,
+          r.stdout[-400:] + r.stderr[-400:])
+    a2 = txt[txt.index("section A2"):txt.index("section B")]
+    check("A2 offers A's melody", "alto: figure alto A bar 1" in a2)
+    a1 = txt[txt.index("section A,"):txt.index("section A2")]
+    check("naming the alto keeps the congas in",
+          "congas: groove" in a1 and "alto: groove" not in txt)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -4812,6 +4867,7 @@ if __name__ == "__main__":
     check_mutes_sound()
     check_percussion_section_grooves()
     check_double_an_octave_off()
+    check_head_out_plays_the_head()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()
