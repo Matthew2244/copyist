@@ -323,6 +323,7 @@ class SfzInstrument:
         rel_base = None
         stereo = smpR is not None
         loop_len = float(loop_e - loop_s) if looping else 0.0
+        fade_src = max(0.008 * sr * base_step, 1.0)
         while i < n:
             if bend or amps:
                 t = i / sr
@@ -343,24 +344,37 @@ class SfzInstrument:
                     i = n
                     break
                 frac = pos - ip
-                if i < a_n:
-                    env = i / a_n
-                elif i < h_end:
-                    env = 1.0
-                elif i < h_end + d_n:
-                    env = 1.0 + (sus - 1.0) * (i - h_end) / d_n
-                elif i < n_on:
-                    env = sus
+                # a note that outlasts its recording fades over the
+                # last few milliseconds — stopping dead mid-wave is a
+                # click, and a band of them is static (2026-09-28)
+                left = end_f - pos
+                if left < fade_src and not (
+                        looping and (lm == 'loop_continuous' or i < n_on)):
+                    edge = left / fade_src
                 else:
-                    # release fades from wherever the note actually
-                    # was — restarting at full is an audible pop
+                    edge = 1.0
+                if i >= n_on:
+                    # the note is over: release, from wherever the
+                    # envelope actually was — whatever stage it was in.
+                    # Letting attack, hold or decay run on past the
+                    # note's end kept short notes ringing at full and
+                    # then dropped them in one sample: a click per note,
+                    # static across a band (2026-09-28)
                     if rel_base is None:
                         rel_base = env
                     env = rel_base * max(0.0, 1.0 - (i - n_on) / r_n)
                     if env <= 0.0:
                         i = n
                         break
-                g = env * amul
+                elif i < a_n:
+                    env = i / a_n
+                elif i < h_end:
+                    env = 1.0
+                elif i < h_end + d_n:
+                    env = 1.0 + (sus - 1.0) * (i - h_end) / d_n
+                else:
+                    env = sus
+                g = env * amul * edge
                 outL[i] = (smpL[ip] * (1.0 - frac)
                            + smpL[ip + 1] * frac) * g
                 if stereo:

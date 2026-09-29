@@ -3728,6 +3728,40 @@ def check_braille():
                   f"{errs[:2]} {[(i, a, b) for i, (a, b) in enumerate(zip(want, got)) if a != b][:3]} {len(want)} vs {len(got)}")
 
 
+def check_note_off_wins():
+    """A note shorter than its instrument's hold or decay ends when it
+    ends: the release starts at note-off from wherever the sound is,
+    with no one-sample drop later (the Weresax click, 2026-09-28)."""
+    import sfz
+    import wave as _w
+    tmp = tempfile.mkdtemp()
+    sr = 44100
+    path = os.path.join(tmp, 'tone.wav')
+    with _w.open(path, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        import array as _a
+        import math as _m
+        w.writeframes(_a.array('h', [int(12000 * _m.sin(2 * _m.pi * 220 *
+                                                        i / sr))
+                                     for i in range(sr * 3)]).tobytes())
+    open(os.path.join(tmp, 't.sfz'), 'w').write(
+        '<region> sample=tone.wav pitch_keycenter=57 ampeg_attack=0.001 '
+        'ampeg_hold=1 ampeg_decay=2 ampeg_sustain=0 ampeg_release=0.2\n')
+    inst = sfz.SfzInstrument(os.path.join(tmp, 't.sfz'))
+    L = inst.render_note(57, 100, 0.25, sr)[0]
+    after = L[int(0.25 * sr) + int(0.2 * sr) + 50:]
+    check("a short note is silent once its release is done",
+          not after or max(abs(x) for x in after) < 1e-3,
+          max(abs(x) for x in after) if after else 0)
+    worst = max(abs(L[i] - L[i - 1]) for i in range(1, len(L)))
+    peak = max(abs(x) for x in L)
+    check("no sample-to-sample drop anywhere near the note's size",
+          worst < 0.2 * peak, (worst, peak))
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_tempo_in_the_bar():
     """A tempo that stands in the bar itself, outside any direction, is
     the tempo — engravings put it there (Matt's Blues played at 120
@@ -4497,6 +4531,7 @@ if __name__ == "__main__":
     check_braille()
     check_export_picker()
     check_tempo_in_the_bar()
+    check_note_off_wins()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
