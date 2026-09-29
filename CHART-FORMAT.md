@@ -155,7 +155,13 @@ Key–value lines, one per line:
 - `feel` is printed verbatim at the top (`Swing`, `Latin`, `Afro-Cuban feel`
   are all in the corpus) and tells the compiler how to interpret eighths.
   A feel naming 16ths (`swing 16ths`, the 8-Bit book's groove) swings the
-  half-beat in the listening document instead of the beat.
+  half-beat in the listening document instead of the beat. Funk is
+  straight unless the feel says `swung funk` (or `swing funk`, `funk
+  shuffle`): then the sixteenths swing, or in half time the eighths.
+  The rhythm section also reads `shuffle`, `second line`, `reggae` /
+  `one drop`, `Motown`, `hip hop` / `boom bap` (`swung hip hop`,
+  `Dilla`) and, in 3/4, `waltz` / `jazz waltz` (CHART-WRITING.md has
+  what each plays).
 - `source: "<file.musicxml>"` names the chart's default engraving — the
   score that `as engraved` directives (§3.6) lift from. Optional; only
   charts derived from an existing score need it.
@@ -439,7 +445,7 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
 
   | Instruction | Prints |
   |---|---|
-  | `groove` | slashes under this section's chords |
+  | `groove` | slashes under this section's chords. The listen plays what the `source:` score writes for that player in the section, when it writes anything; only a section it leaves empty is realized from the chords |
   | `groove "half-time funk"` | the same, with the words above the first bar |
   | `figure <name> [at bar N]` | the notated figure, from that section-relative bar (default 1) |
   | `as engraved bars A-B [at bar N]` | each targeted part's own bars A–B of the `source:` score, exact |
