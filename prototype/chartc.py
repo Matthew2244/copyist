@@ -2764,6 +2764,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         was_groove = False
         was_swing = (False, False)
         cur_div = div
+        resume_div = None
+        fine_div = None
         marks = div_marks.get(label, {})
         for plan in plans:
             sec = plan['sec']
@@ -2775,6 +2777,18 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 absbar = plan['start'] + off
                 bmeter = meter_at(meters, absbar)
                 pieces = []
+                resumed = None
+                if resume_div is not None:
+                    # the bar after a realized one goes back to the
+                    # part's own divisions
+                    if resume_div != cur_div:
+                        resumed = ('      <attributes><divisions>'
+                                   f'{resume_div}</divisions>'
+                                   '</attributes>\n')
+                        pieces.append(resumed)
+                        fine_div = cur_div
+                        cur_div = resume_div
+                    resume_div = None
                 if absbar in marks:
                     want_div = marks[absbar] or div
                     if want_div != cur_div:
@@ -3014,14 +3028,30 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     hmap, _gw = arg
                     pattern = hmap.get(off + 1, hmap.get(None))
                     if listen:
+                        # a groove needs sixteenths and triplets:
+                        # 24 a quarter at least, whatever the lifted
+                        # score's own divisions (2 in Matt's Blues put
+                        # the funk bass's pickups on the next note)
+                        gdiv = cur_div if cur_div % 24 == 0 else 24
+                        if resumed in pieces and fine_div == gdiv:
+                            # still realizing: no back-and-forth
+                            pieces.remove(resumed)
+                            resume_div = cur_div
+                            cur_div = gdiv
+                        elif gdiv != cur_div:
+                            pieces.append('      <attributes><divisions>'
+                                          f'{gdiv}</divisions>'
+                                          '</attributes>\n')
+                            resume_div = cur_div
+                            cur_div = gdiv
                         made = chartgroove.realize(
                             'hits', arg, sound_id, clef, staves,
-                            fifths, sec, off, absbar, bmeter, div,
+                            fifths, sec, off, absbar, bmeter, gdiv,
                             sec['feel'] or hdr.get('feel') or '',
                             groove_state, active_chord[0],
                             written_shift=horn['transpose']
                             if horn else 0)
-                        pieces.append(made or rest_bar(div, staves,
+                        pieces.append(made or rest_bar(cur_div, staves,
                                                        bmeter))
                         if made:
                             realized_bars[label] = \
@@ -3040,14 +3070,30 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     # rests. Now it renders what the slashes MEAN: the
                     # realized rhythm section, listening document only.
                     if listen:
+                        # a groove needs sixteenths and triplets:
+                        # 24 a quarter at least, whatever the lifted
+                        # score's own divisions (2 in Matt's Blues put
+                        # the funk bass's pickups on the next note)
+                        gdiv = cur_div if cur_div % 24 == 0 else 24
+                        if resumed in pieces and fine_div == gdiv:
+                            # still realizing: no back-and-forth
+                            pieces.remove(resumed)
+                            resume_div = cur_div
+                            cur_div = gdiv
+                        elif gdiv != cur_div:
+                            pieces.append('      <attributes><divisions>'
+                                          f'{gdiv}</divisions>'
+                                          '</attributes>\n')
+                            resume_div = cur_div
+                            cur_div = gdiv
                         made = chartgroove.realize(
                             'groove', arg, sound_id, clef, staves,
-                            fifths, sec, off, absbar, bmeter, div,
+                            fifths, sec, off, absbar, bmeter, gdiv,
                             sec['feel'] or hdr.get('feel') or '',
                             groove_state, active_chord[0],
                             written_shift=horn['transpose']
                             if horn else 0)
-                        pieces.append(made or rest_bar(div, staves,
+                        pieces.append(made or rest_bar(cur_div, staves,
                                                        bmeter))
                         if made:
                             realized_bars[label] = \

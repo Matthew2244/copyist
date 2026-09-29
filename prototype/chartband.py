@@ -41,8 +41,16 @@ _SFZ_VOICES = (
      {'sus': 'VirtuosityDrums/Programs/02-full-kit.sfz'}),
     # the upright plays plucked; "arco" on the page picks up the bow —
     # the orchestra's own contrabass takes, sustained, short and
-    # tremolo
-    (('pluck.bass.acoustic', 'strings.contrabass'),
+    # tremolo. ONE bass: pizz_six is a section of six, each detuned
+    # and spread, and a walking line through it sounded like six
+    # players not quite agreeing (Matthew, 2026-09-28: "the bass
+    # sounds so funny"). The orchestra's section keeps the six.
+    (('pluck.bass.acoustic',),
+     {'sus': 'Meatbass/Programs/pizz_basic.sfz',
+      'arco': _V + 'ContrabassSusVB.sfz',
+      'arco_stac': _V + 'ContrabassSpic.sfz',
+      'arco_trem': _V + 'ContrabassTrem.sfz'}),
+    (('strings.contrabass',),
      {'sus': 'Meatbass/Programs/pizz_six.sfz',
       'arco': _V + 'ContrabassSusVB.sfz',
       'arco_stac': _V + 'ContrabassSpic.sfz',
@@ -122,6 +130,20 @@ _SFZ_VOICES = (
 )
 
 
+# Level trims, dB, for libraries whose unison and extra-microphone
+# layers once sounded all at once because CC gates were ignored, and
+# for the upright, once a section of six. Each note is one clean layer
+# now; the trim keeps the band's balance where it was set by ear
+# (2026-09-28). The hi-hat is not trimmed back: it
+# had an open hat ringing under every closed one.
+_MAKEUP = {
+    'BlackAndGreenGuitars/': 9.0,
+    'Bass-black-and-blue-basses/': 10.0,
+    'VirtuosityDrums/': 8.0,
+    'Meatbass/Programs/pizz_basic': 7.0,    # one bass where six stood
+}
+
+
 class Shelf:
     """Everything the band can pick up: the SFZ voices on disk, the GM
     SoundFont floor, and a cache so a library parses once per render."""
@@ -149,15 +171,27 @@ class Shelf:
                 inst = sfzmod.SfzInstrument(p)
             except Exception:
                 inst = None
+        if inst is not None:
+            for prefix, db in _MAKEUP.items():
+                if rel.startswith(prefix):
+                    inst.makeup = 10.0 ** (db / 20.0)
         self._cache[rel] = inst
         return inst
 
-    def voice(self, sound_id, percussion):
+    def voice(self, sound_id, percussion, name=''):
         """The articulation set for this chair: {'sus': inst, ...} or
-        None to use the GM floor."""
+        None to use the GM floor. The part's name settles what the sound
+        id cannot: notation programs label every bass part
+        strings.contrabass, but a part called Acoustic Bass is one
+        player; Contrabass, Double Bass or Basses is the section."""
         if not self.dir:
             return None
         sid = (sound_id or '').lower()
+        nm = (name or '').lower()
+        if 'strings.contrabass' in sid and nm and not any(
+                w in nm for w in ('contrabass', 'double bass', 'basses',
+                                  'cb.', 'd.b.')):
+            sid = 'pluck.bass.acoustic'
         if percussion and any(h in sid for h in HAND_SOUNDS):
             # the percussion table plays its own recordings
             if not os.path.exists(os.path.join(self.dir, HAND_SFZ)):
@@ -279,6 +313,27 @@ _SEND = {'piano': .12, 'mallet': .16, 'organ': .08, 'guitar': .10,
          'bass': .04, 'strings': .22, 'voice': .16, 'brass': .18,
          'reed': .16, 'flute': .16, 'synth': .12, 'drums': .10}
 _BREATHERS = {'brass', 'reed', 'flute', 'voice', 'strings'}
+_ONE_LINE = {'brass', 'reed', 'flute', 'voice', 'bass', 'guitar'}
+_CHANGE = 0.035          # seconds two notes overlap in a real change
+_TAIL = 0.35             # a note's own tail before a rest
+_FADE = 0.03
+
+
+def _cut_at(res, secs):
+    """A rendered note ended after secs, fading over its last 30 ms."""
+    nl, nr = res[0], res[1]
+    n = max(int(secs * chartaudio.SR), 1)
+    if len(nl) <= n:
+        return nl, nr
+    f = max(min(int(_FADE * chartaudio.SR), n), 1)
+    ol = array('f', nl[:n])
+    orr = ol if nr is nl else array('f', nr[:n])
+    for k in range(f):
+        g = (f - k) / f
+        ol[n - f + k] *= g
+        if orr is not ol:
+            orr[n - f + k] *= g
+    return ol, orr
 
 
 def _family(program, percussion):
@@ -387,6 +442,24 @@ def _shape(art, d, vel, fam):
 
 
 _HATS = {42, 44, 46}                     # one hi-hat, three voices
+
+
+def _kit_key(inst, key):
+    """The key and controllers a GM drum note plays on this kit. A kit
+    that puts every hi-hat on one key and chooses closed from open by
+    the pedal controller (CC 4, as an e-drum does) gets the pedal set
+    per note: down for 42, up for 46. Anything else plays as written."""
+    key = int(key)
+    if key not in (42, 46) or not hasattr(inst, 'regions'):
+        return key, None
+    pedal = getattr(inst, '_hat_pedal', None)
+    if pedal is None:
+        pedal = any('locc4' in r or 'hicc4' in r for r in inst.regions
+                    if r.get('key') == '42' or r.get('lokey') == '42')
+        inst._hat_pedal = pedal
+    if not pedal:
+        return key, None
+    return 42, {4: 127.0 if key == 42 else 0.0}
 
 
 def _choke_map(shelf, part, events):
@@ -521,12 +594,19 @@ def _variant(voice, art):
 
 
 def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
-                on_progress=None):
+                on_progress=None, window=None):
     """The parsed plan -> a stereo WAV through the sample shelf.
     sf_path may be the shelf directory (SFZ voices per instrument,
     the GM SoundFont as the floor) or a single .sf2. Mirrors
     chartaudio.render's return: (seconds, n_parts, n_notes,
-    lead_seconds)."""
+    lead_seconds).
+
+    window=(t0, t1), in the score's seconds, renders only what sounds
+    between them, from a few seconds before t0 so held notes and the
+    room are already ringing at the cut. The WAV then starts there, and
+    the returned lead is where score time 0 would sit in it — t0 plus
+    lead is still where the bars begin. A bar-range listen used to
+    render the whole song and throw most of it away."""
     SR = chartaudio.SR
     shelf = Shelf(sf_path)
     holds = plan.get('holds', ())
@@ -554,7 +634,8 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         sid = part.get('sound', '')
         nth = sound_count.get(sid, 0)
         sound_count[sid] = nth + 1
-        voices.append(shelf.voice(sid, part['percussion']))
+        voices.append(shelf.voice(sid, part['percussion'],
+                                  part.get('name', '')))
         detunes.append(((nth % 4) - 1.5) * 0.04 if sid else 0.0)
 
     jobs = []    # (t, dur, idx, key, vel, bright, bend, amps, fam, art)
@@ -565,6 +646,13 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         events = part['events']
         chokes = _choke_map(shelf, part, events) \
             if part['percussion'] else {}
+        steals = _steals(voices[idx], events, sec_of, lead) \
+            if part['percussion'] else {}
+        # one player, one note at a time: where the next note starts
+        # (chord tones share an onset, so they are not "next")
+        onsets = sorted({q for q, *_ in events})
+        nxt_of = {q: (onsets[k + 1] if k + 1 < len(onsets) else None)
+                  for k, q in enumerate(onsets)}
         for i, (q_on, q_dur, midi, gain, art) in enumerate(events):
             a = sec_of(q_on) + lead
             b = sec_of(q_on + q_dur) + lead
@@ -592,155 +680,231 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
                 dd, vel, bright, bend, amps = _shape(art, d, vel, fam)
                 if amps is None and abs(g1 - g0) > 0.02 and g0 > 0:
                     amps = [(0.0, 1.0), (dd, g1 / g0)]   # the hairpin
+            # a single-line player's note ends where the next begins,
+            # overlapping only as long as a real change takes; before a
+            # rest its tail is the player's, a breath, and the room
+            # carries the rest. A library's multi-second release rang
+            # under the next note (Matthew, 2026-09-28: "that's not how
+            # a real player plays")
+            cut = steals.get(i)
+            if fam in _ONE_LINE and not part['percussion']:
+                nq = nxt_of.get(q_on)
+                end_note = a + dd
+                cut = end_note + _TAIL
+                if nq is not None:
+                    cut = min(cut, sec_of(nq) + lead + _CHANGE)
             jobs.append((a, dd, idx, midi, vel, bright, bend, amps,
-                         fam, art))
+                         fam, art, cut))
             notes += 1
 
-    end = max((a + d for a, d, *_ in jobs), default=0.0) + tail
+    if window:
+        t0, t1 = window
+        shift = max(t0 + lead - _PRE_ROLL, 0.0)
+        kept = []
+        for j in jobs:
+            a, dd = j[0], j[1]
+            ring = _RING if plan['parts'][j[2]]['percussion'] else dd + 4.0
+            if a < t1 + lead and a + max(dd, ring) > shift:
+                kept.append((a - shift,) + tuple(j[1:10]) +
+                            ((j[10] - shift) if j[10] is not None
+                             else None,))
+        jobs = kept
+        lead -= shift
+        if shift > 0:
+            count_in = None         # the click belongs to the top
+    end = max((a + d for a, d, *_ in jobs), default=0.0) + tail + 1.0
     frames = int(end * SR)
-    L = array('f', bytes(4 * frames))
-    R = array('f', bytes(4 * frames))
-    wetL = array('f', bytes(4 * frames))
-    wetR = array('f', bytes(4 * frames))
-
-    if count_in:
-        for c in range(n0 * count_in):
-            chartaudio._add_tick(L, R, c * pulse,
-                                 1568.0 if c % n0 == 0 else 1047.0, 0.5)
-
-    # a groove repeats its hits by the hundred: keep a four-take
-    # round-robin cache per drum voice so the kit renders each take
-    # once and then plays it like a player would — same variety, a
-    # fraction of the time
-    drum_cache = {}
-    drum_turn = {}
-    step = max(len(jobs) // 50, 1)
-    for ji, (a, d, idx, key, vel, bright, bend, amps, fam, art) \
-            in enumerate(jobs):
-        if on_progress and ji % step == 0:
-            on_progress(ji / max(len(jobs), 1),
-                        "the band is playing it in")
-        part = plan['parts'][idx]
-        v = int(round(min(max(vel, 1.0), 127.0)))
-        pieces = []
-        voice = voices[idx]
-        if part['percussion'] and bend is None and amps is None:
-            ck = (idx, int(key), v // 8, round(d, 1))
-            takes = drum_cache.setdefault(ck, [])
-            if len(takes) >= 4:
-                n = drum_turn.get(ck, 0)
-                drum_turn[ck] = n + 1
-                res = takes[n % 4]
-                if res is not None:
-                    pieces.append((a, res))
+    def play(jlist, L, R, wetL, wetR, report=None):
+        """Render these notes into these buffers: dry and the room's
+        send."""
+        drum_cache = {}
+        drum_turn = {}
+        span = [frames, 0]          # where this call wrote anything
+        step = max(len(jlist) // 50, 1)
+        for ji, (a, d, idx, key, vel, bright, bend, amps, fam, art, cut) \
+                in enumerate(jlist):
+            if report and ji % step == 0:
+                report(ji / max(len(jlist), 1))
+            part = plan['parts'][idx]
+            v = int(round(min(max(vel, 1.0), 127.0)))
+            pieces = []
+            voice = voices[idx]
+            if part['percussion'] and bend is None and amps is None:
+                # four full-length takes per piece and loudness band; a
+                # choked or shortened hit is its take released where the
+                # hit ends. Keyed on each hit's own length as well, the
+                # cache almost never hit and a kit rendered every hit
+                # afresh on four microphones — most of an export's time
+                ck = (idx, int(key), v // 8, bright)
+                takes = drum_cache.setdefault(ck, [])
+                if len(takes) >= 4:
+                    n = drum_turn.get(ck, 0)
+                    drum_turn[ck] = n + 1
+                    res = takes[n % 4]
+                    if res is not None:
+                        pieces.append((a, _drum_end(res, d, a, cut, voice,
+                                                    key)))
+                    else:
+                        continue
                 else:
-                    continue
-            else:
+                    inst = _variant(voice, art)
+                    res = None
+                    if inst is not None:
+                        k2, cc = _kit_key(inst, key)
+                        res = inst.render_note(k2, v, _RING, SR,
+                                               brightness=bright,
+                                               detune=detunes[idx],
+                                               cc=cc)
+                    if res is None and shelf.sf2 is not None:
+                        res = sf2mod.render_note(
+                            shelf.sf2, 128, max(part['program'] - 1, 0),
+                            int(key), v, _RING, SR, brightness=bright,
+                            detune=detunes[idx])
+                    res = _trim_quiet(res)
+                    takes.append(res)
+                    if res is None:
+                        continue
+                    pieces.append((a, _drum_end(res, d, a, cut, voice,
+                                                key)))
+            if not pieces and 'fall' in art and voice and 'fall' in voice \
+                    and key is not None:
+                # a RECORDED fall beats a synthetic bend every time. A
+                # short note IS the gesture; a long one sings first and
+                # falls out of the end.
+                if d > 1.1 and 'sus' in voice:
+                    body = voice['sus'].render_note(
+                        int(key), v, d - 0.45, SR,
+                        amps=[(0.0, 1.0), (d - 0.45, 0.8)],
+                        detune=detunes[idx])
+                    if body:
+                        pieces.append((a, body))
+                    drop = voice['fall'].render_note(
+                        int(key), v, 1.2, SR, detune=detunes[idx])
+                    if drop:
+                        pieces.append((a + d - 0.5, drop))
+                else:
+                    drop = voice['fall'].render_note(
+                        int(key), v, max(d, 0.9), SR,
+                        detune=detunes[idx])
+                    if drop:
+                        pieces.append((a, drop))
+            if not pieces:
+                res = None
                 inst = _variant(voice, art)
-                res = inst.render_note(int(key), v, d, SR,
-                                       brightness=bright,
-                                       detune=detunes[idx]) \
-                    if inst is not None else None
+                if art.get('trem') and voice and 'trem' in voice:
+                    amps = None     # the recorded bow already trembles
+                if inst is not None:
+                    k2, cc = _kit_key(inst, key) if part['percussion'] \
+                        else (int(key), None)
+                    res = inst.render_note(k2, v, d, SR, bend=bend,
+                                           brightness=bright, amps=amps,
+                                           detune=detunes[idx], cc=cc,
+                                           limit=None if cut is None
+                                           or part['percussion']
+                                           else cut - a + 0.01)
                 if res is None and shelf.sf2 is not None:
                     res = sf2mod.render_note(
-                        shelf.sf2, 128, max(part['program'] - 1, 0),
-                        int(key), v, d, SR, brightness=bright,
-                        detune=detunes[idx])
-                takes.append(res)
+                        shelf.sf2, 128 if part['percussion'] else 0,
+                        max(part['program'] - 1, 0),
+                        int(key), v, d, SR, bend=bend, brightness=bright,
+                        amps=amps, detune=detunes[idx])
                 if res is None:
                     continue
+                if art.get('mute') and not part['percussion']:
+                    res = apply_mute(res, art['mute'], SR,
+                                     strings='strings.' in (part.get('sound')
+                                                            or ''))
                 pieces.append((a, res))
-        if not pieces and 'fall' in art and voice and 'fall' in voice \
-                and key is not None:
-            # a RECORDED fall beats a synthetic bend every time. A
-            # short note IS the gesture; a long one sings first and
-            # falls out of the end.
-            if d > 1.1 and 'sus' in voice:
-                body = voice['sus'].render_note(
-                    int(key), v, d - 0.45, SR,
-                    amps=[(0.0, 1.0), (d - 0.45, 0.8)],
-                    detune=detunes[idx])
-                if body:
-                    pieces.append((a, body))
-                drop = voice['fall'].render_note(
-                    int(key), v, 1.2, SR, detune=detunes[idx])
-                if drop:
-                    pieces.append((a + d - 0.5, drop))
-            else:
-                drop = voice['fall'].render_note(
-                    int(key), v, max(d, 0.9), SR,
-                    detune=detunes[idx])
-                if drop:
-                    pieces.append((a, drop))
-        if not pieces:
-            res = None
-            inst = _variant(voice, art)
-            if art.get('trem') and voice and 'trem' in voice:
-                amps = None     # the recorded bow already trembles
-            if inst is not None:
-                res = inst.render_note(int(key), v, d, SR, bend=bend,
-                                       brightness=bright, amps=amps,
-                                       detune=detunes[idx])
-            if res is None and shelf.sf2 is not None:
-                res = sf2mod.render_note(
-                    shelf.sf2, 128 if part['percussion'] else 0,
-                    max(part['program'] - 1, 0),
-                    int(key), v, d, SR, bend=bend, brightness=bright,
-                    amps=amps, detune=detunes[idx])
-            if res is None:
-                continue
-            if art.get('mute') and not part['percussion']:
-                res = apply_mute(res, art['mute'], SR,
-                                 strings='strings.' in (part.get('sound')
-                                                        or ''))
-            pieces.append((a, res))
-        pan = (-0.6 + 1.2 * idx / max(n_parts - 1, 1)) \
-            if n_parts > 1 else 0.0
-        gl = math.cos((pan + 1) * math.pi / 4) * 1.1
-        gr = math.sin((pan + 1) * math.pi / 4) * 1.1
-        send = _SEND[fam]
-        for at, (nl, nr) in pieces:
-            i0 = int(at * SR)
-            room = min(len(nl), frames - i0)
-            for i in range(room):
-                sl = nl[i] * gl
-                sr_ = nr[i] * gr
-                j = i0 + i
-                L[j] += sl
-                R[j] += sr_
-                wetL[j] += sl * send
-                wetR[j] += sr_ * send
+            if cut is not None and not part['percussion']:
+                pieces = [(at, _cut_at(res_, cut - at)) for at, res_ in pieces]
+            pan = (-0.6 + 1.2 * idx / max(n_parts - 1, 1)) \
+                if n_parts > 1 else 0.0
+            gl = math.cos((pan + 1) * math.pi / 4) * 1.1
+            gr = math.sin((pan + 1) * math.pi / 4) * 1.1
+            send = _SEND[fam]
+            for at, (nl, nr) in pieces:
+                i0 = int(at * SR)
+                room = min(len(nl), frames - i0)
+                # a note already sounding when a window opens joins
+                # partway through
+                first = max(-i0, 0)
+                if room > first:
+                    span[0] = min(span[0], i0 + first)
+                    span[1] = max(span[1], i0 + room)
+                for i in range(first, room):
+                    sl = nl[i] * gl
+                    sr_ = nr[i] * gr
+                    j = i0 + i
+                    L[j] += sl
+                    R[j] += sr_
+                    wetL[j] += sl * send
+                    wetR[j] += sr_ * send
+        return span
 
-    _room(L, R, wetL, wetR, SR)
+    def fresh():
+        return tuple(array('f', bytes(4 * frames)) for _ in range(4))
 
-    peak = max(max(abs(x) for x in L), max(abs(x) for x in R)) or 1.0
-    scale = 0.85 * 32767.0 / peak
-    with wave.open(wav_path, 'wb') as w:
-        w.setnchannels(2)
-        w.setsampwidth(2)
-        w.setframerate(SR)
+    def ticks(L, R):
+        if count_in:
+            for c in range(n0 * count_in):
+                chartaudio._add_tick(L, R, c * pulse,
+                                     1568.0 if c % n0 == 0 else 1047.0,
+                                     0.5)
+
+    groups = _groups(jobs, [p['percussion'] for p in plan['parts']])
+    if len(groups) > 1 and _can_fork():
+        pcm = _play_parallel(groups, play, fresh, ticks, frames, SR,
+                             on_progress)
+    else:
+        pcm = None
+    if pcm is None:
+        L, R, wetL, wetR = fresh()
+        ticks(L, R)
+        play(jobs, L, R, wetL, wetR,
+             (lambda f: on_progress(f, "the band is playing it in"))
+             if on_progress else None)
+        _room(L, R, wetL, wetR, SR)
+        peak = max(max(abs(x) for x in L), max(abs(x) for x in R)) or 1.0
+        scale = 0.85 * 32767.0 / peak
         out = array('h', bytes(4 * frames))
         for i in range(frames):
             out[2 * i] = int(max(-32767.0, min(32767.0, L[i] * scale)))
             out[2 * i + 1] = int(max(-32767.0,
                                      min(32767.0, R[i] * scale)))
-        w.writeframes(out.tobytes())
+        pcm = out.tobytes()
+    with wave.open(wav_path, 'wb') as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(SR)
+        w.writeframes(pcm)
     return end, n_parts, notes, lead
 
 
-def _room(L, R, wetL, wetR, sr):
+_ROOM_TAIL = 3.0     # seconds: the room is 100 dB down by then
+
+
+def _room(L, R, wetL, wetR, sr, span=None):
     """A small hall behind the band: Freeverb-shaped combs and
     allpasses run at half rate on the send bus, mixed back in. Half
-    rate is a choice, not a corner — a room tail is dark."""
+    rate is a choice, not a corner — a room tail is dark. span=(lo, hi)
+    says where anything was sent: before lo the room is silent, and
+    past hi plus its tail it has died away, so only that stretch is
+    run."""
     n = len(L)
-    h = n // 2
+    lo = 0
+    if span is not None:
+        lo = max(span[0] - span[0] % 2, 0)
+        n = min(n, span[1] + int(_ROOM_TAIL * sr))
+        if span[1] <= span[0]:
+            return
+    h = (n - lo) // 2
     if h < 4:
         return
     for src, dst, tunings in ((wetL, L, (1116, 1188, 1277, 1356)),
                               (wetR, R, (1139, 1211, 1300, 1379))):
         half = array('f', bytes(4 * h))
         for i in range(h):
-            half[i] = (src[2 * i] + src[2 * i + 1]) * 0.5
+            half[i] = (src[lo + 2 * i] + src[lo + 2 * i + 1]) * 0.5
         acc = array('f', bytes(4 * h))
         for delay in tunings:
             d = delay // 2
@@ -768,5 +932,269 @@ def _room(L, R, wetL, wetR, sr):
                 if pos == d:
                     pos = 0
         for i in range(h - 1):
-            dst[2 * i] += acc[i] * 0.30
-            dst[2 * i + 1] += (acc[i] + acc[i + 1]) * 0.15
+            dst[lo + 2 * i] += acc[i] * 0.30
+            dst[lo + 2 * i + 1] += (acc[i] + acc[i + 1]) * 0.15
+
+
+# ------------------------------------------------------------ in parallel
+
+_K = 256.0               # float -> int32 headroom scale for the reduction
+
+
+def _can_fork():
+    """Parallel rendering forks the process (the parts' state comes
+    along for free) and sums with audioop, both C-speed; either missing
+    — Windows, or a Python without audioop — renders in one process."""
+    import multiprocessing
+    try:
+        multiprocessing.get_context('fork')
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            import audioop   # noqa: F401
+        return True
+    except (ValueError, ImportError):
+        return False
+
+
+_RING = 8.0          # how long a drum hit may ring, choked or not
+_RELEASE = 0.08      # the sampler's default release: a choke's fade
+
+
+_PRE_ROLL = 4.0      # seconds rendered ahead of a window's first bar
+
+
+def _polyphony(voice, key):
+    """(voices a drum may ring at once, its release) from the kit's own
+    note_polyphony and ampeg_release, or None where the kit sets none."""
+    inst = (voice or {}).get('sus')
+    if inst is None or not hasattr(inst, 'regions_for'):
+        return None
+    memo = inst.__dict__.setdefault('_poly_memo', {})
+    if key not in memo:
+        k2, cc = _kit_key(inst, key)
+        n, rel = None, _RELEASE
+        for r in inst.regions:
+            lo = sfzmod._keynum(r.get('lokey', r.get('key', '0')))
+            hi = sfzmod._keynum(r.get('hikey', r.get('key', '127')))
+            if lo is None or hi is None or not lo <= k2 <= hi or \
+                    not inst._cc_ok(r, cc):
+                continue
+            try:
+                np_ = int(float(r.get('note_polyphony', 0)))
+                rel = max(rel, float(r.get('ampeg_release', 0)))
+            except ValueError:
+                continue
+            if np_ > 0:
+                n = np_ if n is None else min(n, np_)
+        memo[key] = (n, rel) if n else None
+    return memo[key]
+
+
+def _steals(voice, events, sec_of, lead):
+    """Event index -> the second its voice is stolen: a kit that lets a
+    drum ring n voices at once (note_polyphony) releases the oldest when
+    the next hit comes. Without this every ride hit rang eight seconds
+    over all the others — a wash no cymbal makes, and most of a render's
+    time (2026-09-28)."""
+    by_key = {}
+    for i, (q_on, _d, midi, _g, _a) in enumerate(events):
+        if midi is not None:
+            by_key.setdefault(int(midi), []).append((q_on, i))
+    out = {}
+    for key, hits in by_key.items():
+        poly = _polyphony(voice, key)
+        if not poly:
+            continue
+        n = poly[0]
+        hits.sort()
+        for k, (_q, i) in enumerate(hits):
+            if k + n < len(hits):
+                out[i] = sec_of(hits[k + n][0]) + lead
+    return out
+
+
+def _drum_end(res, d, a, steal, voice, key):
+    """A drum take ended by whichever comes first: its choke (the hat
+    pedal closing, at the sampler's quick release) or its voice being
+    stolen (at the kit's own release)."""
+    if steal is not None and steal - a < d:
+        poly = _polyphony(voice, key)
+        return _release_at(res, max(steal - a, 0.0),
+                           poly[1] if poly else _RELEASE)
+    return _release_at(res, d)
+
+
+def _release_at(res, d, release=_RELEASE):
+    """A full-length take ended at d seconds the way the sampler ends
+    a note: a straight-line release from where it is."""
+    if d >= _RING - 1e-6:
+        return res
+    L, R = res
+    sr = chartaudio.SR
+    n_on = max(int(d * sr), 1)
+    r_n = max(int(release * sr), 1)
+    if n_on >= len(L):
+        return res
+    n = min(len(L), n_on + r_n)
+    oL = L[:n]
+    oR = R[:n]
+    for i in range(n_on, n):
+        g = 1.0 - (i - n_on) / r_n
+        oL[i] *= g
+        oR[i] *= g
+    return oL, oR
+
+
+def _trim_quiet(res, floor=1.0):
+    """A drum take without the tail it has already rung out of. Every
+    hit renders eight seconds so a cymbal can ring, and a kick is
+    silent well before that. Samples here are in 16-bit units, so a
+    floor of 1 is below the last bit the file can hold: nothing heard
+    changes."""
+    if res is None:
+        return None
+    L, R = res
+    n = len(L)
+    step = 512
+    while n > step:
+        lo = n - step
+        if max(max(L[lo:n]), -min(L[lo:n]),
+               max(R[lo:n]), -min(R[lo:n])) > floor:
+            break
+        n = lo
+    if n >= len(L):
+        return res
+    return L[:n], R[:n]
+
+
+_SLICE_MIN = 40      # notes: a stretch smaller than this isn't worth a fork
+
+
+def _groups(jobs, percussion):
+    """The notes split into as many groups as the computer has cores to
+    spare, balanced by note count. A pitched part stays whole while
+    there are enough parts to go round, so its round robins behave as in
+    one process; a kit splits by piece — its
+    cache and round robins are per piece already, and a kit's four
+    microphones on every hit are most of a band's rendering."""
+    import os as _os
+    per = {}
+    for j in jobs:
+        unit = (j[2], j[3]) if percussion[j[2]] else (j[2], None)
+        per.setdefault(unit, []).append(j)
+    cores = max(1, min((_os.cpu_count() or 2) - 1, 16))
+
+    def cost(js):
+        # seconds of sound to render and mix: a drum hit rings on its
+        # microphones, a single-line note stops at its cut, anything
+        # else rings a little past its length
+        t = 0.0
+        for j in js:
+            if percussion[j[2]]:
+                t += 3.0
+            elif j[10] is not None:
+                t += max(j[10] - j[0], 0.05)
+            else:
+                t += j[1] + 1.0
+        return t
+    # a part heavier than its share of the cores, or too few players to
+    # fill them (one instrument alone), splits into stretches of time —
+    # the room and every note still sum exactly. Round robins restart at
+    # each stretch: a different take, never a different note
+    share = cost(jobs) / cores
+    while True:
+        unit, js = max(per.items(), key=lambda kv: cost(kv[1]))
+        if len(js) < 2 * _SLICE_MIN or \
+                (cost(js) <= share and len(per) >= cores):
+            break
+        js = sorted(js, key=lambda j: j[0])
+        mid = len(js) // 2
+        del per[unit]
+        per[unit + ('a%d' % len(per),)] = js[:mid]
+        per[unit + ('b%d' % len(per),)] = js[mid:]
+    want = max(1, min(cores, len(per)))
+    bins = [[] for _ in range(want)]
+    sizes = [0] * want
+    for idx, js in sorted(per.items(), key=lambda kv: -cost(kv[1])):
+        k = sizes.index(min(sizes))
+        bins[k] += js
+        sizes[k] += cost(js)
+    return [sorted(b, key=lambda j: j[0]) for b in bins if b]
+
+
+def _play_parallel(groups, play, fresh, ticks, frames, sr, on_progress):
+    """Each group rendered in its own forked process — its notes, its
+    share of the room (the room is linear, so the rooms of the parts sum
+    to the room of the whole) — and handed back as 32-bit PCM through
+    shared memory; the sum, the level and the 16-bit file are audioop's.
+    Returns the 16-bit stereo PCM, or None to fall back."""
+    import multiprocessing
+    import warnings
+    from multiprocessing import shared_memory
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        import audioop
+    ctx = multiprocessing.get_context('fork')
+    size = frames * 2 * 4
+    shms, procs = [], []
+
+    def work(k, g, name):
+        import os as _os
+        import time as _t
+        t0 = _t.time()
+        shm = shared_memory.SharedMemory(name=name)
+        L, R, wetL, wetR = fresh()
+        span = play(g, L, R, wetL, wetR)
+        t1 = _t.time()
+        _room(L, R, wetL, wetR, sr, span)
+        t2 = _t.time()
+        lo, hi = span[0], min(frames, span[1] + int(_ROOM_TAIL * sr))
+        if k == 0:
+            ticks(L, R)             # dry, at the top: convert from 0
+            lo = 0
+        out = array('i', bytes(size))
+        top = 2147483000.0
+        for i in range(lo, max(hi, lo)):
+            a = L[i] * _K
+            b = R[i] * _K
+            out[2 * i] = int(top if a > top else -top if a < -top else a)
+            out[2 * i + 1] = int(top if b > top else -top if b < -top
+                                 else b)
+        shm.buf[:size] = out.tobytes()
+        shm.close()
+        if _os.environ.get('COPYIST_RENDER_TIMES'):
+            import sys as _sys
+            _sys.stderr.write(f"group {k}: {len(g)} notes, parts "
+                              f"{sorted({j[2] for j in g})}, play "
+                              f"{t1 - t0:.1f}s room {t2 - t1:.1f}s pcm "
+                              f"{_t.time() - t2:.1f}s\n")
+
+    try:
+        for k, g in enumerate(groups):
+            shm = shared_memory.SharedMemory(create=True, size=size)
+            shms.append(shm)
+            p = ctx.Process(target=work, args=(k, g, shm.name))
+            p.start()
+            procs.append(p)
+        done = 0
+        for p in procs:
+            p.join()
+            done += 1
+            if on_progress:
+                on_progress(done / len(procs), "the band is playing it in")
+        if any(p.exitcode != 0 for p in procs):
+            return None
+        total = bytes(shms[0].buf[:size])
+        for shm in shms[1:]:
+            total = audioop.add(total, bytes(shm.buf[:size]), 4)
+        peak = audioop.max(total, 4) or 1
+        factor = 0.85 * 32767.0 / (peak / _K) / _K * 65536.0
+        return audioop.lin2lin(audioop.mul(total, 4, factor), 4, 2)
+    finally:
+        for shm in shms:
+            try:
+                shm.close()
+                shm.unlink()
+            except FileNotFoundError:
+                pass

@@ -420,19 +420,24 @@ def listen_excerpt(listen_src, title, listen_dir, rng, sel, cfg, count_in,
     final = os.path.join(listen_dir, f"{title} — listen, {who}{tag}.mp3")
     tmp = os.path.join(tempfile.mkdtemp(), "whole.mp3")
     lead = [0.0]
+    start = end = window = None
+    if rng:
+        start = chartaudio.first_bar_seconds(listen_src, rng[0])
+        end = chartaudio.first_bar_seconds(listen_src, rng[1] + 1)
+        if start is None:
+            say(f"The pages have no bar {rng[0]}, so no listen for that "
+                "range.")
+            return
+        # only those bars are played, not the whole song cut down
+        window = (start, end if end is not None else float('inf'))
     if not render_listen(listen_src, tmp, say, only=only, count_in=count_in,
-                         lead=lead, samples=resolve_sounds(cfg)):
+                         lead=lead, samples=resolve_sounds(cfg),
+                         window=window):
         say("No listen this time — the render failed. Report this.")
         return
     if not rng:
         shutil.move(tmp, final)
         say(f"Listen ready: {who}.")
-        return
-    start = chartaudio.first_bar_seconds(listen_src, rng[0])
-    end = chartaudio.first_bar_seconds(listen_src, rng[1] + 1)
-    if start is None:
-        say(f"The pages have no bar {rng[0]}, so no listen for that "
-            "range.")
         return
     from shutil import which
     if which('ffmpeg') is None:
@@ -734,7 +739,7 @@ def find_mscore():
 
 
 def render_listen(listen_src, mp3, say, only=None, count_in=None,
-                  lead=None, samples=None, on_progress=None):
+                  lead=None, samples=None, on_progress=None, window=None):
     """Copyist synthesizes the listening document itself, then encodes.
     True with the MP3 in place (or, without ffmpeg, the WAV and a
     sentence). With a sample library the band plays real recorded
@@ -745,7 +750,9 @@ def render_listen(listen_src, mp3, say, only=None, count_in=None,
         _, _, _, lead_s = chartaudio.render(listen_src, wav, only=only,
                                             count_in=count_in,
                                             samples=samples,
-                                            on_progress=on_progress)
+                                            on_progress=on_progress,
+                                            window=window if samples
+                                            else None)
         if lead is not None:
             lead[0] = lead_s
     except SystemExit:

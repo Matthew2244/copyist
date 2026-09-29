@@ -791,9 +791,15 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
         vel = item[3] if len(item) > 3 else None
         if b > n + 0.99:
             continue
-        prev = put(int(round((b - 1) * beat)),
-                   max(1, int(round(ln * beat)) - beat // 8),
-                   tone(b, what), vel)
+        got = put(int(round((b - 1) * beat)),
+                  max(1, int(round(ln * beat)) - beat // 8),
+                  tone(b, what), vel)
+        # the octave pop is a pop: the line stays anchored on the root,
+        # or every bar starts an octave higher until the bass pins at
+        # the top of its range (Matt's Blues, 2026-09-28: stuck on G)
+        if what != 'o':
+            prev = got
+    state['bass'] = prev
 
 
 def _bass(bar, state, sec, off, absbar, feel, chords):
@@ -866,8 +872,17 @@ def _comp(bar, state, absbar, feel, chords, sound_id):
     anchor = state.get('comp', 62)
     s = (sound_id or '').lower()
 
-    def voicing(c):
-        v = sorted(_near(pc, anchor) for pc in _guide(c))
+    def voicing(c, guides_only=False):
+        pcs = _guide(c)
+        if guides_only:
+            # two notes a guitar can ring four to the bar: the 3rd and
+            # the 7th. The two lowest of a three-note voicing could be
+            # the 13th and the 7th a half step apart — a buzzing cluster
+            # on every beat (Matthew heard it, Matt's Blues 2026-09-28)
+            pcs = pcs[:2]
+        v = sorted(_near(pc, anchor) for pc in pcs)
+        if guides_only and len(v) == 2 and v[1] - v[0] <= 2:
+            v = [v[1], v[0] + 12]      # open a step into a 7th or 9th
         state['comp'] = sum(v) // len(v)
         return v
 
@@ -917,7 +932,7 @@ def _comp(bar, state, absbar, feel, chords, sound_id):
     if 'guitar' in s and _is_swing(feel) and bar.den == 4:
         for b in range(bar.num):
             put(b * beat, beat,
-                voicing(_chord_at(chords, b + 1.0))[:2],
+                voicing(_chord_at(chords, b + 1.0), guides_only=True),
                 vel=76 if b % 2 else 66)
         return
     if 'organ' in s or not _is_swing(feel):

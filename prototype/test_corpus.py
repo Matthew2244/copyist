@@ -3762,6 +3762,39 @@ def check_note_off_wins():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_cc_gates():
+    """A region's CC gates choose what a note plays: a unison layer,
+    an extra microphone or an open hi-hat stays off unless its
+    controller is up (every one sounded at once until 2026-09-28 — the
+    guitar's buzz). A gate that would leave a note silent is ignored."""
+    import sfz
+    import chartband
+    tmp = tempfile.mkdtemp()
+    open(os.path.join(tmp, 'g.sfz'), 'w').write(
+        '<control> set_cc101=127\n'
+        '<region> key=60 sample=*sine\n'
+        '<region> key=60 sample=*saw locc100=1\n'
+        '<region> key=60 sample=*square locc101=1\n'
+        '<region> key=42 sample=*sine locc4=96 hicc4=127\n'
+        '<region> key=42 sample=*saw locc4=0 hicc4=31\n'
+        '<region> key=62 sample=*sine locc70=1\n')
+    inst = sfz.SfzInstrument(os.path.join(tmp, 'g.sfz'))
+    got = sorted(r['sample'] for r in inst.regions_for(60, 100))
+    check("an off switch keeps its layer out, an on switch lets it in",
+          got == ['*sine', '*square'], got)
+    closed = [r['sample'] for r in inst.regions_for(42, 100, {4: 127})]
+    opened = [r['sample'] for r in inst.regions_for(42, 100, {4: 0})]
+    check("the hi-hat pedal chooses closed or open",
+          closed == ['*sine'] and opened == ['*saw'], (closed, opened))
+    check("a gate that would silence a note is ignored",
+          len(inst.regions_for(62, 100)) == 1)
+    check("GM 42 plays the kit's hat pedal down, 46 pedal up",
+          chartband._kit_key(inst, 42) == (42, {4: 127.0}) and
+          chartband._kit_key(inst, 46) == (42, {4: 0.0}) and
+          chartband._kit_key(inst, 38) == (38, None))
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_tempo_in_the_bar():
     """A tempo that stands in the bar itself, outside any direction, is
     the tempo — engravings put it there (Matt's Blues played at 120
@@ -4532,6 +4565,7 @@ if __name__ == "__main__":
     check_export_picker()
     check_tempo_in_the_bar()
     check_note_off_wins()
+    check_cc_gates()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

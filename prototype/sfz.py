@@ -34,6 +34,12 @@ _NUM = re.compile(r'^-?\d+(\.\d+)?$')
 _KEYNAME = {'c': 0, 'd': 2, 'e': 4, 'f': 5, 'g': 7, 'a': 9, 'b': 11}
 
 
+# where a sampler's controllers sit before anything moves them: volume
+# 100, pan and balance centred, expression full (sfizz and the MIDI
+# reset-all-controllers convention)
+_CC_BOOT = {7: 100.0, 8: 64.0, 10: 64.0, 11: 127.0}
+
+
 def _keynum(v):
     """An SFZ key: a MIDI number or a name like c4, f#3, eb2 (SFZ
     middle C = c4 = 60)."""
@@ -96,6 +102,7 @@ class SfzInstrument:
         default_path = ''
         in_control = False
         self.cc = {}                    # control-header CC defaults
+        self.makeup = 1.0               # the caller's level trim
         for kind, name, val in _tokens(text):
             if kind == 'header':
                 in_control = name == 'control'
@@ -216,10 +223,30 @@ class SfzInstrument:
                 v += amt * cc / 127.0
         return v
 
-    def regions_for(self, key, vel):
-        """The regions this note plays: key and velocity windows, then
-        one winner per round-robin set (seq counters and the shared
-        random draw both advance deterministically)."""
+    def _cc_ok(self, r, cc):
+        """A region's CC gates (loccN/hiccN) against the controllers as
+        they stand. A drum kit switches its microphones, snare wires and
+        hi-hat pedal this way: ignored, every mic and every pedal
+        position sounded at once — an open hat under every closed one,
+        and a render four times the work (2026-09-28)."""
+        for k, raw in r.items():
+            if k.startswith('locc') or k.startswith('hicc'):
+                try:
+                    n = int(k[4:])
+                    lim = float(raw)
+                except ValueError:
+                    continue
+                v = cc.get(n) if cc and n in cc else \
+                    self.cc.get(n, _CC_BOOT.get(n, 0.0))
+                if k[0] == 'l' and v < lim or k[0] == 'h' and v > lim:
+                    return False
+        return True
+
+    def regions_for(self, key, vel, cc=None):
+        """The regions this note plays: key, velocity and CC windows,
+        then one winner per round-robin set (seq counters and the shared
+        random draw both advance deterministically). cc overrides the
+        control header's defaults for this note."""
         cands = []
         for r in self.regions:
             lo = _keynum(r.get('lokey', r.get('key', '0')))
@@ -232,6 +259,12 @@ class SfzInstrument:
             cands.append(r)
         if not cands:
             return []
+        # CC gates choose among what the key holds; a library whose
+        # controllers are set by a program we never load would gate
+        # everything out, and silence is never the right reading
+        gated = [r for r in cands if self._cc_ok(r, cc)]
+        if gated:
+            cands = gated
         # round robins: one counter per seq set, advanced once per
         # NOTE — every region in the set reads the same draw, so file
         # order cannot starve a position. lorand/hirand sets share one
@@ -259,7 +292,8 @@ class SfzInstrument:
                 < float(r.get('hirand') or 1)]
 
     def render_region(self, r, key, vel, dur, sr, bend=None,
-                      brightness=1.0, amps=None, detune=0.0):
+                      brightness=1.0, amps=None, detune=0.0, into=None,
+                      limit=None):
         """One region -> (L floats, R floats) or None. brightness is
         accepted for engine symmetry; recorded dynamics come from
         velocity layers here, so it only trims level a touch."""
@@ -291,7 +325,7 @@ class SfzInstrument:
         vgain = 1.0 - veltrack + veltrack * v * v
         gain = vgain * 10.0 ** (float(r.get('volume', 0)) / 20.0) \
             * float(r.get('amplitude', 100)) / 100.0 \
-            * min(brightness, 1.0)
+            * min(brightness, 1.0) * self.makeup
         pan = min(max(self._mod(r, 'pan', 0.0), -100.0),
                   100.0) / 100.0                 # -1..1
 
@@ -304,8 +338,26 @@ class SfzInstrument:
 
         n_on = max(int(dur * sr), 1)
         n = n_on + int(rel * sr) + 1
-        outL = array('f', bytes(4 * n))
-        outR = array('f', bytes(4 * n)) if smpR is not None else None
+        if limit is not None:
+            # the caller stops the note here: nothing past it is heard
+            n = max(min(n, int(limit * sr) + 1), 1)
+        # constant-power pan on top of the file's own stereo
+        if pan:
+            pgl = math.cos((pan + 1.0) * math.pi / 4.0) * 1.41421
+            pgr = math.sin((pan + 1.0) * math.pi / 4.0) * 1.41421
+        else:
+            pgl = pgr = 1.0
+        if into is not None:
+            # mixed straight into the note: no second pass per region
+            outL, outR = into
+            if len(outL) < n:
+                outL.extend(array('f', bytes(4 * (n - len(outL)))))
+                outR.extend(array('f', bytes(4 * (n - len(outR)))))
+            aL, aR = pgl, pgr
+        else:
+            outL = array('f', bytes(4 * n))
+            outR = array('f', bytes(4 * n))
+            aL = aR = 1.0
         a_n = max(int(atk * sr), 1)
         h_end = a_n + int(hold * sr)
         d_n = max(int(dec * sr), 1)
@@ -375,43 +427,34 @@ class SfzInstrument:
                 else:
                     env = sus
                 g = env * amul * edge
-                outL[i] = (smpL[ip] * (1.0 - frac)
-                           + smpL[ip + 1] * frac) * g
+                vl = (smpL[ip] * (1.0 - frac) + smpL[ip + 1] * frac) * g
+                outL[i] += vl * aL
                 if stereo:
-                    outR[i] = (smpR[ip] * (1.0 - frac)
-                               + smpR[ip + 1] * frac) * g
+                    outR[i] += (smpR[ip] * (1.0 - frac)
+                                + smpR[ip + 1] * frac) * g * aR
+                else:
+                    outR[i] += vl * aR
                 pos += step
                 i += 1
-        if not stereo:
-            outR = outL
-        # constant-power pan on top of the file's own stereo
-        if pan:
-            gl = math.cos((pan + 1.0) * math.pi / 4.0) * 1.41421
-            gr = math.sin((pan + 1.0) * math.pi / 4.0) * 1.41421
-        else:
-            gl = gr = 1.0
-        return outL, outR, gl, gr
+        if into is not None:
+            return True
+        return outL, outR, pgl, pgr
 
     def render_note(self, key, vel, dur, sr, bend=None, brightness=1.0,
-                    amps=None, detune=0.0):
+                    amps=None, detune=0.0, cc=None, limit=None):
         """A note through every winning region -> (L, R) float arrays,
         or None when nothing matched (the caller may fall back)."""
-        parts = []
-        for r in self.regions_for(key, vel):
-            got = self.render_region(r, key, vel, dur, sr, bend=bend,
-                                     brightness=brightness, amps=amps,
-                                     detune=detune)
-            if got:
-                parts.append(got)
-        if not parts:
+        L = array('f')
+        R = array('f')
+        got = False
+        for r in self.regions_for(key, vel, cc):
+            if self.render_region(r, key, vel, dur, sr, bend=bend,
+                                  brightness=brightness, amps=amps,
+                                  detune=detune, into=(L, R),
+                                  limit=limit):
+                got = True
+        if not got:
             return None
-        n = max(len(pl) for pl, _pr, _gl, _gr in parts)
-        L = array('f', bytes(4 * n))
-        R = array('f', bytes(4 * n))
-        for pl, pr, gl, gr in parts:
-            for i in range(len(pl)):
-                L[i] += pl[i] * gl
-                R[i] += pr[i] * gr
         return L, R
 
 
