@@ -408,6 +408,7 @@ def parse_score(path, only=None):
                      'sound': snd.group(1) if snd else ''}
 
     parts, tempos, swings, holds = [], {}, {}, {}
+    perf = {}                           # q -> performance word (rit...)
     # the road map is the band's, not one part's: a D.S. printed only on
     # the first part (our listening document carries words there alone)
     # sends everyone back to the sign
@@ -514,6 +515,9 @@ def parse_score(path, only=None):
                     if pd:
                         pedals.append((q0 + pos / div, pd.group(1)))
                     for w in re.findall(r'<words[^>]*>([^<]*)</words>', t):
+                        pw = perform_word(w)
+                        if pw:
+                            perf.setdefault(round(q0 + pos / div, 4), pw)
                         if re.match(r'\s*pizz', w, re.I):
                             pizz, arco = True, False
                         elif re.match(r'\s*arco', w, re.I):
@@ -709,12 +713,119 @@ def parse_score(path, only=None):
                       'sound': m.get('sound', ''), 'events': events,
                       'bars': bars, 'meter0': meter0 or (4, 4),
                       'length_q': q0, 'dyns': dyns, 'wedges': wedges})
+    end_q = max((p['length_q'] for p in parts), default=0.0)
+    meter0 = parts[0]['meter0'] if parts else (4, 4)
+    fade = _perform_tempo(perf, tempos, holds, end_q, meter0)
     return {'parts': parts,
             'bars': parts[0]['bars'] if parts else {},
-            'meter0': parts[0]['meter0'] if parts else (4, 4),
+            'meter0': meter0,
+            'fade': fade, 'end_q': end_q,
             'tempos': sorted(tempos.items()),
             'swings': sorted(swings.items()),
             'holds': sorted(holds.items())}
+
+
+# ------------------------------------------------- words that perform
+
+# A word on the page is an instruction to the band, so the listen does
+# what it says (Matthew, 2026-09-29: "if you type text in notation
+# software there's generally silence"). Tempo words bend the tempo map;
+# a fade turns the whole band down to nothing by the end.
+_RIT_RX = re.compile(r'\b(rit(?:ard(?:ando)?|\.|enuto)?|rall(?:entando|\.)?|'
+                     r'slow(?:ing)?\s+down|slower|broaden(?:ing)?|'
+                     r'allarg(?:ando)?|morendo)(?!\w)', re.I)
+_ACC_RX = re.compile(r'\b(accel(?:erando|\.)?|speed(?:ing)?\s+up|'
+                     r'stringendo|pushing|push ahead)(?!\w)', re.I)
+_ATEMPO_RX = re.compile(r'\b(a\s+tempo|tempo\s+(?:primo|i)|in\s+tempo|'
+                        r'back\s+(?:in|to)\s+tempo)\b', re.I)
+_FADE_RX = re.compile(r'\bfade(?:\s*out)?\b|\bfading\b', re.I)
+
+
+def perform_word(w):
+    """A page word -> what the band does with it, or None:
+    ('rit', ratio) / ('accel', ratio) / ('atempo', None) / ('fade',
+    None). 'molto' goes further, 'poco' less."""
+    w = (w or '').strip()
+    if not w:
+        return None
+    if _ATEMPO_RX.search(w):
+        return ('atempo', None)
+    if _FADE_RX.search(w):
+        return ('fade', None)
+    much = 0.55 if re.search(r'\bmolto\b|\ba lot\b|\bway\b', w, re.I) \
+        else 0.85 if re.search(r'\bpoco\b|\ba little\b|\bslight', w,
+                               re.I) else None
+    if _RIT_RX.search(w):
+        return ('rit', much or 0.7)
+    if _ACC_RX.search(w):
+        return ('accel', 1 / much if much else 1.25)
+    return None
+
+
+def _perform_tempo(perf, tempos, holds, end_q, meter0):
+    """Bend the tempo map in place for rit./accel./a tempo, and
+    return where a fade starts (or None). A ramp runs from its word to
+    the next tempo event, 'a tempo', or the end, and at most four bars:
+    after that the new tempo holds, the way the page reads."""
+    n0, d0 = meter0
+    bar_q = n0 * 4.0 / d0
+    fade = None
+
+    def tempo_at(q):
+        bpm = None
+        for at in sorted(tempos):
+            if at <= q + 1e-9:
+                bpm = tempos[at]
+        return bpm or (tempos[min(tempos)] if tempos else 120.0)
+
+    marks = sorted(perf.items())
+    written = sorted(tempos)
+    before = None                       # the tempo a rit left behind
+    for i, (q, (kind, ratio)) in enumerate(marks):
+        if kind == 'fade':
+            fade = q if fade is None else fade
+            continue
+        if kind == 'atempo':
+            if before is not None:
+                tempos[q] = before
+                before = None
+            continue
+        base = tempo_at(q)
+        if before is None:
+            before = base
+        stop = min([end_q, q + 4 * bar_q]
+                   + [a for a in written if a > q + 1e-9]
+                   + [m for m, _ in marks[i + 1:] if m > q + 1e-9])
+        # a fermata inside the ramp is where it lands
+        for hq, _x in holds:
+            if q < hq < stop:
+                stop = hq + 1e-6
+                break
+        span = stop - q
+        if span <= 0:
+            continue
+        steps = max(int(span / 0.5), 1)
+        for k in range(steps):
+            x = (k + 0.5) / steps
+            tempos[round(q + k * span / steps, 4)] = \
+                base * (1 + (ratio - 1) * x ** 1.3)
+    return fade
+
+
+def apply_fade(pcm, sr, t0, t1):
+    """Fade 16-bit stereo PCM bytes to silence between t0 and t1
+    seconds (an equal-power curve), silent after t1."""
+    a = array('h', pcm)
+    n = len(a) // 2
+    i0, i1 = max(int(t0 * sr), 0), min(int(t1 * sr), n)
+    if i1 <= i0:
+        return pcm
+    span = i1 - i0
+    for i in range(i0, n):
+        g = 0.0 if i >= i1 else math.cos(0.5 * math.pi * (i - i0) / span)
+        a[2 * i] = int(a[2 * i] * g)
+        a[2 * i + 1] = int(a[2 * i + 1] * g)
+    return a.tobytes()
 
 
 # ------------------------------------------------------------- schedule
@@ -973,7 +1084,14 @@ def render(listen_path, wav_path, only=None, tail=1.5, count_in=None,
         for i in range(frames):
             frames_i[2 * i] = int(max(-1, min(1, L[i] * scale)) * 32767)
             frames_i[2 * i + 1] = int(max(-1, min(1, R[i] * scale)) * 32767)
-        w.writeframes(frames_i.tobytes())
+        pcm = frames_i.tobytes()
+        if plan.get('fade') is not None:
+            def _s(q):
+                return _sec_of(_warp(q, plan['swings']), plan['tempos'],
+                               plan.get('holds', ()))
+            pcm = apply_fade(pcm, SR, _s(plan['fade']) + lead,
+                             _s(plan['end_q']) + lead)
+        w.writeframes(pcm)
     return end, n_parts, notes, lead
 
 

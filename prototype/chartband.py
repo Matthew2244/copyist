@@ -876,6 +876,11 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
             out[2 * i + 1] = int(max(-32767.0,
                                      min(32767.0, R[i] * scale)))
         pcm = out.tobytes()
+    if plan.get('fade') is not None:
+        # "fade out" on the page: the band goes down to nothing by the
+        # last note, the room tail with it
+        pcm = chartaudio.apply_fade(pcm, SR, sec_of(plan['fade']) + lead,
+                                    sec_of(plan['end_q']) + lead)
     with wave.open(wav_path, 'wb') as w:
         w.setnchannels(2)
         w.setsampwidth(2)

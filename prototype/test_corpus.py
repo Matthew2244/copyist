@@ -4813,6 +4813,52 @@ def check_head_out_plays_the_head():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_words_perform():
+    """A word on the page is an instruction to the band, so the listen
+    does it (Matthew, 2026-09-29: "if you type text in notation software
+    there's generally silence"): rit. and rall. slow down to the next
+    a tempo or the end, molto more and poco less, accel. speeds up,
+    fade out turns the band down to nothing by the last note."""
+    import chartaudio
+    import chartc
+    pw = chartaudio.perform_word
+    check("words that perform are read",
+          pw("rit.") == ("rit", 0.7) and pw("molto rit.")[1] < 0.7
+          and pw("poco rall.")[1] > 0.7 and pw("a tempo")[0] == "atempo"
+          and pw("Fade out")[0] == "fade" and pw("accel.")[0] == "accel"
+          and pw("riff") is None and pw("crit") is None)
+    tmp = tempfile.mkdtemp()
+
+    def listen(extra):
+        open(os.path.join(tmp, "t.chart"), "w").write(
+            "title: T\nkey: C\nmeter: 4/4\ntempo: 120\n\nband:\n"
+            "  piano\n  bass\n  drums\n\nsection A, 8 bars\n"
+            "  chords: C, F, G, C, C, F, G7, C\n" + extra)
+        out = os.path.join(tmp, "b")
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(os.path.join(tmp, "t.chart"), out)
+        pl = chartaudio.parse_score(
+            os.path.join(out, "T — for listening.musicxml"))
+        return pl, chartaudio._sec_of(pl["end_q"], pl["tempos"],
+                                      pl.get("holds", ()))
+    _, plain = listen("")
+    _, rit = listen('  all: text "rit." at bar 7\n')
+    _, back = listen('  all: text "rit." at bar 5\n'
+                     '  all: text "a tempo" at bar 7\n')
+    fpl, _ = listen('  all: text "fade out" at bar 5\n')
+    check("rit. at bar 7 stretches the last two bars",
+          abs(plain - 16.0) < 0.01 and 16.4 < rit < 17.2, (plain, rit))
+    check("a tempo puts the tempo back",
+          fpl["fade"] == 16.0 and chartaudio._sec_of(
+              32, listen('  all: text "rit." at bar 5\n'
+                         '  all: text "a tempo" at bar 7\n')[0]["tempos"])
+          - chartaudio._sec_of(24, listen(
+              '  all: text "rit." at bar 5\n'
+              '  all: text "a tempo" at bar 7\n')[0]["tempos"]) < 4.01,
+          back)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -4868,6 +4914,7 @@ if __name__ == "__main__":
     check_percussion_section_grooves()
     check_double_an_octave_off()
     check_head_out_plays_the_head()
+    check_words_perform()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()
