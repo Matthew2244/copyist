@@ -5216,6 +5216,49 @@ def check_players_listen_to_each_other():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_listen_switches():
+    """What the listen makes up is the writer's to turn off (Matthew,
+    2026-09-29: "what if the user doesn't wanna hear soloing
+    automatically ... give the user the option"): with a switch off the
+    band leaves it out and the findings say so."""
+    import chartaudio
+    import chartc
+    tmp = tempfile.mkdtemp()
+    open(os.path.join(tmp, "t.chart"), "w").write(
+        "title: Sw\nkey: F\nmeter: 4/4\ntempo: 120\n\nband:\n"
+        "  tenor = tenor sax\n  piano\n  bass\n  drums\n\n"
+        "section A, 4 bars\n  chords: F7, Bb7, C7, F7\n  tenor: solo\n")
+    saved = dict(chartc.LISTEN_OPTS)
+    try:
+        def build():
+            out = os.path.join(tmp, "b")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                chartc.compile_chart(os.path.join(tmp, "t.chart"), out)
+            pl = chartaudio.parse_score(os.path.join(
+                out, "Sw — for listening.musicxml"))
+            return buf.getvalue(), {p["name"]: p["events"]
+                                    for p in pl["parts"]}, pl
+        _, ev, pl_on = build()
+        chartc.LISTEN_OPTS.update(solos=False, endings=False)
+        said, ev_off, pl_off = build()
+        check("solos off: the soloist rests", ev["tenor"]
+              and not ev_off["tenor"])
+        check("endings off: no band's choice, the notes stop at the end",
+              abs(pl_off["end_q"] - 16) < 0.01
+              and "band chose" not in said)
+        check("the findings say what was turned off",
+              "turned off in settings" in said and "solos" in said)
+        chartc.LISTEN_OPTS.update(grooves=False)
+        _, ev_g, _ = build()
+        check("grooves off: slash bars stay silent",
+              not ev_g["piano"] and not ev_g["drums"])
+    finally:
+        chartc.LISTEN_OPTS.clear()
+        chartc.LISTEN_OPTS.update(saved)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5278,6 +5321,7 @@ if __name__ == "__main__":
     check_endings_feel_natural()
     check_solos_tell_a_story()
     check_players_listen_to_each_other()
+    check_listen_switches()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

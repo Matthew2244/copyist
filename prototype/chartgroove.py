@@ -1212,6 +1212,9 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
     return bar.xml()
 
 
+# the writer's switches for what the band makes up (chart settings)
+OPTS = {'builds': True, 'brushes': True}
+
 _STIR_LONG = ('C', 5, 'circle-x')       # brush stirs, read by the listen
 _STIR_SHORT = ('C', 5, 'diamond')
 
@@ -1228,7 +1231,8 @@ def implement(words, feel):
     if re.search(r'\bmallets?\b', w):
         return 'mallets'
     style, traits = style_of(feel or '')
-    if 'ballad' in traits or 'ballad' in (feel or '').lower():
+    if OPTS['brushes'] and ('ballad' in traits
+                            or 'ballad' in (feel or '').lower()):
         return 'brushes'
     return 'sticks'
 
@@ -1294,6 +1298,8 @@ def _mallet_drums(bar, absbar, heat):
 def _heat(sec, off):
     """How far the tune has built, 0 to 1: where this section sits in
     the tune, plus a little across the section itself."""
+    if not OPTS['builds']:
+        return 0.6                  # even all the way: nothing builds
     arc = sec.get('_arc', 0.5)
     return min(1.0, 0.3 + 0.55 * arc + 0.12 * off / max(sec['bars'], 1))
 
@@ -1302,6 +1308,8 @@ def _drummer_marks(bar, sec, off, absbar, heat):
     """What a drummer does with the form: a crash where a new section
     starts, and now and then a short fill into the next phrase — more
     as the tune builds, never every time."""
+    if not OPTS['builds']:
+        return
     beat = bar.div * 4 // bar.den
     d = _Dice('marks', absbar)
     if off == 0 and sec.get('_arc', 0) > 0:

@@ -224,7 +224,27 @@ SETTINGS = (
                      "a4 (35 by 28), or cells x lines like 32x25"),
     ('embosser', '', "the embosser emboss sends to — a printer name "
                      "from 'chart embossers'"),
+    # what the listen makes up where the page leaves it to the band;
+    # every one yes by default, each the writer's to turn off
+    ('listen_grooves', 'yes', "the rhythm section plays what slashes "
+                              "mean; no leaves slash bars silent"),
+    ('listen_solos', 'yes', "a soloist plays where a line says solo and "
+                            "nothing is played in; no, and they rest"),
+    ('listen_backgrounds', 'yes', "horns make up backgrounds where a line "
+                                  "just says backgrounds"),
+    ('listen_endings', 'yes', "the band chooses an ending when the chart "
+                              "names none; no stops where the notes stop"),
+    ('listen_mutes', 'yes', "brass reach for mutes on made-up solos and "
+                            "backgrounds; written mutes always play"),
+    ('listen_brushes', 'yes', "the drummer takes brushes on a ballad when "
+                              "the chart doesn't say; written words win"),
+    ('listen_builds', 'yes', "the band builds through the tune: comping "
+                             "opens up, the drummer marks sections and "
+                             "fills; no keeps it even"),
 )
+LISTEN_KEYS = ('listen_grooves', 'listen_solos', 'listen_backgrounds',
+               'listen_endings', 'listen_mutes', 'listen_brushes',
+               'listen_builds')
 
 EXPORTS = (('pages', 'the PDF charts'), ('listen', 'the listen MP3'),
            ('braille', 'a braille file for each part'),
@@ -551,7 +571,7 @@ def run_settings(argv):
     if k not in {s[0] for s in SETTINGS}:
         sys.exit(f"chart: no setting called '{k}' — settings lists "
                  "the ones that exist.")
-    if k in ('notify', 'open'):
+    if k in ('notify', 'open') + LISTEN_KEYS:
         if v.lower() not in ('yes', 'no', 'on', 'off'):
             sys.exit(f"chart: {k} is yes or no.")
         v = 'yes' if v.lower() in ('yes', 'on') else 'no'
@@ -637,7 +657,19 @@ def run_settings(argv):
                     "comes in and the file itself doesn't say."
                     if v else "countin is unset — read from each "
                     "demo's own first bar.")
-    say(lines[k])
+    if k in LISTEN_KEYS:
+        what = {'listen_grooves': "the rhythm section plays the slashes",
+                'listen_solos': "made-up solos",
+                'listen_backgrounds': "made-up backgrounds",
+                'listen_endings': "the band's own ending",
+                'listen_mutes': "mutes on the spot",
+                'listen_brushes': "brushes on a ballad",
+                'listen_builds': "the band building through the tune"}[k]
+        lines[k] = (f"{k} is on — {what}, in every listen."
+                    if v == 'yes' else
+                    f"{k} is off — no {what}; the next build leaves it "
+                    "out and says so.")
+    say(lines.get(k, f"{k} is now {v or 'not set'}."))
 
 
 def run_sounds():
@@ -1304,6 +1336,8 @@ def main():
             "the build carries on; only the diff loses its memory.")
 
     # ---- check / build: compile first, loudly, then prove the arithmetic
+    chartc.LISTEN_OPTS.update({k[7:]: cfg.get(k, 'yes') != 'no'
+                               for k in LISTEN_KEYS})
     written = chartc.compile_chart(path, title_dir)
     try:
         shutil.copy2(path, built_from)

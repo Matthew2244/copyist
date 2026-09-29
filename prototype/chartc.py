@@ -2838,6 +2838,13 @@ SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
              'sfz': 112, 'fp': 98}
 
 
+# What the listen may make up, each the writer's to turn off (chart
+# settings, listen_*): set by the front door before a build.
+LISTEN_OPTS = {'grooves': True, 'solos': True, 'backgrounds': True,
+               'endings': True, 'mutes': True, 'brushes': True,
+               'builds': True}
+
+
 def vamp_passes(sec):
     """How many times round an open section goes in the listen: about
     eight bars of it, two to four passes."""
@@ -2875,6 +2882,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                              f" is open — it goes round "
                              f"{vamp_passes(pl['sec'])} times in the "
                              "listen, till the cue on the gig")
+    chartgroove.OPTS.update(builds=LISTEN_OPTS['builds'],
+                            brushes=LISTEN_OPTS['brushes'])
+    off_now = [k for k, v in LISTEN_OPTS.items() if not v]
+    if off_now and findings is not None:
+        findings.add("listen: turned off in settings, so the band leaves "
+                     "them out — " + ", ".join(off_now))
     for i, pl in enumerate(plans):
         # where each section sits in the tune: the band builds across it
         pl['sec']['_arc'] = i / max(len(plans) - 1, 1)
@@ -2884,7 +2897,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     for i, pl in enumerate(plans):
         got = pl['sec'].get('ending')
         auto = False
-        if not got and i == len(plans) - 1:
+        if not got and i == len(plans) - 1 and LISTEN_OPTS['endings']:
             # the roadmap says nothing: the band decides in the moment,
             # from the feel, its own call in every tune — the listen
             # only; the pages keep what the roadmap wrote
@@ -3033,6 +3046,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         leaves it to them (Matthew, 2026-09-29: "same goes for mutes ...
         from the roadmap or on the spot"). A mute the chart names always
         wins; the choice comes from the tune, the same every build."""
+        if not LISTEN_OPTS['mutes']:
+            return None
         inst = canonical_instrument(next(
             x['instrument'] for x in band if x['label'] == label))
         if inst not in ('trumpet', 'c trumpet', 'cornet', 'trombone',
@@ -3606,7 +3621,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                           '</attributes>\n')
                             resume_div = cur_div
                             cur_div = gdiv
-                        made = chartgroove.realize(
+                        made = None if not LISTEN_OPTS['grooves'] else \
+                            chartgroove.realize(
                             'hits', arg, sound_id, clef, staves,
                             fifths, sec, off, absbar, bmeter, gdiv,
                             sec['feel'] or hdr.get('feel') or '',
@@ -3648,7 +3664,15 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                           '</attributes>\n')
                             resume_div = cur_div
                             cur_div = gdiv
-                        if plan.get('bg', {}).get(label) and \
+                        if soloing and not LISTEN_OPTS['solos'] or \
+                                plan.get('bg', {}).get(label) and \
+                                not soloing and \
+                                not LISTEN_OPTS['backgrounds'] or \
+                                not soloing and \
+                                not plan.get('bg', {}).get(label) and \
+                                not LISTEN_OPTS['grooves']:
+                            made = None     # the writer turned it off
+                        elif plan.get('bg', {}).get(label) and \
                                 not soloing:
                             made = bg_bar(clef, staves, fifths, sec, off,
                                           absbar, bmeter, gdiv, horn,

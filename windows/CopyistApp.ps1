@@ -276,6 +276,13 @@ $settingGroups = [ordered]@{
                                              'spoken_to', 'braille_to')
     'MIDI and demos'                     = @('midi', 'quant', 'countin')
     'Sounds - the sample shelf'          = @('sounds', 'sounds_dir')
+    'What the listen makes up'           = @('listen_grooves',
+                                             'listen_solos',
+                                             'listen_backgrounds',
+                                             'listen_endings',
+                                             'listen_mutes',
+                                             'listen_brushes',
+                                             'listen_builds')
 }
 
 function Do-Settings {
@@ -290,7 +297,7 @@ function Do-Settings {
         $c = Choose-FromList (($shown -join "`n") +
             "`nChange which one?") ($keys + @('Back'))
         if (-not $c -or $c -eq 'Back') { continue }
-        if ($c -in @('notify', 'open')) {
+        if ($c -in @('notify', 'open') -or $c -like 'listen_*') {
             $v = Choose-FromList "Set $c to:" @('yes', 'no', 'Back')
             if (-not $v -or $v -eq 'Back') { continue }
         } else {

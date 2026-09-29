@@ -2375,7 +2375,10 @@ struct SettingsView: View {
                         }
                     }
                     HStack {
-                        TextField("Count-in bars", text: $countin)
+                        // placeholder as a prompt only: the label below
+                        // says the name once, with what it's set to
+                        TextField("", text: $countin,
+                                  prompt: Text("Count-in bars"))
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 120)
                             .onSubmit { set("countin", countin) }
@@ -2391,6 +2394,27 @@ struct SettingsView: View {
                 group("Sounds") {
                     pathRow("Where sample libraries live",
                             key: "sounds_dir")
+                }
+                group("What the listen makes up") {
+                    Text("Where the page leaves it to the band. Turn any "
+                         + "of these off and the next listen leaves it "
+                         + "out, and says so.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(pal.sub)
+                    Toggle("The rhythm section plays the slashes",
+                           isOn: onUnlessNo("listen_grooves"))
+                    Toggle("Made-up solos where a line says solo",
+                           isOn: onUnlessNo("listen_solos"))
+                    Toggle("Made-up backgrounds behind a solo",
+                           isOn: onUnlessNo("listen_backgrounds"))
+                    Toggle("The band's own ending when the chart names "
+                           + "none", isOn: onUnlessNo("listen_endings"))
+                    Toggle("Mutes on the spot for the brass",
+                           isOn: onUnlessNo("listen_mutes"))
+                    Toggle("Brushes on a ballad",
+                           isOn: onUnlessNo("listen_brushes"))
+                    Toggle("The band builds through the tune",
+                           isOn: onUnlessNo("listen_builds"))
                 }
                 group("Your words") {
                     let vp = NSHomeDirectory()
@@ -2531,6 +2555,13 @@ struct SettingsView: View {
 
     func yesno(_ key: String) -> Binding<Bool> {
         Binding(get: { cfg[key] == "yes" },
+                set: { set(key, $0 ? "yes" : "no") })
+    }
+
+    /// A switch that is on until the writer turns it off: a setting
+    /// never touched has no entry in the file, and must still read on.
+    func onUnlessNo(_ key: String) -> Binding<Bool> {
+        Binding(get: { cfg[key] != "no" },
                 set: { set(key, $0 ? "yes" : "no") })
     }
 

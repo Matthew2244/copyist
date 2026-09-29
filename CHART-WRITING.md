@@ -313,6 +313,21 @@ In the Mac app, Settings has a switch for each one under **What a
 build makes**, and every switch says whether it is on. The MP3 alone
 and the braille alone each have their own button on the Build tab.
 
+**What the listen makes up** is yours to switch off, each one on out
+of the box: `listen_grooves` (the rhythm section playing the slashes),
+`listen_solos`, `listen_backgrounds`, `listen_endings` (the band's own
+ending when the chart names none), `listen_mutes`, `listen_brushes`
+and `listen_builds` (the band building through the tune).
+
+    chart set listen_solos=no      # soloists rest instead of blowing
+    chart set listen_endings=no    # stop where the notes stop
+
+Anything you write always plays; these only govern what the band
+invents where the page leaves it to them, and a build with one off says
+so in its findings. In the Mac app they are switches under **What the
+listen makes up** in Settings; on Windows, the same corner of the
+defaults desk.
+
 Any one export can also take just some of the tune, some of the band,
 and its own look:
 
