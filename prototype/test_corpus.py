@@ -3801,6 +3801,14 @@ def check_fall_keyswitch_any_timing():
                                         (800, 820, 26, 90)], beat, fall)
     check("a switch pressed deep into a held note waits for the next",
           mid.get(480) == (25, 90) and mid.get(960) == (26, 90), mid)
+    long_note = [(0, 3800, 60, 90), (3840, 4200, 62, 90)]
+    trill = lambda sp, sv: sp == 27
+    held = cd.assign_keyswitches(long_note, [(10, 30, 25, 90),
+                                             (2900, 2920, 27, 90)],
+                                 beat, trill)
+    check("a gesture fired late in a long held note marks that note, "
+          "and the next note keeps its own", held.get(0) == (27, 90)
+          and held.get(3840) == (25, 90), held)
     check("a library's fall or doit reads as a one-note gesture",
           cd.ks_meaning('Fall Short')[3] == 'falloff'
           and cd.ks_meaning('Doit')[3] == 'doit')

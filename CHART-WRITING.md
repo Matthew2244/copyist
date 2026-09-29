@@ -384,14 +384,16 @@ doesn't know as the word itself. A key you haven't named yet is listed
 in the findings with the bars it covers.
 
 **When you hit the key doesn't matter.** You play the take, and a
-switch lands where it lands, in any library. A switch pressed up to a
-sixteenth after a note starts still counts for that note, then stays
-in effect like the sampler's. One pressed deep into a held note is
-getting ready for the next note. Falls, doits and shakes end one
-note, so they mark that note however you played them: pressed just
-before it, while you hold it, held down under it, or right as you let
-go. They never carry on to the notes after, which keep the
-articulation you had.
+switch lands where it lands, in any library. Hold a note as long as
+you want and trigger a fall, doit, shake, trill, tremolo, flutter,
+growl, gliss or crescendo whenever you like: it marks the note you're
+holding. It marks the same note if you pressed it just before, held it
+down under the note, or hit it right as you let go, and it never
+carries on to the notes after. Switches that change how a note starts
+(staccato, marcato, legato, pizz., arco, mutes) count for a note if
+you press them before it or up to an eighth into it, then stay in
+effect like the sampler's. Pressed deeper into a held note, they're
+getting ready for the next one.
 
 ## Drum takes from EZdrummer and Superior Drummer
 

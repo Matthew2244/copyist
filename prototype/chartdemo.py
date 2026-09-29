@@ -353,6 +353,16 @@ def find_keyswitches(notes, sounding_range, beat, mapped=frozenset()):
     return kept, sorted(ks)
 
 
+# gestures that happen TO a sounding note: hold it as long as you like,
+# then trigger one (Matthew, 2026-09-28: "what if I want a note to be
+# held out for as long as I want, and then trigger whatever I wanna
+# trigger"). They mark that note and never latch. Everything else
+# (staccato, legato, pizz, mutes) shapes how notes START, and carries on.
+HELD_ORN = ('falloff', 'doit', 'trill', 'trill_half', 'trill_whole',
+            'trem')
+HELD_TEXT = ('shake', 'growl', 'flz.', 'gliss.', 'cresc.', 'fp')
+
+
 def assign_keyswitches(notes, switches, beat, one_shot=None):
     """Which switch governs each musical note, by its raw onset. A
     switch latches until the next one; a switch HELD across notes for
@@ -376,9 +386,9 @@ def assign_keyswitches(notes, switches, beat, one_shot=None):
     held = [s for s in switches if s[1] - s[0] > beat * 0.9]
     out = {}
     for on, off, _p, _v in notes:
-        # in the moment a switch lands late: up to a sixteenth into the
+        # in the moment a switch lands late: up to an eighth into the
         # note (half of a shorter one) it was meant for this note
-        late = max(slack, min(beat / 4, (off - on) / 2))
+        late = max(slack, min(beat / 2, (off - on) / 2))
         cur = None
         for s_on, s_off, sp, sv in held:
             if s_on - late <= on < s_off:
@@ -942,7 +952,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                 if not w:
                     return False
                 _m, text, _l, orn = ks_meaning(w)
-                return orn in ('falloff', 'doit') or text == 'shake'
+                return orn in HELD_ORN or text in HELD_TEXT
 
             gov = assign_keyswitches(moved, switches, beat, one_shot)
             for on, (sp, sv) in gov.items():
