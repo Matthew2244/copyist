@@ -479,6 +479,25 @@ point of a fermata. On any part's line, `cresc bars 2-4` or
       singer: cue trumpet
       build: add trumpet at 11
 
+**Explode**, the way MuseScore and Sibelius do it: play the voicings
+on one track (piano, a horn played in chords, strings) and deal them
+out:
+
+    group section: trumpet, alto, tenor, bone
+    section shout, 8 bars
+      piano: from demo bars 33-40
+      section: explode piano
+
+The top note goes to the highest-reaching chair, the next down, and so
+on, whatever order the group is typed in; a chord shorter than the
+group doubles evenly when it divides and otherwise repeats its lowest
+note; more notes than chairs drop the extras. Each chair is written for
+its own horn, a note past an instrument's range moves an octave in (the
+findings say so), and the findings say "exploded from the piano".
+`divisi <part>` does the same and prints "div." for a string section.
+If the source is one of the chairs (the trumpet track played in
+chords, exploded across the horns), it keeps the top voice.
+
 `double` puts another part's line on this part's page, rewritten for
 THIS player's key and clef; the classic unison out-head is one line of
 chart. Say the octave when the double sits off it: `tenor: double

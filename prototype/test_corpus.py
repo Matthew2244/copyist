@@ -4977,6 +4977,61 @@ def check_backgrounds_and_vamps():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_explode():
+    """Explode, the way MuseScore and Sibelius do it (Matthew,
+    2026-09-29: from anything — a piano track, a horn part played in
+    chords, strings — or divisi): top note to the highest-reaching
+    chair, the next down; a short chord doubles evenly or repeats its
+    lowest note; each chair written for its own horn."""
+    import chartaudio
+    import chartc
+    import smf
+    er = chartc.explode_res
+    one = {"timeline": [(0, 96, [60, 64, 67, 71])]}
+    check("explode: four notes to four chairs, top down",
+          [er(one, k, 4)["timeline"][0][2][0] for k in range(4)]
+          == [71, 67, 64, 60])
+    two = {"timeline": [(0, 96, [60, 67])]}
+    check("explode: a two-note chord on four chairs doubles evenly",
+          [er(two, k, 4)["timeline"][0][2][0] for k in range(4)]
+          == [67, 67, 60, 60])
+    three = {"timeline": [(0, 96, [60, 64, 67])]}
+    check("explode: three on four repeats the lowest",
+          [er(three, k, 4)["timeline"][0][2][0] for k in range(4)]
+          == [67, 64, 60, 60])
+    check("explode: a note under the floor moves up an octave",
+          er({"timeline": [(0, 96, [40])]}, 0, 1, fold=(52, 80))
+          ["timeline"][0][2][0] == 52)
+    tmp = tempfile.mkdtemp()
+    div = 480
+    notes = []
+    for i, ch in enumerate([[65, 69, 72, 76], [65, 70, 74, 77]]):
+        notes += [(i * 4 * div, i * 4 * div + 4 * div - 40, p, 90)
+                  for p in ch]
+    smf.write(os.path.join(tmp, "keys.mid"), notes, div, 100)
+    open(os.path.join(tmp, "t.chart"), "w").write(
+        "title: T\nkey: F\nmeter: 4/4\ntempo: 100\n\nband:\n"
+        "  trumpet\n  alto = alto sax\n  bone = trombone\n"
+        '  piano, demo "keys.mid"\n\n'
+        "group section: bone, alto, trumpet\n\n"
+        "section A, 2 bars\n  chords: Fmaj7, Bb\n"
+        "  piano: from demo bars 1-2\n  section: explode piano\n")
+    out = os.path.join(tmp, "b")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(os.path.join(tmp, "t.chart"), out)
+    pl = chartaudio.parse_score(os.path.join(out,
+                                             "T — for listening.musicxml"))
+    ev = {p["name"]: [e[2] for e in p["events"]] for p in pl["parts"]}
+    check("explode in a chart: the highest horn takes the top voice, "
+          "whatever order the group was typed in",
+          ev["trumpet"] == [76, 77] and ev["alto"] == [72, 74]
+          and ev["bone"] == [69, 70], ev)
+    check("the findings say where the line came from",
+          "exploded from the piano" in buf.getvalue())
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5035,6 +5090,7 @@ if __name__ == "__main__":
     check_words_perform()
     check_solos_and_endings()
     check_backgrounds_and_vamps()
+    check_explode()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

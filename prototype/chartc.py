@@ -1952,7 +1952,11 @@ def compile_chart(chart_path, outdir):
                 srcs = sorted({i['src_label'] + octave_words(
                                    i.get('octaves', 0))
                                for i in played if i.get('src_label')})
-                if srcs:
+                ex = sorted({i['exploded'] for i in played
+                             if i.get('exploded')})
+                if ex:
+                    what = "exploded from the " + " and ".join(ex)
+                elif srcs:
                     what = "doubles the " + " and ".join(srcs)
                 elif any(i['res'].get('detail') == 'rhythmic-slashes'
                          for i in played):
@@ -2206,6 +2210,33 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                     'doit': ref.get('doit', False),
                                     'scoops': ref.get('scoops', []),
                                     'plan': plan})
+    # ---- explode: one part's chords dealt across a group's chairs
+    for plan in plans:
+        done_src = {}
+        for target, (srcl, k, n, div_word, loc) in \
+                plan.get('explode', {}).items():
+            if srcl not in labels:
+                fail(f"{loc}: '{srcl}' is not a band part to explode")
+            items = done_src.setdefault(srcl, [
+                i for i in resolved[srcl] if i['plan'] is plan])
+            if not items:
+                fail(f"{loc}: nothing to explode — '{srcl}' has no "
+                     "played or figured line in this section")
+            fold = (horn_of.get(target) or {}).get('fold')
+            moved = []
+            new = [dict(i, res=explode_res(i['res'], k, n, fold, moved),
+                        cue=False, src_label=None, exploded=srcl)
+                   for i in items]
+            if target == srcl:
+                resolved[srcl] = [i for i in resolved[srcl]
+                                  if i['plan'] is not plan]
+            resolved[target].extend(new)
+            if moved:
+                findings.add(f"{target}: exploded from {srcl}, "
+                             f"{len(moved)} note(s) moved an octave into "
+                             "range")
+            if div_word:
+                plan['texts'][target].append((1, 'div.'))
     # ---- double and cue: another part's resolved line joins this one.
     # It re-renders with the TARGET's transposition and key, so a
     # doubled line is written for the player who now plays it; a cue
@@ -2259,6 +2290,51 @@ def octave_phrase(text):
         sign = 1 if m.group(3) in ('up', 'higher', 'above') else -1
         return m.group(1).strip(), sign * 12 * n
     return t, 0
+
+
+def explode_res(res, k, n, fold=None, moved=None):
+    """Chair k of n's share of a resolved line's chords: the k-th note
+    from the top; a chord shorter than the chairs doubles evenly when
+    it divides, else repeats its lowest note (MuseScore's explode).
+    Grand-staff voices merge first. A note under the chair's floor or
+    over its ceiling moves by octaves into range."""
+    onsets = {}
+    lines = [res.get('timeline') or []]
+    for st in res.get('staves') or ():
+        lines += st['voices']
+    for line in lines:
+        for a, b, ps in line:
+            e, got = onsets.get(a, (b, []))
+            onsets[a] = (max(e, b), got + list(ps))
+    tl = []
+    for a in sorted(onsets):
+        b, ps = onsets[a]
+        ps = sorted(set(ps), reverse=True)
+        if not ps:
+            continue
+        m = len(ps)
+        if m >= n:
+            p = ps[k]
+        elif n % m == 0:
+            p = ps[k // (n // m)]
+        else:
+            p = ps[k] if k < m else ps[-1]
+        if fold:
+            q = p
+            while p < fold[0]:
+                p += 12
+            while p > fold[1]:
+                p -= 12
+            if p != q and moved is not None:
+                moved.append(a)
+        tl.append((a, b, [p]))
+    # one voice now: a note ringing past the next onset stops there
+    for i in range(len(tl) - 1):
+        a, b, ps = tl[i]
+        if b > tl[i + 1][0]:
+            tl[i] = (a, tl[i + 1][0], ps)
+    return dict(res, timeline=tl, staves=None, trills={}, trems={},
+                ks={}, lyrics=None, lyrics_text=None)
 
 
 def octave_words(n):
@@ -2347,7 +2423,7 @@ def build_plans(chart, band, groups, labels):
                 'overlays': {l: [] for l in labels},
                 'lifts': {l: [] for l in labels},
                 'enters': {},
-                'doubles': {}, 'cues': {}, 'bg': {}}
+                'doubles': {}, 'cues': {}, 'bg': {}, 'explode': {}}
         for target, instr, loc in sec['directives']:
             tgts = groups.get(target) or ([target] if target in labels else None)
             if tgts is None:
@@ -2355,6 +2431,7 @@ def build_plans(chart, band, groups, labels):
             anns, engraved, groove_words = [], None, None
             solo_slashes = False
             bg_style = None
+            explode_src = None
             demo_refs, fall, quant, short = [], False, None, False
             legato, ghost = False, False
             no_trills = False
@@ -2577,6 +2654,14 @@ def build_plans(chart, band, groups, labels):
                 if m:
                     doubles = octave_phrase(m.group(1).strip())
                     continue
+                m = re.match(r'(?:explode|divisi|div\.?)\s+(?:from\s+)?'
+                             r'(?:the\s+)?([\w ]+)$', piece)
+                if m:
+                    # MuseScore's and Sibelius's explode: one part's
+                    # chords dealt out across the target's chairs
+                    explode_src = (m.group(1).strip(), piece.startswith(
+                        ('divisi', 'div')))
+                    continue
                 m = re.match(r'cue ([\w ]+)$', piece)
                 if m:
                     cues = octave_phrase(m.group(1).strip())
@@ -2646,6 +2731,18 @@ def build_plans(chart, band, groups, labels):
                          else 'diminuendo', wa, wb))
                     continue
                 fail(f"{loc}: instruction '{piece}' is not built yet")
+            if explode_src:
+                # top voice to the highest-reaching chair, the next
+                # down, and so on (MuseScore: a short chord doubles
+                # evenly, or repeats its lowest note)
+                inst_of = {x['label']: canonical_instrument(
+                    x['instrument']) for x in band}
+                chairs = sorted(tgts, key=lambda c: -(
+                    HORNS.get(inst_of.get(c), {}).get('comf',
+                                                       (0, 0))[1]))
+                for k, c in enumerate(chairs):
+                    plan['explode'][c] = (explode_src[0], k, len(chairs),
+                                          explode_src[1], loc)
             for l in tgts:
                 if doubles:
                     plan['doubles'][l] = doubles + (loc,)
