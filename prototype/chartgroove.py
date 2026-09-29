@@ -466,14 +466,18 @@ def _styled_drums(bar, absbar, style, traits):
                  [(1, .5, 74), (2.5, .5, 74), (4, .5, 74)])
         _pattern(bar, beat, clave, _XSTICK)
         return
-    # straight and funk, with half time and double time bending them
-    hats = sixteenths if (style == 'funk' or 'double' in traits) \
-        else eighths
+    # straight and funk, with half time and double time bending them.
+    # Half time halves the hats too: sixteenths of the half-time pulse
+    # are eighths of the written bar — sixteenths here played the funk
+    # at double speed (Matt's Blues at 210, 2026-09-28: "the drums in
+    # the funky section are playing double time")
+    hats = sixteenths if ((style == 'funk' or 'double' in traits)
+                          and 'half' not in traits) else eighths
     _pattern(bar, beat, [(b, .25 if len(hats) > 2 * n else .5,
                           70 if b % 1 == 0 else 46) for b in hats], _HAT)
     if 'half' in traits:
         snare = [(3, .5, 94)] if n >= 4 else [(2, .5, 94)]
-        kick = [(1, .5, 88)] + ([(2.75, .25, 66), (3.5, .5, 62)]
+        kick = [(1, .5, 88)] + ([(2.5, .5, 66), (4.5, .5, 62)]
                                 if style == 'funk' and n >= 4 else [])
     elif style == 'funk':
         snare = [(b, .5, 95) for b in back]
@@ -483,7 +487,9 @@ def _styled_drums(bar, absbar, style, traits):
         kick = [(b, .5, 86) for b in range(1, n + 1, 2)]
     _pattern(bar, beat, snare, _SNARE)
     _pattern(bar, beat, kick, _KICK)
-    if style == 'funk':                  # ghosts between the backbeats
+    if style == 'funk' and 'half' in traits:
+        _pattern(bar, beat, [(4, .5, 28)], _SNARE)   # one ghost, felt
+    elif style == 'funk':                # ghosts between the backbeats
         _pattern(bar, beat, [(2.75, .25, 28), (3.25, .25, 26),
                              (4.75, .25, 28)], _SNARE)
 
@@ -742,6 +748,9 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
             return _near((_root_pc(c) + sev) % 12, prev)
         if what == 'next':
             return _near(_next_root(sec, off, chords), prev)
+        if what == 'appr':               # a half step into the next root
+            nxt = _near(_next_root(sec, off, chords), prev)
+            return nxt + (1 if nxt <= prev else -1)
         return _near(root, prev)
 
     if style == 'swing' and 'double' in traits:
@@ -781,8 +790,11 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
                  (3.5, .25, 'r'), (3.75, .25, 'r'), (4.5, .5, '7')],
     }
     if 'half' in traits:
-        pat = ([(1, 1.5, 'r'), (2.75, .25, 'r'), (3, .5, 'o'),
-                (4, .5, 'f'), (4.5, .5, '7')] if style == 'funk' else
+        # four notes, the way a player lays half time down: the root
+        # held, the fifth on the and of 2, the root on 3, a half step
+        # into the next bar (the shape of Jeremy Hegg's funk head)
+        pat = ([(1, 1.5, 'r'), (2.5, .5, 'f'), (3, 1, 'r'),
+                (4, 1, 'appr')] if style == 'funk' else
                [(1, 2.5, 'r'), (3.5, .5, 'f'), (4, 1, 'r')])
     else:
         pat = pats.get(style) or [(1, 2, 'r'), (3, 2, 'f')]

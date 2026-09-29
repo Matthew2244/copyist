@@ -3762,6 +3762,34 @@ def check_note_off_wins():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_half_time_funk():
+    """Half-time funk halves the hats with the pulse: eighths, not
+    sixteenths, and the bass lays four notes down — sixteenths played
+    Matt's Blues' funk head at double speed (2026-09-28)."""
+    import chartgroove as g
+    bar = g.Bar(24, (4, 4), 0, 1)
+    g._styled_drums(bar, 1, 'funk', {'half'})
+    hats = sorted(t for t, (_n, notes) in bar.onsets.items()
+                  if any(x[1] == g._HAT for x in notes))
+    check("half-time funk hats move in eighths",
+          hats == [i * 12 for i in range(8)], hats)
+    bar = g.Bar(24, (4, 4), 0, 1)
+    g._styled_drums(bar, 1, 'funk', set())
+    hats = [t for t, (_n, notes) in bar.onsets.items()
+            if any(x[1] == g._HAT for x in notes)]
+    check("full-time funk keeps its sixteenths", len(hats) == 16, len(hats))
+    bar = g.Bar(24, (4, 4), 0, 1)
+    got = []
+
+    def put(at, ticks, midi, vel=None):
+        got.append(at)
+        return midi
+    bb7 = ('B', -1, '7', None)
+    sec = {'bars': 2, 'content': [[(1, bb7)], [(1, ('E', -1, '7', None))]]}
+    g._styled_bass(bar, {}, sec, 0, 1, [(1, bb7)], 'funk', {'half'}, put)
+    check("half-time funk bass lays down four notes", len(got) == 4, got)
+
+
 def check_cc_gates():
     """A region's CC gates choose what a note plays: a unison layer,
     an extra microphone or an open hi-hat stays off unless its
@@ -4566,6 +4594,7 @@ if __name__ == "__main__":
     check_tempo_in_the_bar()
     check_note_off_wins()
     check_cc_gates()
+    check_half_time_funk()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
