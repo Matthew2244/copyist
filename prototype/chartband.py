@@ -146,6 +146,131 @@ _MAKEUP = {
 }
 
 
+# Where each chair sits and how loud, the way an engineer sets up a
+# jazz record (Matthew, 2026-09-29, on Trading Room: "tenor is loud,
+# bass could come down a little, trumpet could come up a little").
+# Seat levels are dB on top of the library trims above, set by
+# measuring each chair alone at a fixed gain (balance_report), then by
+# ear. Pan: -1 hard left, +1 hard right; the bass and the kick's centre
+# stay in the middle, the kit's own stereo does the spreading.
+_SEATS = (
+    # (sound-id fragment, dB, pan). Every chair is first brought to one
+    # heard loudness (calibrate), so these are the mix itself: the horns
+    # the reference, the rhythm section under them. Set on Trading Room
+    # by measured loudness per chair (2026-09-29): comping chords stack
+    # three or four notes, so keys and guitar sit well down.
+    ('saxophone.tenor', -1.5, -0.30), ('saxophone.alto', -1.0, -0.20),
+    ('saxophone.soprano', -1.0, -0.15), ('saxophone.baritone', -1.0,
+                                         -0.40),
+    ('brass.trumpet', 1.5, 0.25), ('brass.flugelhorn', 1.0, 0.25),
+    ('brass.cornet', 1.5, 0.25), ('brass.trombone', 0.0, 0.40),
+    ('brass.', 0.0, 0.3),
+    ('pluck.bass', -4.5, 0.0), ('strings.contrabass', -4.0, 0.0),
+    ('keyboard.piano', -11.0, 0.30), ('keyboard.organ', -12.0, 0.25),
+    ('keyboard', -11.0, 0.25), ('pluck.guitar', -10.0, -0.35),
+    ('mallet.vibraphone', -8.0, 0.35),
+    ('drum.group', 2.0, 0.0),
+    ('drum.', -4.0, 0.45), ('metal.', -5.0, 0.45), ('wood.', -5.0, 0.45),
+    ('rattle.', -6.0, 0.45),
+    ('voice', 1.0, 0.0),
+    ('wind.', -1.0, -0.20), ('strings.', -1.0, -0.25),
+)
+
+
+_LEVEL_TARGET = 500.0     # every chair's heard loudness, before its seat (library units)
+_LEVELS = None            # cache: (voice, key, vel) -> loudness
+
+
+def _heard(res, sr):
+    """How loud a rendered note sounds, roughly the way an ear weighs
+    it: the lows the ear barely hears are filtered off first (a one-pole
+    high-pass near 150 Hz), then the RMS of its first second."""
+    if not res:
+        return 0.0
+    L = res[0]
+    n = min(len(L), sr)
+    if n < 10:
+        return 0.0
+    a = math.exp(-2 * math.pi * 150.0 / sr)
+    prev_x = prev_y = 0.0
+    tot = 0.0
+    for i in range(n):
+        x = L[i]
+        y = a * (prev_y + x - prev_x)
+        prev_x, prev_y = x, y
+        tot += y * y
+    return math.sqrt(tot / n)
+
+
+def _levels_cache():
+    global _LEVELS
+    if _LEVELS is None:
+        import json
+        path = os.path.expanduser('~/.cache/copyist/levels.json')
+        try:
+            _LEVELS = json.load(open(path))
+        except Exception:
+            _LEVELS = {}
+    return _LEVELS
+
+
+def _save_levels():
+    import json
+    path = os.path.expanduser('~/.cache/copyist/levels.json')
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        json.dump(_LEVELS or {}, open(path, 'w'))
+    except Exception:
+        pass
+
+
+def calibrate(shelf, voice, part, sr):
+    """The gain that brings this chair to the common heard loudness,
+    measured where the part actually plays (its middle note) at the
+    band's ordinary weight. The libraries differ by 45 dB raw (Trading
+    Room, 2026-09-29); a trim per library only ever covered a few."""
+    evs = part['events']
+    if not evs:
+        return 1.0
+    if part['percussion']:
+        keys = [38] if not part.get('sound', '').startswith(
+            ('drum.conga', 'drum.bongo', 'metal.', 'wood.', 'rattle.')) \
+            else sorted(e[2] for e in evs)[len(evs) // 2:len(evs) // 2 + 1]
+    else:
+        keys = [sorted(e[2] for e in evs)[len(evs) // 2]]
+    key = int(keys[0])
+    inst = (voice or {}).get('sus') if voice else None
+    tag = (getattr(inst, 'path', None) or
+           f"sf2:{part['program']}:{part['percussion']}")
+    ck = f"{tag}|{key}"
+    cache = _levels_cache()
+    if ck not in cache:
+        res = None
+        if inst is not None:
+            k2, cc = _kit_key(inst, key) if part['percussion'] \
+                else (key, None)
+            res = inst.render_note(k2, 72, 1.2, sr, cc=cc)
+        if res is None and shelf.sf2 is not None:
+            res = sf2mod.render_note(
+                shelf.sf2, 128 if part['percussion'] else 0,
+                max(part['program'] - 1, 0), key, 72, 1.2, sr)
+        cache[ck] = _heard(res, sr)
+        _save_levels()
+    loud = cache[ck]
+    if loud <= 1e-9:
+        return 1.0
+    return min(max(_LEVEL_TARGET / loud, 1e-3), 1e3)
+
+
+def seat_of(sound_id):
+    """(dB, pan) for a chair, or None to keep the old spread."""
+    sid = (sound_id or '').lower()
+    for frag, db, pan in _SEATS:
+        if frag in sid:
+            return db, pan
+    return None
+
+
 class Shelf:
     """Everything the band can pick up: the SFZ voices on disk, the GM
     SoundFont floor, and a cache so a library parses once per render."""
@@ -646,6 +771,11 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
             part['program'] = 25 if 'acoustic' in sid else 27
         detunes.append(((nth % 4) - 1.5) * 0.04 if sid else 0.0)
 
+    # every chair to one heard loudness first; the seats set the mix
+    cal = [calibrate(shelf, voices[i], p, SR) if seat_of(
+        p.get('sound', '')) is not None else 1.0
+        for i, p in enumerate(plan['parts'])]
+
     jobs = []    # (t, dur, idx, key, vel, bright, bend, amps, fam, art)
     notes = 0
     for idx, part in enumerate(plan['parts']):
@@ -825,10 +955,21 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
                 pieces.append((a, res))
             if cut is not None and not part['percussion']:
                 pieces = [(at, _cut_at(res_, cut - at)) for at, res_ in pieces]
-            pan = (-0.6 + 1.2 * idx / max(n_parts - 1, 1)) \
-                if n_parts > 1 else 0.0
-            gl = math.cos((pan + 1) * math.pi / 4) * 1.1
-            gr = math.sin((pan + 1) * math.pi / 4) * 1.1
+            seat = seat_of(part.get('sound', ''))
+            if seat is not None:
+                sdb, pan = seat
+                sg = 10.0 ** (sdb / 20.0) * cal[idx]
+            else:
+                pan = (-0.6 + 1.2 * idx / max(n_parts - 1, 1)) \
+                    if n_parts > 1 else 0.0
+                sg = 1.0
+            if art.get('lead') and fam in ('piano', 'guitar', 'mallet',
+                                           'organ', 'bass'):
+                # a rhythm player taking a solo: the engineer pushes
+                # the fader up to where the horns sit
+                sg *= 10.0 ** (8.0 / 20.0)
+            gl = math.cos((pan + 1) * math.pi / 4) * 1.1 * sg
+            gr = math.sin((pan + 1) * math.pi / 4) * 1.1 * sg
             send = _SEND[fam]
             for at, (nl, nr) in pieces:
                 i0 = int(at * SR)
@@ -874,6 +1015,9 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         _room(L, R, wetL, wetR, SR)
         peak = max(max(abs(x) for x in L), max(abs(x) for x in R)) or 1.0
         scale = 0.85 * 32767.0 / peak
+        if os.environ.get('COPYIST_FIXED_GAIN'):
+            # measuring one chair against another: no leveling
+            scale = float(os.environ['COPYIST_FIXED_GAIN'])
         out = array('h', bytes(4 * frames))
         for i in range(frames):
             out[2 * i] = int(max(-32767.0, min(32767.0, L[i] * scale)))
@@ -1203,6 +1347,9 @@ def _play_parallel(groups, play, fresh, ticks, frames, sr, on_progress):
             total = audioop.add(total, bytes(shm.buf[:size]), 4)
         peak = audioop.max(total, 4) or 1
         factor = 0.85 * 32767.0 / (peak / _K) / _K * 65536.0
+        if os.environ.get('COPYIST_FIXED_GAIN'):
+            factor = float(os.environ['COPYIST_FIXED_GAIN']) / _K \
+                * 65536.0
         return audioop.lin2lin(audioop.mul(total, 4, factor), 4, 2)
     finally:
         for shm in shms:

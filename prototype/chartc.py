@@ -3701,6 +3701,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             groove_state['muted'] = mw
                             if mw:
                                 pieces.append(direction(mw))
+                            if soloing and chartgroove.role_of(
+                                    sound_id, clef) in ('comp', 'bass'):
+                                pieces.append(direction('solo'))
+                                groove_state['leading'] = True
                         impl = groove_state.get('impl')
                         if impl and impl != groove_state.get('impl_said'):
                             # the listen hears what's in the drummer's
@@ -3709,6 +3713,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             groove_state['impl_said'] = impl
                         pieces.append(made or rest_bar(cur_div, staves,
                                                        bmeter))
+                        if groove_state.get('leading') and \
+                                off == sec['bars'] - 1 and \
+                                cur_pass == passes - 1:
+                            pieces.append(direction('comp'))
+                            groove_state['leading'] = False
                         if groove_state.get('muted') and \
                                 off == sec['bars'] - 1 and \
                                 cur_pass == passes - 1:

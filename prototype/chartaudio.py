@@ -446,6 +446,8 @@ def parse_score(path, only=None):
         slur_depth = 0
         pend_grace = {}                 # voice -> grace <note> texts
         pend_hit = False                # a sforzando waits for its note
+        lead = False                    # "solo" until "comp": a rhythm
+                                        # player out front, fader up
         brush = False                   # "brushes" until "sticks"
         mallets = False                 # "mallets" until "sticks"
         pizz = False                    # "pizz." until "arco"
@@ -529,6 +531,11 @@ def parse_score(path, only=None):
                         pw = perform_word(w)
                         if pw:
                             perf.setdefault(round(q0 + pos / div, 4), pw)
+                        if re.match(r'\s*(?:take the )?solo\b', w, re.I):
+                            lead = True
+                        elif re.match(r'\s*(?:back to )?comp(?:ing)?\b', w,
+                                      re.I):
+                            lead = False
                         if re.search(r'\bbrush(?:es)?\b', w, re.I):
                             brush, mallets = True, False
                         elif re.search(r'\bmallets?\b', w, re.I):
@@ -662,6 +669,8 @@ def parse_score(path, only=None):
                     art['brush'] = True
                 if mallets and m['percussion']:
                     art['mallets'] = True
+                if lead:
+                    art['lead'] = True
                 q_on = q0 + on / div
                 q_dur = dur / div
                 if 'fermata' in art:
