@@ -4905,8 +4905,14 @@ def check_solos_and_endings():
     ev = {p["name"]: p["events"] for p in pl["parts"]}
     check("soloists play over the changes, taking turns",
           ev["tenor"] and ev["trumpet"]
-          and max(e[0] for e in ev["tenor"]) < 16
-          and min(e[0] for e in ev["trumpet"]) >= 16)
+          # the first may spill into the next player's first bar
+          and max(e[0] for e in ev["tenor"]) < 20
+          and min(e[0] for e in ev["trumpet"]) >= 16
+          and all(min(abs(e[0] * 2 - round(e[0] * 2)),
+                      abs(e[0] * 3 - round(e[0] * 3))) < 0.03
+                  for n in ("tenor", "trumpet") for e in ev[n]),
+          {n: [round(e[0], 2) for e in ev[n]] for n in ("tenor",
+                                                         "trumpet")})
     tpage = open(os.path.join(out, "T — tenor.musicxml")).read()
     check("the page keeps its slashes and the word",
           "slash" in tpage and ">Solo<" in tpage)

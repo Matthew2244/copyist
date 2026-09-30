@@ -298,5 +298,8 @@ The band in the listen learned from real players. `prototype/data/walking_stats.
 holds statistics derived by `prototype/learn_walking.py` from FiloBass
 (Xavier Riley and Simon Dixon, Queen Mary University of London, ISMIR 2023),
 48 transcribed professional walking bass lines, licensed CC BY 4.0
-(https://zenodo.org/records/10069709). Only the derived numbers ship here,
-not the transcriptions.
+(https://zenodo.org/records/10069709). `prototype/data/solo_stats.json` comes from
+`prototype/learn_solos.py` over the Weimar Jazz Database 2.1 (Jazzomat Research
+Project, Hochschule für Musik Weimar): contains information from the Weimar
+Jazz Database, which is made available under the ODbL. Only the derived numbers
+ship here, not the transcriptions.

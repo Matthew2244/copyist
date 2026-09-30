@@ -1066,6 +1066,30 @@ def _load_walk():
 _WALK = _load_walk()
 
 
+def _load_solo():
+    """How real soloists phrase (learn_solos.py over the Weimar Jazz
+    Database, ODbL); the same run's key numbers built in as the floor."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               'data', 'solo_stats.json')) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {'phrase_beats': {'4': .1, '5': .09, '6': .09, '7': .08,
+                                 '8': .07, '3': .08, '2': .06, '10': .05,
+                                 '12': .04, '14': .03, '16': .03},
+                'gap_half_beats': {'2': .3, '3': .15, '4': .15, '6': .1,
+                                   '1': .1, '8': .06},
+                'on_beat': {'tone': .54, 'color': .30, 'other': .16},
+                'half_step_into_beat_tone': .29,
+                'grid': {'triplet': .18},
+                'end_position': {'and': .51, 'on': .39},
+                'end_len_half_beats': {'1': .55, '2': .21, '3': .1,
+                                       '4': .04}}
+
+
+_SOLO = _load_solo()
+
+
 def _family(c):
     q = (c[2] if c else '') or 'maj'
     if q in ('m7b5', 'm9b5'):
@@ -2365,6 +2389,10 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             pickup, t, length = t, math.ceil(t), length - (math.ceil(t) - t)
             if length < 1.0:
                 return cur
+        start_i = len(notes)
+        p_trip = _SOLO['grid'].get('triplet', 0.18) * (0.5 if a == 'state'
+                                                       else 0.8)
+        half = _SOLO.get('half_step_into_beat_tone', 0.29) + 0.06
         step = 0.5
         n = max(2, int(length / step * dens))
         if n % 2:
@@ -2378,11 +2406,21 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             c = chord_fn(at) or c0
             root = _root_pc(c)
             tones = list(_tones(c))
-            if a != 'state':
-                tones += list(_colors(c))[:1]
             changed = prev_c is not None and c != prev_c
-            pool = [iv for iv in tones if iv % 12 in (3, 4, 10, 11)] \
-                if changed else tones
+            # what a real player puts on the beat (Weimar: about half
+            # chord tones, a third colours, the rest passing notes) —
+            # the guide tones still mark most changes
+            cat = _roll([(k, w) for k, w in
+                         _SOLO['on_beat'].items()], d)
+            if changed and d() < 0.65:
+                pool = [iv for iv in tones if iv % 12 in (3, 4, 10, 11)]
+            elif cat == 'color':
+                pool = list(_colors(c)) or tones
+            elif cat == 'other' and a != 'state':
+                pool = [iv for iv in _scale(c) if iv % 12 not in
+                        {x % 12 for x in tones}] or tones
+            else:
+                pool = tones
             # the line moves on, pulled toward the act's register:
             # the climax is played up high, the opening in the middle
             reg = lo + (hi - lo) * {'state': 0.4, 'develop': 0.55,
@@ -2424,11 +2462,19 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                                       vv + 2 * j))
                 targets[k + 1] = ups[-1] if ups else nxt_tg
                 continue
+            if d() < p_trip and at + 1.0 <= min(t + length, total):
+                # a triplet turn: the target, its upper neighbour, and a
+                # half step into the next one
+                up = scale_move(tg, 1, c)
+                for j, m in enumerate((tg, up, nxt_tg - 1 if nxt_tg > tg
+                                       else nxt_tg + 1)):
+                    notes.append((at + j / 3, 0.3, m, vv - 2 * (j == 1)))
+                continue
             notes.append((at, step * 0.92, tg, vv))
             r = d()
-            if r < 0.4:
+            if r < half * 0.6:
                 app = nxt_tg - 1                  # from below
-            elif r < 0.6:
+            elif r < half:
                 app = nxt_tg + 1                  # from above
             else:
                 app = scale_move(tg, 1 if nxt_tg > tg else -1, c)
@@ -2440,27 +2486,70 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
         if pickup is not None and targets:
             notes.append((pickup, 0.45, targets[0] - 1
                           if d() < 0.6 else targets[0] + 2, v - 4))
+        # the end of the phrase: never a lead-in left hanging. Half the
+        # time a short chord note on the and ("doo-BAH"); otherwise the
+        # line resolves onto its next target and holds it a little
+        mine = [i for i in range(start_i, len(notes))
+                if notes[i][0] >= t - 1e-6]
+        if mine:
+            li = max(mine, key=lambda i: notes[i][0])
+            la, _ll, lm, lv = notes[li]
+            c = chord_fn(la) or c0
+            if la % 1 and d() < _SOLO['end_position'].get('and', .5) / \
+                    max(1e-6, sum(_SOLO['end_position'].values())):
+                pool = list(_tones(c)) + list(_colors(c))[:2]
+                notes[li] = (la, 0.4, snap(lm, c, pool), lv + 4)
+                return notes[li][2]
+            k = min(len(targets) - 1, n // 2)
+            land = math.floor(la) + 1.0
+            if land < total:
+                hb = int(_roll([(int(x), w) for x, w in
+                                _SOLO['end_len_half_beats'].items()
+                                if 1 <= int(x) <= 4], d))
+                cl = chord_fn(land) or c
+                goal = targets[k] if (targets[k] - _root_pc(cl)) % 12 in \
+                    {i % 12 for i in _tones(cl)} else \
+                    snap(targets[k], cl, _tones(cl))
+                notes.append((land, 0.47 * hb, goal, v))
+                return goal
         return targets[min(len(targets) - 1, n // 2)]
+
+    def phrase_len(lo_b, hi_b):
+        """A phrase as long as real players make them (Weimar: half
+        under two bars, a quarter past three), inside this act's span."""
+        opts = [(int(k), w) for k, w in _SOLO['phrase_beats'].items()
+                if lo_b <= int(k) <= hi_b]
+        return float(_roll(opts, d)) if opts else float(lo_b)
+
+    def breath():
+        """The rest between phrases: mostly one to three beats."""
+        opts = [(int(k) / 2, w) for k, w in _SOLO['gap_half_beats'].items()
+                if 1 <= int(k) <= 12]
+        return _roll(opts, d) if opts else 2.0
 
     t = t_open or (0.5 if d() < 0.5 else 0.0)   # sometimes a pickup in
     last_kind = None
     told = 0                                 # phrases so far in act one
     while t < total - 0.5:
+        # every phrase starts on the grid, however the last one ended
+        t = math.ceil(t * 2 - 1e-6) / 2
+        if t >= total - 0.5:
+            break
         a = act(t)
         if a == 'state':
             # state it, answer it, lift it, stretch it
             ks = kinds['state']
             kind = ks[told % len(ks)]
             told += 1
-            length = min(bar_beats * (1.2 + 0.8 * d()), max_len)
-            rest = bar_beats * (0.4 + 0.5 * d()) * space
+            length = min(phrase_len(2, 9), max_len)
+            rest = breath() * space * 1.2
         elif a == 'develop':
             ks = kinds['develop']
             kind = ks[int(d() * len(ks)) % len(ks)]
             if kind == last_kind:
                 kind = ks[(ks.index(kind) + 1) % len(ks)]
-            length = min(bar_beats * (2.0 + 1.0 * d()), max_len)
-            rest = bar_beats * (0.25 + 0.45 * d()) * space
+            length = min(phrase_len(4, 14), max_len)
+            rest = breath() * space
         elif a == 'peak':
             ks = kinds['peak']
             kind = ks[int(d() * len(ks)) % len(ks)]
@@ -2468,8 +2557,8 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                 kind = ks[(ks.index(kind) + 1) % len(ks)]
             if kind == 'run' and not runs_ok:
                 kind = 'line'
-            length = min(bar_beats * (2.5 + d()), max_len)
-            rest = bar_beats * (0.2 + 0.3 * d())
+            length = min(phrase_len(6, 21), max_len)
+            rest = breath() * 0.8
         else:
             kind = 'home'
             length = total - t
@@ -2633,8 +2722,9 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
         # fraction between (lines landed ~a third of a beat late against
         # every change, Matthew 2026-09-29 on Autumn Leaves)
         t = math.ceil(t * 2 - 1e-6) / 2
-        # the next phrase may come in on an upbeat
-        if d() < 0.4 and t % 1 == 0:
+        # the next phrase usually comes in on an upbeat (Weimar: more
+        # than half of all phrases start on an 'and')
+        if d() < 0.55 and t % 1 == 0:
             t += 0.5
     for b0, b1 in breaks:
         # a solo break: the band has stopped and the soloist talks
