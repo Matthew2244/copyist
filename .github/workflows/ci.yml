@@ -41,21 +41,25 @@ jobs:
           git diff --exit-code -- corpus/ \
             || { echo "::error::A fixture generator no longer reproduces its committed output."; exit 1; }
 
-  gui-macos:
+  mac-app:
+    # the Mac app people actually run (app/), built the way build.sh
+    # builds it; the August Swift app in gui/ was retired 2026-09-29
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build the SwiftUI app
-        run: swift build -c release
-        working-directory: gui/macos
+      - name: Build Copyist.app
+        run: app/build.sh
 
-  gui-windows:
+  windows-door:
+    # the Windows door is PowerShell: check it parses on real Windows
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      - name: Build the WPF app
-        run: dotnet build -c Release --nologo
-        working-directory: gui/windows
+      - name: Parse windows/CopyistApp.ps1
+        shell: pwsh
+        run: |
+          $e = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD/windows/CopyistApp.ps1", [ref]$null, [ref]$e) | Out-Null
+          if ($e.Count) { $e | ForEach-Object { $_.ToString() }; exit 1 }
+          "parses clean"
