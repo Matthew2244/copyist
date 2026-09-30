@@ -4968,18 +4968,29 @@ def check_band_hears_the_lead():
             "  alto = alto sax\n  piano\n  bass\n  drums\n\n"
             "figure line, 8 bars:\n  notes: F4 w, G4 w, A4 w, Bb4 w, C5 w, "
             "D5 w, E5 w, F5 w\n\n"
-            "section A, 8 bars\n  chords: F x8\n  alto: figure line\n\n"
+            "section A, 8 bars, repeat 2x\n  chords: F x8\n"
+            "  alto: figure line\n\n"
             "section B, 8 bars\n  chords: F x8\n  trumpet: figure line\n")
     open(cc, "w").write("title: C\n" + body)
     buf = io.StringIO()
     with redirect_stdout(buf):
         chartc.compile_chart(cc, os.path.join(tmp_c, "b"))
     x = open(os.path.join(tmp_c, "b", "C — trumpet.musicxml")).read()
-    check("a horn back after eight bars rest gets the last two bars of the "
-          "melody cued small, and the page says whose",
-          "back in at bar 9 after 8 bars rest" in buf.getvalue()
-          and "(alto cue)" in x and x.count("<cue/>") == 2,
+    check("a horn back after a long rest gets the phrase before its "
+          "entrance cued small (one to four bars, the copyist's call), and "
+          "the page says whose",
+          "back in at bar 9 after 16 bars rest" in buf.getvalue()
+          and "(alto cue)" in x and 1 <= x.count("<cue/>") <= 4,
           buf.getvalue()[-300:])
+    open(cc, "w").write("title: C\n" + body.replace(
+        "C5 w, D5 w, E5 w, F5 w", "C5 w, rest w, E5 w, F5 w"))
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(cc, os.path.join(tmp_c, "b3"))
+    x3 = open(os.path.join(tmp_c, "b3", "C — trumpet.musicxml")).read()
+    cue_notes = len(re.findall(r'<cue/>(?:(?!</note>).)*<pitch>', x3,
+                               re.S))
+    check("the cue starts where the melody last breathed: the two-bar "
+          "phrase before the entrance", cue_notes == 2, str(cue_notes))
     open(cc, "w").write("title: C\ncues: no\n" + body)
     buf = io.StringIO()
     with redirect_stdout(buf):

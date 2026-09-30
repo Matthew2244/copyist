@@ -2660,11 +2660,15 @@ def harmonize_res(res, steps, key):
 
 
 def auto_cues(plans, band, labels, resolved, chart, findings):
-    """A horn or a singer coming back after eight bars or more of rest
-    gets the last two bars of the melody before their entrance printed
-    small on their page, the way a copyist cues a part so the player can
-    find the way in. Pages only; a cue is never played. A cue the writer
-    placed wins, and a chart saying 'cues: no' in its header gets none."""
+    """A horn or a singer coming back after a long rest gets the phrase
+    before their entrance printed small on their page, the way a
+    copyist cues a part so the player can find the way in. The copyist's
+    call each build, in the moment (Matthew, 2026-09-30: "for cues ...
+    live and in the moment"): after six to ten bars of rest, four when
+    the entrance is off the beat; the last phrase before it, from where
+    the melody last breathes, one to four bars; from whoever is most
+    audible leading in. Pages only; a cue is never played. A cue the
+    writer placed wins; 'cues: no' in the header turns them off."""
     if str(chart['header'].get('cues', '')).lower() in ('no', 'off',
                                                           'none'):
         return
@@ -2683,6 +2687,18 @@ def auto_cues(plans, band, labels, resolved, chart, findings):
             return True
         return any(isinstance(t[1], str) and t[1].lower().startswith(
             ('solo', 'backgrounds')) for t in pl['texts'].get(l, ()))
+
+    def items_of(x, pl):
+        return [it for it in resolved[x]
+                if it['plan'] is pl and not it.get('cue')]
+
+    def enters_off_beat(l, pl):
+        its = items_of(l, pl)
+        firsts = [min((a for a, _b, ps in it['res'].get('timeline') or []
+                       if ps), default=None) for it in its]
+        firsts = [f for f in firsts if f is not None]
+        return bool(firsts) and min(firsts) % 24 != 0
+
     for l in labels:
         if l in rhythm:
             continue
@@ -2691,28 +2707,55 @@ def auto_cues(plans, band, labels, resolved, chart, findings):
             if not plays(l, pl):
                 rest += pl['sec']['bars'] * max(pl['sec']['repeat'], 1)
                 continue
-            if rest >= 8 and i > 0 and not any(
+            d = chartgroove._Dice('cue', l, pl['sec']['name'])
+            need = 4 if enters_off_beat(l, pl) else 6 + int(d() * 5)
+            if rest >= need and i > 0 and not any(
                     i_['plan'] is plans[i - 1] and i_.get('cue')
                     for i_ in resolved[l]):
                 prev = plans[i - 1]
-                cands = [x for x in labels if x != l and x not in rhythm
-                         and any(it['plan'] is prev and not it.get('cue')
-                                 for it in resolved[x])]
-                if cands:
-                    src = cands[0]
-                    end_bar = prev['start'] + prev['sec']['bars'] - 1
-                    first = max(prev['start'], end_bar - 1)
-                    num, den = meter_at(meters, first)
-                    bt = 24 * 4 * num // den
-                    for it in [it for it in resolved[src]
-                               if it['plan'] is prev and not it.get('cue')]:
+                end_bar = prev['start'] + prev['sec']['bars'] - 1
+                num, den = meter_at(meters, end_bar)
+                bt = 24 * 4 * num // den
+                # whoever is most audible leading in: most notes in the
+                # section's last two bars
+                best, best_n = None, 0
+                for x in labels:
+                    if x == l or x in rhythm:
+                        continue
+                    n_ = 0
+                    for it in items_of(x, prev):
                         r = it['res']
-                        shift = (first - r['at']) * bt
-                        tl = [(max(a - shift, 0), b - shift, ps)
-                              for a, b, ps in r.get('timeline') or []
-                              if b > shift and a < shift + 2 * bt]
-                        if not tl:
-                            continue
+                        lo = (end_bar - 1 - r['at']) * bt
+                        n_ += sum(1 for a, _b, ps in r.get('timeline') or []
+                                  if ps and a >= lo)
+                    if n_ > best_n:
+                        best, best_n = x, n_
+                if best:
+                    it = items_of(best, prev)[-1]
+                    r = it['res']
+                    tl_all = [(a, b_, ps) for a, b_, ps in
+                              r.get('timeline') or [] if ps]
+                    end_t = (end_bar - r['at'] + 1) * bt
+                    # the last phrase: back from the end to where the
+                    # line last breathed (a beat or more of air)
+                    start_t = end_t - bt
+                    notes = sorted(n for n in tl_all if n[0] < end_t)
+                    for k in range(len(notes) - 1, 0, -1):
+                        if notes[k][0] - notes[k - 1][1] >= 24:
+                            start_t = notes[k][0]
+                            break
+                        start_t = notes[k - 1][0]
+                    first = r['at'] + start_t // bt
+                    first = max(first, end_bar - 3, prev['start'])
+                    if d() < 0.25 and first > max(prev['start'],
+                                                  end_bar - 3):
+                        first -= 1              # a bar more, to be safe
+                    first = min(first, end_bar)
+                    shift = (first - r['at']) * bt
+                    tl = [(max(a - shift, 0), b_ - shift, ps)
+                          for a, b_, ps in r.get('timeline') or []
+                          if b_ > shift and a < end_t]
+                    if tl:
                         nb = r['bars'][1] - r['bars'][0] + 1
                         per = max(r.get('n_units', nb) // max(nb, 1), 1)
                         skip = (first - r['at']) * per
@@ -2727,15 +2770,16 @@ def auto_cues(plans, band, labels, resolved, chart, findings):
                                   trems={}, ks={}, lyrics=None,
                                   lyrics_text=None)
                         resolved[l].append(dict(it, res=r2, cue=True,
-                                                src_label=src, octaves=0,
+                                                src_label=best, octaves=0,
                                                 harm=0))
                         prev['texts'][l].append((first - prev['start'] + 1,
-                                                 f"({src} cue)"))
+                                                 f"({best} cue)"))
+                        span = end_bar - first + 1
                         findings.add(f"{l}: back in at bar {pl['start']} "
                                      f"after {rest} bars rest — the "
-                                     f"{src}'s last bars cued small on "
-                                     "the page")
-                        break
+                                     f"{best}'s last {span} bar"
+                                     f"{'s' if span > 1 else ''} cued "
+                                     "small on the page")
             rest = 0
 
 
