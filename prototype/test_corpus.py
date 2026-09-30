@@ -4781,6 +4781,17 @@ def check_cues_and_cuts():
     finally:
         sys.argv = old
     said = buf.getvalue()
+    sys.argv = ["chartread", path, "--part", "singer", "--section", "tag"]
+    buf2 = io.StringIO()
+    try:
+        with redirect_stdout(buf2):
+            chartread.main()
+    finally:
+        sys.argv = old
+    check("read-aloud: the singer who cues rests till the last time round, "
+          "never told tacet", "Rest until the last time round" in
+          buf2.getvalue() and "Tacet" not in buf2.getvalue(),
+          buf2.getvalue())
     check("read-aloud: the drummer hears who cues and where the band goes",
           "till the singer cues it" in said and '"Back to bar 1"' in said
           and '"On cue, to out"' in said, said)

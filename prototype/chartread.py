@@ -297,7 +297,9 @@ def part_section(plan, label, chord_parts, figures=None):
         lines.append(f"You solo — {sec['bars']} bars over the changes, "
                      "nothing written out.")
     else:
-        lines.append(f"Tacet — {sec['bars']} bars rest.")
+        lines.append("Rest until the last time round, then the cue."
+                     if sec.get('open') and sec.get('_cuer') == label
+                     else f"Tacet — {sec['bars']} bars rest.")
 
     for ref in plan.get('lifts', {}).get(label, ()):
         span = ref['hi'] - ref['lo'] + 1
