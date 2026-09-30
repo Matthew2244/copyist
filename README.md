@@ -265,6 +265,12 @@ makes up its own part from the chord symbols. The bass walks, the piano comps
 with both hands, and the drummer keeps time and sets up the next section. The
 pages keep their slashes, and each of these can be switched off in Settings.
 
+An ending can be a hold, a trash can, a gliss into the last hit, a cadenza, or
+the drummer taking over and cueing the band in. When the roadmap doesn't say,
+the band decides in the moment. Every build is a fresh take, and the findings
+name it so you can keep one you like. The band plays tight unless a section says
+laid back, loose or on top.
+
 The players learned from real ones. The walking bass comes from 48 transcribed
 professional lines, the soloists from 347 swing solos in the Weimar Jazz
 Database, the drummer from the Groove MIDI Dataset's jazz drummers, and the
