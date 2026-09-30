@@ -4881,9 +4881,9 @@ def check_band_hears_the_lead():
                                      chartdemo.Findings(), (4, 4))
     col = [[rs[l][0]['res']['timeline'][i][2][0] for l in lb]
            for i in range(5)]
-    check("soli: the trumpet's D over Bbmaj7 voiced D G F D Bb (a sixth, "
-          "drop 2, the lead doubled below)", col[0] == [74, 67, 65, 62, 58],
-          str(col[0]))
+    check("soli: the trumpet's D over Bbmaj7 voiced D G F D (a sixth, "
+          "drop 2, the lead doubled below) with the bari on the root, low",
+          col[0] == [74, 67, 65, 62, 46], str(col[0]))
     check("soli: the lead on the major seventh keeps it (A F... over "
           "Bbmaj7)", col[2][0] == 81 and 69 in col[2], str(col[2]))
     check("soli: every chair a different note, top to bottom",

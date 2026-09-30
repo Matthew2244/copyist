@@ -2443,7 +2443,10 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
             if not items:
                 fail(f"{loc}: nothing to voice — '{srcl}' has no written "
                      "line in this section")
-            fold = (horn_of.get(target) or {}).get('fold')
+            # a soli voice lives in the chair's comfortable range, not
+            # at the horn's limits (a bari at written F#6 on a shout)
+            h_ = horn_of.get(target) or {}
+            fold = h_.get('comf') or h_.get('fold')
             moved = []
             for i in items:
                 r = soli_res(i['res'], k, n, style, plan, chart, fold,
@@ -2683,6 +2686,10 @@ def soli_res(res, k, n, style, plan, chart, fold=None, moved=None):
             voices[1] -= 12
         voices.sort(reverse=True)
         p = voices[k] if k < len(voices) else voices[-1]
+        if n >= 5 and k == n - 1 and c is not None and fold:
+            # five voices or more: the bottom chair plays the root in its
+            # own register, the big band's floor under the section
+            p = G._near(G._root_pc(c), (fold[0] + fold[1]) // 2 - 5)
         if fold:
             q = p
             while p < fold[0]:

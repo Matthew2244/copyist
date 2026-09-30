@@ -590,8 +590,9 @@ highest-reaching chair on top: a chord tone in the melody is voiced
 close below it, a passing note moves in parallel scale thirds, and a
 major chord voices as a sixth unless the melody sits on the major 7th.
 Four voices or more come out in drop 2 (the second voice down an
-octave), five with the lead doubled below; say `soli on alto, close`
-to keep it tight. If the lead is one of the chairs it keeps the
+octave), and with five or more the bottom chair plays the chord's root
+down in its own register, the big band's floor. Every voice sits in its
+chair's comfortable range. Say `soli on alto, close` to keep it tight. If the lead is one of the chairs it keeps the
 melody. The findings say "soli under the alto, voiced from the
 changes"; a note past a horn's range moves an octave in and says so.
 
