@@ -5410,6 +5410,25 @@ def check_sound_shelf_installer():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_shelf_drive_missing():
+    """The shelf can live on another drive (Matthew's is on his VST
+    drive, 2026-09-29); when that drive isn't mounted the listen says so
+    once and plays the plain synth, and the build still lands."""
+    import chart
+    chart._SHELF_WARNED = False
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        got = chart.resolve_sounds({"sounds_dir": "/Volumes/NoSuchDrive/x",
+                                    "sounds": "", "use_samples": "yes"})
+        chart.resolve_sounds({"sounds_dir": "/Volumes/NoSuchDrive/x",
+                              "sounds": "", "use_samples": "yes"})
+    said = buf.getvalue()
+    check("a missing shelf drive: the synth, said once",
+          got is None and said.count("isn't there") == 1, said)
+    check("use_samples=no plays the synth without a word",
+          chart.resolve_sounds({"use_samples": "no"}) is None)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5476,6 +5495,7 @@ if __name__ == "__main__":
     check_plays_like_pros()
     check_band_reacts()
     check_sound_shelf_installer()
+    check_shelf_drive_missing()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

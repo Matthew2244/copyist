@@ -520,6 +520,9 @@ def sounds_home(cfg=None):
     return os.path.expanduser('~/.local/share/copyist/sounds')
 
 
+_SHELF_WARNED = False
+
+
 def resolve_sounds(cfg):
     """What the band plays, as a path — or None for the built-in
     synth. An empty setting plays the whole shelf (chartband picks the
@@ -531,6 +534,16 @@ def resolve_sounds(cfg):
         return None                     # the writer chose the synth
     want = (cfg.get('sounds') or '').strip()
     home = sounds_home(cfg)
+    if cfg.get('sounds_dir') and not os.path.isdir(home):
+        # the shelf lives on a drive that isn't there: say so once, and
+        # the build still lands on the plain synth
+        global _SHELF_WARNED
+        if not _SHELF_WARNED:
+            _SHELF_WARNED = True
+            say(f"The sound shelf is set to {home}, which isn't there "
+                "right now — is that drive plugged in? This listen plays "
+                "the plain synth until it is.")
+        return None
     floors = sorted(_g.glob(os.path.join(home, '*.sf2'))
                     + _g.glob(os.path.join(home, '*', '*.sf2')))
     if not want:
