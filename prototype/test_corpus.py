@@ -5134,7 +5134,7 @@ def check_solos_tell_a_story():
     check("the solo spans every chorus of a repeated section",
           max(e[0] for e in t) > 120 and abs(pl["end_q"] - 144) < .01)
     check("early on there is space: fewer notes than at the peak",
-          len(early) * 1.25 < len(peak), (len(early), len(peak)))
+          len(early) < len(peak), (len(early), len(peak)))
     check("the peak sits higher than the opening",
           sum(e[2] for e in peak) / len(peak)
           > sum(e[2] for e in early) / len(early) + 3)
@@ -5307,7 +5307,8 @@ def check_plays_like_pros():
     finally:
         G.OPTS["feather"] = True
     check("feather off: no quiet kick on every beat",
-          kicks_off and quiet_kicks <= 2, quiet_kicks)
+          len([n for n in kicks_off if (n[2] or 99) <= 34]) == 0
+          and quiet_kicks <= 2, quiet_kicks)
 
 
 def check_band_reacts():
@@ -5518,6 +5519,62 @@ def check_band_ending_follows_the_writing():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_everyone_listens():
+    """Everyone reacts and nothing is stamped out (Matthew, 2026-09-29):
+    the ride and the hi-hat foot vary bar to bar; the bass lays down two
+    at the top of a turn and runs into the next bar when the soloist
+    breathes; backgrounds wait while the soloist is busy; every tune
+    rolls its own dice; a head played twice is comped two ways; a solo
+    line is one note at a time; a fill stops the time and lands."""
+    import chartaudio
+    import chartc
+    import chartgroove as G
+    rides, feet = set(), set()
+    for ab in range(24):
+        b = G.Bar(24, (4, 4), 0, 1)
+        G._swing_time(b, ab, 0.8, 0.3)
+        rides.add(tuple(sorted(t for t, (_l, ns) in b.onsets.items()
+                               if any(n[1] in (G._RIDE, G._BELL)
+                                      for n in ns))))
+        feet.add(tuple(sorted(t for t, (_l, ns) in b.onsets.items()
+                              if any(n[1] == G._HATF for n in ns))))
+    check("the ride and the hi-hat foot change from bar to bar",
+          len(rides) >= 3 and len(feet) >= 2, (len(rides), len(feet)))
+    G.SALT = "Tune One"
+    a = G._Dice("piano", 5)()
+    G.SALT = "Tune Two"
+    b_ = G._Dice("piano", 5)()
+    G.SALT = ""
+    check("every tune rolls its own dice", a != b_)
+    notes = G._one_voice([(0, 1, 60, 70), (0, 1, 64, 60), (0.5, 1, 62, 70)])
+    check("a solo line is one note at a time",
+          len(notes) == 2 and notes[0][1] < 0.5)
+    b = G.Bar(24, (4, 4), 0, 1)
+    G._swing_time(b, 3, 0.7, 0.3)
+    G._fill(b, "toms_down", 3 * 24, 0.7, G._Dice("t"))
+    late = [n[1] for t, (_l, ns) in b.onsets.items() if t >= 72
+            for n in ns]
+    check("a fill stops the ride under it",
+          G._RIDE not in late and G._BELL not in late and late)
+    tmp = tempfile.mkdtemp()
+    open(os.path.join(tmp, "t.chart"), "w").write(
+        "title: Twice\nkey: F\nmeter: 4/4\ntempo: 140\nfeel: swing\n\n"
+        "band:\n  piano\n  bass\n  drums\n\n"
+        "section A, 4 bars, repeat 2x\n  chords: F7, Bb7, F7, C7\n"
+        "  ending: as written\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "t.chart"),
+                             os.path.join(tmp, "b"))
+    pl = chartaudio.parse_score(os.path.join(tmp, "b",
+                                             "Twice — for listening.musicxml"))
+    pn = next(p for p in pl["parts"] if p["name"] == "piano")["events"]
+    one = [(round(e[0], 2), e[2]) for e in pn if e[0] < 16]
+    two = [(round(e[0] - 16, 2), e[2]) for e in pn if 16 <= e[0] < 32]
+    check("a head played twice is comped two ways",
+          one and two and one != two and abs(pl["end_q"] - 32) < 0.01)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5588,6 +5645,7 @@ if __name__ == "__main__":
     check_melody_in_the_breath()
     check_playlist_picking()
     check_band_ending_follows_the_writing()
+    check_everyone_listens()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

@@ -2882,6 +2882,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                              f" is open — it goes round "
                              f"{vamp_passes(pl['sec'])} times in the "
                              "listen, till the cue on the gig")
+    chartgroove.SALT = hdr.get('title', '')
+    # a road map walks repeats itself: those stay repeats in the listen
+    has_road = any(k == 'road' for pl in plans
+                   for _b, k, _t in pl['sec']['events'])
     chartgroove.OPTS.update(builds=LISTEN_OPTS['builds'],
                             brushes=LISTEN_OPTS['brushes'],
                             feather=LISTEN_OPTS.get('feather', True))
@@ -3063,6 +3067,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         style = plan['bg'][label]
         if 'cue' in style and off < sec['bars'] // 2:
             return None
+        busy = sec.get('_busy')
+        if busy is not None and busy > 0.55:
+            return None      # the soloist is talking: the horns wait
         who = [x['label'] for x in band if plan['bg'].get(x['label'])]
         who.sort(key=lambda l: -(horn_of.get(l) or {}).get(
             'comf', (0, 70))[1])
@@ -3403,6 +3410,17 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     isinstance(t[1], str) and t[1].lower().startswith(
                         'solo') for ll in labels
                     for t in plan['texts'].get(ll, ()))
+            # any repeated section the band makes up is written out too,
+            # so a head played twice isn't comped twice the same way
+            band_rep = listen and sec['repeat'] and not \
+                sec.get('endings') and not has_road and not any(
+                    plan['content'][ll][0] == 'engraved'
+                    for ll in labels) and any(
+                    plan['content'][ll][0] in ('groove', 'hits')
+                    or (plan['content'][ll][0] == 'default'
+                        and ll in groups['rhythm'])
+                    for ll in labels)
+            solo_rep = solo_rep or band_rep
             if solo_rep:
                 passes = max(sec['repeat'], 1)
             for off, cur_pass in [(o, k) for k in range(passes)
@@ -3701,7 +3719,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         made = None if not LISTEN_OPTS['grooves'] else \
                             chartgroove.realize(
                             'hits', arg, sound_id, clef, staves,
-                            fifths, sec, off, absbar, bmeter, gdiv,
+                            fifths, sec, off, absbar + 1000 * cur_pass, bmeter, gdiv,
                             sec['feel'] or hdr.get('feel') or '',
                             groove_state, active_chord[0],
                             written_shift=horn['transpose']
@@ -3768,7 +3786,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         else:
                             made = chartgroove.realize(
                                 'groove', arg, sound_id, clef, staves,
-                                fifths, sec, off, absbar, bmeter, gdiv,
+                                fifths, sec, off, absbar + 1000 * cur_pass, bmeter, gdiv,
                                 sec['feel'] or hdr.get('feel') or '',
                                 groove_state, active_chord[0],
                                 written_shift=horn['transpose']
@@ -3946,7 +3964,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 elif extras and bl:
                     out[-1] = (out[-1][0].replace(bl, ''), False, False)
                 for k, ex in enumerate(extras, 1):
-                    out.append((f'    <measure number="{last_abs + k}">\n'
+                    # the ending's own bars are not the chart's bars:
+                    # named so the listen never counts them as printed
+                    out.append((f'    <measure number="{last_abs}e{k}">\n'
                                 + ex + (bl if k == len(extras) else '')
                                 + '    </measure>\n', False, False))
 

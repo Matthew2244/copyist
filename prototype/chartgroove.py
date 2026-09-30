@@ -402,7 +402,76 @@ _KICK = ('F', 4, 'normal')
 _CRASH = ('A', 5, 'x')
 
 
-def _drums(bar, absbar, feel, hits):
+_RIDE_BARS = {
+    # a drummer's ride vocabulary in swing, beats 1-based; (beat, weight)
+    'classic':  [(1, 0), (2, 1), (2.5, -1), (3, 0), (4, 1), (4.5, -1)],
+    'quarters': [(1, 0), (2, 1), (3, 0), (4, 1)],
+    'skip_all': [(1, 0), (1.5, -1), (2, 1), (2.5, -1), (3, 0), (3.5, -1),
+                 (4, 1), (4.5, -1)],
+    'lift_3':   [(1, 0), (2, 1), (2.5, -1), (3, 0), (3.5, -1), (4, 1)],
+    'lay_2':    [(1, 0), (1.5, -1), (2, 1), (3, 0), (4, 1), (4.5, -1)],
+    'triplet4': [(1, 0), (2, 1), (2.5, -1), (3, 0), (4, 1),
+                 (4 + 1 / 3, -2), (4 + 2 / 3, -1)],
+}
+
+
+def _swing_time(bar, absbar, heat, busy, feather=True):
+    """Swing time the way a drummer keeps it: the ride changes from
+    bar to bar (the classic ding, ding-ga, straight quarters, skips on
+    every beat when it burns, a triplet into the next bar, the bell now
+    and then), the hi-hat foot usually on 2 and 4 but not always, the
+    kick feathered or not (Matthew, 2026-09-29: "the ride pattern on the
+    drums doesn't have to be the same ... same with the hihat on two and
+    four")."""
+    beat = bar.div * 4 // bar.den
+    half = beat // 2
+    d = _Dice('ride', absbar)
+    heat = 0.55 if heat is None else heat
+    pool = ['classic', 'classic', 'lay_2', 'lift_3', 'quarters']
+    if heat > 0.55:
+        pool += ['skip_all', 'triplet4', 'lift_3']
+    if heat < 0.4 or (busy is not None and busy > 0.7):
+        pool += ['quarters', 'classic']
+    pick = pool[int(d() * len(pool)) % len(pool)]
+    base = int(62 + 16 * heat)
+    bell = d() < 0.08 + 0.1 * heat
+    for b, w in _RIDE_BARS[pick]:
+        if b > bar.num + 0.99:
+            continue
+        at = int(round((b - 1) * beat))
+        # the skip notes sit under the beats; 2 and 4 speak a little
+        v = base + (6 if w == 1 else -14 if w < 0 else 0) + \
+            int((d() - 0.5) * 8)
+        cym = _BELL if bell and b in (1, 3) else _RIDE
+        ln = beat // 3 if w < 0 else half
+        bar.add(at, ln, ('u', cym, max(30, min(v, 118))))
+    # the hi-hat foot: 2 and 4 mostly; sometimes only 4, sometimes all
+    # four, a splash on the and of 4 when it's hot, lighter when soft
+    r = d()
+    if r < 0.12:
+        feet = [4]
+    elif r < 0.2 and heat > 0.5:
+        feet = [1, 2, 3, 4]
+    else:
+        feet = [2, 4]
+    hv = int(54 + 16 * heat)
+    for b in feet:
+        if b <= bar.num:
+            bar.add((b - 1) * beat, half, ('u', _HATF,
+                                          hv + int((d() - 0.5) * 8)))
+    if heat > 0.65 and d() < 0.2 and bar.num >= 4:
+        bar.add(3 * beat + half, half, ('u', ('G', 5, 'circle-x'),
+                                        int(56 + 14 * heat)))
+    if feather:
+        for b in range(bar.num):
+            bar.add(b * beat, half, ('u', _KICK, 22 + int(d() * 10)))
+    spot = int(d() * 5)
+    if spot < 2 and bar.num >= 4:
+        bar.add((1 + 2 * spot) * beat + half, half,
+                ('u', _SNARE, int(44 + 14 * heat)))
+
+
+def _drums(bar, absbar, feel, hits, heat=None, busy=None):
     beat = bar.div * 4 // bar.den
     half = beat // 2
     if hits is not None:
@@ -428,31 +497,28 @@ def _drums(bar, absbar, feel, hits):
                 bar.add(at, pulse, ('u', _SNARE, 80))
         return
     if _is_swing(feel):
-        for b in range(bar.num):
-            at = b * beat
-            if b % 2 == 1:               # the skip beat: ding, ding-ga
-                bar.add(at, half, ('u', _RIDE, None))
-                bar.add(at + half, half, ('u', _RIDE, 60))
-                bar.add(at, half, ('u', _HATF, 66))
-            else:
-                bar.add(at, beat, ('u', _RIDE, None))
-            bar.add(at, half, ('u', _KICK, 28))   # feathered, felt
-        spot = (absbar * 7) % 4
-        if spot < 2 and bar.num >= 4:
-            bar.add((1 + 2 * spot) * beat + half, half,
-                    ('u', _SNARE, 54))
+        _swing_time(bar, absbar, heat, busy, OPTS.get('feather', True))
         return
-    # straight: backbeat
+    # straight: backbeat — the hat varies too: an open hat on the and
+    # of four now and then, a lighter bar, the kick moving
+    d = _Dice('back', absbar)
+    heat = 0.55 if heat is None else heat
+    open_at = 3 if d() < 0.15 + 0.2 * heat else None
     for b in range(bar.num):
         at = b * beat
-        bar.add(at, half, ('u', _HAT, 66))
-        bar.add(at + half, half, ('u', _HAT, 50))
+        bar.add(at, half, ('u', _HAT, 62 + int(8 * heat)
+                           + int((d() - 0.5) * 8)))
+        if open_at == b:
+            bar.add(at + half, half, ('u', ('G', 5, 'circle-x'), 62))
+        else:
+            bar.add(at + half, half, ('u', _HAT, 46 + int((d() - 0.5) * 8)))
         if b % 2 == 0:
             bar.add(at, half, ('u', _KICK, 85))
         else:
             bar.add(at, half, ('u', _SNARE, 82))
-    if bar.num >= 4 and absbar % 4 == 0:
-        bar.add((bar.num - 1) * beat + half, half, ('u', _KICK, 68))
+    if bar.num >= 4 and d() < 0.25 + 0.3 * heat:
+        k = [1.5, 2.5, 3.5][int(d() * 3) % 3]
+        bar.add(int(k * beat), half, ('u', _KICK, 68))
 
 
 def _styled_drums(bar, absbar, style, traits):
@@ -974,19 +1040,51 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
                      *_new_style(feel, bar), put)
         return
     if _is_swing(feel) and bar.den == 4:
+        # the bassist listens too: two feel at the top of a soloist's
+        # turn, skips and triplet pickups as it builds, a run into the
+        # next bar when the soloist breathes
+        d = _Dice('bass', absbar)
+        heat = state.get('heat', 0.55)
+        busy = state.get('busy')
+        turn = state.get('turn')
         target = _near(_next_root(sec, off, chords), prev)
+        if turn and turn[0] < 2 and d() < 0.6 and bar.num == 4:
+            c1, c3 = _chord_at(chords, 1.0), _chord_at(chords, 3.0)
+            prev = put(0, 2 * beat - beat // 8, _near(_bass_pc(c1), prev))
+            fifth = (_root_pc(c3) + 7) % 12 if c3 == c1 else _bass_pc(c3)
+            prev = put(2 * beat, 2 * beat - beat // 8, _near(fifth, prev))
+            return
+        line = []
         for b in range(bar.num):
             c = _chord_at(chords, b + 1.0)
-            tones = sorted({(_root_pc(c) + s) % 12 for s in _tones(c)})
+            tones = sorted({(_root_pc(c) + s_) % 12 for s_ in _tones(c)})
             if b == 0:
                 midi = _near(_bass_pc(c), prev)
             elif b == bar.num - 1:
-                midi = target + (1 if absbar % 2 else -1)
+                midi = target + (1 if d() < 0.5 else -1)
             else:
                 opts = sorted((_near(pc, prev) for pc in tones),
                               key=lambda o: (o == prev, abs(o - prev)))
-                midi = opts[min(b % 2, len(opts) - 1)]
-            prev = put(b * beat, beat, midi)
+                midi = opts[min(int(d() * 2), len(opts) - 1)]
+            line.append(midi)
+            prev = midi
+        run = busy is not None and busy < 0.2 and d() < 0.5
+        skip = heat > 0.55 and d() < 0.35 * heat
+        for b, midi in enumerate(line):
+            last = b == len(line) - 1
+            if last and run:
+                # a triplet run up or down into the next root
+                step = 1 if target > midi else -1
+                for k in range(3):
+                    put(b * beat + k * beat // 3, beat // 3 - 1,
+                        target - step * (3 - k), 70 + 6 * k)
+                continue
+            put(b * beat, beat, midi)
+            if skip and b == 1:
+                # the skip: a ghosted triplet note into beat three
+                nxt = line[2] if len(line) > 2 else target
+                put(b * beat + 2 * beat // 3, beat // 3 - 1, nxt - 1, 50)
+        state['bass'] = line[-1] if not run else target
         return
     if bar.den == 8 and bar.num % 3 == 0:
         pulse = 3 * (bar.div // 2)
@@ -1139,9 +1237,11 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
         return
     if 'guitar' in s and _is_swing(feel) and bar.den == 4:
         for b in range(bar.num):
+            busy = state.get('busy') or 0.0
+            lift = (0.85 + 0.3 * heat) * (1.0 - 0.18 * busy)
             put(b * beat, beat,
                 voicing(_chord_at(chords, b + 1.0), guides_only=True),
-                vel=76 if b % 2 else 66, may_rest=False)
+                vel=int((76 if b % 2 else 66) * lift), may_rest=False)
         return
     if 'organ' in s or not _is_swing(feel):
         marks = sorted({max(1.0, b) for b, c in chords})
@@ -1205,6 +1305,8 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         return bar.xml() if bar.onsets else None
     heat = _heat(sec, off)
     state['busy'] = sec.get('_busy')      # how busy the soloist is here
+    state['heat'] = heat
+    state['turn'] = sec.get('_turn')
     if role == 'perc':
         _perc(bar, absbar, feel, sound_id, state['hits'])
     elif role == 'drums':
@@ -1217,7 +1319,8 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         elif state['hits'] is None and impl == 'mallets':
             _mallet_drums(bar, absbar, heat)
         else:
-            _drums(bar, absbar, feel, state['hits'])
+            _drums(bar, absbar, feel, state['hits'], heat,
+                   state.get('busy'))
         if not OPTS['feather']:
             # no feathered quarters: the kick only where it says
             # something (bombs, setups, fills)
@@ -1360,63 +1463,75 @@ _FILLS = ('toms_down', 'triplets_around', 'snare_kick_talk', 'space_hits',
           'buzz_roll', 'flam_setup', 'toms_up')
 
 
+def _clear_for_fill(bar, start):
+    """A drummer stops keeping time to play a fill: the ride, hats and
+    snare comping from here to the barline go; the hi-hat foot stays
+    (Matthew, 2026-09-29: fills overlapping weirdly)."""
+    for tick in [t for t in bar.onsets if t >= start]:
+        ln, ns = bar.onsets[tick]
+        keep = [n for n in ns if n[0] == 'u' and n[1] == _HATF]
+        if keep:
+            bar.onsets[tick] = (ln, keep)
+        else:
+            del bar.onsets[tick]
+
+
 def _fill(bar, kind, start, heat, d):
     """One fill from a drummer's vocabulary, from `start` to the bar's
-    end, the kick under it where a drummer would put it."""
+    end: time stops for it, every stroke played even and strong, the
+    beats accented with the kick under them (Matthew: fills should
+    sound tight and confident)."""
+    _clear_for_fill(bar, start)
     beat = bar.div * 4 // bar.den
     end = bar.barlen
     span = max(end - start, 1)
+    base = int(84 + 14 * heat)
     toms = [_SNARE, ('E', 5, 'normal'), ('D', 5, 'normal'),
             ('A', 4, 'normal')]
+
+    def hit(t, drum, ln, v, kick=False):
+        on_beat = (t - start) % beat == 0
+        bar.add(t, ln, ('u', drum, min(v + (10 if on_beat else 0), 122)))
+        if kick or on_beat:
+            bar.add(t, ln, ('u', _KICK, min(base + 6, 118)))
     if kind in ('toms_down', 'toms_up'):
         step = beat // 4
         n = span // step
         order = toms if kind == 'toms_down' else list(reversed(toms))
         for i in range(n):
-            t = start + i * step
-            if d() < 0.1:
-                continue
-            bar.add(t, step, ('u', order[min(i * 4 // n, 3)],
-                              int(60 + 42 * i / n)))
-            if (t - start) % beat == 0:
-                bar.add(t, step, ('u', _KICK, int(72 + 18 * heat)))
+            hit(start + i * step, order[min(i * 4 // n, 3)], step,
+                base - 8 + int(10 * i / n))
     elif kind == 'triplets_around':
         step = beat // 3
         for i in range(span // step):
-            t = start + i * step
-            drum = [_SNARE, toms[1], toms[3]][i % 3]
-            bar.add(t, step, ('u', drum, int(62 + 40 * i * step / span)))
-            if i % 3 == 2:
-                bar.add(t, step, ('u', _KICK, int(70 + 20 * heat)))
+            hit(start + i * step, [_SNARE, toms[1], toms[3]][i % 3], step,
+                base - 6 + int(8 * i * step / span))
     elif kind == 'snare_kick_talk':
-        # a conversation: snare and kick trading off the beat
-        for i, (b, drum) in enumerate([(0.0, _SNARE), (0.5, _KICK),
-                                       (1.0, _SNARE), (1.5, _SNARE),
-                                       (1.75, _KICK)]):
+        for b, drum in [(0.0, _SNARE), (0.5, _KICK), (1.0, _SNARE),
+                        (1.5, _SNARE), (1.75, _KICK)]:
             t = start + int(b * beat)
             if t < end:
-                bar.add(t, beat // 4, ('u', drum, int(66 + 30 * i / 5)))
+                bar.add(t, beat // 4, ('u', drum, base + 4))
     elif kind == 'space_hits':
-        # a few loud ones with air between: the fill that says less
         for b in (0.5, 1.5):
             t = start + int(b * beat)
             if t < end:
-                bar.add(t, beat // 2, ('u', _SNARE, int(84 + 20 * heat)))
-                bar.add(t, beat // 2, ('u', _KICK, int(84 + 16 * heat)))
+                bar.add(t, beat // 2, ('u', _SNARE, base + 12))
+                bar.add(t, beat // 2, ('u', _KICK, base + 8))
     elif kind == 'buzz_roll':
         step = max(beat // 8, 1)
         for t in range(start, end, step):
             bar.add(t, step, ('u', _SNARE,
-                              int(36 + 60 * ((t - start) / span) ** 1.4)))
-        bar.add(end - beat // 2, beat // 2, ('u', _KICK, 90))
+                              int(56 + (base - 50) * ((t - start) / span))))
+        bar.add(end - beat // 2, beat // 2, ('u', _SNARE, base + 12))
+        bar.add(end - beat // 2, beat // 2, ('u', _KICK, base + 8))
     else:                                         # flam_setup
         for b in (0.0, 1.0, 1.5):
             t = start + int(b * beat)
             if t < end:
                 bar.add(max(t - beat // 12, 0), beat // 12,
-                        ('u', _SNARE, 50))
-                bar.add(t, beat // 2, ('u', _SNARE, int(80 + 20 * heat)))
-        bar.add(end - beat // 2, beat // 2, ('u', _KICK, 88))
+                        ('u', _SNARE, base - 30))
+                hit(t, _SNARE, beat // 2, base + 4)
 
 
 def _drummer_marks(bar, sec, off, absbar, heat, state=None):
@@ -1435,9 +1550,11 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
     busy = sec.get('_busy')
     new_turn = turn is not None and turn[0] == 0
     last_of_turn = turn is not None and turn[0] == turn[1] - 1
-    if (off == 0 and sec.get('_arc', 0) > 0) or new_turn:
-        bar.add(0, beat, ('u', _CRASH, int(82 + 24 * heat)))
-        bar.add(0, beat, ('u', _KICK, int(80 + 20 * heat)))
+    landing = state.pop('crash_next', False)
+    if (off == 0 and sec.get('_arc', 0) > 0) or new_turn or landing:
+        # a new section, a new soloist, or the landing after a fill
+        bar.add(0, beat, ('u', _CRASH, int(84 + 24 * heat)))
+        bar.add(0, beat, ('u', _KICK, int(82 + 20 * heat)))
     phrase_end = (off + 1) % 4 == 0 or off == sec['bars'] - 1 \
         or last_of_turn
     big_end = (off + 1) % 8 == 0 or off == sec['bars'] - 1 or last_of_turn
@@ -1452,6 +1569,7 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
             beats = 2 if (heat > 0.65 or last_of_turn) and d() < 0.55 \
                 else 1
             _fill(bar, kind, (bar.num - beats) * beat, heat, d)
+            state['crash_next'] = True     # and land it on the one
         elif r < 0.75:
             # the setup: snare and kick on the and of four
             t = (bar.num - 1) * beat + half
@@ -1512,11 +1630,16 @@ def _scale(chord):
     return (0, 2, 4, 5, 7, 9, 11)
 
 
+SALT = ''          # the tune's own name: every tune rolls its own dice
+
+
 class _Dice:
-    """A seeded LCG: the same bar and player always roll the same."""
+    """A seeded LCG: the same bar and player always roll the same —
+    and a different tune rolls differently (every tune's bar 5 used to
+    get the same comping)."""
     def __init__(self, *seed):
         import zlib
-        self.s = zlib.crc32(repr(seed).encode()) or 1
+        self.s = zlib.crc32(repr((SALT,) + seed).encode()) or 1
 
     def __call__(self):
         self.s = (self.s * 1103515245 + 12345) & 0x7fffffff
@@ -1822,6 +1945,23 @@ def last_phrase(plan, total):
     got = notes[start:start + 6]
     t0 = got[0][0]
     return [(at - t0, min(ln, 1.0), m) for at, ln, m, _v in got]
+
+
+def _one_voice(notes):
+    """A horn plays one note at a time: phrases planned side by side
+    (an arpeggio running into a line, an echo against a spill-over)
+    must never sound together. Same onset, the later-planned note
+    loses; a note still sounding when the next begins stops just
+    before it (Matthew heard the trumpet play two notes at once)."""
+    out = []
+    for at, ln, m, v in sorted(notes, key=lambda n: (n[0], -n[3])):
+        if out and abs(out[-1][0] - at) < 1e-6:
+            continue
+        if out and out[-1][0] + out[-1][1] > at - 0.02:
+            pa, pl, pm, pv = out[-1]
+            out[-1] = (pa, max(at - pa - 0.02, 0.05), pm, pv)
+        out.append((at, ln, m, v))
+    return out
 
 
 def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
@@ -2170,7 +2310,7 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
         # the next phrase may come in on an upbeat
         if d() < 0.4:
             t += 0.5
-    return notes
+    return _one_voice(notes)
 
 
 def play_planned(bar, plan, pos, bar_beats):
@@ -2277,7 +2417,7 @@ def _quartal(chord, prev):
     root = _root_pc(chord)
     sc = sorted({(root + i) % 12 for i in _scale(chord)})
     best, cost = None, None
-    for base in range(50, 64):
+    for base in range(48, 58):                 # top stays under ~F5
         if base % 12 not in sc:
             continue
         v = [base, base + 5, base + 10, base + 15, base + 19]
@@ -2331,7 +2471,9 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
             pick = pool[(pool.index(pick) + 1) % len(pool)]
         state['tex'] = pick
     tex = state['tex']
-    top = 1 if d() < 0.25 + 0.3 * heat else 0       # sometimes up high
+    # now and then the right hand goes up for sparkle — rarely, and
+    # only once the tune has built
+    top = 1 if heat > 0.6 and d() < 0.15 else 0
 
     def lh(c, at, ln, w):
         """The left hand: a two-note shell, 3rd and 7th, around C3."""
@@ -2345,6 +2487,7 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
         if len(v) == 2 and v[1] - v[0] < 3:
             v[1] += 12
         state['lh'] = v[0]
+        state['lh_top'] = v[-1]
         for m in v:
             bar.add(at, ln, ('p', m, w - 6))
 
@@ -2357,10 +2500,25 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
                       if i % 12 in (3, 4)), None)
         pcs = list(dict.fromkeys(cols[:2] + ([third] if third is not None
                                               else [])))[:3]
-        anchor = state.get('rh', 67) + 12 * top
-        v = sorted(_near(pc, anchor) for pc in pcs)
-        v = [min(m, 88) for m in v]
-        state['rh'] = min(max(sum(v) // len(v) - 12 * top, 62), 74)
+        anchor = state.get('rh', 64) + 12 * top
+        # spread, not clustered: each note at least a minor third over
+        # the one below, so the hand never mashes seconds together
+        order = sorted(pcs, key=lambda pc: (_near(pc, anchor - 3)))
+        v = [_near(order[0], anchor - 3)]
+        for pc in order[1:]:
+            m = v[-1] + 3
+            while m % 12 != pc:
+                m += 1
+            v.append(m)
+        cap = 84 if top else 79                      # G5, C6 for sparkle
+        while v[-1] > cap:
+            v = [m - 12 for m in v]
+        floor = max(58, state.get('lh_top', 55) + 3)
+        while v[0] < floor:                          # stay over the left
+            v = [m + 12 for m in v]
+        if v[-1] > cap:                              # thin it, not a cluster
+            v = [m for m in v if m <= cap] or v[:1]
+        state['rh'] = min(max(v[0] + 3 - 12 * top, 60), 70)
         for i, m in enumerate(v):
             bar.add(at, ln, ('p', m, w + (5 if i == len(v) - 1 else 0)))
 
@@ -2420,7 +2578,7 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
             roll = beat // 10 if tex == 'ballad_roll' else 0
             for k, m in enumerate(v):
                 bar.add(at_(b) + k * roll, ln - k * roll,
-                        ('p', m + 12 * top if m + 12 * top <= 86 else m,
+                        ('p', m + 12 * top if m + 12 * top <= 81 else m,
                          w0 - 4 + (4 if k == len(v) - 1 else 0)))
         if tex == 'ballad_answer' and bar.num >= 4 and d() < 0.6:
             c = _chord_at(chords, 3.5)

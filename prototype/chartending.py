@@ -520,22 +520,22 @@ def _roll(bar, beat, t0, t1, drum, v0, v1):
 
 
 def _fill(bar, beat, t0, t1, seed):
-    """A drummer's fill down the kit into the cue, pushing a little as
-    it goes, never quite on the grid."""
-    d = G._Dice(seed, 'fill')
+    """A drummer's fill down the kit into the cue: even sixteenths,
+    strong, the kick under each beat — tight and confident, into the
+    hit (Matthew, 2026-09-29)."""
     toms = [G._SNARE, ('E', 5, 'normal'), ('D', 5, 'normal'),
             ('A', 4, 'normal')]
     span = max(t1 - t0, 1)
-    t = float(max(t0, 0))
-    gap = beat / 4
-    while t < t1:
-        x = (t - t0) / span
-        if d() > 0.12:
-            drum = toms[min(int(x * 4), 3)]
-            bar.add(int(t), int(gap), ('u', drum, int(68 + 44 * x)))
-            if int(t - t0) % beat < gap and d() < 0.6:
-                bar.add(int(t), int(gap), ('u', G._KICK, 80))
-        t += gap * (1.0 - 0.18 * x) + (d() - 0.5) * gap * 0.15
+    step = beat // 4
+    n = span // step
+    for i in range(n):
+        t = max(t0, 0) + i * step
+        on_beat = i % 4 == 0
+        bar.add(t, step, ('u', toms[min(i * 4 // max(n, 1), 3)],
+                          min(84 + int(14 * i / max(n, 1))
+                              + (10 if on_beat else 0), 122)))
+        if on_beat:
+            bar.add(t, step, ('u', G._KICK, 96))
 
 
 def _trash_drums(bar, beat, seed, t1):
