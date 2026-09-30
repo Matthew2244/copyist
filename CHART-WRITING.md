@@ -879,7 +879,10 @@ All of these ride on a `from demo` line, after commas:
   turns of that many bars, around and around in the order named. Each
   turn opens by answering what the last player just played; on the
   drummer's turn the whole band lays out, the classic fours with the
-  drums; a chord player or the bass between their own turns keeps
+  drums, and the drummer solos with everything a drum solo has (ideas
+  told as a story, grooves, the kick leading, three over four), keeping
+  time underneath their own way for the turn: the hi-hat foot on two
+  and four, on all four, a feathered kick, both, or nothing; a chord player or the bass between their own turns keeps
   comping, a horn waits. The pages print "trade 4s" and the order; each
   trader's part says solo.
 - **Vamps.** `section vamp, 2 bars, vamp till cue` (or `open`, `open

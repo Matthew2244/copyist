@@ -2807,12 +2807,27 @@ def drum_solo(bar, absbar, pos, total, seed):
     idea = pool[int(pd() * len(pool)) % len(pool)]
     d = _Dice(seed, 'drums', absbar)
     if pos % 4 == 0:
-        bar.add(0, beat, ('u', _CRASH, 100))
-        bar.add(0, beat, ('u', _KICK, 96))
-    if idea != 'groove':
+        # each four-bar phrase marked the drummer's way, or not at all
+        r = d()
+        if r < 0.45:
+            bar.add(0, beat, ('u', _CRASH, 100))
+            bar.add(0, beat, ('u', _KICK, 96))
+        elif r < 0.75:
+            kit_hit(bar, 0, beat, d)
+    # the time under the solo, the drummer's call for the whole turn
+    # (Matthew, 2026-09-30: "two and four with the hihat foot or all 4
+    # quarter notes, or feather, or not"): the foot on two and four, the
+    # foot on every beat, a feathered kick, foot and feather, or nothing
+    td = _Dice(seed, 'solo time', absbar - pos)()
+    keep = 'foot24' if td < 0.35 else 'foot4' if td < 0.55 else \
+        'feather' if td < 0.7 else 'both' if td < 0.8 else 'none'
+    if idea != 'groove' and keep != 'none':
         for b in range(n):
-            if b % 2 == 1 and d() < 0.85:
-                bar.add(b * beat, beat // 2, ('u', _HATF, 60))
+            if keep in ('foot4', 'both') or (keep == 'foot24' and b % 2):
+                if d() < 0.92:
+                    bar.add(b * beat, beat // 2, ('u', _HATF, 60))
+            if keep in ('feather', 'both') and OPTS.get('feather', True):
+                bar.add(b * beat, beat // 2, ('u', _KICK, 30))
     last = pos == total - 1
     end = bar.barlen - (beat if last else 0)
     E._drum_idea(bar, beat, beat // 2 if pos % 4 == 0 else 0, end, idea, d)

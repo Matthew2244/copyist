@@ -5058,6 +5058,18 @@ def check_band_hears_the_lead():
     check("the ending plays unison, drum solo, the held chord, the hit",
           len(set(ext)) == 4 and "drum solo, out of time" in buf.getvalue(),
           str(ext))
+    modes = set()
+    for k in range(40):
+        b = chartgroove.Bar(24, (4, 4), 0, 1)
+        chartgroove.drum_solo(b, 100 + k * 4, 1, 4, 'drums%d' % k)
+        foot = sum(1 for _l, ns in b.onsets.values() for n in ns
+                   if n[1] == chartgroove._HATF)
+        feath = sum(1 for _l, ns in b.onsets.values() for n in ns
+                    if n[1] == chartgroove._KICK and n[2] == 30)
+        modes.add((foot >= 3, 0 < foot <= 2, feath > 0))
+    check("a drum solo's time is the drummer's call: the foot on 2 and 4, "
+          "on all four, a feathered kick, or none",
+          len(modes) >= 3, str(modes))
     kinds_ = set()
     for k in range(60):
         b = chartgroove.Bar(24, (4, 4), 0, 1)
