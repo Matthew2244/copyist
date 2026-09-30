@@ -1073,20 +1073,33 @@ def run_import(argv):
             "a chart you have; --to FOLDER picks where the new tune's "
             "folder goes.")
         return
-    path, into, to = argv[0], None, None
+    path, into, to, pick = argv[0], None, None, None
     rest = argv[1:]
+    if rest and rest[0] == '--list':
+        # every song a playlist link or songbook file holds, numbered
+        import textformats
+        text, _how = textformats.read_text(path)
+        songs = textformats.parse_all(text, os.path.basename(path))
+        say(f"{len(songs)} song(s) in {os.path.basename(path)}:")
+        for i, sg in enumerate(songs, 1):
+            say(f"  {i}. {sg.get('title') or 'Untitled'}")
+        say("Bring one in with: chart import FILE --song NAME (or its "
+            "number)")
+        return
     while rest:
-        if rest[0] == '--into' and len(rest) > 1:
+        if rest[0] == '--song' and len(rest) > 1:
+            pick, rest = rest[1], rest[2:]
+        elif rest[0] == '--into' and len(rest) > 1:
             into, rest = rest[1], rest[2:]
         elif rest[0] == '--to' and len(rest) > 1:
             to, rest = rest[1], rest[2:]
         else:
-            say(f"I don't know '{rest[0]}' here; --into and --to are "
-                "the words import takes.")
+            say(f"I don't know '{rest[0]}' here; --song, --list, --into "
+                "and --to are the words import takes.")
             sys.exit(2)
     try:
         chart, find = chartimport.import_file(path, to, say=say,
-                                              into=into)
+                                              into=into, pick=pick)
     except chartimport.ImportTrouble as e:
         say(str(e))
         sys.exit(1)

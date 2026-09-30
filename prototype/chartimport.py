@@ -801,6 +801,25 @@ def melody_notes(notes):
     return ", ".join(out)
 
 
+_STYLE_TEMPO = [          # first match wins: the specific before the broad
+    (r'ballad', 68), (r'slow', 90), (r'medium ?up', 180),
+    (r'up ?tempo|fast|bebop|up swing', 240), (r'bossa', 130),
+    (r'samba', 200), (r'latin|afro|mambo|salsa|songo', 190),
+    (r'waltz', 150), (r'funk|r ?& ?b|rnb', 100), (r'second ?line', 100),
+    (r'reggae', 80), (r'gospel', 90), (r'rock|pop', 120),
+    (r'medium|swing|shuffle|blues', 140),
+]
+
+
+def style_tempo(style):
+    """A style's usual tempo, or None."""
+    s = (style or '').lower()
+    for rx, bpm in _STYLE_TEMPO:
+        if re.search(rx, s):
+            return bpm
+    return None
+
+
 def song_to_chart(song, source_name):
     """A song from textformats -> (chart text, title, findings, words
     only?)."""
@@ -818,6 +837,15 @@ def song_to_chart(song, source_name):
     lines.append(f"meter: {meter[0]}/{meter[1]}")
     if song.get('tempo'):
         lines.append(f"tempo: {song['tempo']}")
+    elif song.get('style'):
+        # an iReal link names a style, not a speed: take the style's
+        # usual tempo and say so
+        guess = style_tempo(song['style'])
+        if guess:
+            lines.append(f"tempo: {guess}")
+            find.append(f"no tempo in the source; {song['style']} reads "
+                        f"as about {guess} — change the tempo: line if "
+                        "you play it elsewhere")
     if song.get('style'):
         lines.append(f"feel: {song['style']}")
     has_words = any(s.get('words') for s in song['sections'])
@@ -857,10 +885,17 @@ def song_to_chart(song, source_name):
                     "beside each section")
         return "\n".join(lines) + "\n", title, find, True
     first = True
+    seen = {}
     for s in song['sections']:
         if not s.get('bars'):
             continue
         name = re.sub(r'[,"]', ' ', s['name']).strip() or 'A'
+        # a name said again is the next of its kind: A, A2, A3, the way
+        # the editing desk numbers them, so "same as A" means one thing
+        seen[name.lower()] = seen.get(name.lower(), 0) + 1
+        if seen[name.lower()] > 1:
+            name = f"{name}{seen[name.lower()]}"
+        
         bars = []
         for bar in s['bars']:
             toks = []
@@ -884,7 +919,7 @@ def song_to_chart(song, source_name):
     return "\n".join(lines) + "\n", title, find, False
 
 
-def import_text(path, out_dir, say, into=None):
+def import_text(path, out_dir, say, into=None, pick=None):
     try:
         import textformats
     except ImportError:
@@ -893,7 +928,7 @@ def import_text(path, out_dir, say, into=None):
     try:
         text, how = textformats.read_text(path)
         song = textformats.parse_song(
-            text, os.path.splitext(os.path.basename(path))[0])
+            text, os.path.splitext(os.path.basename(path))[0], pick=pick)
     except textformats.ImportTrouble as e:
         raise ImportTrouble(str(e))
     if song.get('kind') == 'empty':
@@ -1009,7 +1044,7 @@ def place_waiting_words(path):
 
 # ------------------------------------------------------------ doors
 
-def import_file(path, out_dir=None, say=print, into=None):
+def import_file(path, out_dir=None, say=print, into=None, pick=None):
     """Any file -> (chart path or None, sentences). MIDI returns
     ('interview', path): the caller runs the demo interview."""
     if not os.path.exists(path):
@@ -1034,13 +1069,13 @@ def import_file(path, out_dir=None, say=print, into=None):
         if ext == '.xml':
             head = open(path, encoding='utf-8', errors='replace').read(4000)
             if '<score-' not in head:
-                return import_text(path, out_dir, say, into)
+                return import_text(path, out_dir, say, into, pick)
         return import_score(path, out_dir, say)
     if ext in ('.png', '.jpg', '.jpeg', '.tif', '.tiff', '.heic', '.gif'):
         raise ImportTrouble("That is a picture. Copyist cannot read "
                             "notes from an image yet; a MusicXML export "
                             "of the score is the way in.")
-    return import_text(path, out_dir, say, into)
+    return import_text(path, out_dir, say, into, pick)
 
 
 def import_musescore(path, out_dir, say):

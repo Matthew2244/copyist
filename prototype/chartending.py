@@ -604,6 +604,11 @@ def band_choice(feel, song, has_keys, has_horns):
     r = d()
     if 'ballad' in traits or 'ballad' in (feel or '').lower():
         steps = [('rit', None), ('hold', None)]
+    elif not (feel or '').strip():
+        # no feel written: the ending any band would reach for — land
+        # and hold, maybe a hit — never a funk band's stop
+        steps = [('hold', None)] if r < 0.55 else \
+            [('hold', None), ('hit', 'cue')]
     elif style in ('funk', 'latin', 'samba', 'straight', 'motown',
                    'hiphop', 'reggae', 'secondline'):
         steps = ([('stop', None)] if r < 0.5 else

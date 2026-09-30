@@ -1862,7 +1862,8 @@ def check_road_maps():
             '  at bar 6: to coda\n\n'
             'section B, 8 bars, repeat 2x\n  chords: Bb7 x8\n'
             '  at bar 8: d.s. al coda\n\n'
-            'section coda, 4 bars\n  chords: F7 x4\n  at bar 1: coda\n')
+            'section coda, 4 bars\n  chords: F7 x4\n  at bar 1: coda\n'
+            '  ending: as written\n')
     open(cp, "w").write(body)
     out = os.path.join(tmp, "b")
     with redirect_stdout(io.StringIO()):
@@ -5453,6 +5454,43 @@ def check_melody_in_the_breath():
                                                          "trumpet"])
 
 
+def check_playlist_picking():
+    """A real iReal Pro link is a whole playlist (the Jazz 1460 is one
+    link): a song is picked by name, loosely, or number; a near miss
+    names the closest; repeated section names come in numbered; a
+    style with no tempo gets its usual one, said."""
+    import re
+    import chartimport
+    import textformats as tf
+    songs = [{"title": "Autumn Leaves"}, {"title": "All The Things You Are"},
+             {"title": "Autumn in New York"}]
+    check("a song picked by name, loosely, or by number",
+          tf.pick_song(songs, "autumn leaves")["title"] == "Autumn Leaves"
+          and tf.pick_song(songs, "all the things")["title"]
+          == "All The Things You Are"
+          and tf.pick_song(songs, "#3")["title"] == "Autumn in New York")
+    try:
+        tf.pick_song(songs, "autum leavs")
+        near = ""
+    except tf.ImportTrouble as e:
+        near = str(e)
+    check("a near miss names the closest", "Autumn Leaves" in near, near)
+    check("styles read as their usual tempos",
+          chartimport.style_tempo("Medium Up Swing") == 180
+          and chartimport.style_tempo("Ballad") == 68
+          and chartimport.style_tempo("Medium Swing") == 140)
+    song = {"title": "T", "meter": (4, 4), "style": "Medium Swing",
+            "sections": [{"name": "A", "bars": [[(1, "C")]] * 2},
+                         {"name": "A", "bars": [[(1, "F")]] * 2},
+                         {"name": "B", "bars": [[(1, "G")]] * 2},
+                         {"name": "A", "bars": [[(1, "C")]] * 2}]}
+    text, _t, find, _w = chartimport.song_to_chart(song, "x")
+    names = re.findall(r"^section (\S+),", text, re.M)
+    check("repeated section names come in numbered, the tempo said",
+          names == ["A", "A2", "B", "A3"] and "tempo: 140" in text
+          and any("about 140" in f for f in find), names)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5521,6 +5559,7 @@ if __name__ == "__main__":
     check_sound_shelf_installer()
     check_shelf_drive_missing()
     check_melody_in_the_breath()
+    check_playlist_picking()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

@@ -2361,10 +2361,40 @@ def parse_all(text, name_hint='Untitled'):
     return songs
 
 
-def parse_song(text, name_hint='Untitled'):
-    """The first song in the text, as the dict the importer reads; see
-    the module docstring and README of chartimport for its shape."""
+def _norm_title(t):
+    return re.sub(r'[^a-z0-9]+', ' ', (t or '').lower()).strip()
+
+
+def pick_song(songs, pick):
+    """One song of a playlist by name (exact, then starting with, then
+    containing, punctuation ignored) or by number (#12 or 12)."""
+    p = (pick or '').strip().lstrip('#')
+    if p.isdigit() and 1 <= int(p) <= len(songs):
+        return songs[int(p) - 1]
+    want = _norm_title(pick)
+    for test in (lambda t: t == want, lambda t: t.startswith(want),
+                 lambda t: want in t):
+        hits = [s for s in songs if test(_norm_title(s.get('title')))]
+        if hits:
+            return hits[0]
+    import difflib
+    near = difflib.get_close_matches(
+        want, [_norm_title(s.get('title')) for s in songs], n=5,
+        cutoff=0.5)
+    titles = {_norm_title(s.get('title')): s.get('title') for s in songs}
+    raise ImportTrouble(
+        f"No song called '{pick}' in there ({len(songs)} songs)."
+        + (" Closest: " + "; ".join(titles[n] for n in near) + "."
+           if near else " --list names them all."))
+
+
+def parse_song(text, name_hint='Untitled', pick=None):
+    """The first song in the text (or the one picked by name or
+    number), as the dict the importer reads; see the module docstring
+    and README of chartimport for its shape."""
     songs = parse_all(text, name_hint)
+    if pick:
+        return pick_song(songs, pick)
     first = songs[0]
     if len(songs) > 1:
         what = 'link' if first['kind'] == 'ireal' else 'file'
@@ -2372,7 +2402,8 @@ def parse_song(text, name_hint='Untitled'):
         first['findings'].append(
             f"The {what} holds {len(songs)} songs; this is the first, "
             f"{first['title']}, and the other {others} "
-            f"{'was' if others == 1 else 'were'} skipped.")
+            f"{'was' if others == 1 else 'were'} skipped. Pick another "
+            "with --song NAME (or its number); --list names them all.")
     return first
 
 
