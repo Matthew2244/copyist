@@ -5776,6 +5776,26 @@ def check_band_plays_like_pros():
         chartc.TAKE = ''
     check("another take plays it new; the same take plays it the same",
           t1 != t2 and t1 == t1b)
+    # feel words: where the band sits against the time
+    check("feel words read the way players say them",
+          chartaudio.feel_word("medium swing, laid back") == "back"
+          and chartaudio.feel_word("lay it back") == "back"
+          and chartaudio.feel_word("play loose") == "loose"
+          and chartaudio.feel_word("on top of the beat") == "push"
+          and chartaudio.feel_word("tight") == "tight"
+          and chartaudio.feel_word("back to comping") is None)
+    open(os.path.join(tmp, "f.chart"), "w").write(
+        "title: Feel\nkey: F\nmeter: 4/4\ntempo: 120\nfeel: swing\n\n"
+        "band:\n  bass\n  drums\n\nsection A, 2 bars\n  chords: F7, C7\n"
+        "section B, 2 bars\n  feel: swing, laid back\n  chords: F7, C7\n"
+        "section C, 2 bars\n  chords: F7, F7\n  ending: as written\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "f.chart"),
+                             os.path.join(tmp, "fb"))
+    fp = chartaudio.parse_score(os.path.join(
+        tmp, "fb", "Feel — for listening.musicxml"))
+    check("a laid-back section lays back, and the next one is tight again",
+          fp["feels"] == [(8.0, "back"), (16.0, "tight")], fp["feels"])
     six = ("B", 0, "6", None)
     check("a 6 chord is major: no b7 in its scale or rootless voicing",
           10 not in G._scale(six)

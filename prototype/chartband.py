@@ -798,6 +798,19 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         return chartaudio._sec_of(chartaudio._warp(q, swings),
                                   tempos, holds)
 
+    feels = plan.get('feels', ())
+
+    def feel_at(q):
+        """The feel word standing at q ('tight' by default: nothing
+        written, the band plays tight and confident)."""
+        got = None
+        for at, k in feels:
+            if at <= q + 1e-9:
+                got = k
+            else:
+                break
+        return got
+
     lead = 0.0
     n0, d0 = plan['meter0']
     if count_in:
@@ -860,9 +873,19 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
             # humanization, deterministic: nobody plays on the grid,
             # and nobody plays two notes at the same weight
             h = _hash01(idx, i, midi)
-            a += (h - 0.5) * (0.006 if part['percussion'] else 0.016)
+            fk = feel_at(q_on)
+            jit = {'loose': 2.6, 'tight': 0.5, 'back': 1.3}.get(fk, 1.0)
+            a += (h - 0.5) * (0.006 if part['percussion'] else 0.016) * jit
+            # where the band sits against the time, when the chart says
+            if fk == 'back':
+                a += 0.006 if part['percussion'] else \
+                    0.012 if fam == 'bass' else 0.022
+            elif fk == 'push':
+                a -= 0.003 if part['percussion'] else \
+                    0.005 if fam == 'bass' else 0.010
             a = max(a, 0.0)
-            vel *= 0.96 + 0.08 * _hash01(idx, midi, i)
+            vel *= 0.96 + 0.08 * (2.2 if fk == 'loose' else 1.0) * \
+                (_hash01(idx, midi, i) - 0.5) + 0.04
             if part['percussion']:
                 nat = chokes.get(i)
                 if nat is not None:

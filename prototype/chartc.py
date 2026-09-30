@@ -3557,6 +3557,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         need_attrs = source is None
         was_groove = False
         was_swing = (False, False)
+        was_feelk = None                # laid back / loose / on top
         cur_div = div
         resume_div = None
         fine_div = None
@@ -3731,6 +3732,22 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                if want else '<straight/>')
                             + '</swing></sound></direction>\n')
                         was_swing = (want, unit16)
+                    # where the band sits against the time: the section's
+                    # own feel words, or back to tight when it says none
+                    import chartaudio as _ca
+                    fk = _ca.feel_word(feel_now)
+                    for _t in plan['texts'].get(label, ()):
+                        if _t[0] == 1 and isinstance(_t[1], str):
+                            fk = _ca.feel_word(_t[1]) or fk
+                    if fk != was_feelk and (fk or was_feelk):
+                        word = {'back': 'laid back', 'loose': 'loose',
+                                'push': 'on top', 'tight': 'tight'}.get(
+                            fk, 'tight')
+                        pieces.append(
+                            '      <direction><direction-type>'
+                            f'<words print-object="no">{word}</words>'
+                            '</direction-type></direction>\n')
+                        was_feelk = fk
                 if with_directions and absbar == 1 and not chart['pickup']:
                     if hdr.get('feel'):
                         pieces.append(direction(hdr['feel'].capitalize()))

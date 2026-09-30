@@ -417,6 +417,7 @@ def parse_score(path, only=None):
                      'sound': snd.group(1) if snd else ''}
 
     parts, tempos, swings, holds = [], {}, {}, {}
+    feels = {}                          # q -> 'back' / 'loose' / 'push' / 'tight'
     perf = {}                           # q -> performance word (rit...)
     # the road map is the band's, not one part's: a D.S. printed only on
     # the first part (our listening document carries words there alone)
@@ -531,6 +532,9 @@ def parse_score(path, only=None):
                         pw = perform_word(w)
                         if pw:
                             perf.setdefault(round(q0 + pos / div, 4), pw)
+                        fw = feel_word(w)
+                        if fw:
+                            feels.setdefault(round(q0 + pos / div, 4), fw)
                         if re.match(r'\s*(?:take the )?solo\b', w, re.I):
                             lead = True
                         elif re.match(r'\s*(?:back to )?comp(?:ing)?\b', w,
@@ -759,6 +763,7 @@ def parse_score(path, only=None):
             'fade': fade, 'end_q': end_q,
             'tempos': sorted(tempos.items()),
             'swings': sorted(swings.items()),
+            'feels': sorted(feels.items()),
             'holds': sorted(holds.items())}
 
 
@@ -776,6 +781,28 @@ _ACC_RX = re.compile(r'\b(accel(?:erando|\.)?|speed(?:ing)?\s+up|'
 _ATEMPO_RX = re.compile(r'\b(a\s+tempo|tempo\s+(?:primo|i)|in\s+tempo|'
                         r'back\s+(?:in|to)\s+tempo)\b', re.I)
 _FADE_RX = re.compile(r'\bfade(?:\s*out)?\b|\bfading\b', re.I)
+
+
+_FEEL_RX = [
+    ('back', re.compile(r"\blaid[- ]back\b|\blay(?:ing)?[- ](?:it )?back\b|"
+                        r"\bbehind the beat\b|\blazy\b", re.I)),
+    ('loose', re.compile(r"\bloose(?:ly)?\b", re.I)),
+    ('push', re.compile(r"\bon top(?: of the beat)?\b|\bpush(?:ing)? it\b|"
+                        r"\bahead of the beat\b|\bdriving\b", re.I)),
+    ('tight', re.compile(r"\btight\b|\blocked in\b|\bon the beat\b",
+                         re.I)),
+]
+
+
+def feel_word(w):
+    """A page word about WHERE the band sits against the time: 'laid
+    back', 'loose', 'on top', 'tight' (Matthew, 2026-09-30: "play tight,
+    commit, be confident ... if the chart or section says play loose,
+    lay or laid back, go for it"). None for anything else."""
+    for kind, rx in _FEEL_RX:
+        if rx.search(w or ''):
+            return kind
+    return None
 
 
 def perform_word(w):

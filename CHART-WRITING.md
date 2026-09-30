@@ -692,6 +692,19 @@ All of these ride on a `from demo` line, after commas:
   drops bombs in the gaps, sets up each phrase, crashes in each new
   soloist, and fills from a whole vocabulary, never the same fill twice
   running. `listen_feather=no` stops the feathered kick in swing.
+- **Every build is a fresh take.** Nothing the band makes up plays the
+  same way twice: a new build is a new take, and the findings name it.
+  Like one? `chart set listen_take=<its number>` keeps it;
+  `listen_take=same` keeps one take for every build.
+- **Tight unless you say otherwise.** The band plays tight and
+  confident. Say where it sits in a section's feel or as a word at a
+  bar: `laid back` (or `lay back`, `behind the beat`) and the horns and
+  comping sit behind the time, the bass a little less; `loose` gives it
+  room; `on top` (or `pushing it`) leans ahead; `tight` locks it back
+  in. A section that doesn't say goes back to tight.
+- **Bass range.** A four-string bass floors at its low E, and a made-up
+  line on electric bass lives up the neck, visiting the low string
+  rather than walking on it; write `5-string bass` for the low B.
 - **The band builds through the tune.** Comping starts with two-note
   shells and a hit left out now and then, and opens into rootless
   voicings with the extensions as the tune goes on; time-keeping parts

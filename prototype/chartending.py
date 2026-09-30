@@ -487,12 +487,16 @@ def timing(sh, meter, song):
         segs = []
         def q16(x):
             return int(round(x * 4 / beat)) * beat // 4
-        for k in range(len(sh['dictate_chords'])):
-            # the drummer takes their time: some stretches short, some
-            # long, never the same
-            segs.append(('alone', None, q16(beat * (3 + 5 * dd() ** 1.4))))
-            segs.append(('band', k, q16(beat * (2.5 + 2.0 * dd()))))
-        segs.append(('alone', None, q16(beat * (4 + 5 * dd()))))
+        n_ch = len(sh['dictate_chords'])
+        for k in range(n_ch):
+            # the drummer takes their time and tells a story: patient
+            # early, stretching out as it builds, never the same length
+            # twice — nobody knows how long, the cue says when
+            arc = k / max(n_ch, 1)
+            segs.append(('alone', None,
+                         q16(beat * (3 + 4 * arc + 5 * dd() ** 1.3))))
+            segs.append(('band', k, q16(beat * (2.5 + 2.5 * dd()))))
+        segs.append(('alone', None, q16(beat * (8 + 7 * dd()))))
         if sh.get('count'):
             segs.append(('count', None, num * beat))
             if sh.get('unison'):
@@ -579,6 +583,45 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                 m += 12
             return [m + shift]
         return [p + shift for p in _voicing(role, sound_id, ch)]
+
+    def go_for_it(b, vs, land, stop):
+        """This player's own call on a held last chord, in the moment:
+        hold it, blow over it, or shake it (Matthew, 2026-09-30: "no
+        matter if the horns are blowing over top or holding out or one
+        is holding while the others are blowing"). Keys tremolo or
+        ring; the bass shakes or sits on the root."""
+        dm = G._Dice(song, label, 'last chord')
+        r = dm()
+        order = [x[0] for x in sh.get('voices', ())]
+        if role in ('comp', 'bass'):
+            if r < 0.55:
+                _trash_pitched(b, beat, vs, role, stop)
+            else:
+                for p in vs:
+                    b.add(land, max(1, stop - land), ('p', p, 100))
+            return
+        lead = bool(order) and label == order[0]
+        hold_p = 0.55 if lead else 0.35
+        if r < hold_p:
+            for p in vs:
+                b.add(land, max(1, stop - land), ('p', p, 102))
+        elif r < hold_p + 0.4 and chord:
+            # blowing over it: lines, fast, in this player's range
+            for p in vs:
+                b.add(land, beat // 2, ('p', p, 104))
+            lo_w = (min(vs) - shift) - 5
+            nb = beat_bar(stop)
+            G.improvise(nb, {'sol_last': max(vs) - shift},
+                        [(1.0, chord)], None, '', lo_w, lo_w + 17,
+                        9200, 1, 2, seed, mode='solo')
+            line = [(t, ln, nn[1] + shift, min(nn[2] + 10, 112))
+                    for t, (ln, ns) in sorted(nb.onsets.items())
+                    for nn in ns if beat // 2 <= t < stop]
+            for at_, ln_, m_, v_ in G._one_voice(line):
+                b.add(int(at_), max(int(min(ln_, stop - at_)), 1),
+                      ('p', m_, v_))
+        else:
+            _trash_pitched(b, beat, vs, role, stop)
 
     def figure_body(length):
         """The unison figure for this part: every pitched chair on the
@@ -687,13 +730,29 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                 if drums:
                     # whatever the drummer feels, a different idea every
                     # time, then a breath and a cue nobody can miss
-                    idea = _pick(dd, _SOLO_IDEAS, last_idea)
-                    last_idea = idea
+                    alone_i = sum(1 for kk, _k, _l in clock['dictate'][:si]
+                                  if kk == 'alone')
+                    n_alone = sum(1 for kk, _k, _l in clock['dictate']
+                                  if kk == 'alone')
+                    arc = alone_i / max(n_alone - 1, 1)
+                    pool = ('space', 'roll', 'talk') if arc < 0.35 else \
+                        _SOLO_IDEAS if arc < 0.8 else \
+                        ('toms', 'triplets', 'talk', 'roll')
                     cue = _pick(dd, _CUES, last_cue)
                     last_cue = cue
                     cl = _CUE_LEN[cue] * beat
-                    _drum_idea(b, beat, 0, max(beat, L - cl - beat // 3),
-                               idea, dd)
+                    end = max(beat, L - cl - beat // 3)
+                    # a long stretch moves from one idea to the next
+                    cuts = [0, end]
+                    if end > 6 * beat:
+                        cuts = [0, int(end * (0.4 + 0.2 * dd())) // (
+                            beat // 4) * (beat // 4), end]
+                    for c0, c1 in zip(cuts, cuts[1:]):
+                        idea = _pick(dd, pool, last_idea)
+                        last_idea = idea
+                        _drum_idea(b, beat, c0, c1, idea, dd)
+                    # soft and patient early, the big one last
+                    _scale_vel(b, 0, end, 0.62 + 0.45 * arc)
                     _drum_cue(b, beat, L - cl, L, cue, dd)
                 elif role == 'perc':
                     _roll(b, beat, 0, L, ('C', 5, 'normal'), 40, 90)
@@ -715,8 +774,6 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                 else:
                     vs = voice_for(chord)
                     if vs:
-                        for p in vs:
-                            b.add(land, beat, ('p', p, 104))
                         # in the moment: this band lets go as the drummer
                         # cues, so the cue rings in the open — or keeps
                         # going right through it (one call for everyone:
@@ -725,7 +782,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                             stop = L - cl - late(beat * 0.2) - beat // 8
                         else:
                             stop = L - late(beat * 0.25) - beat // 6
-                        _trash_pitched(b, beat, vs, role, stop)
+                        go_for_it(b, vs, land, stop)
             elif kind == 'band':
                 land = late(beat * 0.08)
                 if drums:
@@ -813,7 +870,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                 for at_, ln_, m_, v_ in G._one_voice(line):
                     b.add(int(at_), max(int(ln_), 1), ('p', m_, v_))
             elif sh['trash']:
-                _trash_pitched(b, beat, pitches, role, let_go)
+                go_for_it(b, pitches, land, let_go)
             else:
                 for p in pitches:
                     b.add(land, let_go - land, ('p', p, 94, arts))
@@ -896,7 +953,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         extras[k:k] = ins
     if sh['tag']:
         who, pieces = sh['tag']
-        length = 3 * beat
+        length = 6 * beat
         if label == who or (drums and who.lower() in ('drums', 'drummer',
                                                       'kit')):
             extras.append(attrs(length) + _tag(bar_of(length), beat,
@@ -1004,6 +1061,17 @@ def _drum_idea(bar, beat, t0, t1, idea, d):
                               int(78 + 30 * (t - t0) / span)))
             if i % 3 == 0:
                 bar.add(t, step, ('u', G._KICK, 84))
+
+
+def _scale_vel(bar, t0, t1, k):
+    """Softer or louder over a stretch: the story's dynamics."""
+    for t in list(bar.onsets):
+        if t0 <= t < t1:
+            ln, ns = bar.onsets[t]
+            bar.onsets[t] = (ln, [n if n[2] is None else
+                                  (n[0], n[1], max(1, min(int(n[2] * k),
+                                                          124))) + n[3:]
+                                  for n in ns])
 
 
 def _drum_cue(bar, beat, t0, t1, cue, d):
@@ -1180,11 +1248,13 @@ def _tag(bar, beat, pieces, song):
     d = G._Dice(song, 'tag')
     if not pieces:
         pieces = band_tag(d)
-    t = beat * (0.35 + 0.3 * d())
+    # a real breath after the band's hit, then unhurried strokes, the
+    # last gap the longest, landing on the kick (Matthew: "everyone
+    # relax, take your time ... even the max roach thing")
+    t = beat * (0.9 + 0.8 * d())
     n = len(pieces)
     for i, p in enumerate(pieces):
-        vel = 82 + int(22 * (i + 1) / n) + int((d() - 0.5) * 8)
+        vel = 84 + int(20 * (i + 1) / n) + int((d() - 0.5) * 8)
         bar.add(int(t), beat // 2, ('u', _KIT[p], vel))
-        # the gaps swing a little and stretch toward the last hit
-        t += beat * (0.32 + 0.12 * d() + (0.15 if i == n - 2 else 0))
+        t += beat * (0.42 + 0.2 * d() + (0.3 if i == n - 2 else 0))
     return bar.xml()
