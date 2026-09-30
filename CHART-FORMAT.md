@@ -529,7 +529,16 @@ The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
   still plays its bars; and a part brought in with nothing written for
   it is named in the findings. `at bar N: fermata` is the phrase-end hold every ballad page
   carries: the sign lands on that bar's last note — or its rest — in
-  every part, and the listening document holds time there, together. `at bar N: key X` changes key mid-chart (the 8-Bit Big Band
+  every part, and the listening document holds time there, together.
+  Fills and breaks are roadmap words, and the band does what they say:
+  `fill into bar N` (optionally `from beat B`), `at bar N beat B: fill`
+  and `fill into the next section` put a drum fill exactly there — time
+  stops for it and the band lands on the one with a crash; `at bar N:
+  break` (optionally `, K bars` and `, fill into it`) stops the band: the
+  rhythm section hits the downbeat together and drops out, the soloist
+  or the tune carries on alone, and a written fill may bring everyone
+  back; `fill into the break` sets up the section's first break. The
+  drums page says Fill, every page says Break. `at bar N: key X` changes key mid-chart (the 8-Bit Big Band
   audit: working books modulate constantly): every pitched part
   restates its own written signature — concert fifths plus its
   transposition — right where the change lands, accidentals follow

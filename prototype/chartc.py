@@ -992,6 +992,47 @@ def parse_chart(path):
             cur['events'].append((int(m.group(1)), 'key',
                                   m.group(2).strip()))
             continue
+        # the roadmap's fills and breaks (Matthew, 2026-09-29: "if you
+        # say in the roadmap fill into whatever bar or beat, that should
+        # happen ... or fill into a break")
+        m = re.match(r'at bar (\d+)(?:,?\s*beat ([1-9](?:\.5)?))?:\s*'
+                     r'(?:drums? )?fill$', s)
+        if m:
+            cur['events'].append((int(m.group(1)), 'fill',
+                                  m.group(2) or ''))
+            continue
+        m = re.match(r'(?:drums? )?fill into bar (\d+)'
+                     r'(?:,?\s*from beat ([1-9](?:\.5)?))?$', s)
+        if m:
+            n = int(m.group(1))
+            if n < 2:
+                fail(f"{loc}: 'fill into bar {n}' needs a bar before it "
+                     "in this section — put 'fill into the next section' "
+                     "on the section before, or 'at bar N: fill'")
+            cur['events'].append((n - 1, 'fill', m.group(2) or ''))
+            continue
+        m = re.match(r'(?:drums? )?fill into (?:the )?next section$', s)
+        if m:
+            cur['events'].append((-1, 'fill', ''))     # its last bar
+            continue
+        m = re.match(r'at bar (\d+):\s*(?:a )?(?:stop|break)'
+                     r'(?:,?\s*(\d+) bars?)?(,?\s*(?:drums? )?fill in'
+                     r'(?:to it)?)?$', s)
+        if m:
+            n, k = int(m.group(1)), int(m.group(2) or 1)
+            for b in range(n, n + k):
+                cur['events'].append((b, 'break', 'first' if b == n
+                                      else ''))
+            if m.group(3):
+                if n < 2:
+                    fail(f"{loc}: a fill into a break on bar 1 needs a bar "
+                         "before it in this section")
+                cur['events'].append((n - 1, 'fill', ''))
+            continue
+        m = re.match(r'(?:drums? )?fill into (?:the )?(?:break|stop)$', s)
+        if m:
+            cur['events'].append((0, 'fill_break', ''))
+            continue
         m = re.match(r'at bar (\d+):\s*fermata$', s)
         if m:
             cur['events'].append((int(m.group(1)), 'fermata', ''))
@@ -1067,6 +1108,24 @@ def parse_chart(path):
     # `at bar N: meter` events, each holding until the next. Built here so
     # chord spreading, emission, the demo door and the listen math all
     # read one answer. Every timed event is also held to its section.
+    # fills said relative to the form become bars: 'fill into the next
+    # section' is this one's last bar; 'fill into the break' the bar
+    # before its first break bar
+    for sec in chart['sections']:
+        evs = []
+        for bar, kind, text in sec['events']:
+            if kind == 'fill' and bar == -1:
+                bar = sec['bars']
+            if kind == 'fill_break':
+                firsts = sorted(b for b, k, t in sec['events']
+                                if k == 'break' and t == 'first')
+                if not firsts or firsts[0] < 2:
+                    fail(f"section {sec['name']}: 'fill into the break' "
+                         "needs an 'at bar N: break' (N 2 or more) in "
+                         "this section")
+                bar, kind = firsts[0] - 1, 'fill'
+            evs.append((bar, kind, text))
+        sec['events'] = evs
     meters = [(1, parse_meter(chart['header'].get('meter', '4/4')))]
     start = 1
     for sec in chart['sections']:
@@ -2804,6 +2863,23 @@ def build_plans(chart, band, groups, labels):
             if kind in ('meter', 'key', 'fermata'):
                 continue    # signatures and holds are signs on the
                             # page, never words — emission handles them
+            if kind == 'break':
+                if text == 'first':
+                    n = sum(1 for b, k, _t in sec['events']
+                            if k == 'break' and b >= bar and
+                            all((bb, 'break') in [(x, y) for x, y, _z in
+                                                  sec['events']]
+                                for bb in range(bar, b + 1)))
+                    word = 'Break' + (f' ({n} bars)' if n > 1 else '')
+                    for l in labels:
+                        plan['texts'][l].append((bar, word))
+                continue
+            if kind == 'fill':
+                word = 'Fill' + (f' from beat {text}' if text else '')
+                for bb in band:
+                    if canonical_instrument(bb['instrument']) == 'drums':
+                        plan['texts'][bb['label']].append((bar, word))
+                continue
             if kind == 'build' and text not in groups \
                     and text not in labels:
                 fail(f"section {sec['name']}: build adds '{text}', which "
@@ -3086,6 +3162,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         busy = sec.get('_busy')
         if busy is not None and busy > 0.55:
             return None      # the soloist is talking: the horns wait
+        if any(k == 'break' and b == off + 1 for b, k, _t in sec['events']):
+            return None      # a break: everyone out but the soloist
         who = [x['label'] for x in band if plan['bg'].get(x['label'])]
         who.sort(key=lambda l: -(horn_of.get(l) or {}).get(
             'comf', (0, 70))[1])
@@ -3248,10 +3326,22 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             persona = chartgroove.PERSONAS[
                 (chartgroove.PERSONAS.index(persona) + 1) % 4]
         personas[(sec['name'], label)] = persona
+        # the roadmap's breaks inside this soloist's turn: the band stops,
+        # the soloist carries it alone
+        brk_bars = {b for b, kk, _t in sec['events'] if kk == 'break'}
+        breaks = []
+        for w in range(lo_bar, hi_bar):
+            if (w % sec['bars']) + 1 in brk_bars:
+                q0 = (w - lo_bar) * bar_beats
+                if breaks and abs(breaks[-1][1] - q0) < 1e-6:
+                    breaks[-1] = (breaks[-1][0], q0 + bar_beats)
+                else:
+                    breaks.append((q0, q0 + bar_beats))
         plan_ = chartgroove.plan_solo(
             chord_fn, hi_bar - lo_bar, bar_beats, lo, hi, feel,
             seed, voice, echo=echo, start_after=after,
-            next_soloist=k < len(who) - 1, persona=persona)
+            next_soloist=k < len(who) - 1, persona=persona,
+            breaks=breaks)
         stories[key] = plan_
         return plan_
 

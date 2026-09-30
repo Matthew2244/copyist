@@ -1410,6 +1410,40 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         state['hits'] = None
         return bar.xml() if bar.onsets else None
     heat = _heat(sec, off)
+    evs = sec.get('events') or []
+    brk = {b: t for b, k, t in evs if k == 'break'}
+    if off + 1 in brk:
+        # a break: the band hits the downbeat together and stops dead;
+        # the soloist (or the tune) plays on alone; the drummer brings
+        # everyone back in on the bar after with a crash
+        beat = bar.div * 4 // bar.den
+        c0 = _chord_at(chords, 1.0)
+        if brk[off + 1] == 'first':
+            if role in ('drums', 'perc'):
+                bar.add(0, beat // 2, ('u', _CRASH, 104))
+                bar.add(0, beat // 2, ('u', _KICK, 100))
+                bar.add(0, beat // 2, ('u', _SNARE, 92))
+            elif role == 'bass' and c0:
+                m = _fold_bass(_near(_bass_pc(c0), state.get('bass', 38)),
+                               28, 55)
+                bar.add(0, beat // 2, ('p', m, 100))
+                state['bass'] = m
+            elif c0:
+                for m in rootless_voicing(c0, None):
+                    bar.add(0, beat // 2, ('p', m, 92))
+        wf = {b: t for b, k, t in evs if k == 'fill'}
+        if role == 'drums' and off + 1 in wf:
+            # the drummer fills the end of the break, bringing the band
+            # back in — the one thing that breaks a break's silence
+            at = float(wf[off + 1]) if wf[off + 1] else \
+                max(1.0, bar.num - 1.0)
+            d = _Dice('written fill', absbar)
+            _fill(bar, _FILLS[int(d() * len(_FILLS)) % len(_FILLS)],
+                  int(round((at - 1) * beat)), max(heat, 0.6), d)
+        if role == 'drums' and off + 2 not in brk:
+            state['crash_next'] = True
+        state['hits'] = None
+        return bar.xml()
     state['busy'] = sec.get('_busy')      # how busy the soloist is here
     state['heat'] = heat
     state['turn'] = sec.get('_turn')
@@ -1439,6 +1473,21 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
                     del bar.onsets[tick]
         if state['hits'] is None and impl != 'mallets':
             _drummer_marks(bar, sec, off, absbar, heat, state)
+        fills = {b: t for b, k, t in evs if k == 'fill'}
+        if off + 1 in fills:
+            # the roadmap said fill here: it happens, from the beat it
+            # names (else the last two beats), and lands on the one
+            beat = bar.div * 4 // bar.den
+            at = float(fills[off + 1]) if fills[off + 1] else \
+                max(1.0, bar.num - 1.0)
+            d = _Dice('written fill', absbar)
+            kind = _FILLS[int(d() * len(_FILLS)) % len(_FILLS)]
+            if kind == state.get('last_fill'):
+                kind = _FILLS[(_FILLS.index(kind) + 1) % len(_FILLS)]
+            state['last_fill'] = kind
+            _fill(bar, kind, int(round((at - 1) * beat)), max(heat, 0.6),
+                  d)
+            state['crash_next'] = True
         if state['hits'] is None and OPTS['builds']:
             # the whole kit breathes with the band
             k = 0.78 + 0.4 * heat
@@ -1663,6 +1712,9 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
         bar.add(0, beat, ('u', _KICK, int(82 + 20 * heat)))
     phrase_end = (off + 1) % 4 == 0 or off == sec['bars'] - 1 \
         or last_of_turn
+    if any(k == 'fill' and b == off + 1 for b, k, _t in
+           sec.get('events') or ()):
+        return                     # the roadmap's own fill is coming
     big_end = (off + 1) % 8 == 0 or off == sec['bars'] - 1 or last_of_turn
     if phrase_end and bar.num >= 3:
         r = d()
@@ -2117,7 +2169,7 @@ def _one_voice(notes):
 
 def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
               voice='horn', echo=None, start_after=0.0,
-              next_soloist=False, persona=None):
+              next_soloist=False, persona=None, breaks=()):
     """The whole solo, before its first note: [(beat, length, midi,
     velocity)], beats counted from the solo's first downbeat.
     chord_fn(beat) is the chord sounding there. echo is how the soloist
@@ -2255,7 +2307,11 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                 2 + int(d() * 3)
             aim = 0.55 * (q + dirn * jump) + 0.45 * reg
             cands = [m for m in range(bot, top + 1)
-                     if (m - root) % 12 in {iv % 12 for iv in pool}]
+                     if (m - root) % 12 in {iv % 12 for iv in pool}
+                     # a line moves on: never the target just played,
+                     # nor rocking back to the one before it
+                     and m != q
+                     and not (len(targets) > 1 and m == targets[-2])]
             if not cands:
                 cands = [q]
             nq = min(cands, key=lambda m: (abs(m - aim), m))
@@ -2496,6 +2552,18 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
         # the next phrase may come in on an upbeat
         if d() < 0.4 and t % 1 == 0:
             t += 0.5
+    for b0, b1 in breaks:
+        # a solo break: the band has stopped and the soloist talks
+        # through it — a line from the band's hit to the re-entry,
+        # played strong, landing where the band comes back
+        if b0 >= total:
+            continue
+        b1 = min(b1, total)
+        before = [n for n in notes if n[0] < b0]
+        notes = [n for n in notes if not b0 <= n[0] < b1]
+        cur = before[-1][2] if before else int(lo + (hi - lo) * 0.6)
+        eighth_line(b0 + 0.5, b1 - b0 - 0.5, 'peak', cur, 96,
+                    chord_fn(b0 + 0.5) or chord_fn(b0))
     return _one_voice(notes)
 
 

@@ -5708,6 +5708,70 @@ def check_band_plays_like_pros():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_roadmap_fills_and_breaks():
+    """Matthew, 2026-09-29: "if you say in the roadmap fill into
+    whatever bar or beat, that should happen ... or fill into a break."
+    'fill into bar N (from beat B)', 'at bar N beat B: fill', 'fill into
+    the next section', 'at bar N: break, K bars, fill into it', 'fill
+    into the break': the drummer fills where it says (time stops for
+    it) and lands on the one; in a break the band hits the downbeat and
+    stops, the soloist plays through it alone; the pages say Fill and
+    Break."""
+    import chartaudio
+    import chartc
+    tmp = tempfile.mkdtemp()
+    open(os.path.join(tmp, "t.chart"), "w").write(
+        "title: Road\nkey: F\nmeter: 4/4\ntempo: 160\nfeel: swing\n\n"
+        "band:\n  tenor = tenor sax\n  piano\n  bass\n  drums\n\n"
+        "section A, 8 bars\n  chords: F7, Bb7, F7, C7, F7, Bb7, C7, F7\n"
+        "  tenor: solo\n  fill into bar 3 from beat 3\n"
+        "  at bar 6: break, 2 bars, fill into it\n"
+        "  fill into the next section\n"
+        "section B, 4 bars\n  chords: F7 x4\n  ending: as written\n")
+    out = os.path.join(tmp, "b")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "t.chart"), out)
+    pl = chartaudio.parse_score(os.path.join(out,
+                                             "Road — for listening.musicxml"))
+    ev = {p["name"]: p["events"] for p in pl["parts"]}
+
+    def inbar(n, name, a=0.0, b=4.0):
+        return [e for e in ev[name] if 4 * (n - 1) + a <= e[0]
+                < 4 * (n - 1) + b]
+    dr = inbar(2, "drums", 2.0)
+    check("fill into bar 3 from beat 3: time stops, the fill plays",
+          len(dr) >= 3 and not any(e[2] in (51, 53, 59, 42) for e in dr),
+          sorted({e[2] for e in dr}))
+    check("the break: bass and piano hit the downbeat and stop",
+          inbar(6, "bass", 0.1) == [] and inbar(6, "piano", 0.1) == []
+          and inbar(7, "bass") == [] and inbar(7, "piano") == []
+          and inbar(6, "bass", 0, 0.1) != [])
+    check("the soloist plays through the break",
+          len(inbar(6, "tenor") + inbar(7, "tenor")) >= 8)
+    check("fill into the break: the bar before it ends in a fill",
+          len(inbar(5, "drums", 2.0)) >= 3)
+    check("the band is back after the break, crash on the one",
+          any(e[2] == 49 for e in inbar(8, "drums", 0, 0.1)))
+    dx = open(os.path.join(out, "Road — drums.musicxml")).read()
+    px = open(os.path.join(out, "Road — piano.musicxml")).read()
+    check("the pages say Fill (drums) and Break (everyone)",
+          "Fill from beat 3" in dx and "Break (2 bars)" in px)
+    try:
+        open(os.path.join(tmp, "x.chart"), "w").write(
+            "title: X\nkey: F\nmeter: 4/4\ntempo: 120\n\nband:\n"
+            "  drums\n\nsection A, 4 bars\n  chords: F x4\n"
+            "  fill into the break\n")
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(os.path.join(tmp, "x.chart"),
+                                 os.path.join(tmp, "xb"))
+        wrong = None
+    except SystemExit as e:
+        wrong = str(e.code)
+    check("'fill into the break' with no break says so",
+          wrong and "at bar N: break" in wrong, wrong)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5781,6 +5845,7 @@ if __name__ == "__main__":
     check_everyone_listens()
     check_exports_ireal_midi_chords()
     check_band_plays_like_pros()
+    check_roadmap_fills_and_breaks()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()
