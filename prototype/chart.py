@@ -266,6 +266,8 @@ _EXPORT_WORDS = {
     'braille pages': 'braille pages', 'braille view': 'braille pages',
     'braille pdf': 'braille pages', 'read-alouds': 'read-alouds',
     'read alouds': 'read-alouds', 'readalouds': 'read-alouds',
+    'read-aloud': 'read-alouds', 'read aloud': 'read-alouds',
+    'readaloud': 'read-alouds',
     'spoken': 'read-alouds', 'text': 'read-alouds',
     'ireal': 'ireal', 'ireal pro': 'ireal', 'irealpro': 'ireal',
     'irealb': 'ireal', 'midi': 'midi', 'mid': 'midi',
@@ -1278,6 +1280,8 @@ def main():
         i, j = words[0], words[1]
         argv[i], argv[j] = argv[j], argv[i]
     args = ap.parse_args(argv)
+    if args.exports:
+        parse_exports(args.exports)     # a typo stops it before any work
     args.command = {'b': 'build', 'c': 'check', 'r': 'read',
                     'p': 'parts', 'd': 'diff', 'l': 'listen',
                     'n': 'new', 'e': 'edit'}.get(args.command,

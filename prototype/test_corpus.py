@@ -5878,6 +5878,20 @@ def check_band_leader_order_and_roadmap_exports():
           [sec.get("name") for sec in song["sections"]][:3]
           == ["Intro", "A", "B"], [sec.get("name")
                                    for sec in song["sections"]])
+    # a mistyped export stops the build before anything is written
+    fresh = os.path.join(tmp, "typo")
+    os.makedirs(fresh)
+    shutil.copy(cp, os.path.join(fresh, "r.chart"))
+    said = subprocess.run(
+        [sys.executable, os.path.join(os.path.dirname(
+            os.path.abspath(__file__)), "chart.py"), "build",
+         os.path.join(fresh, "r.chart"), "--exports", "pages, readalowd"],
+        capture_output=True, text=True, env=dict(os.environ,
+                                                 COPYIST_NO_SAY="1"))
+    check("a mistyped export is named, and nothing is built",
+          "'readalowd' is not an export" in (said.stderr + said.stdout)
+          and not os.path.exists(os.path.join(fresh, "build")),
+          (said.stderr + said.stdout)[-200:])
     sheet = open(chartexport.write_chords(ch, tmp, "Road Map")[0]).read()
     check("the chord sheet carries the road map",
           "Vamp till cue." in sheet and "Solos: tenor, then trumpet." in sheet
