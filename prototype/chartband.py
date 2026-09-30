@@ -143,6 +143,10 @@ _MAKEUP = {
     'Bass-black-and-blue-basses/': 10.0,
     'VirtuosityDrums/': 8.0,
     'Meatbass/Programs/pizz_basic': 7.0,    # one bass where six stood
+    # Swirly's brushes sit 10 dB under Virtuosity's sticks on the same
+    # hits (measured K-weighted, 2026-09-29); brushes play lighter, but
+    # not that much lighter — this leaves them ~2 dB under
+    'SwirlyDrums/': 8.0,
 }
 
 
@@ -163,13 +167,13 @@ _SEATS = (
     ('saxophone.soprano', -1.0, -0.15), ('saxophone.baritone', -1.0,
                                          -0.40),
     ('brass.trumpet', -1.5, 0.25), ('brass.flugelhorn', -1.5, 0.25),
-    ('brass.cornet', -1.5, 0.25), ('brass.trombone', -3.0, 0.40),
+    ('brass.cornet', -1.5, 0.25), ('brass.trombone', -5.0, 0.40),
     ('brass.', 0.0, 0.3),
     ('pluck.bass', -4.5, 0.0), ('strings.contrabass', -4.0, 0.0),
-    ('keyboard.piano', -11.0, 0.30), ('keyboard.organ', -12.0, 0.25),
-    ('keyboard', -11.0, 0.25), ('pluck.guitar', -10.0, -0.35),
-    ('mallet.vibraphone', -8.0, 0.35),
-    ('drum.group', 0.0, 0.0),
+    ('keyboard.piano', -15.0, 0.30), ('keyboard.organ', -16.0, 0.25),
+    ('keyboard', -15.0, 0.25), ('pluck.guitar', -13.0, -0.35),
+    ('mallet.vibraphone', -11.0, 0.35),
+    ('drum.group', -6.5, 0.0),
     ('drum.', -4.0, 0.45), ('metal.', -5.0, 0.45), ('wood.', -5.0, 0.45),
     ('rattle.', -6.0, 0.45),
     ('voice', 1.0, 0.0),
@@ -181,27 +185,52 @@ _LEVEL_TARGET = 500.0     # every chair's heard loudness, before its seat (libra
 _LEVELS = None            # cache: (voice, key, vel) -> loudness
 
 
+def _kweight_coeffs(sr):
+    """ITU-R BS.1770's K-weighting as two biquads at this sample rate:
+    the head's high shelf (+4 dB above ~1.7 kHz) and the RLB high-pass
+    (~38 Hz) — the curve loudness meters (LUFS) hear through."""
+    import math as m
+    f0, g, q = 1681.974450955533, 3.999843853973347, 0.7071752369554196
+    k = m.tan(m.pi * f0 / sr)
+    vh = 10 ** (g / 20)
+    vb = vh ** 0.4996667741545416
+    a0 = 1 + k / q + k * k
+    shelf = ((vh + vb * k / q + k * k) / a0, 2 * (k * k - vh) / a0,
+             (vh - vb * k / q + k * k) / a0, 2 * (k * k - 1) / a0,
+             (1 - k / q + k * k) / a0)
+    f0, q = 38.13547087602444, 0.5003270373238773
+    k = m.tan(m.pi * f0 / sr)
+    a0 = 1 + k / q + k * k
+    hp = (1.0, -2.0, 1.0, 2 * (k * k - 1) / a0, (1 - k / q + k * k) / a0)
+    return shelf, hp
+
+
+def _biquad_run(x, c):
+    b0, b1, b2, a1, a2 = c
+    y = [0.0] * len(x)
+    x1 = x2 = y1 = y2 = 0.0
+    for i, v in enumerate(x):
+        o = b0 * v + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        x2, x1, y2, y1 = x1, v, y1, o
+        y[i] = o
+    return y
+
+
 def _heard(res, sr, secs=1.0):
-    """How loud a rendered note sounds, roughly the way an ear weighs
-    it: the lows the ear barely hears are filtered off first (a one-pole
-    high-pass near 150 Hz), then the RMS over the note's own length —
-    a trombone that swells as it sustains and a trumpet that fades
-    measure alike over one second and 6 dB apart over four."""
+    """How loud a rendered note sounds, the way a loudness meter hears
+    it: K-weighted (ITU-R BS.1770), then the RMS over the note's own
+    length. A cruder 150 Hz high-pass once under-heard every low voice
+    and boosted a choir's basses 9 dB over the rest (Midnight Train,
+    2026-09-29)."""
     if not res:
         return 0.0
     L = res[0]
     n = min(len(L), int(sr * max(secs, 0.2)))
     if n < 10:
         return 0.0
-    a = math.exp(-2 * math.pi * 150.0 / sr)
-    prev_x = prev_y = 0.0
-    tot = 0.0
-    for i in range(n):
-        x = L[i]
-        y = a * (prev_y + x - prev_x)
-        prev_x, prev_y = x, y
-        tot += y * y
-    return math.sqrt(tot / n)
+    shelf, hp = _kweight_coeffs(sr)
+    y = _biquad_run(_biquad_run(list(L[:n]), shelf), hp)
+    return math.sqrt(sum(v * v for v in y) / n)
 
 
 def _levels_cache():
@@ -237,30 +266,40 @@ def calibrate(shelf, voice, part, sr, note_secs=1.0):
     if part['percussion']:
         keys = [38] if not part.get('sound', '').startswith(
             ('drum.conga', 'drum.bongo', 'metal.', 'wood.', 'rattle.')) \
-            else sorted(e[2] for e in evs)[len(evs) // 2:len(evs) // 2 + 1]
+            else [sorted(e[2] for e in evs)[len(evs) // 2]]
     else:
-        keys = [sorted(e[2] for e in evs)[len(evs) // 2]]
-    key = int(keys[0])
+        # three notes across where the part plays, not one: a library's
+        # samples are not even note to note (the choir's C3 sits 6 dB
+        # under its neighbours, and one-note calibration boosted a whole
+        # bass section 8 dB — Midnight Train, 2026-09-29)
+        ks = sorted(e[2] for e in evs)
+        keys = sorted({ks[len(ks) // 4], ks[len(ks) // 2],
+                       ks[(3 * len(ks)) // 4]})
     inst = (voice or {}).get('sus') if voice else None
     tag = (getattr(inst, 'path', None) or
            f"sf2:{part['program']}:{part['percussion']}")
     secs = 1.0 if part['percussion'] else \
         min(max(round(note_secs * 2) / 2, 0.5), 4.0)
-    ck = f"{tag}|{key}|{secs}"
     cache = _levels_cache()
-    if ck not in cache:
-        res = None
-        if inst is not None:
-            k2, cc = _kit_key(inst, key) if part['percussion'] \
-                else (key, None)
-            res = inst.render_note(k2, 72, secs + 0.2, sr, cc=cc)
-        if res is None and shelf.sf2 is not None:
-            res = sf2mod.render_note(
-                shelf.sf2, 128 if part['percussion'] else 0,
-                max(part['program'] - 1, 0), key, 72, secs + 0.2, sr)
-        cache[ck] = _heard(res, sr, secs)
-        _save_levels()
-    loud = cache[ck]
+    levels = []
+    for key in keys:
+        key = int(key)
+        ck = f"k|{tag}|{key}|{secs}"
+        if ck not in cache:
+            res = None
+            if inst is not None:
+                k2, cc = _kit_key(inst, key) if part['percussion'] \
+                    else (key, None)
+                res = inst.render_note(k2, 72, secs + 0.2, sr, cc=cc)
+            if res is None and shelf.sf2 is not None:
+                res = sf2mod.render_note(
+                    shelf.sf2, 128 if part['percussion'] else 0,
+                    max(part['program'] - 1, 0), key, 72, secs + 0.2, sr)
+            cache[ck] = _heard(res, sr, secs)
+            _save_levels()
+        levels.append(cache[ck])
+    # the power average: a quiet sample among loud ones counts as it sounds
+    loud = math.sqrt(sum(x * x for x in levels) / len(levels))
     if loud <= 1e-9:
         return 1.0
     return min(max(_LEVEL_TARGET / loud, 1e-3), 1e3)
