@@ -4917,6 +4917,27 @@ def check_band_hears_the_lead():
           chartgroove._RIDE not in pieces and chartgroove._HATF not in pieces
           and pieces.count(chartgroove._HAT) == 2
           and pieces.count(chartgroove._KICK) == 4, str(pieces))
+    tmp_s = tempfile.mkdtemp()
+    sp_ = os.path.join(tmp_s, "sh.chart")
+    open(sp_, "w").write(
+        "title: Sh\nkey: F\nmeter: 4/4\ntempo: 140\nfeel: swing\n\n"
+        "band:\n  trumpet\n  piano\n  bass\n  drums\n\n"
+        "section head, 4 bars\n  chords: F x4\n\n"
+        "section solos, 4 bars\n  chords: F x4\n  trumpet: solo\n\n"
+        "section shout, 4 bars\n  chords: F x4\n\n"
+        "section out, 4 bars\n  chords: F x4\n\n"
+        "section tag, 2 bars, label \"soft tag\"\n  chords: F x2\n")
+    ch_ = chartc.parse_chart(sp_)
+    bd_ = ch_['band']
+    lb_ = [x['label'] for x in bd_]
+    pl_, _t = chartc.build_plans(ch_, bd_, chartc.resolve_groups(
+        bd_, ch_.get('groups')), lb_)
+    chartc.tune_shape(pl_, lb_)
+    e_ = {p['sec']['name']: p['sec']['_energy'] for p in pl_}
+    check("the tune has a shape: settled head, the shout at the peak, the "
+          "out-head back down from it, a section's own 'soft' honoured",
+          e_['head'] < e_['out'] < e_['shout'] and e_['tag'] < 0.4,
+          str({k: round(v, 2) for k, v in e_.items()}))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

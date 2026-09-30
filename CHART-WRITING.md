@@ -824,6 +824,13 @@ All of these ride on a `from demo` line, after commas:
 - **Bass range.** A four-string bass floors at its low E, and a made-up
   line on electric bass lives up the neck, visiting the low string
   rather than walking on it; write `5-string bass` for the low B.
+- **The tune has a shape.** The band settles in at the top, warms
+  through the heads, builds with each soloist (dropping back as the
+  next one starts), peaks at a shout, and brings the out-head back down
+  from it; a last vamp or tag usually goes out strong, sometimes brought
+  down. Each take shades it a little differently. A section's own words
+  win: `soft`, `quiet`, `bring it down`, or `big`, `loud`, `shout` in
+  its name, label or feel.
 - **The band builds through the tune.** Comping starts with two-note
   shells and a hit left out now and then, and opens into rootless
   voicings with the extensions as the tune goes on; time-keeping parts

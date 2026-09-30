@@ -2078,6 +2078,8 @@ def _heat(sec, off):
         # "dynamics ... transitions between soloists")
         at, length = turn[0], turn[1]
         return min(1.0, 0.32 + 0.6 * at / max(length - 1, 1))
+    if '_energy' in sec:
+        return min(1.0, sec['_energy'] + 0.1 * off / max(sec['bars'], 1))
     arc = sec.get('_arc', 0.5)
     return min(1.0, 0.3 + 0.55 * arc + 0.12 * off / max(sec['bars'], 1))
 

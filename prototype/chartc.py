@@ -3369,6 +3369,41 @@ def bar_notes(xml, div, transpose=0):
     return out
 
 
+def tune_shape(plans, labels):
+    """How hot the band plays each section, the shape of the whole tune,
+    in the moment (Matthew, 2026-09-30: "the shape of the whole tune"):
+    settled at the top, warmer through the heads, building with each
+    soloist, the shout at the peak, the out-head back down from it, a
+    last vamp or tag usually going out strong. The section's own words
+    win (soft, quiet, bring it down / big, loud, shout)."""
+    def soloing(pl):
+        return any(isinstance(t[1], str) and t[1].lower().startswith(
+            'solo') for l in labels for t in pl['texts'].get(l, ()))
+    solo_at = [i for i, pl in enumerate(plans) if soloing(pl)]
+    last_solo = solo_at[-1] if solo_at else None
+    n = len(plans)
+    for i, pl in enumerate(plans):
+        sec = pl['sec']
+        d = chartgroove._Dice('shape', sec['name'], i)
+        words = ' '.join(filter(None, [sec['name'], sec.get('label') or '',
+                                       sec.get('feel') or ''])).lower()
+        if last_solo is None or i < (solo_at[0] if solo_at else n):
+            e = 0.34 + 0.08 * min(i, 3)            # the heads warm up
+        elif soloing(pl):
+            e = 0.55
+        elif re.search(r'\bshout|\bsoli\b|\bclimax|\bbig\b', words):
+            e = 0.92
+        elif i >= n - 1 or sec.get('open'):
+            e = 0.82 if d() < 0.7 else 0.45        # out strong, or down
+        else:
+            e = 0.6 + 0.12 * d()                   # the out-head, back down
+        if re.search(r'\b(?:soft|quiet|gentle|down|pp?)\b', words):
+            e = 0.34
+        elif re.search(r'\b(?:loud|big|ff+|hot|burn)', words):
+            e = 0.92
+        sec['_energy'] = max(0.25, min(1.0, e + (d() - 0.5) * 0.08))
+
+
 def vamp_passes(sec):
     """How many times round an open section goes in the listen: about
     eight bars of it, two to four passes — and a take is a take: the
@@ -3546,6 +3581,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     for i, pl in enumerate(plans):
         # where each section sits in the tune: the band builds across it
         pl['sec']['_arc'] = i / max(len(plans) - 1, 1)
+    tune_shape(plans, labels)
     def written_ending(pl):
         """How the written parts end the tune: 'long' when one holds
         its last note half a bar or more, 'short' when they all end on
