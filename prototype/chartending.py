@@ -1199,10 +1199,12 @@ def _fill(bar, beat, t0, t1, seed):
 _TOMS = [('E', 5, 'normal'), ('D', 5, 'normal'), ('A', 4, 'normal')]
 _SOLO_IDEAS = ('motif', 'roll', 'toms', 'talk', 'space', 'triplets',
                'groove', 'poly', 'kick')
+# no stick clicks as a cue: clicks are for a count-off only (Matthew,
+# 2026-10-01)
 _CUES = ('three', 'count', 'setup', 'flam', 'swell', 'hammer',
-         'clicks', 'toms_walk', 'run_up', 'choke', 'flam_triplets')
+         'toms_walk', 'run_up', 'choke', 'flam_triplets')
 _CUE_LEN = {'three': 1, 'count': 2, 'setup': 1, 'flam': 1, 'swell': 2,
-            'hammer': 2, 'clicks': 2, 'toms_walk': 2, 'run_up': 1,
+            'hammer': 2, 'toms_walk': 2, 'run_up': 1,
             'choke': 1, 'flam_triplets': 1}
 
 
@@ -1477,12 +1479,6 @@ def _drum_cue(bar, beat, t0, t1, cue, d):
             bar.add(t0 + i * step, step // 2, ('u', G._SNARE, 96 + 8 * i))
             bar.add(t0 + i * step, step // 2, ('u', G._KICK, 92 + 8 * i))
         bar.add(t0 + 3 * step, step, ('u', G._CRASH, 116))
-    elif cue == 'clicks':
-        # stick clicks counting it off, the way a drummer counts a band in
-        step = (t1 - t0) // 4
-        for i in range(4):
-            bar.add(t0 + i * step, step // 2, ('u', ('C', 5, 'x'),
-                                              88 + 8 * i))
     elif cue == 'toms_walk':
         # the toms walking down, the kick under each
         step = (t1 - t0) // 4

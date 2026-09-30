@@ -921,7 +921,7 @@ All of these ride on a `from demo` line, after commas:
   way.
   The drummer's cues out of time are big and plain, never the same
   one twice running: three rising hits, a count, snare and kick
-  hammering four, stick clicks, the toms walking down, a run up the
+  hammering four, the toms walking down, a run up the
   toms, flams, a flam triplet, a choked crash and silence, a swell. Every
   player hears the same cue, and there's half a beat to a beat and a
   quarter of air after it so everyone gets ready; a band blowing
