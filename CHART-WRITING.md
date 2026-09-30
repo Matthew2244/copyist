@@ -372,8 +372,10 @@ installed where you choose and only when you ask:
 Copyist fetches each library from its own project, unpacks it, makes
 what its reader needs (WAV twins for FLAC, 16-bit copies of 24-bit
 files; ffmpeg is needed for the FLAC ones) and builds its own extras
-(tenor, saxello, trombone falls, choir, organ) from them, then writes
-CREDITS.txt on the shelf naming who made each. Every library is CC0,
+(tenor, saxello, vibraphone, trombone falls, organ) from them, then
+writes CREDITS.txt on the shelf naming who made each. Singers sing on
+the SoundFont's synth voice, sitting under the band; it comes with the
+band download. The sampled VocalSet choir is an optional extra. Every library is CC0,
 CC-BY or MIT. In the Mac app it's the Sounds group in Settings: each
 library with a switch, where it goes, and one button to install; on
 Windows, "The sound shelf" on the Settings tab.

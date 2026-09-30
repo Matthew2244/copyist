@@ -4720,6 +4720,14 @@ def check_cues_and_cuts():
     import chartaudio
     import chartc
     import chartread
+    import chartband
+    check("voices sing on the synth voice, not sampled choir (Matthew, "
+          "2026-09-30: 'I just don't like them at all')",
+          chartband.SYNTH_VOICE == 55 and not any(
+              f.startswith('voice') for frags, _v in chartband._SFZ_VOICES
+              for f in frags)
+          and any(fr == 'voice' and db <= -5 for fr, db, _p in
+                  chartband._SEATS))
     sec = chartc.section_header(
         "solos", ", 8 bars, till cue, drums cue, on cue, cut to shout", "t")
     check("header: till cue, drums cue, on cue cut to shout",

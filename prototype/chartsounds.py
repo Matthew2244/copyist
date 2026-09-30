@@ -90,16 +90,20 @@ CATALOG = [
      'folder': 'EPianos',
      'url': 'https://github.com/' + 'sfzinstruments/GregSullivan.E-Pianos/archive/refs/'
                  'heads/master.zip', 'band': True},
+    # optional since 2026-09-30: every singer plays the SoundFont's
+    # synth voice now (Matthew didn't like the sampled choir), so the
+    # band download no longer spends 2 GB on it
     {'key': 'choir', 'name': 'VocalSet 1.1',
-     'plays': 'the source of the choir (ah, oh, oo)', 'mb': 2080,
+     'plays': 'a sampled choir (ah, oh, oo), optional: the band sings '
+              'on the synth voice', 'mb': 2080,
      'license': 'CC-BY 4.0',
      'credit': 'VocalSet by Julia Wilkins, Prem Seetharaman, Alison '
                'Wahl and Bryan Pardo, CC-BY 4.0',
      'folder': 'VocalSet',
-     'url': 'https://zenodo.org/records/1442513/files/VocalSet11.zip',
-     'band': True},
+     'url': 'https://zenodo.org/records/1442513/files/VocalSet11.zip'},
     {'key': 'floor', 'name': 'MuseScore General SoundFont',
-     'plays': 'the floor under everything, and the jazz guitar',
+     'plays': 'the floor under everything, the jazz guitar, and every '
+              'singer (its synth voice)',
      'mb': 216, 'license': 'MIT',
      'credit': 'MuseScore General SoundFont, MIT (licence file alongside)',
      'folder': 'MuseScore_General.sf2',

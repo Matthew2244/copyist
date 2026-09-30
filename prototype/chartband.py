@@ -120,8 +120,9 @@ _SFZ_VOICES = (
      {'sus': _V + 'ViolinEnsSusVib.sfz',
       'stac': _V + 'ViolinEnsSpic.sfz',
       'pizz': _V + 'ViolinEnsPizz.sfz', 'trem': _V + 'ViolinEnsTrem.sfz'}),
-    (('voice.',),
-     {'sus': 'Copyist-Extras/choir-ah.sfz'}),
+    # no sampled voices: Matthew heard the VocalSet choir and asked for
+    # every voice back on a synth voice, not too loud (2026-09-30) —
+    # voices play the GM SoundFont's Synth Voice (program 55)
     (('pitched-percussion.glockenspiel',),
      {'sus': _V + 'Glockenspiel.sfz'}),
     (('pitched-percussion.vibraphone',),
@@ -178,12 +179,13 @@ _SEATS = (
     ('drum.group', -6.5, 0.0),
     ('drum.', -4.0, 0.45), ('metal.', -5.0, 0.45), ('wood.', -5.0, 0.45),
     ('rattle.', -6.0, 0.45),
-    ('voice', 1.0, 0.0),
+    ('voice', -7.0, 0.0),          # a synth voice sits under the band
     ('wind.', -1.0, -0.20), ('strings.', -1.0, -0.25),
 )
 
 
 _LEVEL_TARGET = 500.0     # every chair's heard loudness, before its seat (library units)
+SYNTH_VOICE = 55          # GM Synth Voice, 1-based
 _LEVELS = None            # cache: (voice, key, vel) -> loudness
 
 
@@ -857,6 +859,8 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         sound_count[sid] = nth + 1
         voices.append(shelf.voice(sid, part['percussion'],
                                   part.get('name', '')))
+        if sid.startswith('voice') or 53 <= part['program'] <= 55:
+            part['program'] = SYNTH_VOICE     # every singer, one sound
         if 'pluck.guitar' in sid and not 25 <= part['program'] <= 32:
             # a guitar with no program of its own would fall to the
             # piano: jazz guitar, or nylon for an acoustic
