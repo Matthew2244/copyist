@@ -397,7 +397,8 @@ def section_header(name, tail, loc):
     ('drums cue', 'cue from the singer'), and where it goes after
     ('then cut to coda', 'on cue, cut to shout')."""
     sec = {'name': name, 'bars': None, 'label': None, 'repeat': 0,
-           'open': False, 'vamp': False, 'cue_from': None, 'cut_to': None}
+           'open': False, 'vamp': False, 'cue_from': None, 'cut_to': None,
+           'cut_back': False, 'cut': False}
     lab = re.search(r',\s*label "([^"]*)"', tail)
     if lab:
         sec['label'] = lab.group(1)
@@ -411,7 +412,7 @@ def section_header(name, tail, loc):
         if not p:
             continue
         if p == 'on cue' and i < len(pieces) and re.match(
-                r'(?:then )?(?:cut|go|jump|skip) to ', pieces[i]):
+                r'(?:then )?(?:cut|go|jump|skip)\b', pieces[i]):
             p = 'on cue ' + pieces[i]       # "on cue, cut to shout"
             i += 1
         m = re.fullmatch(r'(\d+) bars?', p)
@@ -447,23 +448,23 @@ def section_header(name, tail, loc):
         if m:
             sec['cue_from'] = m.group(1).strip()
             continue
-        m = re.fullmatch(r'(on cue )?(?:then )?(?:cut|go|jump|skip) '
-                         r'to (?:the )?(?:letter )?([\w .-]+)', p)
+        m = re.fullmatch(r'(on cue )?(?:then )?(?:cut|go|jump|skip)'
+                         r'( back)?(?: to (?:the )?(?:letter )?'
+                         r'([\w .-]+))?', p)
         if m:
-            sec['cut_to'] = m.group(2).strip()
+            sec['cut'] = True
+            sec['cut_to'] = (m.group(3) or '').strip() or None
+            sec['cut_back'] = bool(m.group(2))
             if m.group(1):
                 sec['open'] = True
             continue
         fail(f"{loc}: section {name}: cannot read '{p}'. A section "
              "takes 'N bars', 'label \"...\"', how many times ('repeat "
              "3 times', 'vamp 4x'), 'till cue' or 'vamp till cue', who "
-             "cues it ('drums cue', 'cue from the singer'), and 'then cut "
-             "to <section>'")
+             "cues it ('drums cue', 'cue from the singer'), and where it "
+             "goes ('then cut to <section>', 'on cue, cut back to A')")
     if sec['bars'] is None:
         fail(f"{loc}: section {name} must declare its length")
-    if sec['cue_from'] or sec['cut_to']:
-        fail(f"{loc}: section {name}: who cues it and 'cut to' are on "
-             "the way, not built yet")
     if sec['open'] and sec['repeat']:
         fail(f"{loc}: section {name} is both till cue and "
              f"{sec['repeat']} times: pick one")
@@ -1152,6 +1153,11 @@ def parse_chart(path):
             cur['events'].append((int(m.group(1)), 'road',
                                   road_kind(m.group(2))))
             continue
+        m = re.match(r'at bar (\d+):\s*cut(?: back)?(?: to)? here$', s)
+        if m:
+            # where a cut without a name lands ("cut back to here")
+            cur['events'].append((int(m.group(1)), 'cutmark', ''))
+            continue
         # the tempo words said bare, the way a bandleader writes them;
         # they print and perform exactly as text "..." does
         m = re.match(r'at bar (\d+):\s*((?:(?:molto|poco|poco a poco)\s+)?'
@@ -1603,9 +1609,11 @@ def say_road(listen_path):
         mk = [chartaudio.roadmap_marks(m) for _n, m in m_]
         road = mk if road is None else [a | b for a, b in zip(road, mk)]
         ms = ms or m_
-    if not ms or not any(k & {'ds', 'dc'} for k in road or []):
+    if not ms or not any(k & {'ds', 'dc'} or any(
+            x.startswith('cut:') for x in k) for k in road or []):
         return None
-    walk = [n for n, _m in chartaudio.expand_roadmap(ms, road)
+    walk = [n for n, _m in chartaudio.walk_cuts(
+                chartaudio.expand_roadmap(ms, road), ms, road)
             if n.isdigit() and n != '0']
     runs = []
     for n in map(int, walk):
@@ -3173,8 +3181,110 @@ def bar_notes(xml, div, transpose=0):
 
 def vamp_passes(sec):
     """How many times round an open section goes in the listen: about
-    eight bars of it, two to four passes."""
-    return max(2, min(4, round(8 / max(sec['bars'], 1))))
+    eight bars of it, two to four passes — and a take is a take: the
+    cue comes a time sooner or later in the moment (Matthew,
+    2026-09-30: "live in the moment")."""
+    base = max(2, min(4, round(8 / max(sec['bars'], 1))))
+    d = chartgroove._Dice(sec['name'], 'passes')
+    r = d()
+    return max(2, min(5, base + (-1 if r < 0.25 else 1 if r > 0.75
+                                  else 0)))
+
+
+# what each chair plays to cue the band out of a till-cue section
+CUE_SOUND = {'drums': 'a fill into the next section',
+             'comp': 'a run up the next chord',
+             'bass': 'a walk up into the next root',
+             'horn': 'a pickup into the downbeat',
+             'voice': 'a sung pickup into the downbeat'}
+_CUE_WORDS = {'drummer': 'drums', 'drum': 'drums', 'kit': 'drums',
+              'singer': 'voice', 'vocalist': 'voice', 'vocals': 'voice',
+              'vocal': 'voice', 'voice': 'voice'}
+_LEADER = ('bandleader', 'band leader', 'leader', 'conductor', 'me',
+           'director', 'md')
+
+
+def road_cues(plans, band, labels, findings):
+    """Who cues each till-cue section, and where each cut goes. A cue
+    names a band part, an instrument, 'the drummer', 'the singer', or
+    the bandleader (a nod, no sound). A cut names a section by its name
+    or label, or lands on the nearest 'cut to here' mark that way."""
+    def inst(l):
+        return canonical_instrument(next(
+            b for b in band if b['label'] == l)['instrument'])
+    for i, pl in enumerate(plans):
+        sec = pl['sec']
+        who = (sec.get('cue_from') or '').lower()
+        sec['_cuer'], sec['_cue_role'] = None, None
+        if who and who not in _LEADER:
+            want = _CUE_WORDS.get(who, who)
+            hit = next((l for l in labels if l.lower() == who), None)
+            if hit is None and want == 'drums':
+                hit = next((l for l in labels if inst(l) == 'drums'), None)
+            if hit is None and want == 'voice':
+                hit = next((l for l in labels if 'voice' in (
+                    (SOUNDS.get(inst(l)) or ('', ''))[1])), None)
+            if hit is None:
+                hit = next((l for l in labels
+                            if inst(l) == canonical_instrument(who)), None)
+            if hit is None:
+                fail(f"section {sec['name']}: '{sec['cue_from']}' cues it, "
+                     "but nobody in the band is called that — name a "
+                     "part, 'the drummer', 'the singer' or the bandleader")
+            sec['_cuer'] = hit
+            sid = (SOUNDS.get(inst(hit)) or ('', ''))[1]
+            h = HORNS.get(inst(hit)) or {}
+            role = chartgroove.role_of(sid, h.get('clef', 'G'))
+            sec['_cue_role'] = 'voice' if 'voice' in sid else (
+                role if role in ('drums', 'comp', 'bass') else 'horn')
+        elif sec.get('open') and not who:
+            # nobody named: in the moment the drummer usually sets it up
+            drum = next((l for l in labels if inst(l) == 'drums'), None)
+            if drum and chartgroove._Dice(sec['name'], 'who cues')() < 0.6:
+                sec['_cuer_quiet'] = drum
+                sec['_cue_role'] = 'drums'
+        sec['_cut'] = None
+        if not sec.get('cut'):
+            continue
+        tgt = sec.get('cut_to')
+        if tgt:
+            j = next((k for k, q in enumerate(plans)
+                      if q['sec']['name'].lower() == tgt.lower()
+                      or (q['sec']['label'] or '').lower() == tgt.lower()),
+                     None)
+            if j is None:
+                fail(f"section {sec['name']}: cut to '{tgt}', and no "
+                     "section is called that")
+            land = plans[j]['start']
+            word = plans[j]['sec']['label'] or plans[j]['sec']['name']
+        else:
+            marks = [(q['start'] + b - 1) for q in plans
+                     for b, k, _t in q['sec']['events'] if k == 'cutmark']
+            here = pl['start']
+            got = [m for m in marks if (m < here if sec['cut_back']
+                                        else m > here + sec['bars'] - 1)]
+            if not got:
+                fail(f"section {sec['name']}: 'cut"
+                     f"{' back' if sec['cut_back'] else ''}' with no "
+                     "section named, and no 'at bar N: cut"
+                     f"{' back' if sec['cut_back'] else ''} to here' "
+                     "mark that way")
+            land = max(got) if sec['cut_back'] else min(got)
+            word = f"bar {land}"
+        back = land < pl['start']
+        sec['_cut'] = (land, word, back)
+        said = (('On cue, ' if sec.get('open') else '')
+                + ('back to ' if back else 'to ')
+                + ('the coda' if word.lower() == 'coda' else word))
+        said = said[0].upper() + said[1:]
+        for l in labels:
+            pl['texts'][l].append((sec['bars'], said))
+        if findings is not None:
+            findings.add(f"road map: after {sec['label'] or sec['name']}"
+                         + (" (on the cue)" if sec.get('open') else "")
+                         + f", the band cuts {'back ' if back else ''}to "
+                         f"{word}" + (" once, then carries on" if back
+                                      else ""))
 
 
 def _inject_fermata(piece):
@@ -3196,22 +3306,38 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     # ---- the ending: words and a fermata on the pages, the whole
     # performance in the listen (chartending)
     import chartending
-    for pl in plans:
-        if pl['sec'].get('open') and not pl['sec']['repeat']:
-            said = 'vamp till cue' if pl['sec'].get('vamp') \
-                else 'open, till cue'
-            for l in labels:
-                if not any(t == (1, said) for t in pl['texts'][l]):
-                    pl['texts'][l].append((1, said))
-            if findings is not None:
-                findings.add(f"listen: {pl['sec']['label'] or pl['sec']['name']}"
-                             f" is open — it goes round "
-                             f"{vamp_passes(pl['sec'])} times in the "
-                             "listen, till the cue on the gig")
     # the take: a band never plays the same take twice. The CLI sets a
     # fresh one every build unless the writer keeps one (listen_take)
     chartgroove.SALT = hdr.get('title', '') + (f"#take{TAKE}" if TAKE
                                                else '')
+    road_cues(plans, band, labels, findings)
+    for pl in plans:
+        if pl['sec'].get('open') and not pl['sec']['repeat']:
+            said = 'vamp till cue' if pl['sec'].get('vamp') \
+                else 'open, till cue'
+            cuer = pl['sec'].get('_cuer')
+            for l in labels:
+                word = said + (' (you cue)' if l == cuer else
+                               f' ({cuer} cues)' if cuer else '')
+                if not any(t == (1, word) for t in pl['texts'][l]):
+                    pl['texts'][l].append((1, word))
+            if findings is not None:
+                name = pl['sec']['label'] or pl['sec']['name']
+                how = CUE_SOUND.get(pl['sec'].get('_cue_role'),
+                                    'the band just goes on')
+                if cuer:
+                    cuer = ('drummer' if pl['sec']['_cue_role'] == 'drums'
+                            else 'singer' if pl['sec']['_cue_role']
+                            == 'voice' else cuer)
+                findings.add(f"listen: {name} is open — this take it goes "
+                             f"round {vamp_passes(pl['sec'])} times, till "
+                             "the cue on the gig; "
+                             + (f"the {cuer} cues it on the last time "
+                                f"round ({how})" if cuer else
+                                "nobody is named to cue it, so "
+                                + ("the drummer sets it up"
+                                   if pl['sec'].get('_cue_role') == 'drums'
+                                   else "the band just goes on")))
     if TAKE and findings is not None:
         findings.add(f"listen: take {TAKE} — everything the band made up "
                      "is played fresh this build. To hear this take again, "
@@ -3729,6 +3855,31 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             chartgroove.comp_shells(bar, state, chords, absbar, nxt)
         return bar.xml()
 
+    def next_chord(pi_):
+        """The first chord of whatever the band plays next: the cut's
+        landing, else the next section."""
+        sec_ = plans[pi_]['sec']
+        nxt = None
+        if sec_.get('_cut'):
+            nxt = next((q for q in plans
+                        if q['start'] == sec_['_cut'][0]), None)
+        elif pi_ + 1 < len(plans):
+            nxt = plans[pi_ + 1]
+        if nxt is None:
+            return None
+        for row in nxt['sec']['content']:
+            for _b, c in row:
+                if c is not None:
+                    return c
+        return None
+
+    def cue_range(label):
+        b_ = next(x for x in band if x['label'] == label)
+        h_ = HORNS.get(canonical_instrument(b_['instrument'])) or {}
+        if h_.get('comf'):
+            return max(h_['comf'][0], h_['fold'][0]), h_['comf'][1]
+        return 55, 79
+
     # ---- the lead, heard by the band: a first pass collects it. The
     # first keyboard comping is the one the other chord players (a
     # guitar beside a piano) voice around, as they would on the stand.
@@ -3901,6 +4052,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 bmeter = meter_at(meters, absbar)
                 pieces = []
                 bar_div0 = cur_div
+                if listen and off == sec['bars'] - 1 and \
+                        cur_pass == passes - 1 and sec.get('open') and \
+                        not sec['repeat'] and sec.get('_cue_role') == \
+                        'drums' and label in (sec.get('_cuer'),
+                                              sec.get('_cuer_quiet')):
+                    groove_state['cue_fill'] = True
                 # what the lead plays in this bar, heard by whoever is
                 # making something up under it (not by the lead itself)
                 # the bass walks through its approach notes and the
@@ -4439,6 +4596,29 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                    or p.lstrip().startswith(
                                        ('<direction', '<attributes'))
                                    for p in pieces))
+                last_time = (listen and off == sec['bars'] - 1
+                             and cur_pass == passes - 1)
+                if last_time and sec.get('_cut'):
+                    # where the band cuts to: the listen walks it
+                    pieces.append('      <direction><direction-type>'
+                                  '<words print-object="no">copyist cut '
+                                  f'{sec["_cut"][0]}</words>'
+                                  '</direction-type></direction>\n')
+                if last_time and sec.get('open') and not sec['repeat'] \
+                        and label == sec.get('_cuer') \
+                        and sec.get('_cue_role') != 'drums':
+                    cue = chartgroove.cue_bar(
+                        sec['_cue_role'], cur_div, bmeter, fifths, staves,
+                        horn['transpose'] if horn else 0,
+                        active_chord[0], next_chord(pi_),
+                        *(cue_range(label)), (hdr.get('title', ''),
+                                              label, absbar))
+                    at_ = max((k_ for k_, p_ in enumerate(pieces)
+                               if '<note' in p_), default=None)
+                    if cue and at_ is not None:
+                        pieces[at_] = cue
+                    elif cue:
+                        pieces.append(cue)
                 mnum = absbar if not cur_pass else f'{absbar}x{cur_pass}'
                 if listen and LEAD['collect'] is not None and (
                         absbar in demo_measures[label]

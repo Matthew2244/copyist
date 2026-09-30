@@ -241,6 +241,9 @@ def roadmap_marks(m):
         got.add('tocoda')
     if re.search(r'<sound [^>]*fine=', m):
         got.add('fine')
+    for n in re.findall(r'<words print-object="no">copyist cut (\d+)'
+                        r'</words>', m):
+        got.add('cut:' + n)
     for w in re.findall(r'<words[^>]*>([^<]*)</words>', m):
         for kind, rx in _RM_WORDS:
             if rx.search(w):
@@ -276,6 +279,41 @@ def _final_pass(ms):
             i += 1
             continue
         out.append((num, m))
+        i += 1
+    return out
+
+
+def walk_cuts(walk, ms, marks):
+    """A walked road map with the band's cuts taken: at a bar that says
+    cut to N, jump there. Forward, the band skips what is between (on
+    the last time round a repeated bar, never the first); back, it plays
+    from N to here once more and then carries on."""
+    cut_of = {}
+    for (n, _m), mk in zip(ms, marks):
+        for k in mk:
+            if k.startswith('cut:'):
+                cut_of[n] = k[4:]
+    if not cut_of:
+        return walk
+    nums = [n for n, _m in walk]
+    out, i, taken = [], 0, set()
+    while i < len(walk):
+        n = nums[i]
+        out.append(walk[i])
+        tgt = cut_of.get(n)
+        if tgt is not None:
+            later = next((j for j in range(i + 1, len(walk))
+                          if nums[j] == tgt), None)
+            if later is not None and n not in nums[i + 1:later]:
+                i = later
+                continue
+            if later is None and n not in taken and n not in nums[i + 1:]:
+                k = next((j for j in range(i) if nums[j] == tgt), None)
+                if k is not None:
+                    # back once, and walk it again cuts and all
+                    taken.add(n)
+                    i = k
+                    continue
         i += 1
     return out
 
@@ -459,7 +497,8 @@ def parse_score(path, only=None):
         pend_trem = {}                  # voice -> event index of a
                                         # two-note tremolo's first note
         fifths = 0
-        for num, meas in expand_roadmap(_measures(body), road):
+        _ms = _measures(body)
+        for num, meas in walk_cuts(expand_roadmap(_ms, road), _ms, road):
             if num.isdigit():
                 bars.setdefault(int(num), q0)
             dv = re.search(r'<divisions>(\d+)</divisions>', meas)

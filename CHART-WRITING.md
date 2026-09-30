@@ -136,6 +136,26 @@ recording convention, not a voicing.
   calls it. A word the header doesn't know gets a sentence listing
   what it takes.
 
+- **Say who cues it.** `vamp till cue, drums cue`, `till cue, cue from
+  the singer`, `the trumpet cues`, `piano cues`: any part, the drummer,
+  the singer, or the bandleader (a nod, no sound). The pages print
+  "vamp till cue (drums cues)" and the cue-giver's own page says "(you
+  cue)". In the listen the section goes round a different number of
+  times every take, and on the last time round the cue-giver plays the
+  cue: the drummer fills, a piano, guitar or vibes runs up the next
+  chord, the bass walks up into the next root, a horn or a singer plays
+  a pickup into the downbeat. Nobody named, and the drummer usually
+  sets it up anyway. Every read-aloud says who to listen for.
+
+- **Cut to anywhere.** `then cut to shout` or `on cue, cut to coda`
+  jumps to that section (by name or label) when this one's done,
+  skipping what's between. `then cut back to head` (or `on cue, cut
+  back to A`) goes back and plays from there once more, cuts and all,
+  then carries on. Leave the name off (`then cut back`) and it lands on
+  the nearest `at bar N: cut back to here` (or `cut to here`) mark that
+  way. The pages print "On cue, to shout" or "Back to head", and the
+  findings read the whole walk back in bar numbers.
+
 - **Write bar ranges however you'd say them.** `bars 2-9`, `bars 2 to
   9`, `bars 2 through 9` and a typed dash all work, and one bar is just
   `bar 5`.

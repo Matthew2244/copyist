@@ -1762,6 +1762,8 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         if state['hits'] is None and impl != 'mallets':
             _drummer_marks(bar, sec, off, absbar, heat, state)
         fills = {b: t for b, k, t in evs if k == 'fill'}
+        if state.pop('cue_fill', False):
+            fills[off + 1] = ''       # the drummer cues the band out
         if off + 1 in fills:
             # the roadmap said fill here: it happens, from the beat it
             # names (else the last two beats), and lands on the one
@@ -2665,6 +2667,68 @@ def _sing(notes, voice, d, lo=0, hi=127):
             out[i][3] = max(30, min(v2, 118))
             out[i][4] = tuple(arts)
     return [tuple(n) for n in out]
+
+
+def cue_bar(role, div, bmeter, fifths, staves, shift, now, nxt, lo, hi,
+            seed):
+    """The bar a player cues the band out of a till-cue section with,
+    the last time round (Matthew, 2026-09-30: "repeat until cue from
+    anywhere ... drums, any instrument or vocalist"). A chord player
+    holds the chord then runs up the next one, the bass walks up into
+    the next root, a horn or a singer plays a pickup into the downbeat.
+    The drummer's cue is a fill, played inside the groove itself."""
+    bar = Bar(div, bmeter, fifths, staves, shift=shift)
+    beat = div * 4 // bar.den
+    n = bar.num
+    tgt = nxt or now
+    if tgt is None:
+        return None
+    root = _root_pc(tgt)
+    run_at = max(n - 2, 0) * beat
+    d = _Dice(seed, 'cue')
+    if role == 'comp':
+        if now is not None and run_at:
+            for m in rootless_voicing(now, None):
+                bar.add(0, run_at, ('p', m, 72))
+        pcs = sorted({(root + i) % 12 for i in _tones(tgt)})
+        cur = _near(pcs[0], lo + 3)
+        steps = 6 if d() < 0.5 else 4
+        run = []
+        while len(run) < steps:
+            run.append(cur)
+            cur += 1
+            while cur % 12 not in pcs:
+                cur += 1
+        span = n * beat - run_at
+        for k, m in enumerate(run):
+            bar.add(run_at + k * span // steps, span // steps,
+                    ('p', min(m, hi), 78 + 4 * k))
+        return bar.xml()
+    if role == 'bass':
+        if now is not None and run_at:
+            bar.add(0, run_at, ('p', _near(_root_pc(now), 38), 90))
+        goal = _near(root, 40)
+        half = (n * beat - run_at) // 4
+        for k in range(4):
+            bar.add(run_at + k * half, half,
+                    ('p', goal - 4 + k, 88 + 3 * k))
+        return bar.xml()
+    # a horn or a singer: three eighths climbing the next chord's scale
+    # into its third, on the downbeat the band comes in on
+    third = (root + (3 if 3 in _tones(tgt) else 4)) % 12
+    goal = _near(third, (lo + hi) // 2)
+    sc = {(root + i) % 12 for i in _scale(tgt)}
+    below, m = [], goal - 1
+    while len(below) < 3:
+        if m % 12 in sc:
+            below.append(m)
+        m -= 1
+    e = beat // 2
+    for k, m in enumerate(reversed(below)):
+        bar.add(n * beat - (3 - k) * e, e,
+                ('p', max(min(m, hi), lo), 92 + 6 * k,
+                 ('accent',) if k == 2 else ()))
+    return bar.xml()
 
 
 def _blue_ok(c):

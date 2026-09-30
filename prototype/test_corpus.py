@@ -4709,6 +4709,83 @@ def check_mutes_sound():
           "harmon mute" in x and "<words>open</words>" in x)
 
 
+def check_cues_and_cuts():
+    """Matthew, 2026-09-30: "say vamp for x number of times ... repeat
+    any section x number of times ... cut to here ... repeat until cue
+    from anywhere: drums, any instrument or vocalist ... live in the
+    moment", then "also add a cut back to here". Who cues a till-cue
+    section plays the cue on the last time round; a cut jumps forward,
+    a cut back plays from there once more; every chair's read-aloud
+    says who to listen for."""
+    import chartaudio
+    import chartc
+    import chartread
+    sec = chartc.section_header(
+        "solos", ", 8 bars, till cue, drums cue, on cue, cut to shout", "t")
+    check("header: till cue, drums cue, on cue cut to shout",
+          sec['open'] and sec['cue_from'] == 'drums'
+          and sec['cut_to'] == 'shout' and not sec['cut_back'])
+    sec = chartc.section_header("shout", ", 8 bars, then cut back", "t")
+    check("header: then cut back (to the nearest mark)",
+          sec['cut'] and sec['cut_back'] and sec['cut_to'] is None)
+    ms = [(str(n), '') for n in range(1, 9)]
+    marks = [set() for _ in ms]
+    marks[2].add('cut:6')           # bar 3 cuts to 6
+    marks[6].add('cut:2')           # bar 7 cuts back to 2, once
+    got = [n for n, _ in chartaudio.walk_cuts(ms, ms, marks)]
+    check("the walk: forward past 4-5, back to 2 once, cutting again",
+          got == ['1', '2', '3', '6', '7', '2', '3', '6', '7', '8'],
+          str(got))
+    tmp = tempfile.mkdtemp()
+    path = os.path.join(tmp, "c.chart")
+    open(path, "w").write(
+        "title: C\nkey: F\nmeter: 4/4\ntempo: 130\nfeel: swing\n\n"
+        "band:\n  singer = voice\n  trumpet\n  piano\n  bass\n  drums\n"
+        "\nsection head, 4 bars\n  chords: F, F, C7, F\n"
+        "  at bar 1: cut back to here\n\n"
+        "section tag, 2 bars, vamp till cue, the singer cues\n"
+        "  chords: Gm7, C7\n\n"
+        "section skip, 2 bars\n  chords: Bb, Bb\n\n"
+        "section out, 2 bars, then cut back\n  chords: F, F\n\n"
+        "section end, 1 bars\n  chords: F\n")
+    # the tag cuts nowhere: out is reached by walking; so make one
+    open(path, "a").write("")
+    src = open(path).read().replace(
+        "vamp till cue, the singer cues",
+        "vamp till cue, the singer cues, on cue, cut to out")
+    open(path, "w").write(src)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(path, os.path.join(tmp, "b"))
+    out = buf.getvalue()
+    check("findings: the singer cues the tag, and the walk takes both cuts",
+          "the singer cues it on the last time round" in out
+          and "bars 1-6, then 9-10, then 1-6, then 9-11" in out,
+          out[-900:])
+    x = open(os.path.join(tmp, "b", "C — for listening.musicxml")).read()
+    sing = re.search(r'<part id="P1">(.*?)</part>', x, re.S).group(1)
+    last = [m for n, m in re.findall(
+        r'<measure number="([^"]*)">(.*?)</measure>', sing, re.S)
+        if n.startswith('6')][-1]
+    check("the singer sings a pickup on the tag's last time round, and "
+          "only then", last.count('<pitch>') == 3 and all(
+              '<pitch>' not in m for n, m in re.findall(
+                  r'<measure number="([^"]*)">(.*?)</measure>', sing,
+                  re.S) if n.startswith('6') and m != last))
+    old = sys.argv
+    sys.argv = ["chartread", path, "--part", "drums"]
+    buf = io.StringIO()
+    try:
+        with redirect_stdout(buf):
+            chartread.main()
+    finally:
+        sys.argv = old
+    said = buf.getvalue()
+    check("read-aloud: the drummer hears who cues and where the band goes",
+          "till the singer cues it" in said and '"Back to bar 1"' in said
+          and '"On cue, to out"' in said, said)
+
+
 def check_band_hears_the_lead():
     """Matthew, 2026-09-30, after the Lantern Waltz listen: "vibes play
     lines, not chords when a vibes player solos ... sounded like it
@@ -6503,6 +6580,7 @@ if __name__ == "__main__":
     check_swung_and_straight_funk()
     check_bandleader_round()
     check_band_hears_the_lead()
+    check_cues_and_cuts()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

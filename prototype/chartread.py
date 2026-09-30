@@ -176,6 +176,17 @@ def part_section(plan, label, chord_parts, figures=None):
     if kind == 'default':
         kind, arg = ('groove', '') if default_groove else ('tacet', None)
     lines = [section_heading(sec)]
+    cuer, role = sec.get('_cuer'), sec.get('_cue_role')
+    if sec.get('open') and cuer == label:
+        lines.append("It goes round till you cue the band out: on the "
+                     "last time round, " + chartc.CUE_SOUND[role] + ".")
+    elif sec.get('open') and cuer:
+        who = ('the drummer' if role == 'drums' else 'the singer'
+               if role == 'voice' else f'the {cuer}')
+        lines.append(f"It goes round till {who} cues it: listen for "
+                     + chartc.CUE_SOUND[role] + ".")
+    elif sec.get('open'):
+        lines.append("It goes round till the bandleader cues it.")
     texts = sorted(plan['texts'][label], key=lambda t: t[0])
     shows_chords = (label in chord_parts or any(
         isinstance(t[1], str) and t[1].lower().startswith('solo')
@@ -335,6 +346,7 @@ def main():
     groups = chartc.resolve_groups(band, chart.get('groups'))
     labels = [b['label'] for b in band]
     plans, total = chartc.build_plans(chart, band, groups, labels)
+    chartc.road_cues(plans, band, labels, None)   # who cues, where cuts go
     findings = chartdemo.Findings()
     meter = chartc.parse_meter(hdr.get('meter', '4/4'))
     resolved, horn_of, key = chartc.resolve_demo(chart, plans, band, labels,

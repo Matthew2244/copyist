@@ -417,8 +417,14 @@ bar — *Matt's Blues* opens with exactly this.
       horns: figure head hits A
       rhythm: groove
 
-The header is: `section <name>[, <N> bars][, label "<text>"][, repeat Nx]
-[, open]`.
+The header is: `section <name>, <N> bars` followed, comma by comma and in
+any order, by `label "<text>"`, how many times (`repeat Nx`, `repeat N
+times`, `play N times`, `xN`, `vamp N times`), `open` / `till cue` /
+`vamp till cue`, who cues it (`drums cue`, `cue from the singer`, `<part>
+cues`), and where it goes after (`then cut to <section>`, `on cue, cut to
+<section>`, `then cut back [to <section>]`). A cut without a name lands on
+the nearest `at bar N: cut to here` / `cut back to here` mark that way;
+a cut back is taken once.
 
 - **`name` is the rehearsal mark**, and it may be a letter, a number, or a
   word — the corpus uses all three styles (A–K in *Matt's Blues*, bar
