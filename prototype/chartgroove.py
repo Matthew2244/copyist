@@ -2755,6 +2755,15 @@ def backgrounds(bar, state, chords, voice, voices, lo, hi, style, off,
         cycle = shapes[int(d() * len(shapes)) % len(shapes)]
         hits = cycle if off % 2 == 0 else [(1.0, 2.0, 58)]
         hits = [(b, ln, v) for b, ln, v in hits if b <= n + 0.99]
+    elif style == 'punch':
+        # short punches on the changes, now and then pushed to the 'and'
+        # before: the brass kicks behind a soloist
+        d = _Dice(seed, 'punch', off)
+        hits = []
+        for b, c in chords:
+            at = b - 0.5 if b > 1.0 and d() < 0.35 else b
+            if d() < 0.85:
+                hits.append((at, 0.5, 66))
     else:
         hits = []
         for i, (b, c) in enumerate(chords):
@@ -2784,7 +2793,8 @@ def backgrounds(bar, state, chords, voice, voices, lo, hi, style, off,
         bar.add(int(round((b - 1) * beat)),
                 max(1, int(round(ln * beat)) - (beat // 8 if style ==
                                                 'riff' else 0)),
-                ('p', m, vel))
+                ('p', m, vel) if style != 'punch' else
+                ('p', m, vel, ('accent',)))
         state['bg_last'] = m
 
 

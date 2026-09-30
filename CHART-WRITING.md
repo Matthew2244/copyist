@@ -848,9 +848,12 @@ All of these ride on a `from demo` line, after commas:
   `horns: backgrounds`) and the page prints slashes under the changes
   while the listen makes them up the way a section does on the spot:
   each chord voiced across the horns on backgrounds, top horn on top,
-  held soft as pads. `backgrounds riff` plays one short figure the
-  whole section shares instead; `on cue` after it waits for the
-  second half.
+  held soft as pads. Left unsaid, the section decides how in the
+  moment, all together, fresh each take: pads, a riff, or short punches
+  on the changes, and sometimes laying out till the soloist's second
+  half. Say it and it's settled: `backgrounds pads`, `backgrounds riff`
+  (one short figure the whole section shares), `backgrounds punches`,
+  and `on cue` after any of them waits for the second half.
 - **Vamps.** `section vamp, 2 bars, vamp till cue` (or `open`, `open
   till cue`, `repeat till cue`) prints once between repeat signs with
   the words, and goes round a few times in the listen, about eight bars

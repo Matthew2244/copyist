@@ -4997,6 +4997,14 @@ def check_band_hears_the_lead():
         chartc.compile_chart(cc, os.path.join(tmp_c, "b2"))
     check("'cues: no' in the header: no automatic cues",
           "cued small" not in buf.getvalue())
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    chartgroove.backgrounds(b, {}, [(1.0, ('F', 0, '7', None)),
+                                    (3.0, ('B', -1, '7', None))],
+                            0, 3, 60, 79, 'punch', 0, 'song')
+    ns = [(t, ln, n) for t, (ln, ns_) in b.onsets.items() for n in ns_]
+    check("backgrounds as punches: short accented hits on the changes",
+          ns and all(ln <= 12 and n[3] == ('accent',) for _t, ln, n in ns),
+          str(ns))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

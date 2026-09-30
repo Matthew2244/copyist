@@ -3272,18 +3272,22 @@ def build_plans(chart, band, groups, labels):
                     solo_slashes = True
                     continue
                 m = re.fullmatch(r'backgrounds?(?:\s+(riffs?|pads?|'
-                                 r'ad lib))?', piece)
+                                 r'punch(?:es)?|hits|ad lib))?', piece)
                 if m:
                     # backgrounds with no notes are made up on the spot,
-                    # the way a jazz horn section does behind a solo
+                    # the way a jazz horn section does behind a solo;
+                    # unsaid, the section decides how in the moment
                     anns.append((1, 'backgrounds'))
-                    bg_style = 'riff' if (m.group(1) or '').startswith(
-                        'riff') else 'pads'
+                    w_ = (m.group(1) or '')
+                    bg_style = 'riff' if w_.startswith('riff') else \
+                        'punch' if w_.startswith(('punch', 'hits')) else \
+                        'pads' if w_.startswith('pad') else 'auto'
                     continue
                 if piece == 'on cue':
                     if anns and anns[-1][1] == 'backgrounds':
                         anns[-1] = (anns[-1][0], 'backgrounds on cue')
-                        bg_style = (bg_style or 'pads') + ' cue'
+                        bg_style = (bg_style or 'pads').replace(
+                            'auto', 'pads') + ' cue'
                     else:
                         anns.append((1, 'on cue'))
                     continue
@@ -3922,6 +3926,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         for the second half (Matthew, 2026-09-29: backgrounds can
         happen on the spot, like in jazz, or be written)."""
         style = plan['bg'][label]
+        if style == 'auto':
+            # the section's call, all horns together, fresh each take
+            d_ = chartgroove._Dice('bg', sec['name'], absbar // 1000)
+            r_ = d_()
+            style = 'pads' if r_ < 0.5 else 'riff' if r_ < 0.75 \
+                else 'punch'
+            if d_() < 0.4:
+                style += ' cue'        # in on the soloist's second half
         if 'cue' in style and off < sec['bars'] // 2:
             return None
         busy = sec.get('_busy')
@@ -3938,8 +3950,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         chords = chartgroove._chords_in(sec, off, governing)
         lo, hi = horn['comf'] if horn else (55, 79)
         chartgroove.backgrounds(bar, state, chords, k, len(who), lo, hi,
-                                'riff' if style.startswith('riff')
-                                else 'pads', off, sec['name'])
+                                style.split()[0], off, sec['name'])
         return bar.xml()
 
     # ---- where the band is inside a soloist's turn, for dynamics
