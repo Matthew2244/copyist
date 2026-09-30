@@ -5968,6 +5968,33 @@ def check_endings_in_the_moment():
           any(t < first_band - 1 for t in solo)
           and not any(16 <= e[0] < first_band - 0.2 for n in horns
                       for e in ev[n]))
+    pl = build("hold, alto cadenza, drums fill, last hit")
+    ev = {p["name"]: sorted(p["events"]) for p in pl["parts"]}
+    hit_t = max(e[0] for e in ev["bass"])
+    cad = [e[0] for e in ev["alto"] if 16 < e[0] < hit_t - 0.1]
+    others = [e[0] for n in ("piano", "organ", "bass")
+              for e in ev[n] if cad and min(cad) + 0.5 < e[0] < max(cad)]
+    fill = [e[0] for e in ev["drums"] if cad and max(cad) < e[0] < hit_t]
+    check("a cadenza: the alto alone, the band out, then the drum fill "
+          "and everyone on the hit",
+          len(cad) >= 6 and not others and len(fill) >= 4,
+          (len(cad), others[:3], len(fill)))
+    # a transposing horn noodles and takes its cadenza in the tune's
+    # key, at a speed a player plays (both were a major sixth off on
+    # alto, and in thirty-seconds)
+    bb = {10, 0, 2, 3, 5, 7, 9}           # B flat major, the last chord Bb6
+    for ending, who in (("hold, alto noodles, last hit", "alto"),
+                        ("hold, trumpet cadenza, drums fill, last hit",
+                         "trumpet")):
+        pl = build(ending)
+        ev = sorted(e for p in pl["parts"] if p["name"] == who
+                    for e in p["events"] if e[0] > 13)
+        inkey = sum(1 for e in ev if e[2] % 12 in bb)
+        gaps = [b[0] - a[0] for a, b in zip(ev, ev[1:])]
+        check(f"{who}'s ending line sounds in B flat, at a player's speed",
+              len(ev) >= 5 and inkey >= 0.85 * len(ev)
+              and sorted(gaps)[len(gaps) // 2] >= 0.15,
+              ([e[2] % 12 for e in ev][:10], sorted(gaps)[:3]))
     try:
         build("drums dictate, last hit", band="  piano\n  bass\n")
         wrong = None

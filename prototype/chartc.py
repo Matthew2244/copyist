@@ -3096,6 +3096,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
              for l in labels if l not in groups.get('rhythm', ())
              and horn_of.get(l) and horn_of[l].get('clef') != 'percussion'],
             key=lambda x: -x[2])
+        if sh.get('cadenza') == 'lead':
+            # 'cadenza' with nobody named: the top voice on the stand
+            sh['cadenza'] = sh['voices'][0][0] if sh['voices'] else None
         sh['keys'] = keys_l
         sh['auto'] = auto
         sh['song'] = song
@@ -3121,6 +3124,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                    or (pl['content'][l][0] == 'default'
                        and l in groups['rhythm'])]
         players += [l for l in sh['noodle'] + sh['fill'] + sh['gliss']
+                    + ([sh['cadenza']] if sh.get('cadenza') else [])
                     if l and l not in players]
         if sh.get('dictate'):
             players = list(labels)          # everyone is in the show

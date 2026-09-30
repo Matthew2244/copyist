@@ -725,6 +725,7 @@ All of these ride on a `from demo` line, after commas:
       ending: cold
       ending: button, drums tag "floor tom, floor tom, bass drum"
       ending: drums dictate "Bb13(#11), A13(b9), G13(#11), A7(#9,b13)", count in, last hit
+      ending: hold, alto cadenza, drums fill, last hit
 
   Only what you name happens: a hold with no hit rings and the band lets
   go together; no fill unless you ask. Nothing lands on the grid: the
@@ -741,8 +742,10 @@ All of these ride on a `from demo` line, after commas:
   dictate` (the drummer plays alone, the band hits a chord on the
   drummer's call, back and forth, the chords in quotes or the band's
   own bVI, V, IV, V altered of the key), `count in` (the conductor
-  counts the band back in on the last hit), and `as written` for
-  nothing added. A player the ending names comes in for
+  counts the band back in on the last hit), `<part> cadenza` (the band
+  cuts off and that player goes alone, free; a `drums fill` named after
+  it brings everyone back for the hit), and `as written` for nothing
+  added. A player the ending names comes in for
   it. The pages print the steps over the last bar with a fermata when
   the band holds.
 

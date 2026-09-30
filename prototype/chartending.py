@@ -183,6 +183,10 @@ def parse(text, labels, groups=None):
             if re.fullmatch(r'gliss(?:es|andos?)?(?: up)?', low):
                 steps.append(('gliss', who))
                 continue
+            if re.fullmatch(r'cadenzas?(?: alone)?|plays? alone|'
+                            r'alone', low):
+                steps.append(('cadenza', who))
+                continue
             m = re.fullmatch(r'dictates?(?:\s+"([^"]*)")?|'
                              r'dictated?(?:\s+"([^"]*)")?', rest, re.I)
             if m:
@@ -191,6 +195,9 @@ def parse(text, labels, groups=None):
             raise EndingError(f"'{raw.strip()}': a player's step is "
                               f"'{who} fills', '{who} noodles', "
                               f"'{who} falls' or '{who} tag'")
+        if re.fullmatch(r'(?:a |the )?cadenza(?: alone)?', w, re.I):
+            steps.append(('cadenza', 'lead'))     # the lead voice's
+            continue
         m = re.fullmatch(r'(?:the )?(?:drums?|drummer|kit) dictates?'
                          r'(?:\s+"([^"]*)")?', w, re.I)
         if m:
@@ -258,6 +265,12 @@ def shape(steps, labels=(), groups=None):
             arts[m] = art
     tag = next((a for k, a in steps if k == 'tag'), None)
     dictate = next((a for k, a in steps if k == 'dictate'), None)
+    cadenza = next((a for k, a in steps if k == 'cadenza'), None)
+    ki = [k for k, _ in steps]
+    # a fill named after the cadenza is the drummer bringing the band
+    # back in, alone, before the hit
+    fill_after = cadenza is not None and 'fill' in ki and \
+        ki.index('fill') > ki.index('cadenza')
     if dictate:
         hit = True                   # the band comes back in on a hit
     return {'held': held, 'hit': hit and 'stop' not in kinds,
@@ -268,6 +281,7 @@ def shape(steps, labels=(), groups=None):
             'noodle': [w for k, w in steps if k == 'noodle'],
             'gliss': [w for k, w in steps if k == 'gliss'],
             'arts': arts, 'tag': tag, 'dictate': dictate,
+            'cadenza': cadenza, 'fill_after': fill_after,
             'count': 'count' in kinds or bool(dictate),
             'hit_cue': any(k in ('hit', 'button', 'trash') and a == 'cue'
                            for k, a in steps)}
@@ -295,6 +309,8 @@ def words(steps):
             who, chs = a
             w = f"{who} dictate" + (f" ({chs})" if chs else
                                     " the band chords")
+        elif k == 'cadenza':
+            w = "cadenza alone" if a == 'lead' else f"{a} cadenza alone"
         elif k == 'count':
             w = "count in"
         elif k == 'roll' and a:
@@ -493,6 +509,13 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
     def bar_of(ticks):
         return G.Bar(DIV, (n16(ticks), 16), fifths, staves)
 
+    def beat_bar(ticks):
+        """A scratch bar in the song's own beat, for the improviser —
+        in the sixteenths the ending bars are counted in, it took every
+        beat for a sixteenth and noodled at thirty-second speed."""
+        return G.Bar(DIV, (max(1, int(round(ticks / beat))), den), fifths,
+                     staves)
+
     def rest(ticks):
         ticks = n16(ticks) * beat // 4
         return ('      <note>\n        <rest measure="yes"/>\n'
@@ -574,7 +597,8 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         let_go = L - late(beat * 0.45)              # no hit: loose release
         if sh['hit']:
             let_go = L - clock['breath'] - late(beat * 0.1)
-        fill_here = label in sh['fill'] or (drums and None in sh['fill'])
+        fill_here = (label in sh['fill'] or (drums and None in sh['fill'])) \
+            and not sh.get('fill_after')
         if drums:
             b.add(land, beat, ('u', G._CRASH, 104))
             b.add(land, beat, ('u', G._KICK, 96))
@@ -597,13 +621,16 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
             if label in sh['noodle']:
                 for p in pitches[:1]:            # a horn lands one note
                     b.add(land, beat * 9 // 10 - land, ('p', p, 94))
-                nb = bar_of(L)
-                lo = min(pitches) - 2
-                G.improvise(nb, {'sol_last': max(pitches)},
+                nb = beat_bar(L)
+                # improvised at concert pitch, written for the horn (it
+                # used to improvise the concert chord in the written
+                # range: a transposing horn noodled in the wrong key)
+                lo = min(pitches) - shift - 2
+                G.improvise(nb, {'sol_last': max(pitches) - shift},
                             [(1.0, chord)] if chord else [], None, '',
                             lo, lo + 19, 9000, 1, 2, seed, mode='solo')
                 line = [(t + late(beat * 0.08), min(ln, let_go - t),
-                         nn[1], min(nn[2], 82))
+                         nn[1] + shift, min(nn[2], 82))
                         for t, (ln, ns) in sorted(nb.onsets.items())
                         if beat <= t < let_go for nn in ns]
                 # one horn, one note at a time, over the held chord
@@ -631,6 +658,53 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
             b.add(late(beat * 0.05), num * beat - beat // 2,
                   ('p', p, 92, arts))
         last = attrs(num * beat) + b.xml()
+    if sh.get('cadenza') and not clock.get('dictate'):
+        # the band cuts off; one player alone, free; the drummer may
+        # bring everyone back; then the hit (Take Over's ending)
+        dd = G._Dice(song, 'cadenza')
+        clen = int(round(beat * (6 + 5 * dd()) * 4 / beat)) * beat // 4
+        b = bar_of(clen)
+        L = b.barlen
+        if label == sh['cadenza'] and role not in ('drums', 'perc'):
+            src = pitches or voice_for(chord)
+            if src:
+                top = max(src) - shift          # concert pitch
+                nb = beat_bar(L)
+                lo = top - 7
+                G.improvise(nb, {'sol_last': top},
+                            [(1.0, chord)] if chord else [], None, '',
+                            lo, lo + 17, 9100, 1, 2, seed, mode='solo')
+                raw = sorted((t, ln, nn[1], nn[2])
+                             for t, (ln, ns) in nb.onsets.items()
+                             for nn in ns if t < L - beat)
+                # free time: it takes off, then broadens into a long
+                # last note
+                line = []
+                for t, ln, m, v in raw:
+                    x = t / max(L, 1)
+                    tt = int(L * (0.08 + 0.72 * x ** 1.25))
+                    line.append((tt, max(beat // 3, ln), m + shift,
+                                 min(v + 6, 100)))
+                line = G._one_voice(line)
+                for at_, ln_, m_, v_ in line:
+                    b.add(int(at_), max(int(ln_), 1), ('p', m_, v_))
+                last_t = (line[-1][0] + line[-1][1]) if line else 0
+                end_note = (G._near(G._root_pc(chord), top) if chord
+                            else top) + shift
+                b.add(min(int(last_t), L - beat), beat,
+                      ('p', end_note, 88))
+        cad = attrs(L) + (b.xml() if b.onsets else rest(L))
+        ins = []
+        ins.append(cad)
+        if sh.get('fill_after'):
+            fb = bar_of(2 * beat)
+            if drums:
+                _fill(fb, beat, 0, fb.barlen, seed)
+            ins.append(attrs(2 * beat) + (fb.xml() if fb.onsets
+                                          else rest(2 * beat)))
+        # the cadenza goes before the hit, after any hold
+        k = len(extras) - (1 if sh['hit'] and extras else 0)
+        extras[k:k] = ins
     if sh['tag']:
         who, pieces = sh['tag']
         length = 3 * beat
@@ -760,6 +834,9 @@ def band_choice(feel, song, has_keys, has_horns, written=None,
                     'hiphop', 'secondline', 'rock')
     if 'ballad' in traits or 'ballad' in (feel or '').lower():
         steps = [('rit', None), ('hold', None)]
+        if has_horns and r > 0.8:
+            # the lead horn takes a cadenza, the band comes back to end
+            steps += [('cadenza', 'lead'), ('hit', 'cue')]
     elif not (feel or '').strip():
         # no feel written: the ending any band would reach for — land
         # and hold, maybe a hit — never a funk band's stop
