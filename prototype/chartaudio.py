@@ -884,6 +884,11 @@ def _warp(q, swings):
         return q
     base = math.floor(q / unit) * unit
     f = (q - base) / unit
+    if min(abs(f - 1 / 3), abs(f - 2 / 3)) < 0.02:
+        # a written triplet is already swing: it stays where it's
+        # written (warping it put a soloist's triplet turn at 0.47 and
+        # 0.8 of the beat — lopsided, not triplets)
+        return q
     if f <= 0.5:
         f = f * (ratio / 0.5)
     else:

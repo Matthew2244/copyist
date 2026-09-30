@@ -304,5 +304,9 @@ Project, Hochschule für Musik Weimar): contains information from the Weimar
 Jazz Database, which is made available under the ODbL.
 `prototype/data/timing_stats.json` (the swing ratio at each tempo) comes from
 `prototype/learn_timing.py` over the Jazz Trio Database v0.2 (Huw Cheston et
-al., University of Cambridge), MIT licence. Only the derived numbers
+al., University of Cambridge), MIT licence.
+`prototype/data/lefthand_stats.json` comes from the same database's piano MIDI.
+`prototype/data/drum_stats.json` comes from `prototype/learn_drums.py` over the
+jazz swing grooves and fills of the Groove MIDI Dataset (Gillick, Roberts,
+Engel et al., Google Magenta), CC BY 4.0. Only the derived numbers
 ship here, not the transcriptions.

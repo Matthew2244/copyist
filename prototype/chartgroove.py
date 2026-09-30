@@ -415,73 +415,127 @@ _KICK = ('F', 4, 'normal')
 _CRASH = ('A', 5, 'x')
 
 
-_RIDE_BARS = {
-    # a drummer's ride vocabulary in swing, beats 1-based; (beat, weight)
-    'classic':  [(1, 0), (2, 1), (2.5, -1), (3, 0), (4, 1), (4.5, -1)],
-    'quarters': [(1, 0), (2, 1), (3, 0), (4, 1)],
-    'skip_all': [(1, 0), (1.5, -1), (2, 1), (2.5, -1), (3, 0), (3.5, -1),
-                 (4, 1), (4.5, -1)],
-    'lift_3':   [(1, 0), (2, 1), (2.5, -1), (3, 0), (3.5, -1), (4, 1)],
-    'lay_2':    [(1, 0), (1.5, -1), (2, 1), (3, 0), (4, 1), (4.5, -1)],
-    'triplet4': [(1, 0), (2, 1), (2.5, -1), (3, 0), (4, 1),
-                 (4 + 1 / 3, -2), (4 + 2 / 3, -1)],
-}
+def _load_drums():
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               'data', 'drum_stats.json')) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+_DRUM = _load_drums()
+_SLOT_NAMES = ['1', '1t', '1&', '2', '2t', '2&', '3', '3t', '3&', '4',
+               '4t', '4&']
+
+
+def _slot_beat(sl):
+    """A swing-grid slot -> the beat it's written on: a swung 'and' as
+    the half (the warp swings it), a middle triplet as the third."""
+    return sl // 3 + 1 + (0, 1 / 3, 0.5)[sl % 3]
 
 
 def _swing_time(bar, absbar, heat, busy, feather=True):
-    """Swing time the way a drummer keeps it: the ride changes from
-    bar to bar (the classic ding, ding-ga, straight quarters, skips on
-    every beat when it burns, a triplet into the next bar, the bell now
-    and then), the hi-hat foot usually on 2 and 4 but not always, the
-    kick feathered or not (Matthew, 2026-09-29: "the ride pattern on the
-    drums doesn't have to be the same ... same with the hihat on two and
-    four")."""
+    """Swing time the way real drummers keep it (learn_drums.py over the
+    Groove MIDI Dataset's jazz drummers): the ride from their own
+    vocabulary at their own frequencies — the classic ding, ding-ga in
+    two bars of five, the rest its variations; the snare comping in
+    ghosts and the odd accent, busier as the band heats up and quieter
+    under a busy soloist; the kick feathered or dropping on 1, 3 and the
+    ands; the hi-hat foot on 2 and 4, an 'and' now and then (Matthew,
+    2026-09-29: "the ride pattern on the drums doesn't have to be the
+    same ... same with the hihat on two and four ... everyone should be
+    able to react")."""
     beat = bar.div * 4 // bar.den
     half = beat // 2
     d = _Dice('ride', absbar)
     heat = 0.55 if heat is None else heat
-    pool = ['classic', 'classic', 'lay_2', 'lift_3', 'quarters']
-    if heat > 0.55:
-        pool += ['skip_all', 'triplet4', 'lift_3']
-    if heat < 0.4 or (busy is not None and busy > 0.7):
-        pool += ['quarters', 'classic']
-    pick = pool[int(d() * len(pool)) % len(pool)]
+    stats = _DRUM or {}
+    pats = [(tuple(p['slots']), p['share']) for p in
+            stats.get('ride_patterns', []) if 0 in p['slots']]
+    if not pats:
+        pats = [((0, 3, 5, 6, 9, 11), 0.5), ((0, 3, 6, 9), 0.1)]
+    weights = []
+    for sl, w in pats:
+        n = len(sl)
+        if heat > 0.6 and n >= 7:
+            w *= 2.5                     # it burns: skips everywhere
+        if (heat < 0.4 or (busy is not None and busy > 0.7)) and n <= 5:
+            w *= 1.8                     # it lays back
+        weights.append((sl, w))
+    pick = _roll(weights, d)
     base = int(62 + 16 * heat)
-    bell = d() < 0.08 + 0.1 * heat
-    for b, w in _RIDE_BARS[pick]:
+    bell = d() < 0.06 + 0.08 * heat
+    for sl in pick:
+        b = _slot_beat(sl)
         if b > bar.num + 0.99:
             continue
         at = int(round((b - 1) * beat))
-        # the skip notes sit under the beats; 2 and 4 speak a little
-        v = base + (6 if w == 1 else -14 if w < 0 else 0) + \
+        on2_4 = sl % 3 == 0 and (sl // 3) % 2 == 1
+        v = base + (6 if on2_4 else -14 if sl % 3 else 0) + \
             int((d() - 0.5) * 8)
-        cym = _BELL if bell and b in (1, 3) else _RIDE
-        ln = beat // 3 if w < 0 else half
+        cym = _BELL if bell and sl in (0, 6) else _RIDE
+        ln = beat // 3 if sl % 3 else half
         bar.add(at, ln, ('u', cym, max(30, min(v, 118))))
-    # the hi-hat foot: 2 and 4 mostly; sometimes only 4, sometimes all
-    # four, a splash on the and of 4 when it's hot, lighter when soft
+    # the hi-hat foot: 2 and 4 mostly; sometimes only 4, all four when
+    # it's hot, and now and then an 'and' dropped in
     r = d()
-    if r < 0.12:
+    if r < 0.1:
         feet = [4]
-    elif r < 0.2 and heat > 0.5:
+    elif r < 0.18 and heat > 0.5:
         feet = [1, 2, 3, 4]
     else:
         feet = [2, 4]
+    if d() < 0.15 and bar.num >= 4:
+        feet.append(1.5 if d() < 0.5 else 3.5)
     hv = int(54 + 16 * heat)
     for b in feet:
-        if b <= bar.num:
-            bar.add((b - 1) * beat, half, ('u', _HATF,
-                                          hv + int((d() - 0.5) * 8)))
+        if b <= bar.num + 0.5:
+            bar.add(int(round((b - 1) * beat)), half,
+                    ('u', _HATF, hv + int((d() - 0.5) * 8)))
     if heat > 0.65 and d() < 0.2 and bar.num >= 4:
         bar.add(3 * beat + half, half, ('u', ('G', 5, 'circle-x'),
                                         int(56 + 14 * heat)))
-    if feather:
+    # the kick: feathered quarters, or a few placed kicks
+    if feather and d() < 0.35:
         for b in range(bar.num):
-            bar.add(b * beat, half, ('u', _KICK, 22 + int(d() * 10)))
-    spot = int(d() * 5)
-    if spot < 2 and bar.num >= 4:
-        bar.add((1 + 2 * spot) * beat + half, half,
-                ('u', _SNARE, int(44 + 14 * heat)))
+            bar.add(b * beat, half, ('u', _KICK, 26 + int(d() * 12)))
+    else:
+        kn = _roll([(0, 0.33 + 0.2 * (1 - heat)), (1, 0.2), (2, 0.25 * heat
+                                                           + 0.1),
+                    (3, 0.15 * heat)], d)
+        ks = [(_SLOT_NAMES.index(k), w) for k, w in
+              stats.get('kick_slot', {'1': .22, '3': .18, '3&': .11,
+                                      '4&': .1}).items()
+              if _SLOT_NAMES.index(k) % 3 != 1]
+        used = set()
+        for _ in range(kn):
+            sl = _roll(ks, d)
+            if sl in used or _slot_beat(sl) > bar.num + 0.99:
+                continue
+            used.add(sl)
+            bar.add(int(round((_slot_beat(sl) - 1) * beat)), half,
+                    ('u', _KICK, int(50 + 18 * heat + (d() - 0.5) * 10)))
+    # the snare comps: ghosts, and an accent now and then
+    sn = _roll([(int(k), w) for k, w in stats.get(
+        'snare_per_bar', {'0': .25, '1': .11, '2': .17, '3': .12,
+                          '4': .1}).items() if int(k) <= 5], d)
+    sn = int(round(sn * (0.4 + 0.9 * heat)))
+    if busy is not None and busy > 0.6:
+        sn //= 2                         # the soloist is talking
+    ss = [(_SLOT_NAMES.index(k), w) for k, w in
+          stats.get('snare_slot', {'2&': .1, '4&': .1, '1&': .1,
+                                   '3&': .1, '2': .1}).items()]
+    used = set()
+    for _ in range(sn):
+        sl = _roll(ss, d)
+        if sl in used or _slot_beat(sl) > bar.num + 0.99:
+            continue
+        used.add(sl)
+        accent = d() < 0.18 + 0.2 * heat
+        v = int(64 + 20 * heat) if accent else int(30 + 16 * d())
+        bar.add(int(round((_slot_beat(sl) - 1) * beat)),
+                beat // 3 if sl % 3 else half, ('u', _SNARE, v))
 
 
 def _drums(bar, absbar, feel, hits, heat=None, busy=None):

@@ -5728,6 +5728,21 @@ def check_band_plays_like_pros():
     check("swing is wider slow and flatter fast, like real trios "
           "(about a triplet near 180)",
           r[0] > r[1] > r[2] and 1.8 <= r[1] <= 2.3, r)
+    # the drummer's ride, from real drummers' vocabulary: the classic
+    # ding, ding-ga the most common bar, never the only one
+    import collections as _co
+    rides = _co.Counter()
+    for b in range(2, 30):
+        on = tuple(sorted({round(e[0] - 4 * b, 2) for e in ev["drums"]
+                           if e[2] in (51, 53) and 4 * b <= e[0]
+                           < 4 * b + 4}))
+        rides[on] += 1
+    classic = [k for k in rides if {0.0, 1.0, 2.0, 3.0} <= set(k)
+               and len(k) == 6]
+    check("the ride plays the real drummers' vocabulary: ding, ding-ga "
+          "most, and at least three different bars",
+          len(rides) >= 3 and classic and rides.most_common(1)[0][0]
+          in classic, rides.most_common(4))
     # a chart with no feel: a two-feel that moves — root then fifth,
     # or a step into a new chord; never the root struck twice a bar
     open(os.path.join(tmp, "n.chart"), "w").write(

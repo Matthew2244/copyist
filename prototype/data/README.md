@@ -19,3 +19,8 @@ lefthand_stats.json — learn_lefthand.py over the Jazz Trio Database
 v0.2 piano MIDI (Cheston et al.), MIT licence (automatic transcriptions,
 so note counts per chord are rough; placement and density are the
 numbers used)
+
+drum_stats.json — learn_drums.py over the jazz swing grooves and fills
+of the Groove MIDI Dataset (Jon Gillick, Adam Roberts, Jesse Engel et
+al., Google Magenta), CC BY 4.0,
+https://magenta.tensorflow.org/datasets/groove
