@@ -725,6 +725,8 @@ All of these ride on a `from demo` line, after commas:
       ending: cold
       ending: button, drums tag "floor tom, floor tom, bass drum"
       ending: drums dictate "Bb13(#11), A13(b9), G13(#11), A7(#9,b13)", count in, last hit
+      ending: drums dictate, last hit, max roach ending
+      ending: hold, count in, unison figure, last hit
       ending: hold, alto cadenza, drums fill, last hit
 
   Only what you name happens: a hold with no hit rings and the band lets
@@ -743,7 +745,13 @@ All of these ride on a `from demo` line, after commas:
   dictate` (the drummer plays alone, the band hits a chord on the
   drummer's call, back and forth, the chords in quotes or the band's
   own bVI, V, IV, V altered of the key), `count in` (the conductor
-  counts the band back in on the last hit), `<part> cadenza` (the band
+  counts the band back in on the last hit; with no count, the drummer
+  cues the band onto the last chord and everyone goes for it until the
+  drummer cues the hit), `unison figure` (after a count-off the whole
+  band plays one line together, each in their own octave, and the
+  drummer kicks it their own way), `max roach ending` or `drummer's
+  last say` (the drummer's own last word after everyone's done, always
+  landing on the kick), `<part> cadenza` (the band
   cuts off and that player goes alone, free; a `drums fill` named after
   it brings everyone back for the hit), and `as written` for nothing
   added. A player the ending names comes in for

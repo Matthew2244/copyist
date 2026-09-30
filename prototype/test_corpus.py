@@ -6000,6 +6000,55 @@ def check_endings_in_the_moment():
               len(ev) >= 5 and inkey >= 0.85 * len(ev)
               and sorted(gaps)[len(gaps) // 2] >= 0.15,
               ([e[2] % 12 for e in ev][:10], sorted(gaps)[:3]))
+    # the drummer takes their time and never plays the same thing twice;
+    # with no count, the band holds the last chord hard until the cue
+    pl = build("drums dictate, last hit, drums tag")
+    ev = {p["name"]: sorted(p["events"]) for p in pl["parts"]}
+    tr = sorted({round(e[0], 2) for e in ev["trumpet"] if e[0] >= 16})
+    # a band chord starts after a stretch of silence (the held last
+    # chord shakes, so its notes run together)
+    band_on = [t for i, t in enumerate(tr) if i == 0 or t - tr[i - 1] > 0.8]
+    if band_on[-1] != tr[-1]:
+        band_on.append(tr[-1])     # the band played on through the cue
+    edges = [16.0] + band_on[:5]
+    shapes = []
+    for a_, b_ in zip(edges, edges[1:]):
+        seg = [e for e in ev["drums"] if a_ + 1.2 < e[0] < b_ - 0.2]
+        shapes.append(tuple(sorted({e[2] for e in seg})) +
+                      (len(seg) // 6,))
+    check("the drummer's stretches alone are all different",
+          len(shapes) >= 4 and len(set(shapes)) >= len(shapes) - 1,
+          shapes)
+    piano_tail = [e for e in ev["piano"] if band_on[4] + 0.5 < e[0]
+                  < band_on[-1] - 0.1]
+    check("no count: everyone goes for it on the held last chord",
+          len(piano_tail) >= 12, len(piano_tail))
+    kit = [e for e in ev["drums"] if e[0] > band_on[-1] + 0.3]
+    check("the drummer's tag after the hit lands on the kick",
+          kit and kit[-1][2] == 36, [e[2] for e in kit][-4:])
+    import chartending as _ce
+    import chartgroove as _cg
+    dd = _cg._Dice("tags")
+    check("every tag the band makes ends on the kick",
+          all(_ce.band_tag(dd)[-1] == "bass drum" for _ in range(40)))
+    # a count-off and a unison figure: everyone on the same line, each
+    # in their own octave; the drummer kicks it and goes off in the gaps
+    pl = build("hold, count in, unison figure, last hit, max roach ending")
+    ev = {p["name"]: sorted(p["events"]) for p in pl["parts"]}
+    hit_t = max(e[0] for e in ev["bass"])
+
+    def fig(n):
+        return [e for e in ev[n] if hit_t - 8.2 < e[0] < hit_t - 0.1]
+    rhythm = {n: [round(e[0], 1) for e in fig(n)] for n in ("bass", "bone")}
+    pcs = {n: [e[2] % 12 for e in fig(n)] for n in ("bass", "bone")}
+    check("the unison figure: the bass and trombone play one line, "
+          "together", len(rhythm["bass"]) >= 5 and pcs["bass"] == pcs["bone"]
+          and all(abs(a - b) < 0.1 for a, b in zip(rhythm["bass"],
+                                                  rhythm["bone"])),
+          (rhythm, pcs))
+    kit = [e for e in ev["drums"] if e[0] > hit_t + 0.3]
+    check("'max roach ending' is the drummer's last say, on the kick",
+          kit and kit[-1][2] == 36)
     try:
         build("drums dictate, last hit", band="  piano\n  bass\n")
         wrong = None
