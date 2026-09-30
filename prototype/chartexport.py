@@ -221,7 +221,23 @@ def write_midi(listen_path, folder, title):
              + title.encode('utf-8')),
             (0, b"\xFF\x58\x04" + bytes([n0, max(d0.bit_length() - 1, 0),
                                          0x18, 0x08]))]
-    for q, bpm in tempos:
+    tmap = dict(tempos)
+
+    def bpm_at(q):
+        b = tempos[0][1]
+        for tq, tb in tempos:
+            if tq <= q + 1e-9:
+                b = tb
+        return b
+    # a fermata holds time just before its note lets go: in MIDI that
+    # is the half beat before the hold slowed down by exactly the
+    # held time, then back in tempo
+    for hq, extra in plan.get('holds', ()):
+        w = 0.5
+        base = bpm_at(hq)
+        tmap[round(hq - w, 6)] = base * w / (w + extra)
+        tmap.setdefault(round(hq, 6), base)      # and back in tempo
+    for q, bpm in sorted(tmap.items()):
         cond.append((tick(q), b"\xFF\x51\x03"
                      + struct.pack(">I", int(60_000_000 / bpm))[1:]))
     tracks = [smf._track(cond)]

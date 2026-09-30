@@ -5623,6 +5623,21 @@ def check_exports_ireal_midi_chords():
     sheet = open(chartexport.write_chords(ch, tmp, "Out")[0]).read()
     check("a chord sheet with barlines, the key said in words",
           "key of G minor" in sheet and "| C7 F7 |" in sheet, sheet[:200])
+    # a fermata held in the listen is held in the MIDI too
+    fp = os.path.join(tmp, "f.chart")
+    open(fp, "w").write(
+        "title: Held\nkey: C\nmeter: 4/4\ntempo: 120\n\nband:\n"
+        "  piano\n  bass\n\nsection A, 4 bars\n  chords: C, F, G, C\n"
+        "  at bar 2: fermata\n")
+    with redirect_stdout(io.StringIO()):
+        ff = chartc.compile_chart(fp, os.path.join(tmp, "fb"))
+    fl = next(f for f in ff if f.endswith("for listening.musicxml"))
+    fr = open(chartexport.write_midi(fl, tmp, "Held")[0], "rb").read()
+    tempos = [int.from_bytes(fr[i + 3:i + 6], "big")
+              for i in range(len(fr) - 6) if fr[i:i + 3] == b"\xff\x51\x03"]
+    check("a fermata slows the MIDI tempo map, then it's back in time",
+          len(tempos) >= 3 and max(tempos) > tempos[0]
+          and tempos[-1] == tempos[0], tempos)
     shutil.rmtree(tmp, ignore_errors=True)
 
 
