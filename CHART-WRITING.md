@@ -742,6 +742,10 @@ All of these ride on a `from demo` line, after commas:
       ending: hold, count in, unison figure, last hit
       ending: hold, alto cadenza, drums fill, last hit
 
+  An ending is out of time unless the chart puts it in time: the
+  drummer's stretches alone, a fill in a fermata, a line over the held
+  chord all push and pull in the player's own time; a count-off and the
+  figure after it are in time because the chart says so.
   Only what you name happens: a hold with no hit rings and the band lets
   go together; no fill unless you ask. Nothing lands on the grid: the
   hold lasts as long as it feels, a little different in every tune,

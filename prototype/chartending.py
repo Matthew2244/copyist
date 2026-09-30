@@ -650,6 +650,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
             for at_, ln_, m_, v_ in G._one_voice(line):
                 b.add(int(at_), max(int(min(ln_, stop - at_)), 1),
                       ('p', m_, v_))
+            _rubato(b, beat // 2, stop, dm)
         else:
             _trash_pitched(b, beat, vs, role, stop)
 
@@ -803,6 +804,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                         idea = _pick(dd, pool, last_idea)
                         last_idea = idea
                         _drum_idea(b, beat, c0, c1, idea, dd)
+                    _rubato(b, 0, end, dd)
                     # soft and patient early, the big one last
                     _scale_vel(b, 0, end, 0.86 + 0.24 * arc)
                     _drum_cue(b, beat, L - cl, L, cue, dd)
@@ -899,6 +901,9 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                 _roll(b, beat, beat // 2, let_go, G._SNARE, 48, 110)
             elif fill_here:
                 _fill(b, beat, let_go - clock['fill_len'], let_go, seed)
+                # in the drummer's own time, broadening into the cue
+                _rubato(b, let_go - clock['fill_len'], let_go - beat // 8,
+                        G._Dice(song, 'fill rubato'))
             elif clock['drummer'] > 0.45:
                 # left free, the drummer chooses: here a soft swell on
                 # the cymbal, into the cue when there is one
@@ -927,6 +932,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                 # one horn, one note at a time, over the held chord
                 for at_, ln_, m_, v_ in G._one_voice(line):
                     b.add(int(at_), max(int(ln_), 1), ('p', m_, v_))
+                _rubato(b, beat, let_go, G._Dice(song, label, 'noodle time'))
             elif sh['trash']:
                 go_for_it(b, pitches, land, let_go)
             else:
@@ -1138,6 +1144,34 @@ def _drum_idea(bar, beat, t0, t1, idea, d):
                               int(78 + 30 * (t - t0) / span)))
             if i % 3 == 0:
                 bar.add(t, step, ('u', G._KICK, 84))
+
+
+def _rubato(bar, t0, t1, d):
+    """Out of time, the way an ending is played unless the chart says
+    otherwise (Matthew, 2026-09-30: "an ending is not in time"): the
+    notes in the stretch keep their order and their shape, but the
+    player pushes and pulls — a curve through the whole stretch and a
+    little give on every note."""
+    span = t1 - t0
+    if span <= 0:
+        return
+    push = (d() - 0.5) * 0.5                 # ahead early, or held back
+    moved = {}
+    for t in sorted(bar.onsets):
+        if not t0 <= t < t1:
+            moved.setdefault(t, bar.onsets[t])
+            continue
+        x = (t - t0) / span
+        y = x + push * x * (1 - x) * 2
+        y += (d() - 0.5) * 0.02
+        nt = t0 + int(max(0.0, min(0.999, y)) * span)
+        ln, ns = bar.onsets[t]
+        if nt in moved:
+            moved[nt] = (max(moved[nt][0], ln), moved[nt][1] + ns)
+        else:
+            moved[nt] = (ln, ns)
+    bar.onsets.clear()
+    bar.onsets.update(moved)
 
 
 def _scale_vel(bar, t0, t1, k):

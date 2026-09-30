@@ -6074,6 +6074,11 @@ def check_endings_in_the_moment():
         seg = [e for e in ev["drums"] if a_ + 1.2 < e[0] < b_ - 0.2]
         shapes.append(tuple(sorted({e[2] for e in seg})) +
                       (len(seg) // 6,))
+    loose = [e[0] for e in ev["drums"]
+             if 16 < e[0] < band_on[0] - 1.2
+             and abs(e[0] * 4 - round(e[0] * 4)) > 0.06]
+    check("the drummer's solo is out of time, the way an ending is played",
+          len(loose) >= 3, len(loose))
     check("the drummer's stretches alone are all different",
           len(shapes) >= 4 and len(set(shapes)) >= len(shapes) - 1,
           shapes)
