@@ -3432,6 +3432,11 @@ def check_braille():
     import chartbrailleread as rd
     import chartengrave as ce
 
+    check("proofreader: a short word closed by dot 3 (>OUT') doesn't "
+          "hide a long expression wrapping onto the next line",
+          rd._open_expr(">OUT'M     M  M >HOLD1 THEN HORNS FALL1 THEN")
+          and not rd._open_expr(">OUT'M  M  M"))
+
     def brf(bars, chords=True, **kw):
         text, why = cb.part_to_brf(_mx(bars, **kw), 'P1', 'Test',
                                    'Test part', chords=chords)
@@ -4961,7 +4966,10 @@ def check_backgrounds_and_vamps():
     pl = chartaudio.parse_score(os.path.join(out,
                                              "T — for listening.musicxml"))
     ev = {p["name"]: p["events"] for p in pl["parts"]}
-    first = {n: [e[2] for e in ev[n] if e[0] < 1] for n in
+    # the first background chord (they wait while the soloist is busy)
+    t0 = min((e[0] for n in ("trumpet", "alto", "bone") for e in ev[n]
+              if e[0] < 32), default=0)
+    first = {n: [e[2] for e in ev[n] if abs(e[0] - t0) < 0.05] for n in
              ("trumpet", "alto", "bone")}
     check("backgrounds voice the chord across the horns, top horn on top",
           all(first.values()) and first["trumpet"][0] > first["alto"][0]
@@ -5641,6 +5649,65 @@ def check_exports_ireal_midi_chords():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_band_plays_like_pros():
+    """Matthew, 2026-09-29, on Autumn Leaves and Late Set: the walking
+    bass "gets stuck to a high g"; lowest note an E; the piano solo
+    "not following the chords"; the left hand "only using one note";
+    comping "meh". The bass walks the whole form in the middle of the
+    neck, no note held over four beats in a row, E1 the floor, every
+    lead-in a step or a fifth from the next root; the solo's notes sit
+    on the eighth grid (or its triplets) and fill the chorus; the
+    soloing pianist's left hand plays two different notes; a 6 chord is
+    major (no b7 in the scale or the voicing)."""
+    import chartaudio
+    import chartc
+    import chartgroove as G
+    tmp = tempfile.mkdtemp()
+    open(os.path.join(tmp, "t.chart"), "w").write(
+        "title: Leaves\nkey: Gm\nmeter: 4/4\ntempo: 140\n"
+        "feel: medium swing\n\nband:\n  piano\n  bass\n  drums\n\n"
+        "section A, 16 bars, repeat 2x\n  chords: Cm7, F7, Bbmaj7, "
+        "Ebmaj7, Am7b5, D7b13, Gm6, Gm6, Cm7, F7, Bbmaj7, Ebmaj7, "
+        "Am7b5, D7b13, Gm6, Gm6\n  piano: solo\n  ending: as written\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "t.chart"),
+                             os.path.join(tmp, "b"))
+    pl = chartaudio.parse_score(os.path.join(
+        tmp, "b", "Leaves — for listening.musicxml"))
+    ev = {p["name"]: sorted(p["events"], key=lambda e: e[0])
+          for p in pl["parts"]}
+    bass = [e[2] for e in ev["bass"]]
+    runs = max(len(list(g)) for _k, g in __import__("itertools")
+               .groupby(bass))
+    check("the walking bass never sticks: no note struck 5 times running, "
+          "E1 the floor, nothing over G3",
+          runs < 5 and min(bass) >= 28 and max(bass) <= 55,
+          (runs, min(bass), max(bass)))
+    pn = ev["piano"]
+    rh = [e for e in pn if e[2] >= 64]
+    lh = [e for e in pn if e[2] < 64]
+    grid = sum(1 for e in rh if min(abs(e[0] * 2 - round(e[0] * 2)),
+                                    abs(e[0] * 3 - round(e[0] * 3)))
+               < 0.03)
+    check("the piano solo sits on the eighth (or triplet) grid",
+          grid >= 0.95 * len(rh), (grid, len(rh)))
+    empty = sum(1 for b in range(32)
+                if not any(4 * b <= e[0] < 4 * b + 4 for e in rh))
+    check("the solo fills the choruses (a few bars of air, not a third)",
+          empty <= 6, empty)
+    chords = {}
+    for e in lh:
+        chords.setdefault(round(e[0], 2), set()).add(e[2])
+    check("the soloing pianist's left hand plays two different notes",
+          sum(len(v) >= 2 for v in chords.values()) >= 0.8 * len(chords),
+          list(chords.values())[:6])
+    six = ("B", 0, "6", None)
+    check("a 6 chord is major: no b7 in its scale or rootless voicing",
+          10 not in G._scale(six)
+          and all(10 not in f for f in G._rootless(six)))
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5713,6 +5780,7 @@ if __name__ == "__main__":
     check_band_ending_follows_the_writing()
     check_everyone_listens()
     check_exports_ireal_midi_chords()
+    check_band_plays_like_pros()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

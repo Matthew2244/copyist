@@ -2100,6 +2100,8 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                          "demo-part table")
                 h = horn_of[l]
                 tr, rng, foff = h['transpose'], h['fold'], h['foff']
+                if ref.get('placed'):
+                    findings.add(f"{l}: {ref['placed']}")
                 if ref.get('inline'):
                     meters_map = chart.get('meters') or [(1, meter)]
                     fig_lo = max(1, ref['at'])
@@ -2507,8 +2509,22 @@ def build_plans(chart, band, groups, labels):
                     shift = int(chart['header'].get('countin', 0))
                     at = (start + int(m.group(4)) - 1) if m.group(4) \
                         else lo - shift
+                    end = start + sec['bars'] - 1
+                    if not m.group(4) and (at > end
+                                           or at + hi - lo < start):
+                        # written inside this section, so it's this
+                        # section's line — never another section's
+                        placed = (
+                            f"{loc}: demo bars {lo}-{hi} would land on "
+                            f"bars {at}-{at + hi - lo}, outside "
+                            f"{sec['name']}; placed at its top (bar "
+                            f"{start}) — say 'at bar N' to move it")
+                        at = start
+                    else:
+                        placed = None
                     demo_refs.append({'track': m.group(1), 'lo': lo,
-                                      'hi': hi, 'at': at, 'loc': loc})
+                                      'hi': hi, 'at': at, 'loc': loc,
+                                      'placed': placed})
                     continue
                 m = re.match(r'hits(?: bar (\d+))? on (.+)$', piece)
                 if m:
@@ -3297,7 +3313,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         story = solo_story(label, sec, who, walk, bar_beats)
         chartgroove.play_planned(bar, story, pos, bar_beats)
         if role == 'comp' and 'guitar' not in sound_id:
-            chartgroove.comp_shells(bar, state, chords)
+            chartgroove.comp_shells(bar, state, chords, absbar)
         return bar.xml()
 
     # ---- emit one part's measures

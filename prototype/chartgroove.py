@@ -25,6 +25,7 @@ voicing. `hits` bars realize as exactly the kicks the pattern names.
 These bars are read by chartaudio only, never engraved, so a note's
 <duration> in ticks is the contract; <type> is best-effort cosmetics.
 """
+import math
 import re
 
 # ---------------------------------------------------------------- chords
@@ -1016,15 +1017,125 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
     state['bass'] = prev
 
 
+def _fold_bass(m, lo=31, hi=50):
+    """Into the middle of the neck, by octaves."""
+    while m < lo:
+        m += 12
+    while m > hi:
+        m -= 12
+    return m
+
+
+def walk_bar(beats, prev, next_pc, d, same=False):
+    """One bar of a walking line, a note a beat: [midi]. beats is the
+    chord on each beat. Roots on the changes (on a chord held over from
+    the last bar, sometimes its 3rd or 5th instead); the beats between
+    walk the chord's scale toward the next root, or outline the chord,
+    or go root-fifth and slide chromatically; the last beat leads into
+    the next bar — a half step under or over the next root, or its
+    fifth. Lives between G1 and D3, E1 the floor, no note struck twice
+    in a row (Matthew, 2026-09-29: "walking bass overall sounds meh
+    ... think professional")."""
+    n = len(beats)
+    out = []
+    b = 0
+    while b < n:
+        c = beats[b]
+        # the span this chord holds, up to the bar's last beat
+        e = b + 1
+        while e < n and beats[e] == c:
+            e += 1
+        root = _bass_pc(c)
+        tones = [(_root_pc(c) + i) % 12 for i in _tones(c)]
+        sc = sorted({(_root_pc(c) + i) % 12 for i in _scale(c)})
+        anchor = out[-1] if out else prev
+        first = root
+        if b == 0 and same and d() < 0.35:
+            first = tones[1 + int(d() * 2) % (len(tones) - 1)]
+        m0 = _fold_bass(_near(first, anchor))
+        if out and m0 == out[-1]:
+            m0 = _fold_bass(m0 + (12 if m0 < 40 else -12))
+        seg = [m0]
+        last_seg = e == n
+        # where this chord's run is heading: the next change's root
+        if last_seg:
+            goal_pc = next_pc
+        else:
+            goal_pc = _bass_pc(beats[e])
+        goal = _near(goal_pc, m0)
+        if not 31 <= goal <= 50:
+            goal = _fold_bass(goal)
+        inner = (e - b) - 1 - (1 if last_seg or e - b >= 2 else 0)
+        # the middle of the span
+        shape = d()
+        cur = m0
+        dirn = 1 if goal > m0 else -1
+        if abs(goal - m0) < 3:
+            dirn = 1 if m0 < 40 else -1
+        for k in range(max(inner, 0)):
+            if shape < 0.5:                    # walk the scale
+                q = cur + dirn
+                while q % 12 not in sc:
+                    q += dirn
+            elif shape < 0.8:                  # outline the chord
+                q = cur + dirn
+                while q % 12 not in tones:
+                    q += dirn
+            else:                              # root-fifth, then slide
+                q = _near((_root_pc(c) + 7) % 12, cur) if k == 0 \
+                    else cur + dirn
+            if not 28 <= q <= 55:
+                dirn = -dirn
+                q = cur + dirn
+                while q % 12 not in sc:
+                    q += dirn
+            seg.append(q)
+            cur = q
+        # the lead-in to the next change
+        if len(seg) < e - b:
+            # lead into the next root from where the line has got to
+            goal = _fold_bass(_near(goal_pc, cur))   # where the next
+            # bar will really start, so the lead-in lands on it
+            r = d()
+            if r < 0.4:
+                ap = goal - 1
+            elif r < 0.7:
+                ap = goal + 1
+            elif r < 0.85:
+                ap = _near((goal_pc + 7) % 12, cur)
+            else:                              # the scale step over
+                ap = goal + 1
+                while ap % 12 not in sc:
+                    ap += 1
+            if ap == cur or not 28 <= ap <= 55:
+                ap = goal - 1 if goal - 1 != cur else goal + 1
+            seg.append(ap)
+        out += seg[:e - b]
+        b = e
+    return [_fold_bass(m, 28, 55) for m in out]
+
+
 def _bass(bar, state, sec, off, absbar, feel, chords):
     if not chords:
         return
     beat = bar.div * 4 // bar.den
     lo, hi = 28, 55
-    prev = state.get('bass', 36)
+    prev = state.get('bass', 38)
+    # a bassist lives in the middle of the neck: nearest-note walking
+    # drifts, so each bar starts from an anchor pulled back toward it
+    # (Autumn Leaves climbed to G3 and stayed there, Matthew 2026-09-29)
+    if prev > 52:
+        prev -= 12
+    elif prev < 31:
+        prev += 12
 
     def put(at, ticks, midi, vel=None):
-        midi = min(max(midi, lo), hi)
+        # out of range moves an octave, never to a different note (a
+        # clamp turned Eb into E at the floor)
+        while midi < lo:
+            midi += 12
+        while midi > hi:
+            midi -= 12
         bar.add(at, ticks, ('p', midi, vel))
         state['bass'] = midi
         return midi
@@ -1050,24 +1161,19 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
         target = _near(_next_root(sec, off, chords), prev)
         if turn and turn[0] < 2 and d() < 0.6 and bar.num == 4:
             c1, c3 = _chord_at(chords, 1.0), _chord_at(chords, 3.0)
-            prev = put(0, 2 * beat - beat // 8, _near(_bass_pc(c1), prev))
+            prev = put(0, 2 * beat - beat // 8,
+                       _fold_bass(_near(_bass_pc(c1), prev)))
             fifth = (_root_pc(c3) + 7) % 12 if c3 == c1 else _bass_pc(c3)
             prev = put(2 * beat, 2 * beat - beat // 8, _near(fifth, prev))
             return
-        line = []
-        for b in range(bar.num):
-            c = _chord_at(chords, b + 1.0)
-            tones = sorted({(_root_pc(c) + s_) % 12 for s_ in _tones(c)})
-            if b == 0:
-                midi = _near(_bass_pc(c), prev)
-            elif b == bar.num - 1:
-                midi = target + (1 if d() < 0.5 else -1)
-            else:
-                opts = sorted((_near(pc, prev) for pc in tones),
-                              key=lambda o: (o == prev, abs(o - prev)))
-                midi = opts[min(int(d() * 2), len(opts) - 1)]
-            line.append(midi)
-            prev = midi
+        line = walk_bar([_chord_at(chords, b + 1.0)
+                         for b in range(bar.num)],
+                        prev, _next_root(sec, off, chords), d,
+                        same=state.get('bass_chord') == _chord_at(chords,
+                                                                  1.0))
+        state['bass_chord'] = _chord_at(chords, float(bar.num))
+        target = _fold_bass(_near(_next_root(sec, off, chords), line[-1]),
+                            28, 55)
         run = busy is not None and busy < 0.2 and d() < 0.5
         skip = heat > 0.55 and d() < 0.35 * heat
         for b, midi in enumerate(line):
@@ -1619,6 +1725,8 @@ def _scale(chord):
     if q == 'alt' or any(t in q for t in ('b9', '#9', 'b13', '#5')) \
             and q[0].isdigit():
         return (0, 1, 3, 4, 6, 8, 10)
+    if q in ('6', '69', '6/9'):
+        return (0, 2, 4, 5, 7, 9, 11)          # a 6 chord is major
     if q[0].isdigit() and '#11' in q:
         return (0, 2, 4, 6, 7, 9, 10)
     if q[0].isdigit() or 'sus' in q:
@@ -1769,21 +1877,64 @@ def improvise(bar, state, chords, next_chord, feel, lo, hi, absbar,
     state['sol_dir'] = direction
 
 
-def comp_shells(bar, state, chords):
-    """A pianist soloing still comps under the line: left-hand guide
-    tones on the chord changes."""
+def comp_shells(bar, state, chords, absbar=0):
+    """A pianist soloing still comps under the line: the left hand's
+    3rd and 7th on the changes, voiced around C3-D4 and led smoothly,
+    in a rhythm that changes bar to bar — on the change, a Charleston,
+    a stab on the and of two, now and then a bar of air (Matthew,
+    2026-09-29: the left hand "only using one note")."""
     beat = bar.div * 4 // bar.den
+    d = _Dice('shells', absbar)
+    feel = int(d() * 10)
     for b, c in chords:
         if c is None:
             continue
         root = _root_pc(c)
-        g = _guide(c)
+        iv = _tones(c)
+        pcs = [(root + i) % 12 for i in iv if i % 12 in (3, 4)][:1] + \
+            [(root + i) % 12 for i in iv if i % 12 in (9, 10, 11)][:1]
+        if len(pcs) < 2:
+            pcs = (_guide(c) + [(root + 7) % 12])[:2]
         anchor = state.get('shell', 53)
-        for pc in g[:2]:
-            m = _near(pc, anchor)
-            m = min(max(m, 45), 62)
-            bar.add(int(round((b - 1) * beat)), beat * 2, ('p', m, 58))
-        state['shell'] = _near(g[0], anchor)
+        if not 48 <= anchor <= 58:
+            anchor = 53
+        # the lower voice nearest the last one, inside C3-Bb3; the other
+        # guide tone the next one up, so the shell swaps 3-7 / 7-3
+        cands = [_near(pc, anchor) for pc in pcs]
+        cands = [m + 12 if m < 48 else m - 12 if m > 58 else m
+                 for m in cands]
+        low = min(cands, key=lambda m: (abs(m - anchor), m))
+        other = [pc for pc in pcs if pc != low % 12][0]
+        up = low + 1
+        while up % 12 != other:
+            up += 1
+        v = [low, up]
+        state['shell'] = low
+        at = int(round((b - 1) * beat))
+        span = beat * 2
+        nxt = [bb for bb, _c in chords if bb > b]
+        if nxt:
+            span = int(round((nxt[0] - b) * beat))
+        if feel == 0 and b == 1.0:
+            continue                           # a bar of air
+        if feel in (1, 2, 3) and span >= 3 * beat:
+            # Charleston: on the change, again on the and of two
+            for m in v:
+                bar.add(at, beat // 2, ('p', m, 56))
+                bar.add(at + beat + beat // 2, beat // 2, ('p', m, 52))
+        elif feel in (4, 5) and span >= 2 * beat:
+            # late: the and of the change's first beat
+            for m in v:
+                bar.add(at + beat // 2, span - beat, ('p', m, 54))
+        elif feel in (6, 7) and span >= 2 * beat:
+            # a short one on the change, a second on beat three
+            for m in v:
+                bar.add(at, beat - beat // 4, ('p', m, 56))
+                if span >= 3 * beat:
+                    bar.add(at + 2 * beat, beat // 2, ('p', m, 50))
+        else:
+            for m in v:
+                bar.add(at, max(beat, span - beat // 3), ('p', m, 56))
 
 
 def drum_solo(bar, absbar, pos, total, seed):
@@ -1983,6 +2134,8 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
     kinds = _PERSONA_KINDS[persona]
     space = {'lyrical': 1.4, 'bebop': 0.8, 'bluesy': 1.0,
              'modern': 1.0}[persona]
+    if voice == 'keys':
+        space *= 0.7              # a pianist's lines run on longer
     style, traits = style_of(feel)
     swingy = style in ('swing', 'shuffle', 'waltz') or 'swung' in traits
     total = total_bars * bar_beats
@@ -2063,6 +2216,92 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
     def vel(a):
         return {'state': 78, 'develop': 86, 'peak': 96, 'home': 78}[a]
 
+    def eighth_line(t, length, a, cur, v, c0):
+        # the bebop way: every downbeat a chord tone of the chord
+        # sounding there (at a change, its 3rd or 7th: the guide
+        # tones), every offbeat leading into the next target — a
+        # half step under or over it, or the scale step between;
+        # now and then an arpeggio up the chord
+        pickup = None
+        if t % 1:
+            # an upbeat start is a pickup into the line, whose chord
+            # tones stay on the beats
+            pickup, t, length = t, math.ceil(t), length - (math.ceil(t) - t)
+            if length < 1.0:
+                return cur
+        step = 0.5
+        n = max(2, int(length / step * dens))
+        if n % 2:
+            n += 1
+        bot, top = bounds(a)
+        q = fit(snap(cur, c0, _tones(c0)), a)
+        dirn = 1 if q < (lo + hi) / 2 else -1
+        targets, prev_c = [], None
+        for k in range(n // 2 + 1):
+            at = t + k * 1.0
+            c = chord_fn(at) or c0
+            root = _root_pc(c)
+            tones = list(_tones(c))
+            if a != 'state':
+                tones += list(_colors(c))[:1]
+            changed = prev_c is not None and c != prev_c
+            pool = [iv for iv in tones if iv % 12 in (3, 4, 10, 11)] \
+                if changed else tones
+            # the line moves on, pulled toward the act's register:
+            # the climax is played up high, the opening in the middle
+            reg = lo + (hi - lo) * {'state': 0.4, 'develop': 0.55,
+                                    'peak': 0.85, 'home': 0.5}[a]
+            jump = 5 if persona == 'modern' and d() < 0.5 else \
+                2 + int(d() * 3)
+            aim = 0.55 * (q + dirn * jump) + 0.45 * reg
+            cands = [m for m in range(bot, top + 1)
+                     if (m - root) % 12 in {iv % 12 for iv in pool}]
+            if not cands:
+                cands = [q]
+            nq = min(cands, key=lambda m: (abs(m - aim), m))
+            if nq >= top - 1 or nq <= bot + 1:
+                dirn = -dirn
+            targets.append(nq)
+            q, prev_c = nq, c
+        arp_at = int(d() * (n // 2)) if d() < 0.35 + 0.2 * heatx(a) \
+            else -1
+        for k in range(n // 2):
+            at = t + k * 1.0
+            if at >= min(t + length, total):
+                break
+            c = chord_fn(at) or c0
+            tg, nxt_tg = targets[k], targets[k + 1]
+            vv = v + (0 if k % 2 else 3)
+            if k == arp_at:
+                # up the chord from where the line is
+                root = _root_pc(c)
+                ivs = sorted({iv % 12 for iv in _tones(c)})
+                ups = [m for m in range(tg, min(tg + 13, top + 1))
+                       if (m - root) % 12 in ivs][:4]
+                for j, m in enumerate(ups):
+                    if at + j * step < min(t + length, total):
+                        notes.append((at + j * step, step * 0.9, m,
+                                      vv + 2 * j))
+                targets[k + 1] = ups[-1] if ups else nxt_tg
+                continue
+            notes.append((at, step * 0.92, tg, vv))
+            r = d()
+            if r < 0.4:
+                app = nxt_tg - 1                  # from below
+            elif r < 0.6:
+                app = nxt_tg + 1                  # from above
+            else:
+                app = scale_move(tg, 1 if nxt_tg > tg else -1, c)
+                if app == nxt_tg:
+                    app = nxt_tg + (1 if nxt_tg < tg else -1)
+            if at + step < min(t + length, total):
+                notes.append((at + step, step * 0.92, app,
+                              vv + (4 if swingy else 0)))
+        if pickup is not None and targets:
+            notes.append((pickup, 0.45, targets[0] - 1
+                          if d() < 0.6 else targets[0] + 2, v - 4))
+        return targets[min(len(targets) - 1, n // 2)]
+
     t = t_open or (0.5 if d() < 0.5 else 0.0)   # sometimes a pickup in
     last_kind = None
     told = 0                                 # phrases so far in act one
@@ -2095,7 +2334,7 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             kind = 'home'
             length = total - t
             rest = 0
-        length = max(1.0, min(length, total - t))
+        length = max(1.0, min(round(length * 2) / 2, total - t))
         # each act has its register, chosen, not drifted into
         aim = lo + (hi - lo) * {'state': 0.45, 'develop': 0.55,
                                 'peak': 0.78, 'home': 0.5}[a]
@@ -2141,81 +2380,17 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                     q = fit(scale_move(q, -1 if i < 2 else 2, c), a)
                     notes.append((at, 0.45 if i < 2 else 1.2, q, v))
             cur = q
+        if kind in ('motif', 'answer', 'displaced', 'sequence', 'lifted',
+                    'stretched'):
+            # the idea keeps talking: it grows into a line through the
+            # rest of the phrase (early on, sometimes it just breathes)
+            said = max(n[0] for n in notes)
+            if t + length - said >= 1.5 and (a != 'state' or d() < 0.6):
+                at = math.ceil((said + 0.5) * 2 - 1e-6) / 2
+                cur = eighth_line(at, t + length - at, a, cur, v,
+                                  chord_fn(at) or c0)
         elif kind == 'line':
-            # the bebop way: every downbeat a chord tone of the chord
-            # sounding there (at a change, its 3rd or 7th: the guide
-            # tones), every offbeat leading into the next target — a
-            # half step under or over it, or the scale step between;
-            # now and then an arpeggio up the chord
-            step = 0.5
-            n = max(2, int(length / step * dens))
-            if n % 2:
-                n += 1
-            bot, top = bounds(a)
-            q = fit(snap(cur, c0, _tones(c0)), a)
-            dirn = 1 if q < (lo + hi) / 2 else -1
-            targets, prev_c = [], None
-            for k in range(n // 2 + 1):
-                at = t + k * 1.0
-                c = chord_fn(at) or c0
-                root = _root_pc(c)
-                tones = list(_tones(c))
-                if a != 'state':
-                    tones += list(_colors(c))[:1]
-                changed = prev_c is not None and c != prev_c
-                pool = [iv for iv in tones if iv % 12 in (3, 4, 10, 11)] \
-                    if changed else tones
-                # the line moves on, pulled toward the act's register:
-                # the climax is played up high, the opening in the middle
-                reg = lo + (hi - lo) * {'state': 0.4, 'develop': 0.55,
-                                        'peak': 0.85, 'home': 0.5}[a]
-                jump = 5 if persona == 'modern' and d() < 0.5 else \
-                    2 + int(d() * 3)
-                aim = 0.55 * (q + dirn * jump) + 0.45 * reg
-                cands = [m for m in range(bot, top + 1)
-                         if (m - root) % 12 in {iv % 12 for iv in pool}]
-                if not cands:
-                    cands = [q]
-                nq = min(cands, key=lambda m: (abs(m - aim), m))
-                if nq >= top - 1 or nq <= bot + 1:
-                    dirn = -dirn
-                targets.append(nq)
-                q, prev_c = nq, c
-            arp_at = int(d() * (n // 2)) if d() < 0.35 + 0.2 * heatx(a) \
-                else -1
-            for k in range(n // 2):
-                at = t + k * 1.0
-                if at >= min(t + length, total):
-                    break
-                c = chord_fn(at) or c0
-                tg, nxt_tg = targets[k], targets[k + 1]
-                vv = v + (0 if k % 2 else 3)
-                if k == arp_at:
-                    # up the chord from where the line is
-                    root = _root_pc(c)
-                    ivs = sorted({iv % 12 for iv in _tones(c)})
-                    ups = [m for m in range(tg, min(tg + 13, top + 1))
-                           if (m - root) % 12 in ivs][:4]
-                    for j, m in enumerate(ups):
-                        if at + j * step < min(t + length, total):
-                            notes.append((at + j * step, step * 0.9, m,
-                                          vv + 2 * j))
-                    targets[k + 1] = ups[-1] if ups else nxt_tg
-                    continue
-                notes.append((at, step * 0.92, tg, vv))
-                r = d()
-                if r < 0.4:
-                    app = nxt_tg - 1                  # from below
-                elif r < 0.6:
-                    app = nxt_tg + 1                  # from above
-                else:
-                    app = scale_move(tg, 1 if nxt_tg > tg else -1, c)
-                    if app == nxt_tg:
-                        app = nxt_tg + (1 if nxt_tg < tg else -1)
-                if at + step < min(t + length, total):
-                    notes.append((at + step, step * 0.92, app,
-                                  vv + (4 if swingy else 0)))
-            cur = targets[min(len(targets) - 1, n // 2)]
+            cur = eighth_line(t, length, a, cur, v, c0)
         elif kind == 'riff':
             c = c0
             root = _root_pc(c)
@@ -2252,6 +2427,13 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                 notes.append((land, 1.5, snap(q, c, _tones(c)), v + 6))
             cur = q
         else:                                    # home
+            if total - t > 3 * bar_beats:
+                # still talking on the way home; the closing idea comes
+                # in the last couple of bars, not five bars early
+                cur = eighth_line(t, total - 2 * bar_beats - t - 1.0,
+                                  'develop', cur, v, c0)
+                t = total - 2 * bar_beats
+                c0 = chord_fn(t) or c0
             p = fit(snap(cur, c0, _tones(c0)), 'home')
             r_end = d()
             if next_soloist and r_end < 0.4:
@@ -2307,8 +2489,12 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             break
         last_kind = kind
         t += length + rest
+        # phrases start on the grid — a downbeat or an upbeat, never a
+        # fraction between (lines landed ~a third of a beat late against
+        # every change, Matthew 2026-09-29 on Autumn Leaves)
+        t = math.ceil(t * 2 - 1e-6) / 2
         # the next phrase may come in on an upbeat
-        if d() < 0.4:
+        if d() < 0.4 and t % 1 == 0:
             t += 0.5
     return _one_voice(notes)
 
@@ -2362,6 +2548,8 @@ def _rootless(chord):
     if q == 'alt' or any(t in q for t in ('b9', '#9', 'b13', '#5')) \
             and q[0].isdigit():
         return (4, 8, 10, 15), (10, 13, 16, 20)
+    if q in ('6', '69', '6/9'):            # major, no 7th
+        return (4, 7, 9, 14), (9, 14, 16, 19)
     if q[0].isdigit():
         if '#11' in q:
             return (4, 6, 10, 14), (10, 14, 16, 18)
@@ -2470,6 +2658,11 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
         if pick == state.get('tex'):
             pick = pool[(pool.index(pick) + 1) % len(pool)]
         state['tex'] = pick
+    # laying out is a bar of air, not two — the band never just stops
+    if state['tex'] == 'lay_out' and state.get('laid') == absbar - 1:
+        state['tex'] = 'hold_answer'
+    if state['tex'] == 'lay_out':
+        state['laid'] = absbar
     tex = state['tex']
     # now and then the right hand goes up for sparkle — rarely, and
     # only once the tune has built
@@ -2482,8 +2675,12 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
         pcs = [(root + i) % 12 for i in iv if i % 12 in (3, 4, 10, 11)][:2]
         if len(pcs) < 2:
             pcs = _guide(c)[:2]
-        v = sorted(_near(pc, state.get('lh', 52)) for pc in pcs)
-        v = [m if m >= 45 else m + 12 for m in v]
+        anchor = state.get('lh', 52)
+        if not 45 <= anchor <= 57:
+            anchor = 52                     # back to the middle, no drift
+        v = sorted(_near(pc, anchor) for pc in pcs)
+        v = sorted(m + 12 if m < 45 else m - 12 if m > 60 else m
+                   for m in v)
         if len(v) == 2 and v[1] - v[0] < 3:
             v[1] += 12
         state['lh'] = v[0]
@@ -2492,33 +2689,41 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
             bar.add(at, ln, ('p', m, w - 6))
 
     def rh(c, at, ln, w):
-        """The right hand: the upper colours — 9, 13, 5, the 3rd on top —
-        near the last right-hand voicing, an octave up when it sparkles."""
+        """The right hand: a close three-note grip of the chord's
+        colours — 9, 13, 5, the 3rd and 7th, never the root — hung from
+        a top note that moves like a little melody from the last one:
+        mostly a step or a third, rarely the same note three times
+        (Matthew, 2026-09-29: comping "meh" — every Cm7 was the same
+        Bb-Eb-D-Eb grip, the top line going nowhere)."""
         root = _root_pc(c)
-        cols = [(root + i) % 12 for i in list(_colors(c)) + [7]]
-        third = next(((root + i) % 12 for i in _tones(c)
-                      if i % 12 in (3, 4)), None)
-        pcs = list(dict.fromkeys(cols[:2] + ([third] if third is not None
-                                              else [])))[:3]
-        anchor = state.get('rh', 64) + 12 * top
-        # spread, not clustered: each note at least a minor third over
-        # the one below, so the hand never mashes seconds together
-        order = sorted(pcs, key=lambda pc: (_near(pc, anchor - 3)))
-        v = [_near(order[0], anchor - 3)]
-        for pc in order[1:]:
-            m = v[-1] + 3
-            while m % 12 != pc:
-                m += 1
-            v.append(m)
+        ivs = {i % 12 for i in _tones(c)} | {i % 12 for i in _colors(c)}
+        pool = {(root + i) % 12 for i in ivs if i != 0}
         cap = 84 if top else 79                      # G5, C6 for sparkle
-        while v[-1] > cap:
-            v = [m - 12 for m in v]
-        floor = max(58, state.get('lh_top', 55) + 3)
-        while v[0] < floor:                          # stay over the left
-            v = [m + 12 for m in v]
-        if v[-1] > cap:                              # thin it, not a cluster
-            v = [m for m in v if m <= cap] or v[:1]
-        state['rh'] = min(max(v[0] + 3 - 12 * top, 60), 70)
+        last = state.get('top', 72)
+        same = state.get('top_same', 0)
+        cands = [m for m in range(66, cap + 1) if m % 12 in pool]
+
+        def cost(m):
+            mv = abs(m - last)
+            k = abs(mv - 2) * 0.8 + (4 if mv > 5 else 0)
+            if mv == 0:
+                k += 1.5 + 3 * same
+            return k + 0.12 * abs(m - (74 + 5 * top)) + d() * 1.2
+        t = min(cands, key=cost) if cands else last
+        state['top_same'] = same + 1 if t == last else 0
+        state['top'] = t
+        v = [t]
+        floor = max(55, state.get('lh_top', 55) + 2)
+        for _ in range(2):
+            have = {x % 12 for x in v}
+            below = [m for m in range(v[0] - 5, v[0] - 1)
+                     if m % 12 in pool and m % 12 not in have
+                     and m >= floor]
+            if not below:
+                break
+            # a third or fourth under reads clearer than a second
+            v.insert(0, min(below, key=lambda m: (abs(v[0] - m - 3.5),
+                                                  m)))
         for i, m in enumerate(v):
             bar.add(at, ln, ('p', m, w + (5 if i == len(v) - 1 else 0)))
 

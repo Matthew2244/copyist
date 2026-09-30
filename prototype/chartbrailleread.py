@@ -224,6 +224,10 @@ def _open_expr(line):
             if inside:
                 inside = False
             else:
+                m = re.match(r"[A-Z0-9]+'", line[i + 1:])
+                if m:                     # a short word, closed by dot 3
+                    i += 1 + m.end()
+                    continue
                 j = line.find('>', i + 1)
                 rest = line[i + 1:] if j == -1 else line[i + 1:j]
                 words = re.fullmatch(r"[A-Z0-9#',.\-7 ;]+", rest)
