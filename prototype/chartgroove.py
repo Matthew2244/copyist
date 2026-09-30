@@ -149,7 +149,16 @@ class Bar:
             return
         ticks = min(ticks, self.barlen - tick)
         if tick in self.onsets:
-            self.onsets[tick][1].append(note)
+            ns = self.onsets[tick][1]
+            if note[0] == 'p':
+                # one key can't be struck twice at once (both hands on
+                # the same note flammed in the listen): keep the louder
+                for k, n in enumerate(ns):
+                    if n[0] == 'p' and n[1] == note[1]:
+                        if (note[2] or 0) > (n[2] or 0):
+                            ns[k] = note
+                        return
+            ns.append(note)
         else:
             self.onsets[tick] = (ticks, [note])
 
@@ -1444,8 +1453,17 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
     if not chords:
         return
     beat = bar.div * 4 // bar.den
-    anchor = state.get('comp', 62)
     s = (sound_id or '').lower()
+    # every comper has a home on the instrument: nearest-note voice
+    # leading drifted a guitar up into the sixth octave over a long tune
+    home_lo, home_hi = (50, 64) if 'guitar' in s else (53, 67)
+    ceiling = 76 if 'guitar' in s else 81
+    floor = 53 if 'vibraphone' in s else 40   # the vibes stop at F3
+    anchor = state.get('comp', 60 if 'guitar' in s else 62)
+    while anchor > home_hi:
+        anchor -= 12
+    while anchor < home_lo:
+        anchor += 12
     # the tune's arc: early on the comping says less (two-note shells,
     # a hit left out now and then), later it opens into rootless
     # voicings with the extensions (Matthew, 2026-09-29: "don't put
@@ -1476,6 +1494,9 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
             if len(v) > 1 and v[1] - v[0] == 1:
                 v[1] += 12
                 v.sort()
+            while v and max(v) > ceiling:
+                v = sorted(m - 12 if m > ceiling else m for m in v)
+            v = sorted(m + 12 if m < floor else m for m in v)
             state['comp'] = sum(v) // len(v)
             return v
         pcs = _guide(c)
@@ -1488,6 +1509,9 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
         v = sorted(_near(pc, anchor) for pc in pcs)
         if guides_only and len(v) == 2 and v[1] - v[0] <= 2:
             v = [v[1], v[0] + 12]      # open a step into a 7th or 9th
+        while v and max(v) > ceiling:
+            v = sorted(m - 12 if m > ceiling else m for m in v)
+        v = sorted(m + 12 if m < floor else m for m in v)
         state['comp'] = sum(v) // len(v)
         return v
 

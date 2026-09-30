@@ -5859,6 +5859,28 @@ def check_band_plays_like_pros():
                                if 16 <= e[0] < 17})))
     check("a solo break's hit is different from tune to tune (crash, "
           "choke, snare, hi-hat bark...)", len(hits) >= 3, hits)
+    # a comping guitar stays home over a long tune (it drifted into the
+    # sixth octave on Harbor Lights)
+    open(os.path.join(tmp, "g.chart"), "w").write(
+        "title: Long\nkey: Eb\nmeter: 4/4\ntempo: 140\nfeel: swing\n\n"
+        "band:\n  guitar\n  vibes\n  bass\n  drums\n\n"
+        "section A, 32 bars, repeat 3x\n  chords: Ebmaj7, Fm7, Gm7, Abmaj7,"
+        " Bb7, Cm7, Fm7, Bb7, Ebmaj7, Ab7, Gm7, C7, Fm7, Bb7, Ebmaj7, Bb7,"
+        " Ebmaj7, Fm7, Gm7, Abmaj7, Bb7, Cm7, Fm7, Bb7, Ebmaj7, Ab7, Gm7, C7,"
+        " Fm7, Bb7, Ebmaj7, Ebmaj7\n  ending: as written\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "g.chart"),
+                             os.path.join(tmp, "gb"))
+    gp = chartaudio.parse_score(os.path.join(
+        tmp, "gb", "Long — for listening.musicxml"))
+    gtr = [e[2] for p in gp["parts"] if p["name"] == "guitar"
+           for e in p["events"]]
+    vib = [e[2] for p in gp["parts"] if p["name"] == "vibes"
+           for e in p["events"]]
+    check("a comping guitar stays in its home, the vibes above their low F",
+          gtr and max(gtr) <= 76 and min(gtr) >= 40
+          and (not vib or min(vib) >= 53), (min(gtr), max(gtr),
+                                            vib and min(vib)))
     six = ("B", 0, "6", None)
     check("a 6 chord is major: no b7 in its scale or rootless voicing",
           10 not in G._scale(six)
