@@ -255,7 +255,10 @@ LISTEN_KEYS = ('listen_grooves', 'listen_solos', 'listen_backgrounds',
 EXPORTS = (('pages', 'the PDF charts'), ('listen', 'the listen MP3'),
            ('braille', 'a braille file for each part'),
            ('braille pages', 'the braille drawn as dots'),
-           ('read-alouds', 'the spoken read-alouds'))
+           ('read-alouds', 'the spoken read-alouds'),
+           ('ireal', 'an iReal Pro link'),
+           ('midi', 'the band as a MIDI file'),
+           ('chords', 'a plain chord sheet'))
 _EXPORT_WORDS = {
     'pages': 'pages', 'page': 'pages', 'pdf': 'pages', 'pdfs': 'pages',
     'charts': 'pages', 'listen': 'listen', 'mp3': 'listen',
@@ -263,7 +266,11 @@ _EXPORT_WORDS = {
     'braille pages': 'braille pages', 'braille view': 'braille pages',
     'braille pdf': 'braille pages', 'read-alouds': 'read-alouds',
     'read alouds': 'read-alouds', 'readalouds': 'read-alouds',
-    'spoken': 'read-alouds', 'text': 'read-alouds'}
+    'spoken': 'read-alouds', 'text': 'read-alouds',
+    'ireal': 'ireal', 'ireal pro': 'ireal', 'irealpro': 'ireal',
+    'irealb': 'ireal', 'midi': 'midi', 'mid': 'midi',
+    'band midi': 'midi', 'chords': 'chords', 'chord sheet': 'chords',
+    'chordsheet': 'chords', 'lead sheet': 'chords'}
 
 
 def make_braille(sources, title, where, ex, page=None):
@@ -1586,6 +1593,30 @@ def main():
                         os.path.basename(f).endswith(f' — {b}.brf')
                         for b in bad)],
                    args.printer or cfg['embosser'], title)
+
+    extra = ex & {'ireal', 'midi', 'chords'}
+    if extra:
+        # out to what musicians pass around: iReal Pro, a DAW, paper
+        import chartexport
+        made_x = []
+        try:
+            if 'ireal' in extra:
+                made_x += chartexport.write_ireal(chart, title_dir, title)
+            if 'chords' in extra:
+                made_x += chartexport.write_chords(chart, title_dir, title)
+            if 'midi' in extra and listen_src:
+                made_x += chartexport.write_midi(listen_src, title_dir,
+                                                 title)
+        except Exception as e:
+            say(f"An export stumbled ({e}); the rest of the build stands.")
+        words = {'ireal': "an iReal Pro link (open the .html on your phone "
+                          "and tap it)",
+                 'midi': "the band as MIDI, one track per player",
+                 'chords': "a chord sheet"}
+        if made_x:
+            say("Also made " + ", ".join(words[k] for k in
+                                           ('ireal', 'midi', 'chords')
+                                           if k in extra) + ".")
 
     if 'listen' in ex and listen_src and (rng or sel['labels']):
         listen_excerpt(listen_src, title, listen_dir, rng, sel, cfg,

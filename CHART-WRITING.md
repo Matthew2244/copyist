@@ -300,10 +300,16 @@ go: `pages_to`, `listens_to` and `spoken_to` each name a folder for
 that kind of file, and empty keeps everything with the build;
 `braille_to` does the same for braille.
 
-`exports` says what a build makes, any mix of five things: `pages`
+`exports` says what a build makes, any mix of eight things: `pages`
 (the PDF charts), `listen` (the MP3), `braille` (a .brf file for each
-part), `braille pages` (the braille drawn as dots) and `read-alouds`.
-Out of the box it is pages, listen, braille and read-alouds.
+part), `braille pages` (the braille drawn as dots), `read-alouds`,
+`ireal` (the chart as an iReal Pro link, and a page to tap it from on
+your phone), `midi` (the band as you hear it in the listen, one track
+per player, swing and made-up parts included, ready for your DAW) and
+`chords` (a plain chord sheet with barlines). Out of the box it is
+pages, listen, braille and read-alouds; the rest are yours to add.
+Anything iReal Pro can open, Copyist can read back: the link is proven
+by bringing it in again, bar for bar.
 
     chart set exports=pages, braille       # charts and braille, no audio
     chart set exports=all

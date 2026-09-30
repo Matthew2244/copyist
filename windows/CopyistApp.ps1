@@ -253,7 +253,7 @@ function Do-Export {
          ((Run-Chart ('"' + $p + '" parts --labels')) -split "`n" -join ', ')),
         'Copyist - Export', '')
     $makes = [Microsoft.VisualBasic.Interaction]::InputBox(
-        'What to make? Any of pages, listen, braille, braille pages, read-alouds, separated by commas, or all. Empty uses your settings.',
+        'What to make? Any of pages, listen, braille, braille pages, read-alouds, ireal (an iReal Pro link), midi (the band for your DAW), chords (a chord sheet), separated by commas, or all. Empty uses your settings.',
         'Copyist - Export', '')
     $look = Choose-FromList 'How should the pages look?' @(
         "The chart's own", 'jazz', 'handwritten', 'engraved', 'plain', 'Back')
@@ -349,7 +349,7 @@ function Do-Settings {
                 $hint = ' Standard (40 cells by 25 lines, 11 by 11.5 inch paper), letter (34 by 25), a4 (35 by 28), or cells x lines like 32x25.'
             }
             if ($c -eq 'exports') {
-                $hint = ' Any mix of pages, listen, braille, braille pages and read-alouds, separated by commas - or all.'
+                $hint = ' Any mix of pages, listen, braille, braille pages, read-alouds, ireal, midi and chords, separated by commas - or all.'
             }
             if ($c -like '*_to') {
                 $hint = ' A folder path; empty keeps these files with the build.'

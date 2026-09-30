@@ -5575,6 +5575,57 @@ def check_everyone_listens():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_exports_ireal_midi_chords():
+    """Out to what musicians pass around (Matthew, 2026-09-29): an
+    iReal Pro link that Copyist's own importer reads back bar for bar
+    (repeats, first and second endings, a meter change, a split bar,
+    key, tempo, style); the listen as a type-1 MIDI file, a track per
+    player, drums on channel 10; a plain chord sheet."""
+    import chartc
+    import chartexport
+    import chartdemo
+    import textformats
+    tmp = tempfile.mkdtemp()
+    cp = os.path.join(tmp, "x.chart")
+    open(cp, "w").write(
+        "title: Out\ncomposer: Jane Writer\nkey: G minor\nmeter: 4/4\n"
+        "tempo: 132\nfeel: bossa nova\n\nband:\n  piano\n  bass\n"
+        "  drums\n\n"
+        "section A, 6 bars, repeat 2x\n  chords: Gm7, C7 F7, Bbmaj7, D7\n"
+        "  ending 1, 2 bars: chords: Am7b5, D7b9\n"
+        "  ending 2, 2 bars: chords: Gm6, Gm6\n"
+        "section B, 4 bars\n  at bar 1: meter 3/4\n"
+        "  chords: Ebmaj7, Am7b5, D7alt, Gm\n")
+    ch = chartc.parse_chart(cp)
+    song = textformats.parse_all(chartexport.ireal_link(ch))[0]
+    got = [[sym for _b, sym in bar] for sec in song["sections"]
+           for bar in sec["bars"]]
+    want = [["Gm7"], ["C7", "F7"], ["Bbmaj7"], ["D7"], ["Am7b5"],
+            ["D7b9"], ["Gm7"], ["C7", "F7"], ["Bbmaj7"], ["D7"], ["Gm6"],
+            ["Gm6"], ["Ebmaj7"], ["Am7b5"], ["Dalt"], ["Gm"]]
+    check("an iReal Pro link reads back bar for bar", got == want, got)
+    check("the link keeps title, key, tempo and style",
+          song["title"] == "Out" and song["key"] == "Gm"
+          and song.get("tempo") == 132 and "Bossa" in song["style"],
+          (song["key"], song.get("tempo"), song["style"]))
+    out = os.path.join(tmp, "b")
+    with redirect_stdout(io.StringIO()):
+        files = chartc.compile_chart(cp, out)
+    listen = next(f for f in files if f.endswith("for listening.musicxml"))
+    mid = chartexport.write_midi(listen, tmp, "Out")[0]
+    raw = open(mid, "rb").read()
+    dm = chartdemo.load_demo(mid)
+    check("the band as MIDI: type 1, a track per player, notes in it",
+          raw[:4] == b"MThd" and raw[8:10] == b"\x00\x01"
+          and len(dm.tracks) == 3 and all(len(v) for v in
+                                          dm.tracks.values()))
+    check("the drums sit on channel 10", b"\x99" in raw)
+    sheet = open(chartexport.write_chords(ch, tmp, "Out")[0]).read()
+    check("a chord sheet with barlines, the key said in words",
+          "key of G minor" in sheet and "| C7 F7 |" in sheet, sheet[:200])
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5646,6 +5697,7 @@ if __name__ == "__main__":
     check_playlist_picking()
     check_band_ending_follows_the_writing()
     check_everyone_listens()
+    check_exports_ireal_midi_chords()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

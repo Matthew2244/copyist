@@ -1496,7 +1496,10 @@ struct ExportSheet: View {
                    ("listen", "Listen — the MP3"),
                    ("braille", "Braille — a file for each part"),
                    ("braille pages", "Braille pages — the dots drawn"),
-                   ("read-alouds", "Read-alouds — each part as text")]
+                   ("read-alouds", "Read-alouds — each part as text"),
+                   ("ireal", "iReal Pro — a link that opens in the app"),
+                   ("midi", "MIDI — the band, one track per player"),
+                   ("chords", "Chord sheet — plain text with barlines")]
     let looks = [("", "The chart's own"), ("jazz", "Jazz"),
                  ("handwritten", "Handwritten"), ("engraved", "Engraved"),
                  ("plain", "Plain")]
@@ -2652,7 +2655,10 @@ struct SettingsView: View {
         ("listen", "Listen — the MP3"),
         ("braille", "Braille — a file for each part"),
         ("braille pages", "Braille pages — the braille drawn as dots"),
-        ("read-alouds", "Read-alouds — each part spoken as text")]
+        ("read-alouds", "Read-alouds — each part spoken as text"),
+        ("ireal", "iReal Pro — a link that opens in the app"),
+        ("midi", "MIDI — the band, one track per player, for your DAW"),
+        ("chords", "Chord sheet — plain text with barlines")]
 
     /// The exports setting as a set of words; unset means the default.
     func exportsNow() -> [String] {
