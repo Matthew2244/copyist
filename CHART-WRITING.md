@@ -669,7 +669,7 @@ All of these ride on a `from demo` line, after commas:
   plays. On a made-up solo or backgrounds the brass decide for
   themselves: a trumpet on a ballad may reach for a harmon or a cup, a
   trombone in a blues for the plunger, brass backgrounds behind a quiet
-  solo go into cups together; the mute comes out for whatever's next. Soloists named in one section take turns in band order, the
+  solo go into cups together; the mute comes out for whatever's next. Soloists named in one section take turns in the order you call them, the
   section split between them. A pianist keeps left-hand shells under
   the line; a drummer takes a drum solo. The page keeps its slashes and
   the word, and a solo you played in from MIDI plays exactly as played.

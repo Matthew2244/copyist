@@ -3178,12 +3178,25 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         return bar.xml()
 
     # ---- where the band is inside a soloist's turn, for dynamics
-    def solo_turn(sec, off, cur_pass, passes, plan):
-        """(bar in the current soloist's turn, turn length) or None
-        when nobody solos here."""
+    def soloists(plan):
+        """Who solos in this section, in the order the chart calls them
+        (a band leader's 'tenor, then trumpet'); anyone soloing without
+        a line of their own follows in band order."""
         who = [x['label'] for x in band if any(
             isinstance(t[1], str) and t[1].lower().startswith('solo')
             for t in plan['texts'].get(x['label'], ()))]
+        order = []
+        for tgt, ins, _l in plan['sec'].get('directives', ()):
+            if ins.strip().lower().startswith('solo'):
+                for l in groups.get(tgt) or [tgt]:
+                    if l in who and l not in order:
+                        order.append(l)
+        return order + [l for l in who if l not in order]
+
+    def solo_turn(sec, off, cur_pass, passes, plan):
+        """(bar in the current soloist's turn, turn length) or None
+        when nobody solos here."""
+        who = soloists(plan)
         if not who or not LISTEN_OPTS['solos']:
             return None
         walk = sec['bars'] * passes
@@ -3199,9 +3212,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         turn = sec.get('_turn')
         if not turn:
             return None
-        who = [x['label'] for x in band if any(
-            isinstance(t[1], str) and t[1].lower().startswith('solo')
-            for t in plan['texts'].get(x['label'], ()))]
+        who = soloists(plan)
         walk = sec['bars'] * passes
         story = solo_story(who[turn[2]], sec, who, walk, bar_beats)
         t0, t1 = turn[0] * bar_beats, (turn[0] + 1) * bar_beats
@@ -3357,11 +3368,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         bar = chartgroove.Bar(div, bmeter, fifths, staves,
                               shift=horn['transpose'] if horn else 0)
         feel = sec['feel'] or hdr.get('feel') or ''
-        # soloists named together take turns, in band order, the
+        # soloists named together take turns, in the chart's order, the
         # section split between them (a real band never blows at once)
-        who = [x['label'] for x in band if any(
-            isinstance(t[1], str) and t[1].lower().startswith('solo')
-            for t in plan['texts'].get(x['label'], ()))]
+        who = soloists(plan)
         k = who.index(label) if label in who else 0
         walk = sec['bars'] * passes         # a vamp's bars, every pass
         at = cur_pass * sec['bars'] + off

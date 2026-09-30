@@ -5831,6 +5831,62 @@ def check_roadmap_fills_and_breaks():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_band_leader_order_and_roadmap_exports():
+    """The band leader's calls carry: soloists go in the order the chart
+    names them, whatever order the band was listed in; the iReal link
+    gives every section a letter and carries its name and the roadmap
+    (vamp, fills, breaks, the ending) as chart text; the chord sheet
+    says who solos, what plays behind them, the fills and breaks and
+    how it ends."""
+    import chartaudio
+    import chartc
+    import chartexport
+    import textformats
+    tmp = tempfile.mkdtemp()
+    cp = os.path.join(tmp, "r.chart")
+    open(cp, "w").write(
+        "title: Road Map\nkey: F\nmeter: 4/4\ntempo: 150\nfeel: swing\n\n"
+        "band:\n  trumpet\n  tenor = tenor sax\n  bone = trombone\n"
+        "  piano\n  bass\n  drums\n\n"
+        "section Intro, 2 bars, vamp till cue\n  chords: F7, C7\n"
+        "section A, 4 bars\n  chords: F7, Bb7, F7, C7\n"
+        "section Solos, 8 bars\n  chords: F7, Bb7, F7, F7, Bb7, Bb7, F7, "
+        "C7\n  tenor: solo\n  trumpet: solo\n  bone: backgrounds\n"
+        "  at bar 7: break, 2 bars, fill into it\n"
+        "section Out, 4 bars\n  chords: F7, Bb7, C7, F7\n"
+        "  ending: hold, last hit\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(cp, os.path.join(tmp, "b"))
+    pl = chartaudio.parse_score(os.path.join(
+        tmp, "b", "Road Map — for listening.musicxml"))
+    ev = {p["name"]: p["events"] for p in pl["parts"]}
+    # the intro vamps twice (8 beats x 2), then A: solos start at beat 32
+    first_t = min(e[0] for e in ev["tenor"])
+    first_tp = min(e[0] for e in ev["trumpet"])
+    check("soloists go in the order the chart calls them, tenor then "
+          "trumpet, though the trumpet is listed first",
+          first_t < first_tp, (first_t, first_tp))
+    ch = chartc.parse_chart(cp)
+    music = chartexport.ireal_music(ch)
+    check("iReal: every section gets a letter, its name and the roadmap "
+          "ride along as chart text",
+          "*B<Solos>" in music and "<Vamp till cue>" in music
+          and "<Break 2 bars>" in music and "<Fill>" in music
+          and "<hold, last hit>" in music and "*C<Out>" in music, music)
+    song = textformats.parse_all(chartexport.ireal_link(ch))[0]
+    check("iReal: the link still reads back section by section",
+          [sec.get("name") for sec in song["sections"]][:3]
+          == ["Intro", "A", "B"], [sec.get("name")
+                                   for sec in song["sections"]])
+    sheet = open(chartexport.write_chords(ch, tmp, "Road Map")[0]).read()
+    check("the chord sheet carries the road map",
+          "Vamp till cue." in sheet and "Solos: tenor, then trumpet." in sheet
+          and "Backgrounds: bone." in sheet and "Bars 7 to 8: break" in sheet
+          and "Bar 6: drum fill" in sheet
+          and "Ending: hold, last hit." in sheet, sheet)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5905,6 +5961,7 @@ if __name__ == "__main__":
     check_exports_ireal_midi_chords()
     check_band_plays_like_pros()
     check_roadmap_fills_and_breaks()
+    check_band_leader_order_and_roadmap_exports()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

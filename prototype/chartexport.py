@@ -13,6 +13,7 @@ for that and whatever"):
 The iReal link is proven the only way that counts: Copyist's own
 importer reads it back to the same form and chords (test_corpus).
 """
+import collections
 import html
 import os
 import re
@@ -115,16 +116,59 @@ def ireal_music(chart):
     out = []
     start = 1
     cur_meter = None
+    # iReal marks sections only A-D, intro and verse. A section named
+    # otherwise ("Solos", "Shout") takes the next free letter, or the
+    # letter of an earlier section with the same changes, and its own
+    # name rides along as chart text — so the form still reads on a
+    # phone instead of melting into one long section
+    used, by_changes = set(), {}
     for sec in chart['sections']:
+        nm = sec['name'].strip().lower()
+        if nm[:1] in 'abcd' and (len(nm) == 1 or nm[1:].isdigit()):
+            used.add(nm[0].upper())
+    ending = chart['sections'][-1].get('ending') if chart['sections'] \
+        else None
+    for si, sec in enumerate(chart['sections']):
         n = sec['bars']
         mark = ''
+        text = []
         nm = sec['name'].strip().lower()
+        changes = tuple(tuple(c for _b, c in bar) for bar in sec['content'])
         if nm[:1] in 'abcd' and (len(nm) == 1 or nm[1:].isdigit()):
             mark = '*' + nm[0].upper()
         elif nm.startswith('intro'):
             mark = '*i'
         elif nm.startswith('verse'):
             mark = '*V'
+        elif changes in by_changes:
+            mark = '*' + by_changes[changes]
+            text.append(sec['name'].strip())
+        else:
+            free = [x for x in 'ABCD' if x not in used]
+            if free:
+                used.add(free[0])
+                mark = '*' + free[0]
+            text.append(sec['name'].strip())
+        if mark[1:] in 'ABCD' and mark:
+            by_changes.setdefault(changes, mark[1:])
+        if sec.get('open'):
+            text.append('Vamp till cue' if sec.get('vamp') else 'Open')
+        bar_text = collections.defaultdict(list)
+        if text:
+            bar_text[0].append(', '.join(text))
+        for b, kind, t in sec.get('events', ()):
+            if kind == 'break' and t == 'first':
+                k = sum(1 for bb, kk, _ in sec['events'] if kk == 'break'
+                        and bb >= b and bb < b + 8)
+                bar_text[b - 1].append('Break' + (f' {k} bars' if k > 1
+                                                  else ''))
+            elif kind == 'fill':
+                bar_text[b - 1].append('Fill')
+            elif kind == 'fermata':
+                bar_text[b - 1].append('Fermata')
+        if si == len(chart['sections']) - 1 and ending:
+            bar_text[n - 1].append(ending[0] if isinstance(ending, tuple)
+                                   else str(ending))
         rep = sec.get('repeat') or 0
         ends = sec.get('endings') or []
         body_n = sec.get('body', n) if ends else n
@@ -137,7 +181,9 @@ def ireal_music(chart):
                            f"{meter[0]}{meter[1]}")
                 cur_meter = meter
             beats = meter[0] if meter[1] == 4 else max(meter[0] // 3, 1)
-            cells.append(t + _bar_cells(sec['content'][off], beats))
+            words = ''.join('<' + re.sub(r'[<>"]', '', w) + '>'
+                            for w in bar_text.get(off, ()))
+            cells.append(t + words + _bar_cells(sec['content'][off], beats))
         if ends:
             body = '|'.join(cells[:body_n])
             elen = ends[0]['bars']
@@ -315,8 +361,42 @@ def write_chords(chart, folder, title):
         for bar in sec['content']:
             got = [c for _b, c in bar if c is not None]
             bars.append(" ".join(_plain(c) for c in got) if got else '/')
+        if sec.get('open'):
+            lines.append("Vamp till cue." if sec.get('vamp')
+                         else "Open, till cue.")
         for i in range(0, len(bars), 4):
             lines.append("| " + " | ".join(bars[i:i + 4]) + " |")
+        # the roadmap a band needs on paper: who solos, what plays
+        # behind them, fills, breaks, how it ends
+        solos = [t for t, ins, _l in sec.get('directives', ())
+                 if ins.strip().lower().startswith('solo')]
+        if solos:
+            lines.append("Solos: " + ", then ".join(solos) + ".")
+        bgs = [t for t, ins, _l in sec.get('directives', ())
+               if ins.strip().lower().startswith('backgrounds')]
+        if bgs:
+            lines.append("Backgrounds: " + ", ".join(bgs) + ".")
+        evs = sorted(sec.get('events', ()))
+        for b, kind, t in evs:
+            if kind == 'break' and t == 'first':
+                k = 1
+                while (b + k, 'break', '') in evs:
+                    k += 1
+                lines.append(f"Bar {b}: break" if k == 1 else
+                             f"Bars {b} to {b + k - 1}: break")
+            elif kind == 'fill':
+                lines.append(f"Bar {b}: drum fill"
+                             + (f" from beat {t}" if t else "")
+                             + (" into the next section" if b == sec['bars']
+                                else ""))
+            elif kind == 'fermata':
+                lines.append(f"Bar {b}: fermata")
+            elif kind == 'text':
+                lines.append(f"Bar {b}: {t}")
+        if sec is chart['sections'][-1] and sec.get('ending'):
+            e = sec['ending']
+            lines.append("Ending: " + (e[0] if isinstance(e, tuple)
+                                       else str(e)) + ".")
         lines.append("")
     path = os.path.join(folder, f"{title} — chords.txt")
     with open(path, 'w', encoding='utf-8') as f:
