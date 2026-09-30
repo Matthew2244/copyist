@@ -2542,7 +2542,15 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                                  octaves=shift // 12,
                                                  harm=steps))
 
-    auto_cues(plans, band, labels, resolved, chart, findings)
+    # the pages are what players print: the copyist's calls are made
+    # once per chart and stay put build to build, so the parts on every
+    # stand match; the listen is where each take is fresh
+    salt_was = chartgroove.SALT
+    chartgroove.SALT = 'pages:' + str(chart['header'].get('title', ''))
+    try:
+        auto_cues(plans, band, labels, resolved, chart, findings)
+    finally:
+        chartgroove.SALT = salt_was
     breath_report(band, labels, resolved, chart, findings)
     return resolved, horn_of, (fifths, mode)
 

@@ -615,7 +615,9 @@ steps along the scale of the key in force where the line starts, so the
 harmony stays in the key; a chromatic note in the lead (a leading tone,
 a blue note) harmonizes from the scale tone it bends. The findings and
 the read-aloud say "doubles the flugel a sixth below". A horn or a singer coming back after a long rest gets a cue without
-asking, the copyist's call each build: after six to ten bars of rest,
+asking, the copyist's call for each entrance (made once per chart, so
+the parts on every stand match build to build; only the listen is a
+fresh take): after six to ten bars of rest,
 or four when the entrance is off the beat, the last phrase before it
 (from where the melody last breathed, one to four bars) of whoever is
 most audible leading in, printed small and labelled so they can find
