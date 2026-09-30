@@ -715,7 +715,10 @@ All of these ride on a `from demo` line, after commas:
   (the comping, backgrounds) hears the melody, any written line and the
   soloist, and leaves out a note a half step from what the lead is
   holding: the pianist drops the A from a Bbmaj7 while the melody sits
-  on Bb. Passing notes go by without anyone voicing around them. A
+  on Bb. They stay under it too: with the melody up high (E4 and above),
+  a voicing that would sit on top of it drops an octave, so nothing
+  masks the lead. A low melody (a tenor down around Bb3) is voiced
+  over, as usual. Passing notes go by without anyone voicing around them. A
   guitar beside a piano voices around the piano. Vibes the chart gives
   nothing leave the comping to the piano or guitar (two chord players
   comping at once muddy the changes; the findings say so, and `vibes:

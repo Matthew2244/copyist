@@ -4825,6 +4825,18 @@ def check_band_hears_the_lead():
     check("a comper leaves out the A under the melody's Bb, keeps the rest",
           got == [62], str(got))
     b = chartgroove.Bar(24, (4, 4), 0, 1)
+    for m in (60, 64, 70, 74):
+        b.add(0, 48, ('p', m, 80))
+    b._hear_the_lead([(0.0, 2.0, 67)])
+    got = sorted(n[1] for n in b.onsets[0][1])
+    check("a comper stays under the melody: the voicing's top moves down "
+          "an octave under a G4 lead", max(got) < 67 and 62 in got, str(got))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    b.add(0, 48, ('p', 64, 80))
+    b._hear_the_lead([(0.0, 2.0, 58)])
+    check("a low lead (a tenor down at Bb3) is voiced over, as usual",
+          [n[1] for n in b.onsets[0][1]] == [64])
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
     b.add(0, 48, ('p', 69, 80))
     b._hear_the_lead([(0.5, 1.0, 70)])
     fn = lambda t: ('B', -1, 'maj7', None) if t < 3 else \

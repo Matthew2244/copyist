@@ -200,9 +200,33 @@ class Bar:
         for tick in list(self.onsets):
             ticks, notes = self.onsets[tick]
             a, b = tick / q, (tick + ticks) / q
-            keep = [n for n in notes if n[0] != 'p' or not any(
+            over = [m for s, e, m in heard if min(b, e) - max(a, s)
+                    >= 0.5 - 1e-6]
+            top = max(over) if over else None
+            moved = []
+            for n in notes:
+                if n[0] == 'p' and top is not None and top >= 64 and \
+                        n[1] > top:
+                    # stay under the melody: a voicing on top of the
+                    # lead masks it — down an octave, or out if that
+                    # would be mud
+                    m_ = n[1] - 12
+                    while m_ > top:
+                        m_ -= 12
+                    if m_ < 50:
+                        continue
+                    n = (n[0], m_) + tuple(n[2:])
+                moved.append(n)
+            keep = [n for n in moved if n[0] != 'p' or not any(
                 min(b, e) - max(a, s) >= 0.5 - 1e-6
                 and (n[1] - m) % 12 in (1, 11) for s, e, m in heard)]
+            seen, uniq = set(), []
+            for n in keep:            # an octave move can double a note
+                k_ = (n[0], n[1]) if n[0] == 'p' else id(n)
+                if k_ not in seen:
+                    seen.add(k_)
+                    uniq.append(n)
+            keep = uniq
             if keep:
                 self.onsets[tick] = (ticks, keep)
             else:
