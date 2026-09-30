@@ -875,8 +875,9 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
             elif kind == 'band':
                 land = late(beat * 0.08)
                 if drums:
-                    b.add(land, beat, ('u', G._CRASH, 110))
-                    b.add(land, beat, ('u', G._KICK, 100))
+                    # the landing, the drummer's pick: a crash, a choke,
+                    # a bark, a snare shot...
+                    G.kit_hit(b, land, beat, dd)
                     # under the chord: a snare roll, a cymbal swell, a
                     # tom rumble, or just let it ring — not the same
                     # thing under every chord

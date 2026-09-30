@@ -1642,10 +1642,10 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         beat = bar.div * 4 // bar.den
         c0 = _chord_at(chords, 1.0)
         if brk[off + 1] == 'first':
-            if role in ('drums', 'perc'):
-                bar.add(0, beat // 2, ('u', _CRASH, 104))
-                bar.add(0, beat // 2, ('u', _KICK, 100))
-                bar.add(0, beat // 2, ('u', _SNARE, 92))
+            if role == 'drums':
+                kit_hit(bar, 0, beat, _Dice('break hit', absbar))
+            elif role == 'perc':
+                bar.add(0, beat // 2, ('u', ('C', 5, 'normal'), 100))
             elif role == 'bass' and c0:
                 m = _fold_bass(_near(_bass_pc(c0), state.get('bass', 38)),
                                28, 55)
@@ -1917,6 +1917,43 @@ def _fill(bar, kind, start, heat, d):
                 hit(t, _SNARE, beat // 2, base + 4)
 
 
+_OPEN_HAT = ('G', 5, 'circle-x')
+
+
+def kit_hit(bar, t, beat, d, big=True):
+    """One hit the drummer's own way, in the moment (Matthew,
+    2026-09-30: "a choke with the cymbal and kick, a snare hit, a hihat
+    bark with the kick, snare or both, anything"): a crash and kick that
+    ring, a choked cymbal, a lone snare, a hi-hat bark (open, then shut
+    with the foot) with the kick, the snare or both, or snare and kick."""
+    kinds = ('crash', 'crash', 'choke', 'snare', 'bark_k', 'bark_s',
+             'bark_ks', 'snare_kick') if big else \
+        ('choke', 'snare', 'bark_k', 'bark_s', 'bark_ks', 'snare_kick',
+         'crash')
+    k = kinds[int(d() * len(kinds)) % len(kinds)]
+    h = beat // 2
+    if k == 'crash':
+        bar.add(t, beat, ('u', _CRASH, 108))
+        bar.add(t, beat, ('u', _KICK, 100))
+    elif k == 'choke':
+        bar.add(t, h, ('u', _CRASH, 110, ('staccato',)))
+        bar.add(t, h, ('u', _KICK, 102))
+    elif k == 'snare':
+        bar.add(t, h, ('u', _SNARE, 116))
+    elif k == 'snare_kick':
+        bar.add(t, h, ('u', _SNARE, 110))
+        bar.add(t, h, ('u', _KICK, 104))
+    else:
+        bar.add(t, h, ('u', _OPEN_HAT, 104))
+        if t + h < bar.barlen:
+            bar.add(t + h, h, ('u', _HATF, 70))     # the foot shuts it
+        if k in ('bark_k', 'bark_ks'):
+            bar.add(t, h, ('u', _KICK, 102))
+        if k in ('bark_s', 'bark_ks'):
+            bar.add(t, h, ('u', _SNARE, 108))
+    return k
+
+
 def _clear_comp(bar, t0=0):
     """The comping snare and the placed kicks step aside (the feathered
     kick and the hat foot stay) so a bigger idea — a bomb, an answer, a
@@ -1952,6 +1989,45 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
         # a new section, a new soloist, or the landing after a fill
         bar.add(0, beat, ('u', _CRASH, int(84 + 24 * heat)))
         bar.add(0, beat, ('u', _KICK, int(82 + 20 * heat)))
+    # welcoming a new soloist, like the audience clapping them in —
+    # right away, a bar later, or not at all, any phrasing (Matthew,
+    # 2026-09-30)
+    if new_turn:
+        wd = _Dice('welcome', absbar, sec.get('name'))
+        r = wd()
+        if r < 0.45:
+            state['welcome'] = (absbar, wd())
+        elif r < 0.8:
+            state['welcome'] = (absbar + 1, wd())
+    wel = state.get('welcome')
+    if wel and wel[0] == absbar and bar.num >= 4:
+        state.pop('welcome', None)
+        wd = _Dice('welcome hits', absbar)
+        shape = int(wel[1] * 5) % 5
+        if shape == 0:          # crashes with the kick after the one
+            for bt in (1.5, 3.0):
+                bar.add(int(bt * beat), beat, ('u', _CRASH, 100))
+                bar.add(int(bt * beat), beat // 2, ('u', _KICK, 96))
+        elif shape == 1:        # a hit, a little fill, a hit
+            kit_hit(bar, int(0.5 * beat), beat, wd)
+            _clear_comp(bar, beat) if state.get('swing_time') else None
+            for i, t in enumerate(range(beat, 3 * beat, beat // 4)):
+                bar.add(t, beat // 4, ('u', (('E', 5, 'normal'),
+                                             ('D', 5, 'normal'),
+                                             ('A', 4, 'normal'))[i // 3 % 3],
+                                        90 + i))
+            kit_hit(bar, 3 * beat, beat, wd)
+        elif shape == 2:        # on one and three, big
+            for bt in (0, 2):
+                bar.add(bt * beat, beat, ('u', _CRASH, 104))
+                bar.add(bt * beat, beat // 2, ('u', _KICK, 98))
+        elif shape == 3:        # the push: the 'and' of one, then four
+            kit_hit(bar, beat // 2, beat, wd)
+            kit_hit(bar, 3 * beat, beat, wd, big=False)
+        else:                   # a run of kicks under a crash
+            bar.add(beat, beat, ('u', _CRASH, 100))
+            for t in (beat, beat + beat // 3, 2 * beat):
+                bar.add(t, beat // 3, ('u', _KICK, 94))
     phrase_end = (off + 1) % 4 == 0 or off == sec['bars'] - 1 \
         or last_of_turn
     if any(k == 'fill' and b == off + 1 for b, k, _t in

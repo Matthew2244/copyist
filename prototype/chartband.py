@@ -933,6 +933,8 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
                     d = min(max(ns - 0.004, 0.02), 8.0)
                 else:
                     d = 8.0
+                if art and art.get('stac'):
+                    d = min(d, 0.13)        # the hand grabs it: a choke
                 dd, vel, bright, bend, amps = _shape(art, d, vel, fam)
             else:
                 dd, vel, bright, bend, amps = _shape(art, d, vel, fam)

@@ -5840,6 +5840,25 @@ def check_band_plays_like_pros():
     kept = sum(1 for x, y in pairs if x and y and x & y)
     check("the drummer's comping idea carries across its phrase",
           kept >= len([1 for x, y in pairs if x and y]) // 2, pairs[:4])
+    # a solo break's hit is the drummer's pick each time
+    hits = set()
+    for n in range(12):
+        open(os.path.join(tmp, "k.chart"), "w").write(
+            f"title: Break {n}\nkey: F\nmeter: 4/4\ntempo: 150\n"
+            "feel: swing\n\nband:\n  tenor = tenor sax\n  bass\n"
+            "  drums\n\nsection A, 8 bars\n  chords: F7, Bb7, F7, C7, F7,"
+            " Bb7, C7, F7\n  tenor: solo\n  at bar 5: break, 2 bars\n"
+            "  ending: as written\n")
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(os.path.join(tmp, "k.chart"),
+                                 os.path.join(tmp, "kb"))
+        kp = chartaudio.parse_score(os.path.join(
+            tmp, "kb", f"Break {n} — for listening.musicxml"))
+        hits.add(tuple(sorted({e[2] for p in kp["parts"]
+                               if p["name"] == "drums" for e in p["events"]
+                               if 16 <= e[0] < 17})))
+    check("a solo break's hit is different from tune to tune (crash, "
+          "choke, snare, hi-hat bark...)", len(hits) >= 3, hits)
     six = ("B", 0, "6", None)
     check("a 6 chord is major: no b7 in its scale or rootless voicing",
           10 not in G._scale(six)
