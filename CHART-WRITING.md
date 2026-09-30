@@ -874,7 +874,11 @@ All of these ride on a `from demo` line, after commas:
   band plays one line together, each in their own octave, and the
   drummer kicks it their own way), `max roach ending` or `drummer's
   last say` (the drummer's own last word after everyone's done, always
-  landing on the kick; and anyone may fall off the final hit in the
+  landing on the kick: floor tom and kick, "snare snare kick", open hat
+  with snare then the hat foot then kick, down the toms, a quick lick
+  or spread out, never the same twice; write your own with `drums tag
+  "open hat with snare, hat foot, kick"`, where `with` or `+` puts
+  strokes together; and anyone may fall off the final hit in the
   moment, the keys sliding off it while the drummer has the last say), `<part> cadenza` (the band
   cuts off and that player goes alone, free; a `drums fill` named after
   it brings everyone back for the hit), and `as written` for nothing

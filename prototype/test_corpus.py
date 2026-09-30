@@ -4864,6 +4864,20 @@ def check_band_hears_the_lead():
                                                 {'lead': True})]
     check("a made-up solo is left to shape itself",
           chartband._phrasing(ev2, []) == [1.0, 1.0])
+    import chartending
+    check("every Max Roach tag lands on the kick",
+          all(t[-1] == 'bass drum' for t in chartending._TAGS)
+          and all(chartending.band_tag(chartgroove._Dice('tag', k))[-1]
+                  == 'bass drum' for k in range(30)))
+    got = chartending.tag_pieces("open hat with snare, hat foot, kick")
+    check("a written tag reads strokes together: 'open hat with snare'",
+          got == ['open hat+snare', 'hat foot', 'kick'], str(got))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    chartending._tag(b, 24, got, 'song')
+    first = b.onsets[min(b.onsets)][1]
+    check("and plays them together, the kick last",
+          {n[1] for n in first} == {('G', 5, 'circle-x'), ('C', 5, 'normal')}
+          and b.onsets[max(b.onsets)][1][-1][1] == ('F', 4, 'normal'))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

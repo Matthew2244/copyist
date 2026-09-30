@@ -88,13 +88,33 @@ _KIT = {
     'hat': ('G', 5, 'x'), 'hi-hat': ('G', 5, 'x'),
     'hi hat': ('G', 5, 'x'), 'china': ('A', 5, 'x'),
     'splash': ('A', 5, 'x'),
+    'open hat': ('G', 5, 'circle-x'), 'open hi-hat': ('G', 5, 'circle-x'),
+    'open hi hat': ('G', 5, 'circle-x'),
+    'hat foot': ('D', 4, 'x'), 'hi-hat foot': ('D', 4, 'x'),
+    'hi hat foot': ('D', 4, 'x'), 'foot': ('D', 4, 'x'),
+    'pedal': ('D', 4, 'x'),
 }
+# the Max Roach ending, the drummer's last say: short, always landing
+# on the kick; a '+' is strokes together (Matthew, 2026-09-30: "open hat
+# with snare, hihat foot then kick, or anything")
 _TAGS = [['floor tom', 'floor tom', 'bass drum'],
          ['snare', 'bass drum'],
          ['high tom', 'floor tom', 'bass drum'],
          ['rim', 'floor tom', 'bass drum'],
          ['snare', 'floor tom', 'bass drum'],
-         ['floor tom', 'bass drum']]
+         ['floor tom', 'bass drum'],
+         ['open hat+snare', 'hat foot', 'bass drum'],
+         ['snare', 'snare', 'bass drum'],
+         ['snare', 'high tom', 'floor tom', 'bass drum'],
+         ['crash+snare', 'bass drum'],
+         ['floor tom+snare', 'bass drum'],
+         ['open hat+bass drum', 'hat foot', 'snare', 'bass drum'],
+         ['rim', 'rim', 'bass drum'],
+         ['high tom', 'mid tom', 'floor tom', 'bass drum'],
+         ['ride bell', 'bass drum'],
+         ['snare', 'hat foot', 'bass drum'],
+         ['open hat+snare', 'floor tom', 'bass drum'],
+         ['snare+high tom', 'floor tom+snare', 'bass drum']]
 
 
 def band_tag(d):
@@ -104,7 +124,9 @@ def band_tag(d):
     kick ... as long as it ends on the kick")."""
     if d() < 0.45:
         return list(_TAGS[int(d() * len(_TAGS)) % len(_TAGS)])
-    pool = ['floor tom', 'snare', 'high tom', 'floor tom', 'mid tom', 'rim']
+    pool = ['floor tom', 'snare', 'high tom', 'floor tom', 'mid tom', 'rim',
+            'open hat+snare', 'hat foot', 'crash+snare', 'ride bell',
+            'floor tom+snare']
     n = 1 + int(d() * 3)
     return [pool[int(d() * len(pool)) % len(pool)] for _ in range(n)] + \
         ['bass drum']
@@ -142,12 +164,19 @@ def tag_pieces(spec):
         w = w.strip().lower()
         if not w:
             continue
-        if w not in _KIT and w.endswith('s') and w[:-1] in _KIT:
-            w = w[:-1]
-        if w not in _KIT:
-            raise EndingError(f"'{w}' is not a drum I know for a tag: "
-                              + ", ".join(sorted(_KIT)))
-        got.append(w)
+        together = []
+        # "open hat with snare", "crash + kick": strokes landing together
+        for x in re.split(r'\s*(?:\+|\bwith\b)\s*', w):
+            x = x.strip()
+            if not x:
+                continue
+            if x not in _KIT and x.endswith('s') and x[:-1] in _KIT:
+                x = x[:-1]
+            if x not in _KIT:
+                raise EndingError(f"'{x}' is not a drum I know for a "
+                                  "tag: " + ", ".join(sorted(_KIT)))
+            together.append(x)
+        got.append('+'.join(together))
     return got
 
 
@@ -1521,8 +1550,8 @@ def band_choice(feel, song, has_keys, has_horns, written=None,
         # and sometimes the last hit rings, fermata, instead of cutting
         steps = [('hit', 'held') if k == 'hit' else (k, a)
                  for k, a in steps]
-    elif hit and d() < (0.35 if any(k == 'dictate' for k, _ in steps)
-                        else 0.2):
+    elif hit and d() < (0.5 if any(k == 'dictate' for k, _ in steps)
+                        else 0.35):
         steps.append(('tag', ('drums', None)))
     return steps
 
@@ -1538,8 +1567,14 @@ def _tag(bar, beat, pieces, song):
     # in don't rush your ideas ... still go for it")
     t = beat * (0.35 + 0.35 * d())
     n = len(pieces)
+    # sometimes a quick lick (sixteenths or triplets), sometimes loose
+    quick = n >= 3 and d() < 0.4
+    step = (beat // 4 if d() < 0.5 else beat // 3) if quick else None
     for i, p in enumerate(pieces):
         vel = 94 + int(18 * (i + 1) / n) + int((d() - 0.5) * 8)
-        bar.add(int(t), beat // 2, ('u', _KIT[p], min(vel, 124)))
-        t += beat * (0.36 + 0.16 * d() + (0.18 if i == n - 2 else 0))
+        for x in p.split('+'):
+            v = vel if 'foot' not in x and x not in ('pedal',) else 78
+            bar.add(int(t), beat // 2, ('u', _KIT[x], min(v, 124)))
+        t += step if step else beat * (0.36 + 0.16 * d()
+                                       + (0.18 if i == n - 2 else 0))
     return bar.xml()
