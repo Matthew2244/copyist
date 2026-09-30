@@ -233,7 +233,9 @@ def _open_expr(line):
                 words = re.fullmatch(r"[A-Z0-9#',.\-7 ;]+", rest)
                 if j == -1 and words:
                     return True           # still running at the line end
-                if ' ' in rest and words:
+                # ">BIG " is one short word and a space, not the start
+                # of a longer expression
+                if ' ' in rest.strip() and words:
                     inside = True
         i += 1
     return False

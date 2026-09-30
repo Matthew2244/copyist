@@ -163,7 +163,8 @@ def section_heading(sec):
             bits.append(f"in {val}" if bar == 1 else
                         f"the meter changes to {val} at bar {bar}")
         elif kind == 'key':
-            bits.append(f"the key changes to {val} at bar {bar}")
+            bits.append(f"the key changes to {val} here" if bar == 1
+                        else f"the key changes to {val} at its bar {bar}")
     return ", ".join(bits) + "."
 
 
@@ -202,6 +203,7 @@ def part_section(plan, label, chord_parts, figures=None):
                 continue
             if item.get('src_label'):
                 oct_ = chartc.octave_words(item.get('octaves', 0))
+                oct_ += chartc.harmony_words(item.get('harm', 0))
                 lines.append(f"You double the {item['src_label']}{oct_} "
                              "— the same line, written for you.")
             lo, hi = item['res']['bars']
@@ -296,17 +298,20 @@ def part_section(plan, label, chord_parts, figures=None):
     if shows_chords:
         lines.append(say_changes(sec))
     for bar, text in texts:
+        # the printed bar, the number on the page and in the notes above
+        # (a sign said "at bar 1" of letter A sent the player to bar 1)
+        printed = bar + plan['start'] - 1
         if isinstance(text, tuple) and text[0] == 'road':
-            lines.append(f"At bar {bar}: {ROAD_SPOKEN[text[1]]}")
+            lines.append(f"At bar {printed}: {ROAD_SPOKEN[text[1]]}")
             continue
         if isinstance(text, tuple) and text[0] == 'tempo':
-            lines.append(f"At bar {bar}: tempo changes to {text[1]}.")
+            lines.append(f"At bar {printed}: tempo changes to {text[1]}.")
         else:
             # a technique word says what it means, for anyone who has
             # never held a bow
             said = f'"{text}"' + TECHNIQUE_SAID.get(
                 str(text).strip().lower(), "")
-            lines.append(f'At bar {bar}: {said}.'
+            lines.append(f'At bar {printed}: {said}.'
                          if bar > 1 else f'Marked: {said}.')
     return ("\n".join(lines) if figures else " ".join(lines))
 

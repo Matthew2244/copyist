@@ -4708,6 +4708,96 @@ def check_mutes_sound():
           "harmon mute" in x and "<words>open</words>" in x)
 
 
+def check_bandleader_round():
+    """Faith as bandleader, 2026-09-30, writing Lantern Waltz by hand:
+    a double harmonized in scale steps ('alto: double flugel a sixth
+    below'), a bare 'alto' on the band list meaning the sax, tempo words
+    said bare after 'at bar N:', plain sentences where the writer's
+    first instinct is wrong, and the read-aloud giving printed bars."""
+    import chartc
+    import chartread
+    check("harmony phrase: a third below, in sixths above, a 10th under",
+          chartc.harmony_phrase("flugel a third below") == ("flugel", -2)
+          and chartc.harmony_phrase("trumpet 1 in sixths above")
+          == ("trumpet 1", 5)
+          and chartc.harmony_phrase("alto a 10th under") == ("alto", -9)
+          and chartc.harmony_phrase("alto an octave down")
+          == ("alto an octave down", 0))
+    res = {'at': 1, 'timeline': [(0, 1, [72]), (1, 2, [69]), (2, 3, [66]),
+                                 (3, 4, [62])]}
+    got = [ps[0] for _, _, ps in
+           chartc.harmonize_res(res, -5, (-1, 'major'))['timeline']]
+    # in F: C5->E4, A4->C4, F#4 (bent from F) ->A3, D4->F3
+    check("harmonize: sixths below in F, a chromatic note from its scale "
+          "tone", got == [64, 60, 57, 53], str(got))
+    tmp = tempfile.mkdtemp()
+    open(os.path.join(tmp, "w.chart"), "w").write(
+        "title: W\nkey: F\nmeter: 3/4\ntempo: 150\nfeel: jazz waltz\n\n"
+        "band:\n  flugel = flugelhorn\n  alto\n  bass\n  drums\n\n"
+        "figure f, 2 bars:\n  notes: C5 h., A4 q, G4 q, F4 q\n\n"
+        "section A, 4 bars\n  chords: F, F, C7, F\n  at bar 1: segno\n"
+        "  at bar 3: rit.\n  flugel: figure f\n"
+        "  alto: double flugel a third below\n\n"
+        "section B, 2 bars\n  chords: C7, F\n  at bar 1: key G\n"
+        "  flugel: figure f\n  alto: double flugel\n")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(os.path.join(tmp, "w.chart"),
+                             os.path.join(tmp, "b"))
+    out = buf.getvalue()
+    check("band: a bare 'alto' is the alto sax; the double says its third",
+          "doubles the flugel a third below" in out, out[-400:])
+    x = open(os.path.join(tmp, "b", "W — score.musicxml")).read()
+    check("at bar N: rit. prints the word", ">rit.<" in x)
+    old = sys.argv
+    sys.argv = ["chartread", os.path.join(tmp, "w.chart"), "--part", "alto"]
+    buf = io.StringIO()
+    try:
+        with redirect_stdout(buf):
+            chartread.main()
+    finally:
+        sys.argv = old
+    said = buf.getvalue()
+    check("read-aloud: marks at printed bars, a first-bar key change "
+          "says here", "At bar 3: \"rit.\"" in said
+          and "the key changes to G here" in said
+          and "You double the flugel a third below" in said, said)
+
+    def refusal(body):
+        open(os.path.join(tmp, "r.chart"), "w").write(
+            "title: R\nkey: C\nmeter: 4/4\ntempo: 100\n\nband:\n"
+            + body)
+        try:
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(os.path.join(tmp, "r.chart"),
+                                     os.path.join(tmp, "rb"))
+        except SystemExit as e:
+            return str(e.code)
+        return ""
+    import chartbraille
+    import chartbrailleread
+    check("braille: 'rit.' ends on its own dot 3, no second one after it",
+          not chartbraille._ends_in_word(
+              chartbraille.Words(chartbraille.expression("rit.")))
+          and chartbraille._ends_in_word(
+              chartbraille.Words(chartbraille.expression("big"))))
+    check("braille proofreader: a short word and a space is not a longer "
+          "expression, so one wrapping after it is still open",
+          chartbrailleread._open_expr("#BI <7\" >SHOUT CHORUS> >BIG "
+                                      ">OPEN1 TILL"))
+    said = refusal("  kazoo\n\nsection A, 1 bars\n  chords: C\n")
+    check("band: an unknown instrument asks what it is, no traceback",
+          "'kazoo' is not an instrument Copyist knows" in said, said)
+    said = refusal("  trumpet\n\nsection A, 1 bars\n  chords: C\n"
+                   "  trumpet: notes: C5 w\n")
+    check("notes: on a part's line points at a figure",
+          "notes: goes in a figure" in said, said)
+    said = refusal("  trumpet\n\nsection A, 1 bars\n  chords: C\n"
+                   "  at bar 1: wobble\n")
+    check("at bar N: an unknown word lists what it takes",
+          "After 'at bar N:' Copyist takes" in said, said)
+
+
 def check_double_an_octave_off():
     """An arranger's double sits an octave off as often as not: 'tenor:
     double trumpet an octave down', '8vb', 'two octaves up'. The line
@@ -6316,6 +6406,7 @@ if __name__ == "__main__":
     check_new_feels()
     check_fall_keyswitch_any_timing()
     check_swung_and_straight_funk()
+    check_bandleader_round()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

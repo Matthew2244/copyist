@@ -515,7 +515,10 @@ adds the small revision date, and `number:` puts the setlist number
 in brackets top right. Mid-tune, `at bar 12: key Eb` changes key,
 and every part's page restates its own written signature right
 there. Your trumpet player gets the new key in trumpet, not in
-concert. `at bar 8: fermata` is the hold at the end of a phrase: the
+concert. The tempo words go straight after the bar too: `at bar 12: rit.`,
+`at bar 16: a tempo`, `molto rall.`, `accel.`, `slow down`, `fade out`
+print and play just as `text "rit."` does. `at bar 8: fermata` is the
+hold at the end of a phrase: the
 sign lands on that bar's last note or rest in every part, and the
 listen holds time there for everybody at once, which is the whole
 point of a fermata. On any part's line, `cresc bars 2-4` or
@@ -557,7 +560,13 @@ chart. Say the octave when the double sits off it: `tenor: double
 trumpet an octave down` (or `an octave up`, `two octaves down`, `8va`,
 `8vb`); the page, the listen, the findings and the read-aloud all move
 with it, and the range report still tells you if that takes the horn
-past its low note. `cue` prints another part's line small, labelled "(trumpet
+past its low note. Say an interval and the double harmonizes instead:
+`alto: double flugel a sixth below`, `trombone: double trumpet a third
+below`, `a 10th under`, `in thirds above`. Every note moves that many
+steps along the scale of the key in force where the line starts, so the
+harmony stays in the key; a chromatic note in the lead (a leading tone,
+a blue note) harmonizes from the scale tone it bends. The findings and
+the read-aloud say "doubles the flugel a sixth below". `cue` prints another part's line small, labelled "(trumpet
 cue)", never played and never counted in your range. It's there so you
 can find your entrance. `build: add trumpet at 11` prints "+trumpet" in
 every part at that bar, the montuno entrance cue. And `on pass 2: mute

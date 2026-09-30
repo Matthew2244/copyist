@@ -884,8 +884,18 @@ def parse_chart(path):
                          s)
             if not m:
                 fail(f"{loc}: cannot read band line '{s}'")
+            inst = (m.group(2) or m.group(1)).strip()
+            if canonical_instrument(inst) not in HORNS:
+                # on a band list a bare alto or tenor is the sax, as the
+                # interview has it; the singer is "alto voice"
+                if inst.lower() in ('alto', 'tenor'):
+                    inst = inst + ' sax'
+                else:
+                    fail(f"{loc}: '{inst}' is not an instrument Copyist "
+                         "knows. Say what it is after an equals sign, "
+                         f"like '{m.group(1).strip()} = alto sax'")
             chart['band'].append({'label': m.group(1).strip(),
-                                  'instrument': (m.group(2) or m.group(1)).strip(),
+                                  'instrument': inst,
                                   'detail': m.group(3),
                                   'tuning': m.group(4),
                                   'demo': m.group(5),
@@ -1058,6 +1068,20 @@ def parse_chart(path):
             cur['events'].append((int(m.group(1)), 'road',
                                   road_kind(m.group(2))))
             continue
+        # the tempo words said bare, the way a bandleader writes them;
+        # they print and perform exactly as text "..." does
+        m = re.match(r'at bar (\d+):\s*((?:(?:molto|poco|poco a poco)\s+)?'
+                     r'(?:rit\.?|ritard\.?|ritardando|rall\.?|rallentando|'
+                     r'accel\.?|accelerando|slow down|speed up)|a tempo|'
+                     r'tempo i|colla voce|fade out|fade)$', s, re.I)
+        if m:
+            cur['events'].append((int(m.group(1)), 'text', m.group(2)))
+            continue
+        if re.match(r'at bar \d+', s):
+            fail(f"{loc}: cannot read '{s}'. After 'at bar N:' Copyist "
+                 "takes text \"...\", tempo N, a tempo word (rit., "
+                 "accel., a tempo), meter, key, fermata, fill, break, or "
+                 "segno, coda, to coda, fine, d.s., d.c.")
         m = re.match(r'([\w ]+?):\s*(.+)$', s)
         if m:
             cur['directives'].append((m.group(1).strip(), m.group(2).strip(),
@@ -2022,7 +2046,8 @@ def compile_chart(chart_path, outdir):
                        for t in plan['texts'][l])
             if played:
                 srcs = sorted({i['src_label'] + octave_words(
-                                   i.get('octaves', 0))
+                                   i.get('octaves', 0)) + harmony_words(
+                                   i.get('harm', 0))
                                for i in played if i.get('src_label')})
                 ex = sorted({i['exploded'] for i in played
                              if i.get('exploded')})
@@ -2337,9 +2362,18 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                         r = dict(r, lyrics=None, lyrics_text=None)
                     if shift:
                         r = shift_res(r, shift)
+                    steps = 0 if is_cue else plan.get('harm', {}).get(
+                        target, 0)
+                    if steps:
+                        # the arranger's "a third below": scale steps in
+                        # the key in force where the line starts
+                        r = harmonize_res(r, steps, key_at(
+                            chart.get('keys') or [(1, (fifths, mode))],
+                            r['at']))
                     resolved[target].append(dict(i, res=r, cue=is_cue,
                                                  src_label=srcl,
-                                                 octaves=shift // 12))
+                                                 octaves=shift // 12,
+                                                 harm=steps))
 
     return resolved, horn_of, (fifths, mode)
 
@@ -2411,6 +2445,52 @@ def explode_res(res, k, n, fold=None, moved=None):
                 ks={}, lyrics=None, lyrics_text=None)
 
 
+_STEPS = {'second': 1, 'third': 2, 'fourth': 3, 'fifth': 4, 'sixth': 5,
+          'seventh': 6, 'ninth': 8, 'tenth': 9, '2nd': 1, '3rd': 2,
+          '4th': 3, '5th': 4, '6th': 5, '7th': 6, '9th': 8, '10th': 9}
+_STEP_NAMES = {v: k for k, v in _STEPS.items() if not k[0].isdigit()}
+
+
+def harmony_phrase(text):
+    """'flugel a third below' -> ('flugel', -2): a double harmonized a
+    diatonic interval away, counted in scale steps (a third is two).
+    'in thirds below', 'a 6th above', 'a sixth under' read the same.
+    Anything else comes back as (text, 0)."""
+    t = text.strip()
+    m = re.match(r'(.+?)\s+(?:a |an |in )?(' + '|'.join(_STEPS) +
+                 r')s?\s+(below|above|down|up|under|over|lower|higher)$', t)
+    if not m:
+        return t, 0
+    sign = 1 if m.group(3) in ('above', 'up', 'over', 'higher') else -1
+    return m.group(1).strip(), sign * _STEPS[m.group(2)]
+
+
+def harmony_words(steps):
+    """' a third below' — said after a part name, the way it was asked."""
+    if not steps:
+        return ''
+    return (f" a {_STEP_NAMES.get(abs(steps), str(abs(steps) + 1))} "
+            f"{'above' if steps > 0 else 'below'}")
+
+
+def harmonize_res(res, steps, key):
+    """A resolved line moved by scale steps in key (fifths, mode): each
+    note lands on the scale tone that many steps away. A chromatic note
+    (a leading tone, a blue note) harmonizes from the scale tone it
+    bends, so the harmony line itself stays in the key."""
+    tonic = (key[0] * 7) % 12              # the relative major's tonic
+    scale = sorted((tonic + x) % 12 for x in (0, 2, 4, 5, 7, 9, 11))
+
+    def move(p):
+        q = p if p % 12 in scale else (p - 1 if (p - 1) % 12 in scale
+                                       else p + 1)
+        octv, deg = divmod(q, 12)
+        idx = octv * 7 + scale.index(deg) + steps
+        o, d = divmod(idx, 7)
+        return o * 12 + scale[d]
+    return map_res(res, move)
+
+
 def octave_words(n):
     """' an octave down', ' two octaves up', or '' — said after a part
     name, the way the double was asked for."""
@@ -2426,15 +2506,21 @@ def shift_res(res, semis):
     maps keyed on pitch (trills with their targets, tremolos,
     keyswitch marks) and any grand-staff voices. Rhythm, marks and
     words are untouched."""
+    return map_res(res, lambda p: p + semis)
+
+
+def map_res(res, f):
+    """A resolved line with every pitch passed through f, the maps keyed
+    on pitch and any grand-staff voices included."""
     def tl(line):
-        return [(a, b, [p + semis for p in ps]) for a, b, ps in line]
+        return [(a, b, [f(p) for p in ps]) for a, b, ps in line]
     out = dict(res, timeline=tl(res.get('timeline') or []))
     if res.get('trills'):
-        out['trills'] = {(q, p + semis): (aux + semis,) + tuple(rest)
+        out['trills'] = {(q, f(p)): (f(aux),) + tuple(rest)
                          for (q, p), (aux, *rest) in res['trills'].items()}
     for k in ('trems', 'ks'):
         if res.get(k):
-            out[k] = {(q, p + semis): v for (q, p), v in res[k].items()}
+            out[k] = {(q, f(p)): v for (q, p), v in res[k].items()}
     if res.get('staves'):
         out['staves'] = [dict(st, voices=[tl(v) for v in st['voices']])
                          for st in res['staves']]
@@ -2511,6 +2597,7 @@ def build_plans(chart, band, groups, labels):
             no_trills = False
             fig_lifts, lyrics_text = [], None
             doubles, cues, detail_word = None, None, None
+            harm = 0
             every_artic, dyn_marks, scoops, doit = None, [], [], False
             wedge_marks = []
             hits_map = {}
@@ -2740,7 +2827,9 @@ def build_plans(chart, band, groups, labels):
                     continue
                 m = re.match(r'double ([\w ]+)$', piece)
                 if m:
-                    doubles = octave_phrase(m.group(1).strip())
+                    src, harm = harmony_phrase(m.group(1).strip())
+                    doubles = (src, 0) if harm else \
+                        octave_phrase(m.group(1).strip())
                     continue
                 m = re.match(r'(?:explode|divisi|div\.?)\s+(?:from\s+)?'
                              r'(?:the\s+)?([\w ]+)$', piece)
@@ -2818,6 +2907,12 @@ def build_plans(chart, band, groups, labels):
                         ('crescendo' if piece.startswith('c')
                          else 'diminuendo', wa, wb))
                     continue
+                if piece.startswith('notes:'):
+                    # a writer's first instinct; the commas already split it
+                    fail(f"{loc}: notes: goes in a figure, not on a part's "
+                         f"line. Write 'figure NAME, N bars:' with "
+                         f"'notes: ...' under it, then '{target}: figure "
+                         f"NAME' here")
                 fail(f"{loc}: instruction '{piece}' is not built yet")
             if explode_src:
                 # top voice to the highest-reaching chair, the next
@@ -2834,6 +2929,7 @@ def build_plans(chart, band, groups, labels):
             for l in tgts:
                 if doubles:
                     plan['doubles'][l] = doubles + (loc,)
+                    plan.setdefault('harm', {})[l] = harm
                 if cues:
                     plan['cues'][l] = cues + (loc,)
                 if engraved == 'tacet':

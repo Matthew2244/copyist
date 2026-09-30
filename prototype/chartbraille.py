@@ -222,7 +222,10 @@ class Words(str):
 
 
 def _ends_in_word(text):
-    return isinstance(text, Words) and not text.endswith(' ')
+    # an abbreviation's own period is dot 3 (rit., cresc.), and that dot
+    # already separates it from the music: no second dot 3 after it
+    return (isinstance(text, Words) and not text.endswith(' ')
+            and not text.endswith(cell(3)))
 
 
 def needs_dot3(next_sign):
@@ -701,7 +704,8 @@ def _side_units(events, texts, dyns, chords, slurs, added, down,
                 # "slashes" (see the transcriber's note)
                 body = REST.get(n.ntype, REST['quarter']) + DOT * n.dots
                 tok = _join_expr(pre, first=first) if pre else ''
-                if pre and not tok.endswith(' ') and needs_dot3(body):
+                if pre and not tok.endswith((' ', cell(3))) and \
+                        needs_dot3(body):
                     tok += cell(3)
                 return tok + trip + body
             if getattr(n, 'added', False):
