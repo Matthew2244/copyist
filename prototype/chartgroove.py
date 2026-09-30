@@ -141,6 +141,10 @@ LEAD_NOW = None
 # drummer: [(start, length, air after)] in quarters from the bar's start,
 # only where two or more horns or voices strike together.
 ENSEMBLE_NOW = None
+# The lowest a chord player makes up in this bar: set when the bass is
+# playing, so the piano's left hand stays out of its register (below
+# C3 a piano under a walking bass is mud).
+FLOOR_NOW = None
 
 
 def _catch(bar, hits, heat, d):
@@ -255,6 +259,24 @@ class Bar:
                 return name, dot
         return '16th', False
 
+    def _above_the_bass(self, floor):
+        """Up an octave for anything under the floor; a note the chord
+        already has there is not doubled."""
+        for t in list(self.onsets):
+            ln, ns = self.onsets[t]
+            out, seen = [], set()
+            for n in ns:
+                if n[0] == 'p':
+                    m = n[1]
+                    while m < floor:
+                        m += 12
+                    if m in seen:
+                        continue
+                    seen.add(m)
+                    n = (n[0], m) + tuple(n[2:])
+                out.append(n)
+            self.onsets[t] = (ln, out)
+
     def _hear_the_lead(self, lead):
         """Drop every pitched note a half step (or a minor ninth, or
         more octaves) from a lead note it overlaps by an eighth or more,
@@ -352,6 +374,8 @@ class Bar:
                 + '      </note>\n')
 
     def xml(self):
+        if FLOOR_NOW:
+            self._above_the_bass(FLOOR_NOW)
         if LEAD_NOW:
             self._hear_the_lead(LEAD_NOW)
         if not self.onsets:

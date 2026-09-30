@@ -814,6 +814,10 @@ All of these ride on a `from demo` line, after commas:
   comping sit behind the time, the bass a little less; `loose` gives it
   room; `on top` (or `pushing it`) leans ahead; `tight` locks it back
   in. A section that doesn't say goes back to tight.
+- **The piano leaves the bottom to the bass.** While the bass is
+  playing, nothing the piano makes up goes below C3; with the bass out,
+  the whole keyboard is the pianist's. The organ, which may be playing
+  the bass itself, keeps its pedals.
 - **Ride or hi-hat, the drummer's call.** In swing the drummer keeps
   time on the ride or on a closed hi-hat with the kick feathering light
   quarters, choosing per section: the hat more often on the opening

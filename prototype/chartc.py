@@ -4279,6 +4279,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         _s = SOUNDS.get(canonical_instrument(bb['instrument']))
         sid_of[bb['label']] = _s[1] if _s else ''
     strolled = {}
+    bass_labels = [l for l in labels if chartgroove.role_of(
+        sid_of.get(l, ''), 'F') == 'bass']
     _chordy = [l for l in groups['rhythm']
                if sid_of.get(l, '').startswith(('keyboard', 'pluck.guitar',
                                                   'pitched-percussion'))]
@@ -4461,6 +4463,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                         or label in LEAD['hears_comp'])
                 ] if listen and LEAD['map'] and my_role not in (
                     'bass', 'drums', 'perc') else None
+                chartgroove.FLOOR_NOW = 48 if (
+                    listen and sound_id.startswith('keyboard')
+                    and 'organ' not in sound_id and any(
+                        plan['content'][bl][0] != 'tacet'
+                        for bl in bass_labels)) else None
                 chartgroove.ENSEMBLE_NOW = ensemble_hits(
                     LEAD['map'].get(str(absbar if not cur_pass
                                         else f'{absbar}x{cur_pass}'), ()),
@@ -5194,6 +5201,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                          listen=True))
     chartgroove.LEAD_NOW = None
     chartgroove.ENSEMBLE_NOW = None
+    chartgroove.FLOOR_NOW = None
     written.append(listen_path)
     # written in the chart or lifted from a score, a road map is read
     # back in bar numbers

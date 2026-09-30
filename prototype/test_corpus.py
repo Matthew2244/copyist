@@ -5005,6 +5005,14 @@ def check_band_hears_the_lead():
     check("backgrounds as punches: short accented hits on the changes",
           ns and all(ln <= 12 and n[3] == ('accent',) for _t, ln, n in ns),
           str(ns))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    for m in (41, 53, 57):
+        b.add(0, 48, ('p', m, 70))
+    b._above_the_bass(48)
+    got = sorted(n[1] for n in b.onsets[0][1])
+    check("with the bass playing, the piano's left hand stays above C3 "
+          "(an F2 goes up to F3, not doubling the one already there)",
+          got == [53, 57], str(got))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)
