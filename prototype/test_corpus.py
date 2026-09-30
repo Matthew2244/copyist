@@ -5081,6 +5081,24 @@ def check_band_hears_the_lead():
           and got.get(72) == [chartgroove._HI_TOM]
           and got.get(84) == [chartgroove._HI_TOM]
           and chartgroove._RIDE in got.get(0, []), str(got))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    b.add(0, 12, ('u', chartgroove._SNARE, 100))
+    b.add(6, 6, ('u', chartgroove._SNARE, 90))
+    chartgroove._chopping_hand(b)
+    got = {t: [n[1] for n in ns] for t, (_l, ns) in b.onsets.items()}
+    check("chopping wood, the left hand stays on the rim: a snare stroke "
+          "lands on the cross-stick, a fast one on the high tom",
+          got.get(0) == [chartgroove._XSTICK]
+          and got.get(6) == [chartgroove._HI_TOM], str(got))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    chartgroove.drum_solo(b, 200, 0, 4, 'drums', echo=[
+        (0.0, 0.5, 72), (0.5, 0.5, 76), (1.0, 1.0, 79)])
+    first = [n[1] for t in sorted(b.onsets)[:3] for n in b.onsets[t][1]
+             if n[1] != chartgroove._KICK]
+    check("trading, the drummer opens answering the last phrase: its "
+          "rhythm on the drums, its rising shape up the toms",
+          first[:3] == [chartgroove._FLOOR_TOM, chartgroove._MID_TOM,
+                        chartgroove._HI_TOM], str(first))
     import chartending
     cues_, airs = set(), []
     for si in range(30):

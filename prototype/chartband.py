@@ -900,10 +900,37 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
 
     lead = 0.0
     n0, d0 = plan['meter0']
+    count_off = None
     if count_in:
         qbpm = tempos[0][1] if tempos else 120.0
         pulse = (4.0 / d0) * 60.0 / qbpm
         lead = n0 * count_in * pulse
+    elif plan.get('count_off') and window is None:
+        # the drummer counts the band in, in front of bar one
+        qbpm = tempos[0][1] if tempos else 120.0
+        pulse = (4.0 / d0) * 60.0 / qbpm
+        beats, key, how = plan['count_off']
+        at = [0, 2] + list(range(n0, beats)) if how == 'two' and \
+            beats > n0 else list(range(beats))
+        if how in ('fill', 'countfill'):
+            # the count's first half (or nothing), then a fill down the
+            # kit into bar one, the kick under each beat, landing on it
+            half = 0 if how == 'fill' else max(beats // 2, 1)
+            count_off = [(b * pulse, key, 74 + 6 * b) for b in range(half)]
+            toms = (38, 38, 50, 50, 47, 47, 43, 41)
+            n16 = (beats - half) * 4
+            for i in range(n16):
+                t_ = (half + i / 4.0) * pulse
+                count_off.append((t_, toms[int(i * len(toms) / n16)],
+                                  86 + int(24 * i / max(n16 - 1, 1))))
+                if i % 4 == 0:
+                    count_off.append((t_, 36, 96))
+            count_off.append((beats * pulse, 49, 112))   # and in they come
+            count_off.append((beats * pulse, 36, 106))
+        else:
+            count_off = [(b * pulse, key, 70 + int(28 * i / max(
+                len(at) - 1, 1))) for i, b in enumerate(at)]
+        lead = beats * pulse
 
     # each chair's players, and the section spread: chairs sharing one
     # sound (four trumpets) sit a few cents and milliseconds apart, so
@@ -1027,6 +1054,12 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
             jobs.append((a, dd, idx, midi, vel, bright, bend, amps,
                          fam, art, cut))
             notes += 1
+        if count_off and part['percussion'] and \
+                part.get('sound', '').startswith('drum.group'):
+            for t_, key_, v_ in count_off:
+                jobs.append((t_, 0.3, idx, key_, v_, 1.0, None, None,
+                             fam, None, None))
+            count_off = None
 
     if window:
         t0, t1 = window

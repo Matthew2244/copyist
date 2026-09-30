@@ -1021,7 +1021,7 @@ def parse_chart(path):
                                     'meter', 'tempo', 'feel', 'source',
                                     'demo', 'countin', 'dynamics', 'look',
                                     'lyricist', 'from', 'rev', 'number',
-                                    'cues'):
+                                    'cues', 'countoff'):
                 chart['header'][m.group(1)] = m.group(2).strip().strip('"')
                 continue
             fail(f"{loc}: cannot read '{s}'")
@@ -3619,6 +3619,65 @@ def bar_notes(xml, div, transpose=0):
     return out
 
 
+_COUNT_PIECES = {44: 'the hi-hat foot', 42: 'the closed hat', 37: 'the rim',
+                 53: 'the ride bell', 38: 'the snare'}
+
+
+def decide_count_off(hdr, band, plans, chart, findings):
+    """How the tune starts, in the moment (Matthew, 2026-10-01: "count
+    offs work in the beginning of a song ... unless written or decided
+    in the moment"): the drummer counts the band in, a bar or two bars
+    ("one . . two . . one two three four") or just two beats, on the
+    hi-hat foot, the closed hat, the rim, the ride bell or the snare; or
+    nobody counts and someone just starts, more likely on a ballad or a
+    tune that opens on a vamp. `countoff: no` in the header, no drummer,
+    or the click count-in, and there's none. (beats, GM key, pattern)."""
+    word = str(hdr.get('countoff', '')).strip().lower()
+    if word in ('no', 'none', 'off', 'false'):
+        return None
+    if not any(canonical_instrument(b['instrument']) == 'drums'
+               for b in band):
+        return None
+    d = chartgroove._Dice('count off')
+    first = plans[0]['sec'] if plans else {}
+    feel = (first.get('feel') or hdr.get('feel') or '').lower()
+    p_none = 0.5 if ('ballad' in feel or first.get('open')) else 0.12
+    if word not in ('yes', 'on', 'drums', 'drummer') and d() < p_none:
+        if findings is not None:
+            findings.add("listen: nobody counts it off this take; the "
+                         "band just starts")
+        return None
+    num = meter_at(chart.get('meters') or [(1, (4, 4))], 1)[0]
+    r = d()
+    try:
+        bpm = float(re.match(r'[\d.]+', str(hdr.get('tempo', '120')))
+                    .group())
+    except (AttributeError, ValueError):
+        bpm = 120.0
+    beats = 2 if (r < 0.1 and bpm >= 200) else \
+        2 * num if r < 0.45 else num
+    key = list(_COUNT_PIECES)[int(d() * len(_COUNT_PIECES)) %
+                              len(_COUNT_PIECES)]
+    # a count, a fill into bar one, or a count with a fill inside it
+    # (Matthew, 2026-10-01: "the count off can also be a drum fill ...
+    # or some sort of count off and then a fill during that count off")
+    r2 = d()
+    how_ = 'fill' if r2 < 0.2 else 'countfill' if r2 < 0.45 else \
+        ('two' if beats == 2 * num else 'bar')
+    if how_ == 'fill':
+        beats = num
+    if findings is not None:
+        how = ('a fill into bar one' if how_ == 'fill' else
+               f"a count on {_COUNT_PIECES[key]} with a fill in its "
+               "second half" if how_ == 'countfill' else
+               ('two bars, the first in half time' if beats == 2 * num
+                else 'two beats' if beats == 2 else 'a bar') + " on "
+               + _COUNT_PIECES[key])
+        findings.add(f"listen: the drummer counts it off, {how}; "
+                     "'countoff: no' in the header starts it cold")
+    return (beats, key, how_)
+
+
 def tune_shape(plans, labels):
     """How hot the band plays each section, the shape of the whole tune,
     in the moment (Matthew, 2026-09-30: "the shape of the whole tune"):
@@ -3786,6 +3845,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     chartgroove.SALT = hdr.get('title', '') + (f"#take{TAKE}" if TAKE
                                                else '')
     road_cues(plans, band, labels, findings)
+    count_off = decide_count_off(hdr, band, plans, chart, findings)
     for pl in plans:
         tr = pl['sec'].get('trade')
         if tr:
@@ -4360,7 +4420,15 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             return None
         pos, total = at - lo_bar, hi_bar - lo_bar
         if role == 'drums':
-            chartgroove.drum_solo(bar, absbar, pos, total, label)
+            echo = None
+            if sec.get('trade') and pos == 0 and lo_bar > 0:
+                pk, plo, phi = turn_at(sec, who, walk, lo_bar - 1)
+                if not drumlike(who[pk]):
+                    prev = solo_story(who[pk], sec, who, walk, bmeter[0],
+                                      span=(plo, phi))
+                    echo = chartgroove.last_phrase(
+                        prev, (phi - plo) * bmeter[0])
+            chartgroove.drum_solo(bar, absbar, pos, total, label, echo=echo)
             return bar.xml()
         if role == 'perc':
             return chartgroove.realize('groove', '', sound_id, clef,
@@ -4806,6 +4874,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             f'<words print-object="no">{word}</words>'
                             '</direction-type></direction>\n')
                         was_feelk = fk
+                if listen and with_directions and absbar == 1 and \
+                        cur_pass == 0 and count_off:
+                    # how the tune starts: the renderer plays it in front
+                    pieces.append(
+                        '      <direction><direction-type><words '
+                        'print-object="no">copyist count off '
+                        f'{count_off[0]} {count_off[1]} {count_off[2]}'
+                        '</words></direction-type></direction>\n')
                 if with_directions and absbar == 1 and not chart['pickup']:
                     if hdr.get('feel'):
                         pieces.append(direction(hdr['feel'].capitalize()))

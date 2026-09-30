@@ -796,7 +796,11 @@ def parse_score(path, only=None):
     end_q = max((p['length_q'] for p in parts), default=0.0)
     meter0 = parts[0]['meter0'] if parts else (4, 4)
     fade = _perform_tempo(perf, tempos, holds, end_q, meter0)
+    co = re.search(r'<words print-object="no">copyist count off (\d+) '
+                   r'(\d+) (\w+)</words>', xml)
     return {'parts': parts,
+            'count_off': (int(co.group(1)), int(co.group(2)), co.group(3))
+            if co else None,
             'bars': parts[0]['bars'] if parts else {},
             'meter0': meter0,
             'fade': fade, 'end_q': end_q,

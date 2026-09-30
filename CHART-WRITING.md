@@ -826,7 +826,16 @@ All of these ride on a `from demo` line, after commas:
   up after. The landing is the drummer's call too: crash and kick,
   crash and snare, open hat and snare, open hat and kick, open hat with
   crash and kick, a choke with snare, snare and kick. A fill the chart
-  writes lands where the chart says.
+  writes lands where the chart says. After a fill the comping snare
+  gives it a beat and a half before coming back in.
+- **The count-off.** A tune starts the way a band starts one, in the
+  moment: the drummer counts it in (a bar, two bars with the first in
+  half time, or two beats up-tempo) on the hi-hat foot, the closed hat,
+  the rim, the ride bell or the snare; or plays a fill into bar one; or
+  counts the first half and fills the rest; and sometimes nobody counts
+  and the band just starts, more often on a ballad or a tune that opens
+  on a vamp. `countoff: no` in the header starts it cold, `countoff:
+  yes` always counts; `--count-in` puts the click there instead.
 - **The drummer welcomes people in,** like an audience clapping: when
   a soloist starts (the first one too) and when the band arrives in a
   new section, more likely the bigger the arrival (a shout chorus):
@@ -839,7 +848,9 @@ All of these ride on a `from demo` line, after commas:
   head, rarely under a solo, never on a shout, which stays on the ride.
   On a shout the drummer may chop wood too, their call per shout: the
   cross-stick on 2 and 4, on 4 alone, or a cross-stick on 2 answered by
-  the high tom on 4 and its 'and'. `on the hat` (or `closed hi-hat`),
+  the high tom on 4 and its 'and'; chopping, the left hand stays on the
+  rim, so anything the bar would put on the snare lands on the
+  cross-stick (a fast run on the high tom). `on the hat` (or `closed hi-hat`),
   `ride` and `ride only` settle it.
 - **The guitar in a small group** comps in spots like a pianist's left
   hand or plays four to the bar, choosing per section; with four horns
@@ -882,8 +893,10 @@ All of these ride on a `from demo` line, after commas:
   turns of that many bars, around and around in the order named. Each
   turn opens by answering what the last player just played; on the
   drummer's turn the whole band lays out, the classic fours with the
-  drums, and the drummer solos with everything a drum solo has (ideas
-  told as a story, grooves, the kick leading, three over four), keeping
+  drums, and the drummer solos with everything a drum solo has (opening
+  by answering the last player's phrase, its rhythm on the drums and
+  its shape up the toms; one idea a phrase, stated then developed, told
+  as a story, grooves, the kick leading, three over four), keeping
   time underneath their own way for the turn: the hi-hat foot on two
   and four, on all four, a feathered kick, both, or nothing; a chord player or the bass between their own turns keeps
   comping, a horn waits. The pages print "trade 4s" and the order; each

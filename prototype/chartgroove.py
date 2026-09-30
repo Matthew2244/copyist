@@ -750,6 +750,27 @@ def _chop_wood(bar, how):
         bar.add(3 * beat + half, half, ('u', _HI_TOM, 92))
 
 
+def _chopping_hand(bar):
+    """Chopping wood, the left hand lies across the snare on the rim:
+    there's no time to get back to the snare head, so whatever the bar
+    would have put on the snare lands on the cross-stick, or, in a fast
+    run, on the high tom (Matthew, 2026-10-01)."""
+    beat = bar.div * 4 // bar.den
+    q = max(beat // 2, 1)
+    for t in list(bar.onsets):
+        ln, ns = bar.onsets[t]
+        out, seen = [], set()
+        for n in ns:
+            if n[0] == 'u' and n[1] == _SNARE:
+                n = ('u', _XSTICK if t % q == 0 else _HI_TOM) + tuple(n[2:])
+            k = (n[0], n[1])
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(n)
+        bar.onsets[t] = (ln, out)
+
+
 def _hat_time(bar, feather):
     """Swing time moved from the ride to a closed hi-hat played with the
     stick: the foot holds the hat shut (no chick of its own), and the
@@ -1992,6 +2013,7 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
                             ('24', '4', '2tom', '24kick')[int(dc() * 4) % 4]
                     if chop[ck]:
                         _chop_wood(bar, chop[ck])
+                    state['chopping'] = chop[ck]
         if not OPTS['feather']:
             # no feathered quarters: the kick only where it says
             # something (bombs, setups, fills)
@@ -2006,6 +2028,8 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
             _drummer_marks(bar, sec, off, absbar, heat, state)
         if ENSEMBLE_NOW and impl not in ('brushes', 'mallets'):
             _catch(bar, ENSEMBLE_NOW, heat, _Dice('catch', absbar))
+        if state.pop('chopping', None):
+            _chopping_hand(bar)
         fills = {b: t for b, k, t in evs if k == 'fill'}
         if state.pop('cue_fill', False):
             fills[off + 1] = ''       # the drummer cues the band out
@@ -2380,11 +2404,11 @@ def kit_hit(bar, t, beat, d, big=True):
     return k
 
 
-def _clear_comp(bar, t0=0):
+def _clear_comp(bar, t0=0, t1=None):
     """The comping snare and the placed kicks step aside (the feathered
     kick and the hat foot stay) so a bigger idea — a bomb, an answer, a
     set-up — isn't played on top of them."""
-    for t in [t for t in bar.onsets if t >= t0]:
+    for t in [t for t in bar.onsets if t >= t0 and (t1 is None or t < t1)]:
         ln, ns = bar.onsets[t]
         keep = [n for n in ns if not (n[0] == 'u' and (
             n[1] == _SNARE or (n[1] == _KICK and (n[2] or 99) > 40)))]
@@ -2411,6 +2435,9 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
     new_turn = turn is not None and turn[0] == 0
     last_of_turn = turn is not None and turn[0] == turn[1] - 1
     landing = state.pop('crash_next', False)
+    quiet = state.pop('quiet_comp', None)
+    if quiet:
+        _clear_comp(bar, 0, quiet)
     # a vamp or a written-out repeat's later laps (absbar carries 1000
     # per lap) keep going: the crash is for the first time in
     lap = absbar >= 1000
@@ -2424,6 +2451,10 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
         md = _Dice('mark', absbar, sec.get('name'))
         r = md()
         late = state.pop('land_late', None)
+        if landing:
+            # a fill that ended on the snare: the comping gives it room
+            # before coming back in (Matthew, 2026-10-01)
+            _clear_comp(bar, (late or 0) + 1, (late or 0) + int(1.5 * beat))
         if landing and late:
             # the fill carried over the barline: it keeps going to its
             # landing on the 'and' of one or on two
@@ -2503,7 +2534,13 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
     big_end = (off + 1) % 8 == 0 or off == sec['bars'] - 1 or last_of_turn
     if phrase_end and bar.num >= 3:
         r = d()
-        if big_end and r < 0.3 + 0.5 * heat or last_of_turn:
+        # the end of a soloist's turn usually gets a fill; trading, the
+        # drummer only fills into the next player when it feels right
+        # (Matthew, 2026-10-01: "does not have to give a fill into the
+        # next soloist, unless written or wants to")
+        into_next = last_of_turn and (not sec.get('trade') or d() < 0.3)
+        if big_end and r < 0.3 + 0.5 * heat and not (
+                last_of_turn and sec.get('trade')) or into_next:
             kind = _FILLS[int(d() * len(_FILLS)) % len(_FILLS)]
             if kind == state.get('last_fill'):
                 kind = _FILLS[(_FILLS.index(kind) + 1 + int(d() * 3))
@@ -2521,6 +2558,7 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
                 for t in [t for t in bar.onsets if t >= t_]:
                     del bar.onsets[t]
                 land_hit(bar, t_, beat, d)
+                state['quiet_comp'] = beat     # the next bar breathes too
             else:
                 state['crash_next'] = True     # and land it
                 if wl > 0.72:
@@ -2832,7 +2870,7 @@ def comp_shells(bar, state, chords, absbar=0, next_chord=None):
             bar.add(t0, min(ln, bar.barlen - t0), ('p', m, w))
 
 
-def drum_solo(bar, absbar, pos, total, seed):
+def drum_solo(bar, absbar, pos, total, seed, echo=None):
     """A drummer's solo chorus, in time, told as a story (Matthew,
     2026-09-30: "drum solos can be anything ... go into whatever groove,
     have a theme and develop it ... use the kick more ... poly rhythms"):
@@ -2844,7 +2882,10 @@ def drum_solo(bar, absbar, pos, total, seed):
     beat = bar.div * 4 // bar.den
     n = bar.num
     arc = (pos + 0.5) / max(total, 1)
-    pd = _Dice(seed, 'solo phrase', pos // 2)
+    # one idea a phrase, stated then developed (a short trade turn is one
+    # phrase), not a new idea every two bars (Matthew, 2026-10-01:
+    # "musicality is important")
+    pd = _Dice(seed, 'solo phrase', absbar - pos, pos // 4)
     pool = ('motif', 'space', 'groove', 'talk') if arc < 0.3 else \
         ('talk', 'toms', 'poly', 'kick', 'groove', 'motif') if arc < 0.75 \
         else ('triplets', 'toms', 'poly', 'kick', 'roll')
@@ -2872,10 +2913,34 @@ def drum_solo(bar, absbar, pos, total, seed):
                     bar.add(b * beat, beat // 2, ('u', _HATF, 60))
             if keep in ('feather', 'both') and OPTS.get('feather', True):
                 bar.add(b * beat, beat // 2, ('u', _KICK, 30))
-    last = pos == total - 1
+    # the set-up into the next player at the end of the drummer's turn is
+    # the drummer's call, not a rule
+    start = beat // 2 if pos % 4 == 0 else 0
+    if pos == 0 and echo:
+        # trading: the turn opens answering what the last player just
+        # played, its rhythm on the drums, its shape on the toms
+        a0 = min(a for a, _l, _m in echo)
+        ps = [m for _a, _l, m in echo]
+        lo_p, hi_p = min(ps), max(ps)
+        last_t = 0
+        for a, _l, m in echo:
+            t = int(round((a - a0) * beat))
+            if t >= bar.barlen - beat:
+                break
+            f = (m - lo_p) / max(hi_p - lo_p, 1)
+            drum = _HI_TOM if f > 0.66 else _MID_TOM if f > 0.33 else \
+                _SNARE if f > 0.15 else _FLOOR_TOM
+            bar.add(t, beat // 2, ('u', drum, 92 + int(14 * f)))
+            last_t = t
+        bar.add(0, beat // 2, ('u', _KICK, 94))
+        start = min(bar.barlen - beat, last_t + beat)
+    last = pos == total - 1 and _Dice(seed, 'hand back', absbar)() < 0.55
     end = bar.barlen - (beat if last else 0)
-    E._drum_idea(bar, beat, beat // 2 if pos % 4 == 0 else 0, end, idea, d)
-    E._scale_vel(bar, 0, end, 0.85 + 0.3 * arc)
+    if start < end:
+        E._drum_idea(bar, beat, start, end, idea, d)
+    # the second half of a phrase develops the first: stronger, busier
+    E._scale_vel(bar, 0, end, 0.85 + 0.3 * arc + (0.08 if pos % 4 >= 2
+                                                   else 0))
     if last:
         # the set-up that brings the band back in
         E._drum_cue(bar, beat, end, bar.barlen,
