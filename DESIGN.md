@@ -13,10 +13,11 @@ its own pages** (chartengrave.py, embedded fonts, no MuseScore) and
 **plays its own audio** (chartaudio.py); the chart format, the
 whole-band compiler and the 112-instrument table replaced the
 single-part converter as the center of gravity; and the August Swift/
-.NET GUIs in gui/ were retired in favour of dialog apps over the one
-CLI. §22's build table is superseded — see the 2026-09-20 addendum at
+.NET GUIs in gui/ were retired. The Mac front door is now Copyist.app
+in app/ (SwiftUI over the one CLI, built VoiceOver-first by
+app/build.sh), and Windows has the dialog menu in windows/. §22's build table is superseded — see the 2026-09-20 addendum at
 its top.
-**Last updated:** 2026-09-20 (status notes only; design text is the
+**Last updated:** 2026-09-30 (status notes only; design text is the
 2026-08-04 original)
 
 ---
@@ -896,7 +897,7 @@ directly would make the whole app GPL-3.
 > (163 checks in prototype/test_corpus.py); Copyist draws its own
 > pages and plays its own listen files with no MuseScore; the two
 > GUIs this table scores were retired for dialog apps over the CLI
-> (CopyistApp.applescript, windows/CopyistApp.ps1). The last MuseScore
+> (Copyist.app in app/, windows/CopyistApp.ps1). The last MuseScore
 > borrow, grace notes in lifted engravings, closed 2026-09-27. The rows below stand
 > only as history.
 

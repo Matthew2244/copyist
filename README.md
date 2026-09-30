@@ -154,7 +154,11 @@ in front. Export (Command E) and Emboss work from every tab and live in
 the Chart menu too; Emboss asks before anything goes to the embosser, and
 with none chosen it takes you straight to the Embosser setting. Settings
 also choose where finished files land, a folder each
-for PDF pages, listen MP3s and spoken read-alouds. The app and the
+for PDF pages, listen MP3s and spoken read-alouds. The Sounds group installs the
+sample libraries you pick, wherever you want them, and the group called What
+the listen makes up switches each made-up part on or off. Export can also send
+a chart out as an iReal Pro link, a MIDI file of the band, or a plain chord
+sheet. The app and the
 terminal share one conversation engine over a JSON line protocol
 (`COPYIST_PORCELAIN=1`), so they can't drift apart. The engine and fonts are bundled inside the app, so
 it runs with nothing else installed. A checkout at `~/copyist` wins at
@@ -219,13 +223,10 @@ it can't read yet are refused in one sentence naming the way in.
 
 ## The apps
 
-**Copyist.app** (the `app` folder, described above) is the Mac front door.
-Two older doors still work. `CopyistApp.applescript` compiles into a
-menu-of-dialogs applet (the file's header has the one-line command), every
-dialog shaped for a screen reader, with Escape working everywhere it can. On
-Windows, the `windows` folder holds `Copyist.bat`, the same menu in native
-Windows dialogs. It was written on a Mac and is honestly untested on real
-Windows; the README in that folder says so too.
+**Copyist.app** (the `app` folder, described above) is the Mac front door. On
+Windows, the `windows` folder holds `Copyist.bat`, a menu in native Windows
+dialogs with the same settings and exports. It was written on a Mac and hasn't
+been run on real Windows yet; the README in that folder says so too.
 
 The MIDI analysis underneath is still there and still standalone:
 
