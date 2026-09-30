@@ -528,14 +528,33 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
     ss = [(_SLOT_NAMES.index(k), w) for k, w in
           stats.get('snare_slot', {'2&': .1, '4&': .1, '1&': .1,
                                    '3&': .1, '2': .1}).items()]
-    used = set()
-    for _ in range(sn):
-        sl = _roll(ss, d)
-        if sl in used or _slot_beat(sl) > bar.num + 0.99:
-            continue
-        used.add(sl)
-        accent = d() < 0.18 + 0.2 * heat
-        v = int(64 + 20 * heat) if accent else int(30 + 16 * d())
+    # one comping idea across the two-bar phrase, the way a drummer
+    # talks: stated in the first bar, varied in the second — not a new
+    # scatter every bar (Matthew, 2026-09-30: "the ideas are also
+    # telling a story and not running into each other")
+    pd = _Dice('comp idea', absbar // 2)
+    cell = set()
+    for _ in range(max(sn, 1) + 1):
+        sl = _roll(ss, pd)
+        if _slot_beat(sl) <= bar.num + 0.99:
+            cell.add(sl)
+    cell = sorted(cell)[:max(sn, 0)]
+    if absbar % 2 == 1 and cell:
+        # the answer: one moved to a neighbouring partial, one maybe
+        # dropped or added
+        r = pd()
+        if r < 0.4:
+            cell[-1] = min(cell[-1] + 1, 3 * bar.num - 1)
+        elif r < 0.7 and len(cell) > 1:
+            cell = cell[:-1]
+        else:
+            extra = _roll(ss, pd)
+            if _slot_beat(extra) <= bar.num + 0.99:
+                cell = sorted(set(cell) | {extra})
+    accent_at = cell[int(pd() * len(cell)) % len(cell)] if cell and \
+        pd() < 0.25 + 0.25 * heat else None
+    for sl in cell:
+        v = int(64 + 20 * heat) if sl == accent_at else int(32 + 14 * d())
         bar.add(int(round((_slot_beat(sl) - 1) * beat)),
                 beat // 3 if sl % 3 else half, ('u', _SNARE, v))
 
@@ -1655,6 +1674,9 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
     if role == 'perc':
         _perc(bar, absbar, feel, sound_id, state['hits'])
     elif role == 'drums':
+        # swing time: the snare comps (a backbeat groove's snare is the
+        # time itself, never cleared for a bigger idea)
+        state['swing_time'] = _is_swing(feel) and not _new_style(feel, bar)
         words = ((arg if isinstance(arg, str) else '') + ' ' + (feel or '')
                  ).lower()
         impl = implement(words, feel)
@@ -1895,6 +1917,20 @@ def _fill(bar, kind, start, heat, d):
                 hit(t, _SNARE, beat // 2, base + 4)
 
 
+def _clear_comp(bar, t0=0):
+    """The comping snare and the placed kicks step aside (the feathered
+    kick and the hat foot stay) so a bigger idea — a bomb, an answer, a
+    set-up — isn't played on top of them."""
+    for t in [t for t in bar.onsets if t >= t0]:
+        ln, ns = bar.onsets[t]
+        keep = [n for n in ns if not (n[0] == 'u' and (
+            n[1] == _SNARE or (n[1] == _KICK and (n[2] or 99) > 40)))]
+        if keep:
+            bar.onsets[t] = (ln, keep)
+        else:
+            del bar.onsets[t]
+
+
 def _drummer_marks(bar, sec, off, absbar, heat, state=None):
     """What a drummer does with the form: a crash and kick where a new
     section or soloist starts; at a phrase end a fill from the whole
@@ -1937,12 +1973,16 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
         elif r < 0.75:
             # the setup: snare and kick on the and of four
             t = (bar.num - 1) * beat + half
+            if state.get('swing_time'):
+                _clear_comp(bar, (bar.num - 1) * beat)
             bar.add(t, half, ('u', _KICK, int(78 + 20 * heat)))
             if d() < 0.6:
                 bar.add(t, half, ('u', _SNARE, int(62 + 20 * heat)))
     elif state.get('answer') and d() < 0.4:
         # the drummer picks up the soloist's phrase: its rhythm on the
         # snare, the kick under the first of it
+        if state.get('swing_time'):
+            _clear_comp(bar)
         for i, b_ in enumerate(state['answer']):
             t = int(round(b_ * beat))
             if 0 <= t < bar.barlen:
@@ -1955,6 +1995,8 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
         want = (heat - 0.35) if busy is None else \
             (0.55 - busy) * (0.6 + heat)
         if bar.num >= 4 and d() < want:
+            if state.get('swing_time'):
+                _clear_comp(bar)        # the bomb is the idea this bar
             spots = [1.5, 2.5, 3.5]
             k = spots[int(d() * 3) % 3]
             bar.add(int(k * beat), half, ('u', _KICK,
@@ -2416,7 +2458,7 @@ def _one_voice(notes):
     return out
 
 
-def _sing(notes, voice, d):
+def _sing(notes, voice, d, lo=0, hi=127):
     """Play it like a singer (Matthew, 2026-09-30: "all instruments when
     soloing, think like a singer ... articulations"): each phrase —
     notes between breaths — swells up through a rising line and tapers
@@ -2436,6 +2478,26 @@ def _sing(notes, voice, d):
         cur.append(i)
     phrases.append(cur)
     out = [list(n) + [()] for n in notes]
+    # a singer doesn't leap an octave and more mid-phrase unless they
+    # feel it (Matthew, 2026-09-30, on a tenor solo): a leap wider than a
+    # sixth comes back an octave toward the line — once in a long while
+    # one is kept, at the top of a phrase, on purpose
+    for ph in phrases:
+        for k in range(1, len(ph)):
+            i, j = ph[k - 1], ph[k]
+            iv = out[j][2] - out[i][2]
+            if abs(iv) <= 9:
+                continue
+            keep = iv > 0 and k == len(ph) // 2 and d() < 0.08
+            if keep:
+                continue
+            m = out[j][2] - 12 * (1 if iv > 0 else -1)
+            while abs(m - out[i][2]) > 9 and lo <= m - 12 * (
+                    1 if m > out[i][2] else -1) <= hi:
+                m -= 12 * (1 if m > out[i][2] else -1)
+            if lo <= m <= hi:
+                out[j][2] = m
+    notes = [tuple(n[:4]) for n in out]
     for ph in phrases:
         if not ph:
             continue
@@ -2950,7 +3012,7 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
         cur = before[-1][2] if before else int(lo + (hi - lo) * 0.6)
         eighth_line(b0 + 0.5, b1 - b0 - 0.5, 'peak', cur, 96,
                     chord_fn(b0 + 0.5) or chord_fn(b0))
-    return _sing(_one_voice(notes), voice, d)
+    return _sing(_one_voice(notes), voice, d, lo, hi)
 
 
 def play_planned(bar, plan, pos, bar_beats):

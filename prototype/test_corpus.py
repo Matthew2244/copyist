@@ -5821,6 +5821,25 @@ def check_band_plays_like_pros():
             answered += 1
     check("the piano picks up the soloist's phrase when they breathe",
           answered >= 1, answered)
+    # a singer's leaps: real tenor and trumpet solos leap past a sixth
+    # inside a phrase about 1% of the time (Weimar); ours stays near it
+    tn = sorted(ce["tenor"])
+    wide = sum(1 for a_, b_ in zip(tn, tn[1:])
+               if abs(b_[2] - a_[2]) > 9 and b_[0] - (a_[0] + a_[1]) < 0.75)
+    check("the tenor doesn't leap octaves mid-phrase (about as rarely "
+          "as real tenor players do)", wide <= max(2, len(tn) // 50),
+          (wide, len(tn)))
+    # the drummer's comping: one idea across each two-bar phrase
+    sn = {}
+    for e in ce["drums"]:
+        if e[2] == 38:
+            b = int(e[0] // 4)
+            sn.setdefault(b, set()).add(round(e[0] - 4 * b, 2))
+    pairs = [(sn.get(b, set()), sn.get(b + 1, set()))
+             for b in range(4, 30, 2)]
+    kept = sum(1 for x, y in pairs if x and y and x & y)
+    check("the drummer's comping idea carries across its phrase",
+          kept >= len([1 for x, y in pairs if x and y]) // 2, pairs[:4])
     six = ("B", 0, "6", None)
     check("a 6 chord is major: no b7 in its scale or rootless voicing",
           10 not in G._scale(six)

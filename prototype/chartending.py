@@ -1124,6 +1124,9 @@ def _drum_idea(bar, beat, t0, t1, idea, d):
     take their time"): a roll that builds, a tom melody, snare and kick
     talking, big hits with space, triplets around the kit."""
     span = max(t1 - t0, 1)
+    # how fast this stretch runs: sixteenths, triplets or plain eighths
+    r_ = d()
+    sub = beat // 4 if r_ < 0.45 else beat // 3 if r_ < 0.7 else beat // 2
     if idea == 'motif':
         # one idea, worked: a short cell stated, said again, then moved
         # around the kit and stretched — not a stream of notes
@@ -1144,12 +1147,14 @@ def _drum_idea(bar, beat, t0, t1, idea, d):
             if rep == 4:
                 cell = sorted(set(cell + [cell[-1] + q]))
     elif idea == 'groove':
-        # the drummer slides into a groove for a while — swing time with
-        # comping, or a funky beat — then it breaks up
-        funky = d() < 0.5
+        # the drummer slides into a groove for a while — any groove, at
+        # any speed, the drummer's moment (Matthew, 2026-09-30: "not
+        # everything needs to be played fast")
+        g = ('swing', 'halfshuffle', 'halftime', 'bossa', 'secondline',
+             'funk')[int(d() * 6) % 6]
         for bt in range(t0, t1, beat):
             k = (bt - t0) // beat
-            if funky:
+            if g == 'funk':
                 for h in range(4):
                     bar.add(bt + h * beat // 4, beat // 4,
                             ('u', G._HAT, 70 if h % 2 else 88))
@@ -1158,13 +1163,46 @@ def _drum_idea(bar, beat, t0, t1, idea, d):
                 if k % 2 == 0 or d() < 0.4:
                     bar.add(bt + (beat // 2 if d() < 0.4 else 0), beat // 2,
                             ('u', G._KICK, 96))
-            else:
+            elif g == 'halftime':
+                # slow and heavy: eighth hats, snare on three of the bar
+                bar.add(bt, beat // 2, ('u', G._HAT, 76))
+                bar.add(bt + beat // 2, beat // 2, ('u', G._HAT, 62))
+                if k % 4 == 2:
+                    bar.add(bt, beat, ('u', G._SNARE, 112))
+                if k % 4 == 0 or (k % 4 == 3 and d() < 0.5):
+                    bar.add(bt + (beat // 2 if k % 4 == 3 else 0), beat,
+                            ('u', G._KICK, 100))
+            elif g == 'halfshuffle':
+                bar.add(bt, beat // 3, ('u', G._HAT, 80))
+                bar.add(bt + 2 * beat // 3, beat // 3, ('u', G._HAT, 66))
+                bar.add(bt + beat // 3, beat // 3, ('u', G._SNARE, 34))
+                if k % 4 == 2:
+                    bar.add(bt, beat, ('u', G._SNARE, 110))
+                if k % 4 == 0:
+                    bar.add(bt, beat, ('u', G._KICK, 98))
+            elif g == 'bossa':
+                # the one place the cross-stick belongs
+                bar.add(bt, beat // 2, ('u', G._HAT, 64))
+                bar.add(bt + beat // 2, beat // 2, ('u', G._HAT, 54))
+                if k % 2 == 0:
+                    bar.add(bt, beat // 2, ('u', G._KICK, 80))
+                if k % 4 in (0, 3) or (k % 4 == 1 and d() < 0.5):
+                    bar.add(bt + (beat // 2 if k % 4 == 1 else 0), beat // 2,
+                            ('u', ('C', 5, 'x'), 76))
+            elif g == 'secondline':
+                bar.add(bt, beat // 4, ('u', G._SNARE, 96 if k % 2 else 70))
+                if d() < 0.6:
+                    bar.add(bt + 3 * beat // 4, beat // 4,
+                            ('u', G._SNARE, 88))
+                if k % 2 == 0:
+                    bar.add(bt + beat // 2, beat // 2, ('u', G._KICK, 94))
+            else:                                   # swing, with space
                 bar.add(bt, beat // 2, ('u', G._RIDE, 84))
                 if k % 2 == 1:
                     bar.add(bt + 2 * beat // 3, beat // 3,
                             ('u', G._RIDE, 70))
                     bar.add(bt, beat // 2, ('u', G._HATF, 70))
-                if d() < 0.45:
+                if d() < 0.35:
                     bar.add(bt + (2 * beat // 3 if d() < 0.6 else 0),
                             beat // 3, ('u', G._SNARE if d() < 0.7
                                         else G._KICK, 60 + int(d() * 50)))
@@ -1182,7 +1220,7 @@ def _drum_idea(bar, beat, t0, t1, idea, d):
     elif idea == 'kick':
         # the kick leads: kick figures with the snare and floor tom
         # answering, the feet talking
-        q = beat // 4
+        q = sub
         for t in range(t0, t1, q):
             r = d()
             if r < 0.34:
@@ -1197,7 +1235,7 @@ def _drum_idea(bar, beat, t0, t1, idea, d):
             if d() < 0.3:
                 bar.add(t, beat // 4, ('u', _TOMS[2], 92))
     elif idea == 'toms':
-        step = beat // 4
+        step = sub
         t, i = t0, 0
         while t < t1:
             if d() < 0.12:                   # a breath in the line
@@ -1212,7 +1250,7 @@ def _drum_idea(bar, beat, t0, t1, idea, d):
             t += step
             i += 1
     elif idea == 'talk':
-        step = beat // 4
+        step = sub
         for t in range(t0, t1, step):
             r = d()
             if r < 0.28:
