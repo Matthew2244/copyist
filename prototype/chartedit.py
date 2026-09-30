@@ -380,10 +380,15 @@ def _parse_clause_core(low):
 def _clause_core(low, reps, open_):
     # "solos over the head", "solos on the blues"
     m = re.fullmatch(r"solos?(?:\s+(?:over|on)\s+(?:the\s+)?"
-                     r"([\w ]+?))?(?:\s+form)?", low)
+                     r"([\w ]+?))?(?:\s+form)?(?:\s+(?:for|by|from)\s+"
+                     r"(.+))?", low)
     if m:
-        return _mk("solos", kind="solos", use=(m.group(1) or "").strip()
-                   or None, repeat=reps, open_=open_)
+        p = _mk("solos", kind="solos", use=(m.group(1) or "").strip()
+                or None, repeat=reps, open_=open_)
+        if m.group(2):
+            # "solos for everybody", "solos for trumpet and tenor"
+            p["solo_who"] = m.group(2).strip()
+        return p
 
     # "out on the last A", "out over the head", "outro ..."
     m = re.fullmatch(r"(?:out|outro)(?:\s+(?:over|on)\s+(?:the\s+)?"
@@ -1647,6 +1652,39 @@ def _perc_plays(ctx, lines):
 
 def _who_for(plan, ctx):
     """Who plays this section — directives, defaults stated."""
+    if plan["kind"] == "solos" and plan.get("solo_who"):
+        who = plan["solo_who"].lower()
+        if re.fullmatch(r"(?:every(?:body|one)|all|all of us|the band|"
+                        r"the horns|horns)", who):
+            # everybody: the horns and voices, or the chord players when
+            # there are none
+            picks = list(ctx.get("tune_labels") or ()) or [
+                l for l in ctx["labels"]
+                if l not in ctx.get("perc_labels", ())
+                and not re.search(r"drum|bass", l.lower())]
+        else:
+            picks = []
+            for name in re.split(r",|\band\b|&", who):
+                name = name.strip()
+                hit = next((l for l in ctx["labels"] + ctx["groupnames"]
+                            if l.lower() == name), None)
+                if name and hit is None:
+                    say(f"'{name}' is not in this band, so they're left "
+                        "out of the solos. The band is: "
+                        + ", ".join(ctx["labels"]) + ".")
+                elif hit:
+                    picks.append(hit)
+        if picks:
+            if len(picks) > 1 and (plan.get("repeat") or 1) == 1:
+                # "solos for everybody": a chorus each, the bandstand way
+                plan["repeat"] = len(picks)
+                say(f"Solos, a chorus each, in turn: " + ", ".join(picks)
+                    + ".")
+            else:
+                say("Solos, in turn: " + ", ".join(picks) + ".")
+            lines = [f"{l}: solo" + (" open" if plan["open"] else "")
+                     for l in picks]
+            return lines + _perc_plays(ctx, lines)
     if plan["kind"] == "solos":
         while True:
             a = ask(f"Who solos in {plan['name']}? part names, comma "

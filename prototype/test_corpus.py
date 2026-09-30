@@ -4938,6 +4938,30 @@ def check_band_hears_the_lead():
           "out-head back down from it, a section's own 'soft' honoured",
           e_['head'] < e_['out'] < e_['shout'] and e_['tag'] < 0.4,
           str({k: round(v, 2) for k, v in e_.items()}))
+    import chartedit
+    import chartnew
+    p_ = chartedit._clause_core("solos for everybody", 1, False)
+    p2 = chartedit._clause_core("solos over the head for trumpet and tenor",
+                                1, False)
+    check("the form hears 'solos for everybody' and 'solos over the head "
+          "for trumpet and tenor' as solo sections with their players",
+          p_["kind"] == "solos" and p_["solo_who"] == "everybody"
+          and p2["kind"] == "solos" and p2["use"] == "head"
+          and p2["solo_who"] == "trumpet and tenor", repr((p_, p2)))
+    answers = iter(["swing", "4/4"])
+    real_ask, real_say = chartnew.ask, chartnew.say
+    said_ = []
+    try:
+        chartnew.ask = lambda q, d="": next(answers)
+        chartnew.ask.eof = False
+        chartnew.say = said_.append
+        got = chartnew.ask_until("Meter", "4/4", chartc.parse_meter,
+                                 "A meter is two numbers")
+    finally:
+        chartnew.ask, chartnew.say = real_ask, real_say
+    check("a beginner's wrong answer asks again instead of ending the "
+          "interview", got == "4/4" and said_ and "'swing'" in said_[0],
+          repr((got, said_)))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

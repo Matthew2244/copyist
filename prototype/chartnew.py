@@ -145,17 +145,40 @@ def band_from_words(text):
     return band, unknown
 
 
+def ask_until(prompt, default, check, help_):
+    """Ask, and ask again until the answer reads, saying what's wanted;
+    with no more answers coming, the default."""
+    while True:
+        got = ask(prompt, default)
+        try:
+            check(got)
+            return got
+        except (SystemExit, ValueError):
+            say(f"'{got}' doesn't read as that. {help_}.")
+            if ask.eof:
+                return default
+
+
 def interview_no_demo(out_path, composer='', cfg=None):
     """No demo yet: the header, then the band by name. The roadmap
     conversation writes the sections from here; the lines can come
     later, played or spoken."""
     title = ask("Title", os.path.splitext(os.path.basename(out_path))[0])
     composer = ask("Composer", composer)
-    key = ask("Key, like Eb minor or F", "C")
-    meter_txt = ask("Meter, like 4/4 or 3/4 or 6/8", "4/4")
+    # a wrong answer asks again; it never ends the conversation
+    key = ask_until("Key, like Eb minor or F", "C", chartc.parse_key,
+                    "A key is a note name and maybe minor: F, Bb, "
+                    "Eb minor, F sharp")
+    meter_txt = ask_until("Meter, like 4/4 or 3/4 or 6/8", "4/4",
+                          chartc.parse_meter,
+                          "A meter is two numbers, like 4/4, 3/4, 6/8 "
+                          "or 5/4")
     meter = chartc.parse_meter(meter_txt)
-    tempo = ask("Tempo" + (", dotted quarter to the beat"
-                           if compound(meter) else ""), "120")
+    tempo = ask_until("Tempo" + (", dotted quarter to the beat"
+                                 if compound(meter) else ""), "120",
+                      lambda t: float(t) if 20 <= float(t) <= 400
+                      else chartc.fail("tempo out of range"),
+                      "A tempo is a number of beats a minute, like 120")
     band = []
     while not band:
         words = ask("Who's in the band? Like: trumpet, tenor, piano, "
@@ -184,9 +207,11 @@ def interview_no_demo(out_path, composer='', cfg=None):
                                      else ""))
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write("\n".join(lines) + "\n")
-    say(f"Wrote {os.path.basename(out_path)}: {len(band)} part(s), no "
-        "sections yet. "
-        "Next: tell me the tune.")
+    name = os.path.basename(out_path)
+    say(f"Wrote {name}: {len(band)} part(s), no sections yet. Next, "
+        f"describe the tune: run 'chart {name} edit' and say it the way "
+        "you'd tell the band, like: blues in F, swing at 140, head twice, "
+        "solos for everybody, head out.")
 
 
 def interview(out_path, demo_path, composer='', cfg=None):

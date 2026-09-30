@@ -137,6 +137,33 @@ drawn as dots, read-alouds, any mix.
 
 ## The front door
 
+**Your first chart, from nothing.** Three steps, no demo needed.
+
+```bash
+python3 prototype/chart.py first.chart new
+```
+
+Press Enter at the demo question, then answer the rest: title, key,
+meter, tempo, and who's in the band ("trumpet, tenor, piano, bass,
+drums"). A wrong answer just gets asked again.
+
+```bash
+python3 prototype/chart.py first.chart edit
+```
+
+Say the tune the way you'd tell the band: "blues in F, swing at 140,
+head twice, solos for everybody, head out". Copyist fills in the
+changes, gives each soloist a chorus, and writes the sections.
+
+```bash
+python3 prototype/chart.py first.chart
+```
+
+That builds everything and plays it back. From there, `CHART-WRITING.md`
+is the writer's guide.
+
+**Once you have a chart,** one command does it all:
+
 ```bash
 python3 prototype/chart.py yourtune.chart
 ```
