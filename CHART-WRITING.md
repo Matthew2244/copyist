@@ -808,6 +808,14 @@ All of these ride on a `from demo` line, after commas:
   comping sit behind the time, the bass a little less; `loose` gives it
   room; `on top` (or `pushing it`) leans ahead; `tight` locks it back
   in. A section that doesn't say goes back to tight.
+- **Ride or hi-hat, the drummer's call.** In swing the drummer keeps
+  time on the ride or on a closed hi-hat with the kick feathering light
+  quarters, choosing per section: the hat more often on the opening
+  head, rarely under a solo. `on the hat` (or `closed hi-hat`) and
+  `ride` in a section's feel or the drums' words settle it.
+- **The guitar in a small group** comps in spots like a pianist's left
+  hand or plays four to the bar, choosing per section; with four horns
+  or more it's a big band and the guitar plays four, Freddie Green.
 - **Two or four, the bassist's call.** On a head the bass decides in
   the moment: often in two the first time through, less later, sometimes
   two for the first half and walking into the second; solos walk. Say it

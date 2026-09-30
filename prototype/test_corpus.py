@@ -4906,6 +4906,17 @@ def check_band_hears_the_lead():
           "some walking", 2 in got and max(got) >= 4, str(got))
     got = bass_counts("swing, walking")
     check("the chart says walk: every take walks", min(got) >= 4, str(got))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    b.add(0, 24, ('u', chartgroove._RIDE, 80))
+    b.add(24, 24, ('u', chartgroove._HATF, 60))
+    b.add(24, 24, ('u', chartgroove._RIDE, 80))
+    chartgroove._hat_time(b, True)
+    pieces = [n[1] for _t, (_l, ns) in sorted(b.onsets.items()) for n in ns]
+    check("time on the closed hi-hat: the ride moves to the hat, the foot "
+          "holds it shut, the kick feathers the quarters",
+          chartgroove._RIDE not in pieces and chartgroove._HATF not in pieces
+          and pieces.count(chartgroove._HAT) == 2
+          and pieces.count(chartgroove._KICK) == 4, str(pieces))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

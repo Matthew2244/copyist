@@ -698,6 +698,33 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
                 beat // 3 if sl % 3 else half, ('u', _SNARE, v))
 
 
+def _hat_time(bar, feather):
+    """Swing time moved from the ride to a closed hi-hat played with the
+    stick: the foot holds the hat shut (no chick of its own), and the
+    kick may feather light quarters under it."""
+    beat = bar.div * 4 // bar.den
+    for t in list(bar.onsets):
+        ln, ns = bar.onsets[t]
+        keep = []
+        for n in ns:
+            if n[0] == 'u' and n[1] == _RIDE:
+                keep.append(('u', _HAT, max((n[2] or 70) - 4, 30))
+                            + tuple(n[3:]))
+            elif n[0] == 'u' and n[1] == _HATF:
+                continue
+            else:
+                keep.append(n)
+        if keep:
+            bar.onsets[t] = (ln, keep)
+        else:
+            del bar.onsets[t]
+    if feather:
+        for b in range(bar.num):
+            t = b * beat
+            if not any(n[1] == _KICK for n in bar.onsets.get(t, (0, ()))[1]):
+                bar.add(t, beat // 2, ('u', _KICK, 30))
+
+
 def _drums(bar, absbar, feel, hits, heat=None, busy=None):
     beat = bar.div * 4 // bar.den
     half = beat // 2
@@ -1739,6 +1766,18 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
             put(at, end - at, voicing(_chord_at(chords, b)), vel=58,
                 may_rest=False)
         return
+    if 'guitar' in s and _is_swing(feel) and bar.den == 4 and \
+            not state.get('big_band'):
+        # a small group's guitarist decides per section in the moment:
+        # comp in spots like a pianist's left hand, or four to the bar
+        key = (state.get('sec_name'), absbar // 1000)
+        got = state.setdefault('fg', {})
+        if key not in got:
+            got[key] = _Dice('guitar feel', key[0], key[1])() < 0.4
+        if not got[key]:
+            comp_shells(bar, state, chords, absbar,
+                        state.get('next_chord'))
+            return
     if 'guitar' in s and _is_swing(feel) and bar.den == 4:
         for b in range(bar.num):
             busy = state.get('busy') or 0.0
@@ -1846,6 +1885,7 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
     state['answer'] = sec.get('_answer')  # the soloist's phrase, to pick up
     state['heat'] = heat
     state['turn'] = sec.get('_turn')
+    state['sec_name'] = sec.get('name')
     if role == 'perc':
         _perc(bar, absbar, feel, sound_id, state['hits'])
     elif role == 'drums':
@@ -1863,6 +1903,27 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         else:
             _drums(bar, absbar, feel, state['hits'], heat,
                    state.get('busy'))
+            if state['hits'] is None and _is_swing(feel) and \
+                    not _new_style(feel, bar):
+                # the time on the ride or on a closed hi-hat with the kick
+                # feathering, the drummer's call per section (Matthew,
+                # 2026-09-30); the chart's own words settle it
+                if re.search(r'\b(?:on (?:the )?hats?|closed hi-?hat|'
+                             r'hi-?hat time)\b', words):
+                    on_hat, feath = True, True
+                elif re.search(r'\bride\b', words):
+                    on_hat, feath = False, False
+                else:
+                    key = (sec.get('name'), absbar // 1000)
+                    ht = state.setdefault('hat_time', {})
+                    if key not in ht:
+                        d3 = _Dice('hat time', *key)
+                        p = 0.1 if sec.get('_turn') else \
+                            0.45 if sec.get('_arc', 0) == 0 else 0.25
+                        ht[key] = (d3() < p, d3() < 0.7)
+                    on_hat, feath = ht[key]
+                if on_hat:
+                    _hat_time(bar, feath)
         if not OPTS['feather']:
             # no feathered quarters: the kick only where it says
             # something (bombs, setups, fills)

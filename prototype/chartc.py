@@ -4149,7 +4149,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         _snd = SOUNDS.get(canonical_instrument(b['instrument']))
         sound_id = _snd[1] if _snd else ''
         my_role = chartgroove.role_of(sound_id, clef)
-        groove_state = {}
+        groove_state = {
+            # four horns or more is a big band: its guitar plays four
+            'big_band': sum(1 for x in band if x['label'] not in
+                            groups['rhythm']) >= 4}
         active_chord = [None]   # harmony carried bar to bar, all parts
 
         def attributes():
