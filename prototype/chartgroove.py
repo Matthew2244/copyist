@@ -1326,14 +1326,27 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
             pc = _bass_pc(c) if p % 2 == 0 else (_root_pc(c) + 7) % 12
             prev = put(p * pulse, pulse, _near(pc, prev))
         return
+    nxt_pc = _next_root(sec, off, chords)
     for b in range(bar.num):
         c = _chord_at(chords, b + 1.0)
         if b % 2 == 0:
+            # a two-feel: the root, then the fifth — or, with a new
+            # chord coming, a step into it (never the root twice)
+            pc = _bass_pc(c)
+            if b > 0 and _chord_at(chords, float(b)) == c:
+                if b + 2 >= bar.num and nxt_pc != _bass_pc(c):
+                    tgt = _fold_bass(_near(nxt_pc, prev), 28, 55)
+                    m = tgt - 1 if (absbar + b) % 3 else tgt + 2
+                    prev = put(b * beat, beat * 2 - bar.div // 2, m)
+                    continue
+                pc = (_root_pc(c) + 7) % 12
             prev = put(b * beat, beat * 2 - bar.div // 2,
-                       _near(_bass_pc(c), prev))
+                       _fold_bass(_near(pc, prev), 28, 55))
         elif bar.num >= 4 and b == bar.num - 1 and absbar % 2 == 0:
-            prev = put(b * beat + beat // 2, beat // 2,
-                       _near((_root_pc(c) + 7) % 12, prev), 60)
+            m = _near((_root_pc(c) + 7) % 12, prev)
+            if m == prev:              # a pickup moves: into the next root
+                m = _fold_bass(_near(nxt_pc, prev), 28, 55) - 1
+            prev = put(b * beat + beat // 2, beat // 2, m, 60)
 
 
 _COMP_RHYTHMS = (
@@ -2361,6 +2374,17 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
         shift = 12 * round((aim - mid) / 12)
         base = max(start_after, 0.0)
         base = float(int(base * 2 + 0.999)) / 2          # to an eighth
+
+        def on_grid(x):
+            return min(abs(x * 2 - round(x * 2)),
+                       abs(x * 3 - round(x * 3))) < 0.02
+        # the phrase was heard against the beat: if it began on an 'and',
+        # its triplets only sit right shifted back by that eighth — so
+        # the answer starts where the grid agrees with every note
+        f0 = next((f for f in (0.0, 0.5)
+                   if all(on_grid(at + f) for at, _l, _m in echo)), 0.0)
+        while abs(base % 1 - f0) > 1e-6:
+            base += 0.5
         for at, ln, m in echo:
             q = m + shift
             while q > hi:
@@ -2371,12 +2395,16 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             cur = q
         t_open = base + echo[-1][0] + echo[-1][1] + bar_beats * 0.5
         if len(echo) >= 3:
-            ons = [a for a, _l, _m in echo[:5] if a < 2.5]
+            # the motif keeps the answer's eighth-note shape: onsets
+            # re-read against the beat, triplets left out
+            ons = [(a, m) for a, _l, m in echo[:5] if a < 2.5
+                   and abs((a + f0) * 2 - round((a + f0) * 2)) < 0.02]
             if len(ons) >= 3:
-                motif = [(a, 0 if i == 0 else
-                          (1 if echo[i][2] > echo[i - 1][2] else -1)
-                          * (1 + (abs(echo[i][2] - echo[i - 1][2]) > 3)))
-                         for i, a in enumerate(ons)]
+                a0 = ons[0][0]
+                motif = [(a - a0, 0 if i == 0 else
+                          (1 if m > ons[i - 1][1] else -1)
+                          * (1 + (abs(m - ons[i - 1][1]) > 3)))
+                         for i, (a, m) in enumerate(ons)]
 
     def act(t):
         x = t / max(total, 1)
@@ -2683,6 +2711,11 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             cur = top
         elif kind == 'run':
             step = 1 / 3 if swingy else 0.25
+            if t % 1 and swingy:
+                # triplets live on the beat: a run begun on an 'and'
+                # waits for the next beat (an offset triplet is nobody's)
+                length -= math.ceil(t) - t
+                t = float(math.ceil(t))
             n = int(min(length, 2.0) / step)
             bot, top = bounds(a)
             # the run climbs to the top of the horn from wherever it

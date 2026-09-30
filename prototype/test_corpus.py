@@ -5728,6 +5728,23 @@ def check_band_plays_like_pros():
     check("swing is wider slow and flatter fast, like real trios "
           "(about a triplet near 180)",
           r[0] > r[1] > r[2] and 1.8 <= r[1] <= 2.3, r)
+    # a chart with no feel: a two-feel that moves — root then fifth,
+    # or a step into a new chord; never the root struck twice a bar
+    open(os.path.join(tmp, "n.chart"), "w").write(
+        "title: Plain\nkey: Bb\nmeter: 4/4\ntempo: 126\n\nband:\n"
+        "  bass\n  drums\n\nsection A, 12 bars\n  chords: Bb7, Eb7, Bb7 "
+        "x2, Eb7 x2, Bb7 x2, F7, Eb7, Bb7, F7\n  ending: as written\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "n.chart"),
+                             os.path.join(tmp, "nb"))
+    nb = chartaudio.parse_score(os.path.join(
+        tmp, "nb", "Plain — for listening.musicxml"))
+    bn = {round(e[0], 2): e[2] for p in nb["parts"] if p["name"] == "bass"
+          for e in p["events"]}
+    same = [b + 1 for b in range(12) if 4 * b in bn and 4 * b + 2 in bn
+            and bn[4 * b] == bn[4 * b + 2]]
+    check("a two-feel bass never strikes one note on 1 and 3", not same,
+          same)
     six = ("B", 0, "6", None)
     check("a 6 chord is major: no b7 in its scale or rootless voicing",
           10 not in G._scale(six)
