@@ -192,6 +192,32 @@ def _download(url, dest, what, share):
                             f"({got / 1e6:.0f} of {total / 1e6:.0f} MB)")
 
 
+def _clone_instead(e, home, why):
+    """GitHub builds its zips on the fly and can give up on the
+    biggest repositories (VCSL is 5.9 GB). With git on the machine, a
+    shallow clone of the same branch gets the same files."""
+    m = re.match(r'https://github\.com/([^/]+/[^/]+)/archive/refs/heads/'
+                 r'([^/]+)\.zip$', e.get('url') or '')
+    git = shutil.which('git')
+    if not m or not git:
+        return False
+    say(f"  the download stopped ({why}); fetching {e['name']} with git "
+        "instead")
+    dest = os.path.join(home, e['folder'])
+    shutil.rmtree(dest, ignore_errors=True)
+    import subprocess
+    r = subprocess.run([git, 'clone', '--depth', '1', '--branch',
+                        m.group(2), f"https://github.com/{m.group(1)}.git",
+                        dest], capture_output=True, text=True)
+    if r.returncode != 0:
+        shutil.rmtree(dest, ignore_errors=True)
+        return False
+    shutil.rmtree(os.path.join(dest, '.git'), ignore_errors=True)
+    for note in settle(dest):
+        say(f"  {note}")
+    return True
+
+
 def _extract(archive, home, e):
     """Unpack into the shelf, the archive's own top folder renamed to
     the catalog's folder."""
@@ -332,7 +358,14 @@ def install(words, home, keep_going=True):
         say(f"Installing {e['name']} ({e['plays']}) into {home}.")
         arch = os.path.join(home, f".{e['key']}.download")
         try:
-            _download(e['url'], arch, e['name'], share)
+            try:
+                _download(e['url'], arch, e['name'], share)
+            except Exception as ex:
+                if not _clone_instead(e, home, ex):
+                    raise
+                done += 1
+                say(f"  {e['name']} is on the shelf ({e['license']}).")
+                continue
             if e.get('file'):
                 os.replace(arch, os.path.join(home, e['folder']))
                 for url, name in e.get('also', ()):
