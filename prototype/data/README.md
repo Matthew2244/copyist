@@ -14,3 +14,8 @@ made available under the ODbL."
 timing_stats.json — learn_timing.py over the Jazz Trio Database v0.2
 (Huw Cheston et al., University of Cambridge), MIT licence,
 https://github.com/HuwCheston/Jazz-Trio-Database
+
+lefthand_stats.json — learn_lefthand.py over the Jazz Trio Database
+v0.2 piano MIDI (Cheston et al.), MIT licence (automatic transcriptions,
+so note counts per chord are rough; placement and density are the
+numbers used)

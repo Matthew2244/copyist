@@ -3403,7 +3403,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         story = solo_story(label, sec, who, walk, bar_beats)
         chartgroove.play_planned(bar, story, pos, bar_beats)
         if role == 'comp' and 'guitar' not in sound_id:
-            chartgroove.comp_shells(bar, state, chords, absbar)
+            chartgroove.comp_shells(bar, state, chords, absbar, nxt)
         return bar.xml()
 
     # ---- emit one part's measures

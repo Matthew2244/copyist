@@ -2056,16 +2056,59 @@ def improvise(bar, state, chords, next_chord, feel, lo, hi, absbar,
     state['sol_dir'] = direction
 
 
-def comp_shells(bar, state, chords, absbar=0):
-    """A pianist soloing still comps under the line: the left hand's
-    3rd and 7th on the changes, voiced around C3-D4 and led smoothly,
-    in a rhythm that changes bar to bar — on the change, a Charleston,
-    a stab on the and of two, now and then a bar of air (Matthew,
-    2026-09-29: the left hand "only using one note")."""
+def _load_lh():
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               'data', 'lefthand_stats.json')) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {'position': {'4&': .15, '2&': .147, '3&': .136, '1&': .122,
+                             '1': .115, '3': .113, '4': .109, '2': .108}}
+
+
+_LH = _load_lh()
+
+
+def comp_shells(bar, state, chords, absbar=0, next_chord=None):
+    """A pianist soloing still comps under the line — sparingly, the way
+    trio pianists do it (learn_lefthand.py over the Jazz Trio Database:
+    under one left-hand chord a bar on average, more than half of them
+    on an 'and', the and of four reaching ahead to the next chord): the
+    3rd and 7th around C3-Bb3, led smoothly, a bar of air now and then
+    (Matthew, 2026-09-29: the left hand "only using one note ... not
+    natural at all")."""
     beat = bar.div * 4 // bar.den
     d = _Dice('shells', absbar)
-    feel = int(d() * 10)
-    for b, c in chords:
+    # how many this bar: none, one, or two — about 0.9 on average
+    k = _roll([(0, 0.22), (1, 0.62), (2, 0.16)], d)
+    if k == 0:
+        return
+    pos = {'1': 1.0, '1&': 1.5, '2': 2.0, '2&': 2.5, '3': 3.0, '3&': 3.5,
+           '4': 4.0, '4&': 4.5}
+    opts = [(pos[p], w) for p, w in _LH['position'].items()
+            if p in pos and pos[p] < bar.num + 1]
+    # a new chord in the bar wants touching near where it arrives
+    changes = [b for b, c in chords if c is not None and b > 1.0]
+    picks = []
+    for _ in range(k):
+        if changes and not picks and d() < 0.5:
+            at = changes[0] - (0.5 if d() < 0.5 else 0.0)
+        else:
+            at = _roll(opts, d)
+        if all(abs(at - p) >= 1.0 for p in picks):
+            picks.append(at)
+    picks.sort()
+    for n_, at in enumerate(picks):
+        # the chord it belongs to: the one sounding, or on the and of
+        # four the next bar's, played early
+        c = _chord_at(chords, at)
+        if at >= bar.num + 0.5 - 1e-6 and next_chord is not None:
+            c = next_chord
+        else:
+            ahead = [cc for b, cc in chords if cc is not None and
+                     at < b <= at + 0.5 + 1e-6]
+            if ahead:
+                c = ahead[0]
         if c is None:
             continue
         root = _root_pc(c)
@@ -2074,13 +2117,11 @@ def comp_shells(bar, state, chords, absbar=0):
             [(root + i) % 12 for i in iv if i % 12 in (9, 10, 11)][:1]
         if len(pcs) < 2:
             pcs = (_guide(c) + [(root + 7) % 12])[:2]
-        anchor = state.get('shell', 53)
-        if not 48 <= anchor <= 58:
-            anchor = 53
-        # the lower voice nearest the last one, inside C3-Bb3; the other
-        # guide tone the next one up, so the shell swaps 3-7 / 7-3
+        anchor = state.get('shell', 52)
+        if not 47 <= anchor <= 57:
+            anchor = 52
         cands = [_near(pc, anchor) for pc in pcs]
-        cands = [m + 12 if m < 48 else m - 12 if m > 58 else m
+        cands = [m + 12 if m < 46 else m - 12 if m > 58 else m
                  for m in cands]
         low = min(cands, key=lambda m: (abs(m - anchor), m))
         other = [pc for pc in pcs if pc != low % 12][0]
@@ -2089,31 +2130,14 @@ def comp_shells(bar, state, chords, absbar=0):
             up += 1
         v = [low, up]
         state['shell'] = low
-        at = int(round((b - 1) * beat))
-        span = beat * 2
-        nxt = [bb for bb, _c in chords if bb > b]
-        if nxt:
-            span = int(round((nxt[0] - b) * beat))
-        if feel == 0 and b == 1.0:
-            continue                           # a bar of air
-        if feel in (1, 2, 3) and span >= 3 * beat:
-            # Charleston: on the change, again on the and of two
-            for m in v:
-                bar.add(at, beat // 2, ('p', m, 56))
-                bar.add(at + beat + beat // 2, beat // 2, ('p', m, 52))
-        elif feel in (4, 5) and span >= 2 * beat:
-            # late: the and of the change's first beat
-            for m in v:
-                bar.add(at + beat // 2, span - beat, ('p', m, 54))
-        elif feel in (6, 7) and span >= 2 * beat:
-            # a short one on the change, a second on beat three
-            for m in v:
-                bar.add(at, beat - beat // 4, ('p', m, 56))
-                if span >= 3 * beat:
-                    bar.add(at + 2 * beat, beat // 2, ('p', m, 50))
-        else:
-            for m in v:
-                bar.add(at, max(beat, span - beat // 3), ('p', m, 56))
+        nxt = picks[n_ + 1] if n_ + 1 < len(picks) else bar.num + 1
+        ln = max(beat // 2, int(round(min(nxt - at, 1.6) * beat)) - 20)
+        t0 = int(round((at - 1) * beat))
+        if t0 >= bar.barlen:
+            continue
+        w = 58 if at % 1 == 0 else 62            # the and speaks a touch
+        for m in v:
+            bar.add(t0, min(ln, bar.barlen - t0), ('p', m, w))
 
 
 def drum_solo(bar, absbar, pos, total, seed):
