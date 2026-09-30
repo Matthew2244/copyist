@@ -6048,7 +6048,7 @@ def check_endings_in_the_moment():
     # anyone may fall off the last hit, in the moment: across tunes the
     # piano sometimes hits and slides off, sometimes doesn't
     slid = []
-    for n in range(8):
+    for n in range(30):
         open(os.path.join(tmp, "e.chart"), "w").write(
             f"title: Fall {n}\nkey: Bb\nmeter: 4/4\ntempo: 160\n"
             "feel: swing\n\nband:\n  piano\n  bass\n  drums\n\n"
@@ -6065,8 +6065,9 @@ def check_endings_in_the_moment():
                     for e in p["events"])
         after = [e[2] for e in pn if e[0] > hit_t + 0.2]
         slid.append(len(after) >= 5 and after[0] > after[-1])
-    check("in the moment, the keys sometimes fall off the last hit",
-          any(slid) and not all(slid), slid)
+    check("in the moment, the keys sometimes fall off the last hit — a "
+          "moment, not a habit",
+          any(slid) and sum(slid) <= len(slid) // 3, sum(slid))
     # a transposing horn noodles and takes its cadenza in the tune's
     # key, at a speed a player plays (both were a major sixth off on
     # alto, and in thirty-seconds)

@@ -744,9 +744,15 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
             return sh['arts'][label] == 'falloff'
         if drums or role == 'perc' or sh.get('no_falls'):
             return False
-        if G._Dice(song, 'everyone falls')() < 0.12:
+        # a moment, not a habit (Matthew: "every ending does not need
+        # to have the max roach thing from everyone"): most endings
+        # stay clean; sometimes one or two players fall; rarely all
+        m = G._Dice(song, 'falls moment')()
+        if m < 0.65 or (sh.get('tag') and m < 0.85):
+            return False
+        if m > 0.96:
             return True
-        p_ = 0.35 if role == 'comp' else 0.2 if role == 'bass' else 0.28
+        p_ = 0.3 if role == 'comp' else 0.15 if role == 'bass' else 0.25
         return G._Dice(song, label, 'falls off')() < p_
 
     def hit_body(length):
@@ -1474,8 +1480,8 @@ def band_choice(feel, song, has_keys, has_horns, written=None,
         # and sometimes the last hit rings, fermata, instead of cutting
         steps = [('hit', 'held') if k == 'hit' else (k, a)
                  for k, a in steps]
-    elif hit and d() < (0.5 if any(k == 'dictate' for k, _ in steps)
-                        else 0.3):
+    elif hit and d() < (0.35 if any(k == 'dictate' for k, _ in steps)
+                        else 0.2):
         steps.append(('tag', ('drums', None)))
     return steps
 
