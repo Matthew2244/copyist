@@ -3630,6 +3630,20 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                            and not re.search(
                                                r'\b8ths?\b|eighth',
                                                feel_now)))
+                    # the swing ratio real trios use at this tempo (the
+                    # Jazz Trio Database): wider slow, flatter fast —
+                    # a flat triplet at every tempo was stiff at medium
+                    # and bouncy up-tempo. The pages never see it.
+                    try:
+                        bpm_now = float(hdr.get('tempo', 140))
+                    except (TypeError, ValueError):
+                        bpm_now = 140.0
+                    if unit16:
+                        bpm_now *= 2          # sixteenths swing like fast
+                    swing_first = int(round(
+                        100 * chartgroove.swing_ratio(bpm_now)))
+                    if style_now == 'shuffle':
+                        swing_first = 200     # a shuffle is triplets
                     if (want, unit16) != was_swing:
                         # spec-correct MusicXML (first:second = 2:1 is
                         # triplet swing): only chartaudio plays this
@@ -3640,7 +3654,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             '<words print-object="no">'
                             + ('Swing' if want else 'Straight')
                             + '</words></direction-type><sound><swing>'
-                            + ('<first>2</first><second>1</second>'
+                            + (f'<first>{swing_first}</first>'
+                               '<second>100</second>'
                                '<swing-type>'
                                + ('16th' if unit16 else 'eighth')
                                + '</swing-type>'

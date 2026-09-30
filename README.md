@@ -301,5 +301,8 @@ holds statistics derived by `prototype/learn_walking.py` from FiloBass
 (https://zenodo.org/records/10069709). `prototype/data/solo_stats.json` comes from
 `prototype/learn_solos.py` over the Weimar Jazz Database 2.1 (Jazzomat Research
 Project, Hochschule für Musik Weimar): contains information from the Weimar
-Jazz Database, which is made available under the ODbL. Only the derived numbers
+Jazz Database, which is made available under the ODbL.
+`prototype/data/timing_stats.json` (the swing ratio at each tempo) comes from
+`prototype/learn_timing.py` over the Jazz Trio Database v0.2 (Huw Cheston et
+al., University of Cambridge), MIT licence. Only the derived numbers
 ship here, not the transcriptions.

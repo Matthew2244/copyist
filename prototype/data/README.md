@@ -10,3 +10,7 @@ solo_stats.json — learn_solos.py over the Weimar Jazz Database 2.1
 https://jazzomat.hfm-weimar.de — this file is a Produced Work of that
 database: "Contains information from the Weimar Jazz Database, which is
 made available under the ODbL."
+
+timing_stats.json — learn_timing.py over the Jazz Trio Database v0.2
+(Huw Cheston et al., University of Cambridge), MIT licence,
+https://github.com/HuwCheston/Jazz-Trio-Database

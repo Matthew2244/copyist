@@ -1,0 +1,52 @@
+{
+ "source": "Jazz Trio Database v0.2 (Cheston et al.), MIT, 1294 recordings",
+ "ratio_fit": {
+  "piano": {
+   "a": 1.19969,
+   "b": -0.0026772,
+   "n": 1294
+  },
+  "bass": {
+   "a": 1.11168,
+   "b": -0.0019385,
+   "n": 1050
+  },
+  "drums": {
+   "a": 1.41205,
+   "b": -0.0038055,
+   "n": 1283
+  }
+ },
+ "ratio_by_tempo": {
+  "0-120": {
+   "piano": 2.25,
+   "bass": 2.419,
+   "drums": 2.563
+  },
+  "120-160": {
+   "piano": 2.333,
+   "bass": 2.423,
+   "drums": 2.5
+  },
+  "160-200": {
+   "piano": 2.085,
+   "bass": 2.1,
+   "drums": 2.091
+  },
+  "200-240": {
+   "piano": 1.75,
+   "bass": 1.9,
+   "drums": 1.8
+  },
+  "240-400": {
+   "piano": 1.625,
+   "bass": 1.857,
+   "drums": 1.5
+  }
+ },
+ "offset_ms_median": {
+  "piano": 10.0,
+  "bass": 0.0,
+  "drums": 0.0
+ }
+}

@@ -644,7 +644,8 @@ def check_phrasing_charts():
     listen = open(os.path.join(out, "G — for listening.musicxml")).read()
     check("the listening document swings, on a hidden words element",
           '<words print-object="no">Swing</words>' in listen
-          and '<first>2</first><second>1</second>' in listen)
+          and re.search(r'<first>\d+</first><second>\d+</second>',
+                        listen))
     check("a straight section turns the swing off",
           "<straight/>" in listen)
     score = open(os.path.join(out, "G — score.musicxml")).read()
@@ -5723,6 +5724,10 @@ def check_band_plays_like_pros():
     check("the soloing pianist's left hand plays two different notes",
           sum(len(v) >= 2 for v in chords.values()) >= 0.8 * len(chords),
           list(chords.values())[:6])
+    r = [G.swing_ratio(b) for b in (100, 180, 260)]
+    check("swing is wider slow and flatter fast, like real trios "
+          "(about a triplet near 180)",
+          r[0] > r[1] > r[2] and 1.8 <= r[1] <= 2.3, r)
     six = ("B", 0, "6", None)
     check("a 6 chord is major: no b7 in its scale or rootless voicing",
           10 not in G._scale(six)

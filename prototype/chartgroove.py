@@ -1090,6 +1090,25 @@ def _load_solo():
 _SOLO = _load_solo()
 
 
+def swing_ratio(bpm):
+    """How long the swung eighth is against the short one at this
+    tempo, the way real trios play it (learn_timing.py over the Jazz
+    Trio Database, MIT): wider than a triplet when it's slow (about
+    2.4:1 under 160), a triplet around 180, flattening past 200 (about
+    1.7:1 at 240). The rhythm section's three players averaged."""
+    fits = {'piano': (1.19969, -0.0026772), 'bass': (1.11168, -0.0019385),
+            'drums': (1.41205, -0.0038055)}
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               'data', 'timing_stats.json')) as f:
+            got = json.load(f)['ratio_fit']
+        fits = {k: (v['a'], v['b']) for k, v in got.items()}
+    except (OSError, ValueError, KeyError):
+        pass
+    r = sum(math.exp(a + b * bpm) for a, b in fits.values()) / len(fits)
+    return max(1.4, min(2.8, r))
+
+
 def _family(c):
     q = (c[2] if c else '') or 'maj'
     if q in ('m7b5', 'm9b5'):
