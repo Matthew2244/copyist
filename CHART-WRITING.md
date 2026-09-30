@@ -90,6 +90,12 @@ Each line: a label you'll use in the chart, the instrument (which sets
 the transposition, clef, range and playback sound), and which track of
 the demo holds that player's material.
 
+A bare `bass` follows the chart's feel the way a bandleader means it:
+the upright on swing, a waltz, a ballad, bossa, latin or nothing said;
+the electric on funk, rock, pop, R&B, Motown, reggae, hip hop or
+gospel. The findings say which, and `bass = upright` or `bass =
+electric bass` settles it yourself. A bare `alto` or `tenor` is the sax.
+
 The instrument table covers the whole ensemble world. Full woodwinds
 and brass, strings with their own clefs, the rhythm section, all the
 mallets. Every voice part from soprano to bass, because singers are

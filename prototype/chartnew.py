@@ -132,7 +132,9 @@ def band_from_words(text):
         word = bare if bare in SAX_BY_DEFAULT else (
             w[:-1] if w.endswith("s") and chartc.canonical_instrument(
                 w) not in chartc.HORNS else w)
-        wanted += [(word, inst)] * n
+        # a bare "bass" stays bare: the chart's feel picks upright or
+        # electric when it compiles
+        wanted += [(word, 'bass' if word == 'bass' else inst)] * n
     band, seen, count = [], {}, {}
     for word, _ in wanted:
         seen[word] = seen.get(word, 0) + 1

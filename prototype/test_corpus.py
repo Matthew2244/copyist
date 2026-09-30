@@ -4503,8 +4503,16 @@ def check_starting_from_nothing():
     check("band from words: counts, plurals, nicknames, the writer's labels",
           band == [("trumpet", "trumpet"), ("tenor 1", "tenor sax"),
                    ("tenor 2", "tenor sax"), ("piano", "piano"),
-                   ("bass", "electric bass"), ("drums", "drums")]
+                   ("bass", "bass"), ("drums", "drums")]
           and unknown == ["kazoo"], repr((band, unknown)))
+    import chartc
+    check("a bare bass follows the feel: upright on swing, a waltz, a "
+          "ballad, bossa or nothing said; electric on funk, rock, R&B",
+          all(chartc.bass_for_feel(f) == 'double bass' for f in
+              ('swing', 'jazz waltz', 'ballad', 'bossa nova', ''))
+          and all(chartc.bass_for_feel(f) == 'electric bass' for f in
+                  ('funk', '1/2 time swung funk', 'rock', 'R&B', 'Motown',
+                   'reggae', 'hip hop')))
     L = ["trumpet", "alto", "tenor 1", "tenor 2", "bone", "piano",
          "bass", "drums"]
     G = ["horns", "saxes", "rhythm", "all"]

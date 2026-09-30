@@ -389,6 +389,23 @@ def _count(word):
     return _TIMES.get(word) or int(word)
 
 
+_ELECTRIC_FEELS = ('funk', 'rock', 'pop', 'r&b', 'rnb', 'soul', 'motown',
+                   'reggae', 'one drop', 'hip hop', 'boom bap', 'dilla',
+                   'gospel', 'fusion', 'disco', 'backbeat', 'straight 8',
+                   'straight eighth', 'country', 'blues rock')
+
+
+def bass_for_feel(feel):
+    """A bare 'bass' on the band list, by the chart's feel: the upright
+    for swing, waltz, ballad, bossa, latin and anything unsaid; the
+    electric for funk, rock, pop, R&B, Motown, reggae, hip hop, gospel.
+    The header's feel decides; a chart with no header feel goes by the
+    sections' feels, electric if most of them are electric."""
+    f = (feel or '').lower()
+    return 'electric bass' if any(w in f for w in _ELECTRIC_FEELS) \
+        else 'double bass'
+
+
 def section_header(name, tail, loc):
     """The words after 'section NAME', comma by comma, in any order, the
     way a bandleader calls the form: '8 bars', 'label "Shout"', how many
@@ -970,6 +987,10 @@ def parse_chart(path):
             if not m:
                 fail(f"{loc}: cannot read band line '{s}'")
             inst = (m.group(2) or m.group(1)).strip()
+            if inst.lower() == 'bass':
+                # which bass is decided by the feel, after the header
+                chart.setdefault('_bare_bass', []).append(
+                    m.group(1).strip())
             if canonical_instrument(inst) not in HORNS:
                 # on a band list a bare alto or tenor is the sax, as the
                 # interview has it; the singer is "alto voice"
@@ -1319,6 +1340,24 @@ def parse_chart(path):
         for off, bar in enumerate(sec['content']):
             chart['chord_bars'][start + off] = [c for _, c in bar]
         start += sec['bars']
+    # a bandleader who says "bass" on a swing chart means the upright;
+    # on a funk or rock chart, the electric (Matthew, 2026-09-30: "you
+    # like using the electric bass a lot in these demos")
+    if chart.get('_bare_bass'):
+        hf = chart['header'].get('feel', '')
+        feels = [sec.get('feel') for sec in chart['sections']
+                 if sec.get('feel')]
+        if hf or not feels:
+            which = bass_for_feel(hf)
+        else:
+            elec = sum(bass_for_feel(f) == 'electric bass' for f in feels)
+            which = ('electric bass' if elec * 2 > len(feels)
+                     else 'double bass')
+        for b in chart['band']:
+            if b['label'] in chart['_bare_bass'] and \
+                    b['instrument'].lower() == 'bass':
+                b['instrument'] = which
+        chart['_bass_said'] = which
     return chart
 
 
@@ -2018,6 +2057,12 @@ def compile_chart(chart_path, outdir):
 
     # ---- the from-demo door
     findings = chartdemo.Findings()
+    if chart.get('_bass_said'):
+        up = chart['_bass_said'] == 'double bass'
+        findings.add(f"band: 'bass' on a {'jazz' if up else 'backbeat'} "
+                     f"chart is the {'upright' if up else 'electric'}; "
+                     f"write 'bass = {'electric bass' if up else 'upright'}'"
+                     " for the other")
 
     # meter changes worth saying out loud, in the writer's own bar numbers
     meters_map = chart['meters']
