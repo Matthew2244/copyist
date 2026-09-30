@@ -5901,6 +5901,83 @@ def check_band_leader_order_and_roadmap_exports():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_endings_in_the_moment():
+    """Matthew, 2026-09-30: a gliss is a way INTO the last hit while the
+    band holds the last chord — piano, organ, or both with the drums —
+    in the moment; and the Last Surprise ending: the drummer alone, a
+    band chord on the drummer's call, back and forth, the conductor's
+    count, everyone in on the hit. Band chords voice across the
+    section, a different note a chair."""
+    import chartaudio
+    import chartc
+    import chartending
+    st = chartending.parse('drums dictate "Bb13(#11), A13b9", count in, '
+                           'last hit', ["drums", "piano"])
+    check("drums dictate reads its chords and the count",
+          st[0] == ("dictate", ("drums", "Bb13(#11), A13b9"))
+          and ("count", None) in st)
+    # the band's own call: a gliss or fill only ever sets up a hit
+    setups = []
+    for n in range(60):
+        steps = chartending.band_choice("swing", ("T", str(n)), True, True)
+        kinds = [k for k, _ in steps]
+        if "gliss" in kinds or "fill" in kinds:
+            setups.append(kinds)
+    check("the band's gliss or fill always sets up a last hit",
+          setups and all(any(k in ("hit", "button") for k in ks)
+                         for ks in setups), setups[:3])
+    check("sometimes a gliss, sometimes a fill, sometimes both",
+          any("gliss" in k and "fill" not in k for k in setups)
+          and any("fill" in k and "gliss" not in k for k in setups)
+          and any("gliss" in k and "fill" in k for k in setups))
+    tmp = tempfile.mkdtemp()
+
+    def build(ending, band="  trumpet\n  alto = alto sax\n  tenor = tenor "
+                           "sax\n  bone = trombone\n  piano\n  organ\n"
+                           "  bass\n  drums\n"):
+        open(os.path.join(tmp, "e.chart"), "w").write(
+            "title: E\nkey: Bb\nmeter: 4/4\ntempo: 160\nfeel: swing\n\n"
+            "band:\n" + band + "\nsection A, 4 bars\n"
+            "  chords: Bb6, G7, Cm7 F7, Bb6\n  ending: " + ending + "\n")
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(os.path.join(tmp, "e.chart"),
+                                 os.path.join(tmp, "b"))
+        return chartaudio.parse_score(os.path.join(
+            tmp, "b", "E — for listening.musicxml"))
+    pl = build("hold, piano gliss, organ gliss, drums fill, last hit on cue")
+    ev = {p["name"]: p["events"] for p in pl["parts"]}
+    hit = max(e[0] for e in ev["drums"])
+    for who in ("piano", "organ"):
+        runs = sorted(e[0] for e in ev[who] if e[0] > 12.5)
+        gl = [t for t in runs if t < hit - 0.1]
+        check(f"the {who} gliss runs up into the cue, not off the landing",
+              len(gl) >= 8 and gl[-1] > hit - 1.8 and gl[0] > 13.0,
+              (gl[:2], gl[-2:], hit))
+    pl = build("drums dictate, count in, last hit")
+    ev = {p["name"]: sorted(p["events"]) for p in pl["parts"]}
+    horns = {n: [e[2] for e in ev[n] if e[0] >= 16] for n in
+             ("trumpet", "alto", "tenor", "bone")}
+    chords = list(zip(*horns.values()))
+    check("dictated: four band chords and the hit, every horn on its own "
+          "note, top horn on top",
+          len(chords) == 5 and all(len(set(c)) == 4 and c[0] == max(c)
+                                   for c in chords), horns)
+    solo = [e[0] for e in ev["drums"] if e[0] >= 16]
+    first_band = min(e[0] for e in ev["trumpet"] if e[0] >= 16)
+    check("dictated: the drummer is alone before the first band chord",
+          any(t < first_band - 1 for t in solo)
+          and not any(16 <= e[0] < first_band - 0.2 for n in horns
+                      for e in ev[n]))
+    try:
+        build("drums dictate, last hit", band="  piano\n  bass\n")
+        wrong = None
+    except SystemExit as e:
+        wrong = str(e.code)
+    check("a dictated ending with no drummer says so",
+          wrong and "drum chair" in wrong, wrong)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5976,6 +6053,7 @@ if __name__ == "__main__":
     check_band_plays_like_pros()
     check_roadmap_fills_and_breaks()
     check_band_leader_order_and_roadmap_exports()
+    check_endings_in_the_moment()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

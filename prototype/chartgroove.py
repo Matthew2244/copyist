@@ -58,6 +58,8 @@ _QUAL = {
     'aug': (0, 4, 8),
     '9sus4': (0, 5, 7, 10, 14), '7b9b13': (0, 4, 10, 13, 20),
     '7b9#11': (0, 4, 10, 13, 18), '9#11': (0, 4, 7, 10, 14, 18),
+    '13#11': (0, 4, 7, 10, 14, 18, 21), 'maj13#11': (0, 4, 7, 11, 14, 18, 21),
+    '13#9': (0, 4, 7, 10, 15, 21),
     '13#9': (0, 4, 10, 15, 21), 'm13': (0, 3, 7, 10, 14, 21),
     'maj13': (0, 4, 7, 11, 14, 21), 'maj9#11': (0, 4, 7, 11, 14, 18),
     'm7b9': (0, 3, 7, 10, 13), '5': (0, 7, 12),
@@ -1968,6 +1970,13 @@ def _scale(chord):
     if q.startswith('m') and not q.startswith('maj'):
         return (0, 2, 3, 5, 7, 8, 10) if q == 'mb6' else \
             (0, 2, 3, 5, 7, 9, 10)
+    if q.startswith('13') and 'b13' not in q:
+        # a 13 keeps its 13: b9 or #9 -> half-whole diminished, #11 ->
+        # lydian dominant
+        if '#11' in q and 'b9' not in q:
+            return (0, 2, 4, 6, 7, 9, 10)
+        if 'b9' in q or '#9' in q:
+            return (0, 1, 3, 4, 6, 7, 9, 10)
     if q == 'alt' or any(t in q for t in ('b9', '#9', 'b13', '#5')) \
             and q[0].isdigit():
         return (0, 1, 3, 4, 6, 8, 10)
@@ -2319,6 +2328,13 @@ def _colors(chord):
         return (2, 5, 11)
     if q.startswith('m') and not q.startswith('maj'):
         return (2, 5)                    # 9, 11
+    if q.startswith('13') and 'b13' not in q:
+        if '#11' in q:
+            return (2, 6, 9)                 # 9, #11, 13
+        if 'b9' in q:
+            return (1, 9)                    # b9, 13
+        if '#9' in q:
+            return (3, 9)                    # #9, 13
     if q == 'alt' or any(t in q for t in ('b9', '#9', 'b13', '#5')) \
             and q[0].isdigit():
         return (1, 3, 8)                 # b9, #9, b13
@@ -2917,6 +2933,14 @@ def _rootless(chord):
         if q in ('m', 'm6', 'm69'):
             return (3, 7, 9, 14), (9, 14, 15, 19)
         return (3, 7, 10, 14), (10, 14, 15, 19)
+    if q.startswith('13') and 'b13' not in q:
+        # a 13 keeps its natural 13 whatever else it carries
+        if '#11' in q:
+            return (4, 6, 9, 14), (10, 14, 18, 21)
+        if 'b9' in q:
+            return (4, 9, 10, 13), (10, 13, 16, 21)
+        if '#9' in q:
+            return (4, 9, 10, 15), (10, 15, 16, 21)
     if q == 'alt' or any(t in q for t in ('b9', '#9', 'b13', '#5')) \
             and q[0].isdigit():
         return (4, 8, 10, 15), (10, 13, 16, 20)

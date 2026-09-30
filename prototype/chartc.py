@@ -542,6 +542,11 @@ def split_chord(sym):
 
 def parse_bars(text, where):
     parse_bars.prev_sym = None      # /C reaches back within one line
+    # engraver's alterations with commas, D7(#9,b13) or D7(b9, #11),
+    # belong to their chord: the commas are not barlines
+    text = re.sub(r'(?<=[0-9A-Za-z#])\(((?:\s*[b#]\d+\s*,?)+)\)',
+                  lambda m: '(' + re.sub(r'[\s,]', '', m.group(1)) + ')',
+                  text)
     # a parenthesized group repeats whole: ( F7, Bb7 ) x4 is eight
     # bars. A group stands at a bar boundary, so D7(#9) x2 — an
     # alteration in engraver's parentheses — is never mistaken for one.
@@ -3021,6 +3026,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     keys_l = next((b['label'] for b in band if canonical_instrument(
         b['instrument']) in ('piano', 'organ', 'keyboard', 'rhodes')),
         None)
+    drums_l = next((b['label'] for b in band if canonical_instrument(
+        b['instrument']) == 'drums'), None)
     for i, pl in enumerate(plans):
         got = pl['sec'].get('ending')
         auto = False
@@ -3047,7 +3054,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             chosen = chartending.band_choice(
                 pl['sec']['feel'] or hdr.get('feel') or '', song,
                 keys_l is not None, bool(groups.get('horns')),
-                written_ending(pl))
+                written_ending(pl), has_drums=drums_l is not None)
             pl['_written_end'] = written_ending(pl)
             j = next(n for n, (k, _) in enumerate(steps) if k == 'choice')
             have = {k for k, _ in steps}
@@ -3059,6 +3066,36 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             chosen = [c for c in chosen if c[0] not in have]
             steps = steps[:j] + chosen + steps[j + 1:]
         sh = chartending.shape(steps, labels, groups)
+        if sh.get('dictate'):
+            if drums_l is None:
+                fail(f"{eloc}: a drummer-dictated ending needs a drum "
+                     "chair in the band")
+            who_d, text_d = sh['dictate']
+            if text_d:
+                sh['dictate_chords'] = [bar[0][1] for bar in
+                                        parse_bars(text_d, eloc)
+                                        if bar and bar[0][1]]
+            else:
+                # the band's call: bVI13(#11), V13(b9), IV13(#11),
+                # V7(#9,b13) home to the last chord — the Last Surprise
+                # shape, in this tune's key
+                last_c = next((c for bar in reversed(pl['sec']['content'])
+                               for _b, c in reversed(bar) if c), None)
+                tpc = chartgroove._root_pc(last_c) if last_c else 0
+                nm = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A',
+                      'Bb', 'B']
+                sh['dictate_chords'] = [bar[0][1] for bar in parse_bars(
+                    f"{nm[(tpc + 8) % 12]}13#11, {nm[(tpc + 7) % 12]}13b9, "
+                    f"{nm[(tpc + 5) % 12]}13#11, {nm[(tpc + 7) % 12]}7#9b13",
+                    eloc)]
+        # who voices a band chord, top down: the melodic chairs by the
+        # top of their range
+        sh['voices'] = sorted(
+            [(l, (horn_of.get(l) or {}).get('comf', (55, 79))[0],
+              (horn_of.get(l) or {}).get('comf', (55, 79))[1])
+             for l in labels if l not in groups.get('rhythm', ())
+             and horn_of.get(l) and horn_of[l].get('clef') != 'percussion'],
+            key=lambda x: -x[2])
         sh['keys'] = keys_l
         sh['auto'] = auto
         sh['song'] = song
@@ -3085,6 +3122,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                        and l in groups['rhythm'])]
         players += [l for l in sh['noodle'] + sh['fill'] + sh['gliss']
                     if l and l not in players]
+        if sh.get('dictate'):
+            players = list(labels)          # everyone is in the show
         for l in set(players) | {labels[0]}:
             if said:
                 pl['texts'][l].append((nb, said))

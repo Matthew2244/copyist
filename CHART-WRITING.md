@@ -720,10 +720,11 @@ All of these ride on a `from demo` line, after commas:
 
       ending: hold, drums fill, last hit on cue
       ending: rit, hold, horns fall
-      ending: hold, piano gliss, watch each other
+      ending: hold, piano gliss, organ gliss, drums fill, last hit on cue
       ending: trash can, drums tag
       ending: cold
       ending: button, drums tag "floor tom, floor tom, bass drum"
+      ending: drums dictate "Bb13(#11), A13(b9), G13(#11), A7(#9,b13)", count in, last hit
 
   Only what you name happens: a hold with no hit rings and the band lets
   go together; no fill unless you ask. Nothing lands on the grid: the
@@ -731,18 +732,27 @@ All of these ride on a `from demo` line, after commas:
   each player lands and lets go a hair apart, and `watch each other`
   (or `watch me`) pulls that in. The steps: `hold`, `roll`, `trash
   can`, `fill` or `<part> fills`, `<part> noodles` (over the last
-  chord), `piano gliss` / `organ gliss`, `<part> falls` (or doits,
+  chord), `piano gliss` / `organ gliss` (a sweep up the keys into the
+  last hit while the band holds; with a drum fill they land it
+  together), `<part> falls` (or doits,
   scoops, plops; a group or `everyone` too), `last hit` (`on cue`),
   `button`, `cold`, `rit`, `fade`, `drums tag` (the drummer's own
-  little thing after the last note, or spelled out in quotes), and `as
-  written` for nothing added. A player the ending names comes in for
+  little thing after the last note, or spelled out in quotes), `drums
+  dictate` (the drummer plays alone, the band hits a chord on the
+  drummer's call, back and forth, the chords in quotes or the band's
+  own bVI, V, IV, V altered of the key), `count in` (the conductor
+  counts the band back in on the last hit), and `as written` for
+  nothing added. A player the ending names comes in for
   it. The pages print the steps over the last bar with a fermata when
   the band holds.
 
   **Say nothing and the band decides**, in the moment, from the feel,
   its own call in every tune: a ballad slows and rings, funk or latin
-  usually stops on a hit, swing might hold and let go or hold and hit;
-  sometimes a keys gliss, sometimes a drum tag. It never rewrites a
+  usually stops on a hit, swing might hold and let go or hold and hit,
+  now and then a trash can, and once in a while the drummer takes the
+  whole ending. Holding into a hit, the setup is decided in the moment
+  too: a drum fill, a gliss from the piano or organ, both together, or
+  nothing but eye contact. Sometimes a drum tag. It never rewrites a
   written ending, the pages stay as you wrote them, and the findings
   say what the band chose so you can write it in if you like it.
   `ending: band's choice` asks for the same thing out loud, after any

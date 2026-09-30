@@ -183,9 +183,21 @@ def parse(text, labels, groups=None):
             if re.fullmatch(r'gliss(?:es|andos?)?(?: up)?', low):
                 steps.append(('gliss', who))
                 continue
+            m = re.fullmatch(r'dictates?(?:\s+"([^"]*)")?|'
+                             r'dictated?(?:\s+"([^"]*)")?', rest, re.I)
+            if m:
+                steps.append(('dictate', (who, m.group(1) or m.group(2))))
+                continue
             raise EndingError(f"'{raw.strip()}': a player's step is "
                               f"'{who} fills', '{who} noodles', "
                               f"'{who} falls' or '{who} tag'")
+        m = re.fullmatch(r'(?:the )?(?:drums?|drummer|kit) dictates?'
+                         r'(?:\s+"([^"]*)")?', w, re.I)
+        if m:
+            # said with no drum chair on the bandstand: the compiler says
+            # what's missing
+            steps.append(('dictate', ('drums', m.group(1))))
+            continue
         m = re.fullmatch(r'tag(?:\s+"([^"]*)")?', w, re.I)
         if m:
             steps.append(('tag', ('drums', tag_pieces(m.group(1))
@@ -196,6 +208,11 @@ def parse(text, labels, groups=None):
             continue
         if re.fullmatch(r'gliss(?:es|andos?)?(?: up)?', w, re.I):
             steps.append(('gliss', None))
+            continue
+        if re.fullmatch(r'count(?:s)?(?: (?:it|us|the band))? (?:back )?in'
+                        r'(?: with (?:the |me|conductor|the conductor)'
+                        r'(?:\s*conductor)?)?', w, re.I):
+            steps.append(('count', None))
             continue
         if re.fullmatch(r"(?:the )?band'?s choice|in the moment|"
                         r"(?:we'?ll |let'?s )?see what happens|"
@@ -215,7 +232,7 @@ def parse(text, labels, groups=None):
                 "hold, roll, trash can, fill, <part> fills, <part> "
                 "noodles, <part> falls (or doits, scoops, plops), last "
                 "hit (on cue), button, cold, rit, fade, watch each "
-                "other, drums tag")
+                "other, drums tag, drums dictate \"chords\", count in")
     if not steps:
         raise EndingError("the ending line names no steps")
     return steps
@@ -240,6 +257,9 @@ def shape(steps, labels=(), groups=None):
         for m in members:
             arts[m] = art
     tag = next((a for k, a in steps if k == 'tag'), None)
+    dictate = next((a for k, a in steps if k == 'dictate'), None)
+    if dictate:
+        hit = True                   # the band comes back in on a hit
     return {'held': held, 'hit': hit and 'stop' not in kinds,
             'stop': 'stop' in kinds, 'rit': 'rit' in kinds,
             'fade': 'fade' in kinds, 'trash': 'trash' in kinds,
@@ -247,7 +267,8 @@ def shape(steps, labels=(), groups=None):
             'fill': [w for k, w in steps if k == 'fill'],
             'noodle': [w for k, w in steps if k == 'noodle'],
             'gliss': [w for k, w in steps if k == 'gliss'],
-            'arts': arts, 'tag': tag,
+            'arts': arts, 'tag': tag, 'dictate': dictate,
+            'count': 'count' in kinds or bool(dictate),
             'hit_cue': any(k in ('hit', 'button', 'trash') and a == 'cue'
                            for k, a in steps)}
 
@@ -270,6 +291,12 @@ def words(steps):
             w = f"{a or 'keys'} gliss"
         elif k == 'choice':
             w = "band's choice"
+        elif k == 'dictate':
+            who, chs = a
+            w = f"{who} dictate" + (f" ({chs})" if chs else
+                                    " the band chords")
+        elif k == 'count':
+            w = "count in"
         elif k == 'roll' and a:
             w = f"{a} roll"
         elif k == 'watch':
@@ -350,9 +377,28 @@ def timing(sh, meter, song):
     if sh['trash']:
         hold += num * 0.5
     total = int(round((num + hold) * 4)) * beat // 4   # to a sixteenth
-    return {'beat': beat, 'len': total,
-            'breath': int(beat * (0.2 + 0.35 * d())),
-            'drummer': d(), 'fill_len': int(beat * (1.5 + 1.5 * d()))}
+    clock = {'beat': beat, 'len': total,
+             'breath': int(beat * (0.2 + 0.35 * d())),
+             'drummer': d(), 'fill_len': int(beat * (1.5 + 1.5 * d()))}
+    if sh.get('dictate_chords'):
+        # the drummer's show: alone, then a band chord on the drummer's
+        # call, over and over; each stretch as long as it feels, the
+        # same for every part; then the conductor's count
+        dd = G._Dice(song, 'dictate')
+        segs = []
+        for k in range(len(sh['dictate_chords'])):
+            segs.append(('alone', None,
+                         int(round(beat * (2.5 + 2.5 * dd()) * 4 / beat))
+                         * beat // 4))
+            segs.append(('band', k,
+                         int(round(beat * (2.5 + 2.0 * dd()) * 4 / beat))
+                         * beat // 4))
+        segs.append(('alone', None,
+                     int(round(beat * (3 + 3 * dd()) * 4 / beat)) * beat // 4))
+        if sh.get('count'):
+            segs.append(('count', None, num * beat))
+        clock['dictate'] = segs
+    return clock
 
 
 def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
@@ -373,9 +419,9 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         return int(round(me() * scale * spread))
 
     gl = sh.get('gliss', [])
+    # an unnamed gliss is every keyboard's: piano and organ together
     glissing = label in gl or (None in gl and role == 'comp'
-                               and 'guitar' not in sound_id
-                               and label == sh.get('keys'))
+                               and 'guitar' not in sound_id)
     named = label in sh['noodle'] or label in sh['fill'] or glissing
     if not plays(measure) and named and chord and role not in (
             'drums', 'perc'):
@@ -391,6 +437,45 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
     else:
         pitches = [p + shift for p in _voicing(role, sound_id, chord)] \
             if chord else None
+    def voice_for(ch):
+        """This player's note(s) of a band chord: the horns and strings
+        spread the voicing top-down across the section, each in their
+        own range; keys take the rootless voicing over the root; the
+        bass the root."""
+        if ch is None:
+            return []
+        if role == 'bass':
+            return [G._fold_bass(G._near(G._bass_pc(ch), 38), 28, 50)
+                    + shift]
+        if role == 'comp':
+            v = G.rootless_voicing(ch, None)
+            if 'guitar' in sound_id:
+                return [m + shift for m in v]
+            return [G._near(G._bass_pc(ch), 43) + shift] + \
+                [m + shift for m in v]
+        order = [x[0] for x in sh.get('voices', ())]
+        if label in order:
+            k = order.index(label)
+            _l, lo, hi = sh['voices'][k]
+            # a section voicing: the four rootless notes, lifted so the
+            # lead sits high, one note a chair top-down; past four, the
+            # lower chairs double the top voices an octave down
+            base = sorted(G.rootless_voicing(ch, None))
+            while max(base) < 76:
+                base = [m + 12 for m in base]
+            stack = sorted(base, reverse=True)
+            n_ = len(order)
+            for i in range(len(stack), n_):
+                stack.append(stack[i - len(stack) if i - len(stack) <
+                                   len(base) else 0] - 12)
+            m = stack[k] if k < len(stack) else stack[k % len(base)] - 12
+            while m > hi:
+                m -= 12
+            while m < lo:
+                m += 12
+            return [m + shift]
+        return [p + shift for p in _voicing(role, sound_id, ch)]
+
     art = sh['arts'].get(label)
     arts = (art,) if art and pitches and role not in ('drums', 'perc') \
         else ()
@@ -430,7 +515,56 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
 
     extras = []
     last = None
-    if sh['stop']:
+    if clock.get('dictate'):
+        # the tune's last bar plays as it is; then the drummer's show
+        dchords = sh['dictate_chords']
+        for kind, k, length in clock['dictate']:
+            b = bar_of(length)
+            L = b.barlen
+            if kind == 'alone':
+                if drums:
+                    # a solo roll that swells, the toms answering, and a
+                    # push into the next band chord
+                    _roll(b, beat, 0, L - beat, G._SNARE, 46, 104)
+                    for t in range(beat, L - beat, beat):
+                        if me() < 0.35:
+                            b.add(t, beat // 4, ('u', ('A', 4, 'normal'),
+                                                 90))
+                    _fill(b, beat, L - beat, L, seed)
+                elif role == 'perc':
+                    _roll(b, beat, 0, L, ('C', 5, 'normal'), 40, 90)
+            elif kind == 'band':
+                land = late(beat * 0.08)
+                if drums:
+                    b.add(land, beat, ('u', G._CRASH, 110))
+                    b.add(land, beat, ('u', G._KICK, 100))
+                    _roll(b, beat, beat // 2, L - late(beat * 0.2) - 1,
+                          G._SNARE, 40, 66)
+                elif role == 'perc':
+                    b.add(land, beat, ('u', ('C', 5, 'normal'), 100))
+                else:
+                    for p in voice_for(dchords[k]):
+                        b.add(land, max(1, L - land - late(beat * 0.3)
+                                        - beat // 8), ('p', p, 102))
+            elif kind == 'count' and drums:
+                # the conductor counts it off; the drummer clicks it in
+                for i in range(num):
+                    b.add(i * beat, beat // 4, ('u', G._HATF, 64))
+            extras.append(attrs(L) + (b.xml() if b.onsets else rest(L)))
+        # everyone back in on the hit
+        b = bar_of(2 * beat)
+        at = late(beat * 0.06)
+        if drums:
+            for dr, v in ((G._CRASH, 108), (G._KICK, 100),
+                          (G._SNARE, 92)):
+                b.add(at, beat // 2, ('u', dr, v))
+        elif role == 'perc':
+            b.add(at, beat // 2, ('u', ('C', 5, 'normal'), 96))
+        else:
+            for p in voice_for(chord):
+                b.add(at, beat // 2, ('p', p, 104, arts))
+        extras.append(attrs(2 * beat) + (b.xml() or rest(2 * beat)))
+    elif sh['stop']:
         if hitting:
             last = attrs(num * beat) + hit_body(num * beat)
     elif sh['held']:
@@ -578,14 +712,18 @@ def _trash_pitched(bar, beat, pitches, role, t1):
 
 
 def _gliss(bar, beat, land, pitches, me, t1):
-    """A keyboard gliss off the landed chord: the palm up the white
-    keys, two octaves-ish in well under a beat, loosening at the top."""
+    """A keyboard gliss over the held chord into the cue: the palm up
+    the white keys, two octaves-ish in under a beat, landing where the
+    band lets go."""
     white = (0, 2, 4, 5, 7, 9, 11)
     lo = min(pitches) - 5
     hi = max(pitches) + 14
     keys = [m for m in range(lo, hi + 1) if m % 12 in white]
-    t = land + beat * (0.2 + 0.3 * me())
-    span = beat * (0.45 + 0.35 * me())
+    # it sets up the last hit: the sweep ends just as the band cuts
+    # off for the cue (Matthew, 2026-09-30: while holding the last chord
+    # "a gliss from piano or organ ... and drums together can work")
+    span = beat * (0.6 + 0.5 * me())
+    t = max(land + beat, t1 - span - beat * 0.05)
     step = span / max(len(keys), 1)
     for i, m in enumerate(keys):
         at = int(t + i * step * (1 + 0.4 * i / len(keys)))
@@ -595,21 +733,31 @@ def _gliss(bar, beat, land, pitches, me, t1):
                 ('p', m, int(60 + 30 * i / len(keys))))
 
 
-def band_choice(feel, song, has_keys, has_horns, written=None):
+def band_choice(feel, song, has_keys, has_horns, written=None,
+                has_drums=True):
     """The roadmap says nothing about the ending (or says 'band's
     choice'): the band decides in the moment, the way a group does,
-    from the feel, a different call in every tune. Returns steps."""
+    from the feel, a different call in every tune. Returns steps.
+
+    Holding the last chord before a hit, the setup is in the moment too
+    (Matthew, 2026-09-30): the drummer fills into it, or the piano or
+    organ glisses into it, or both together, or nobody does anything but
+    watch. Now and then, when the tune has the energy, the drummer takes
+    the whole ending: alone, then a band chord on the drummer's call,
+    back and forth, until the conductor counts everyone in on the last
+    hit (the Last Surprise ending)."""
     import chartgroove as _G
     d = G._Dice(song, 'choice')
     style, traits = _G.style_of(feel or '')
     r = d()
     if written == 'long':
         # the written parts hold their last note: the band holds with them
-        return [('hold', None)] + ([('gliss', None)] if has_keys
-                                   and d() < 0.3 else [])
+        return [('hold', None)]
     if written == 'short':
         # the written parts end on a short one: the band stops with them
         return [('stop', None)]
+    hot = style in ('funk', 'latin', 'samba', 'straight', 'motown',
+                    'hiphop', 'secondline', 'rock')
     if 'ballad' in traits or 'ballad' in (feel or '').lower():
         steps = [('rit', None), ('hold', None)]
     elif not (feel or '').strip():
@@ -617,23 +765,38 @@ def band_choice(feel, song, has_keys, has_horns, written=None):
         # and hold, maybe a hit — never a funk band's stop
         steps = [('hold', None)] if r < 0.55 else \
             [('hold', None), ('hit', 'cue')]
-    elif style in ('funk', 'latin', 'samba', 'straight', 'motown',
-                   'hiphop', 'reggae', 'secondline'):
-        steps = ([('stop', None)] if r < 0.5 else
-                 [('hold', None), ('hit', 'cue')] if r < 0.8 else
-                 [('hold', None)])
+    elif hot:
+        steps = ([('stop', None)] if r < 0.35 else
+                 [('hold', None), ('hit', 'cue')] if r < 0.6 else
+                 [('trash', None), ('hit', 'cue')] if r < 0.78 else
+                 [('hold', None)] if r < 0.9 else
+                 [('dictate', ('drums', None)), ('hit', 'cue')])
     elif style == 'waltz':
         steps = [('hold', None)]
     else:
-        steps = ([('hold', None)] if r < 0.5 else
-                 [('hold', None), ('hit', 'cue')] if r < 0.8 else
-                 [('button', None)])
-    held = any(k == 'hold' for k, _ in steps)
-    hit = any(k in ('hit', 'button', 'stop') for k, _ in steps)
-    if held and has_keys and d() < 0.4:
-        # the gliss happens over the hold, before any hit: said in order
-        at = next(i for i, (k, _) in enumerate(steps) if k == 'hold') + 1
-        steps.insert(at, ('gliss', None))
+        steps = ([('hold', None)] if r < 0.4 else
+                 [('hold', None), ('hit', 'cue')] if r < 0.68 else
+                 [('button', None)] if r < 0.82 else
+                 [('trash', None), ('hit', 'cue')] if r < 0.95 else
+                 [('dictate', ('drums', None)), ('hit', 'cue')])
+    if not has_drums:
+        steps = [s_ for s_ in steps if s_[0] != 'dictate'] or \
+            [('hold', None), ('hit', 'cue')]
+    held = any(k in ('hold', 'roll', 'trash') for k, _ in steps)
+    hit = any(k in ('hit', 'button') for k, _ in steps)
+    if held and hit:
+        # the setup into the last hit, decided in the moment
+        at = next(i for i, (k, _) in enumerate(steps)
+                  if k in ('hold', 'roll', 'trash')) + 1
+        r2 = d()
+        trash = any(k == 'trash' for k, _ in steps)
+        if r2 < 0.3 and not trash:
+            steps.insert(at, ('fill', None))
+        elif r2 < 0.5 and has_keys:
+            steps.insert(at, ('gliss', None))
+        elif r2 < 0.68 and has_keys:
+            steps[at:at] = [('gliss', None)] + ([] if trash
+                                                else [('fill', None)])
     if hit and d() < 0.3:
         steps.append(('tag', ('drums', None)))
     return steps
