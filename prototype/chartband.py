@@ -612,6 +612,7 @@ def _shape(art, d, vel, fam):
 
 
 _HATS = {42, 44, 46}                     # one hi-hat, three voices
+_VIRTUOSITY = {41: 41, 43: 41, 45: 43, 47: 43, 48: 48, 50: 48, 37: 88}
 
 
 def _kit_key(inst, key):
@@ -620,6 +621,14 @@ def _kit_key(inst, key):
     the pedal controller (CC 4, as an e-drum does) gets the pedal set
     per note: down for 42, up for 46. Anything else plays as written."""
     key = int(key)
+    if 'VirtuosityDrums' in str(getattr(inst, 'path', '')):
+        # Virtuosity is not General MIDI past the snare: its 47 is the
+        # low tom's CROSS-STICK and 45 a tom rimshot, so every "mid tom"
+        # in a fill clicked like a rim (Matthew, 2026-09-30: "sounds
+        # like drummer is hitting crossstick ... why?"). It has two toms;
+        # floor, mid and high get the low tom, its off-centre stroke and
+        # the high tom. GM's side stick is its key 88; 37 is a stick shot.
+        key = _VIRTUOSITY.get(key, key)
     if key not in (42, 46) or not hasattr(inst, 'regions'):
         return key, None
     pedal = getattr(inst, '_hat_pedal', None)

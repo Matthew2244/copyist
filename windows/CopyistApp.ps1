@@ -304,7 +304,8 @@ $settingGroups = [ordered]@{
                                              'listen_mutes',
                                              'listen_brushes',
                                              'listen_builds',
-                                             'listen_feather')
+                                             'listen_feather',
+                                             'listen_take')
 }
 
 function Do-Settings {
@@ -322,7 +323,11 @@ function Do-Settings {
         $c = Choose-FromList (($shown -join "`n") +
             "`nChange which one?") ($keys + @('Back'))
         if (-not $c -or $c -eq 'Back') { continue }
-        if ($c -in @('notify', 'open', 'use_samples') -or $c -like 'listen_*') {
+        if ($c -eq 'listen_take') {
+            # a fresh take every build, or one take kept
+            $v = Choose-FromList "Set $c to:" @('new', 'same', 'Back')
+            if (-not $v -or $v -eq 'Back') { continue }
+        } elseif ($c -in @('notify', 'open', 'use_samples') -or $c -like 'listen_*') {
             $v = Choose-FromList "Set $c to:" @('yes', 'no', 'Back')
             if (-not $v -or $v -eq 'Back') { continue }
         } else {

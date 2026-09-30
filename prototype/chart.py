@@ -247,6 +247,9 @@ SETTINGS = (
     ('listen_feather', 'yes', "the drummer feathers the kick on every "
                               "beat when swinging; no keeps the kick for "
                               "bombs, setups and fills"),
+    ('listen_take', 'new', "every build a fresh take of everything the "
+                           "band makes up; same keeps one take every "
+                           "time; a take number plays that take again"),
 )
 LISTEN_KEYS = ('listen_grooves', 'listen_solos', 'listen_backgrounds',
                'listen_endings', 'listen_mutes', 'listen_brushes',
@@ -687,6 +690,13 @@ def run_settings(argv):
                     "comes in and the file itself doesn't say."
                     if v else "countin is unset — read from each "
                     "demo's own first bar.")
+    if k == 'listen_take':
+        lines[k] = ("listen_take is new — every build a fresh take; the "
+                    "findings name it, so you can keep one you like."
+                    if v in ('', 'new') else
+                    "listen_take is same — one take, every build." if
+                    v == 'same' else
+                    f"listen_take is {v} — that take, every build.")
     if k in LISTEN_KEYS:
         what = {'listen_grooves': "the rhythm section plays the slashes",
                 'listen_solos': "made-up solos",
@@ -1401,6 +1411,14 @@ def main():
     # ---- check / build: compile first, loudly, then prove the arithmetic
     chartc.LISTEN_OPTS.update({k[7:]: cfg.get(k, 'yes') != 'no'
                                for k in LISTEN_KEYS})
+    tk = str(cfg.get('listen_take', 'new') or 'new').strip().lower()
+    if tk == 'same':
+        chartc.TAKE = ''
+    elif tk.isdigit():
+        chartc.TAKE = tk
+    else:
+        import secrets
+        chartc.TAKE = str(1 + secrets.randbelow(9999))
     written = chartc.compile_chart(path, title_dir)
     try:
         shutil.copy2(path, built_from)

@@ -85,7 +85,9 @@ HORNS = {
     'double bass':       _inst(12, (28, 60),  'F', 0, (28, 50)),
     # rhythm
     'guitar':            _inst(12, (40, 88),  'G', 0, (40, 76), poly=True),
-    'electric bass':     _inst(12, (23, 60),  'F', 0, (28, 55)),
+    # a four-string's floor is its low E; the low B is a five-string's
+    'electric bass':     _inst(12, (28, 60),  'F', 0, (31, 55)),
+    'five-string bass':  _inst(12, (23, 60),  'F', 0, (26, 55)),
     'piano':             _inst(0,  (21, 108), 'G', 0, (21, 108), poly=True,
                                grand=True),
     'vibraphone':        _inst(0,  (53, 89),  'G', 0, (53, 89), poly=True),
@@ -192,6 +194,7 @@ SOUNDS = {
     'double bass':    ('Double Bass', 'strings.contrabass', 44),
     'guitar':         ('Guitar', 'pluck.guitar.electric', 27),
     'electric bass':  ('Electric Bass', 'pluck.bass.electric', 34),
+    'five-string bass': ('5-String Bass', 'pluck.bass.electric', 34),
     'piano':          ('Piano', 'keyboard.piano', 1),
     'vibraphone':     ('Vibraphone', 'pitched-percussion.vibraphone', 12),
     'organ':          ('Organ', 'keyboard.organ', 17),
@@ -347,6 +350,9 @@ INSTRUMENT_ALIASES = {
     'upright piano': 'piano',
     'acoustic bass': 'double bass', 'contrabass': 'double bass',
     'bass': 'electric bass', 'bass guitar': 'electric bass',
+    '5-string bass': 'five-string bass', '5 string bass': 'five-string bass',
+    'five string bass': 'five-string bass', '5-string': 'five-string bass',
+    '5 string': 'five-string bass', 'five-string': 'five-string bass',
     'keys': 'piano', 'keyboard': 'piano', 'rhodes': 'piano',
     'hammond': 'organ', 'b3': 'organ',
     'vibes': 'vibraphone', 'fiddle': 'violin',
@@ -1845,6 +1851,7 @@ def resolve_groups(band, custom=None):
                                     'double bass', 'harp')],
          'rhythm': [l for l in labels if inst[l] in
                     ('guitar', 'piano', 'electric bass', 'double bass',
+                     'five-string bass',
                      'drums', 'organ', 'vibraphone', 'banjo',
                      'accordion')]}
     g['horns'] = [l for l in labels
@@ -2938,6 +2945,7 @@ SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
 
 # What the listen may make up, each the writer's to turn off (chart
 # settings, listen_*): set by the front door before a build.
+TAKE = ''          # the listen's take; '' = the tune's own, fixed
 LISTEN_OPTS = {'grooves': True, 'solos': True, 'backgrounds': True,
                'endings': True, 'mutes': True, 'brushes': True,
                'builds': True, 'feather': True}
@@ -2980,7 +2988,15 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                              f" is open — it goes round "
                              f"{vamp_passes(pl['sec'])} times in the "
                              "listen, till the cue on the gig")
-    chartgroove.SALT = hdr.get('title', '')
+    # the take: a band never plays the same take twice. The CLI sets a
+    # fresh one every build unless the writer keeps one (listen_take)
+    chartgroove.SALT = hdr.get('title', '') + (f"#take{TAKE}" if TAKE
+                                               else '')
+    if TAKE and findings is not None:
+        findings.add(f"listen: take {TAKE} — everything the band made up "
+                     "is played fresh this build. To hear this take again, "
+                     f"chart set listen_take={TAKE}; 'same' keeps one take "
+                     "for every build")
     # a road map walks repeats itself: those stay repeats in the listen
     has_road = any(k == 'road' for pl in plans
                    for _b, k, _t in pl['sec']['events'])

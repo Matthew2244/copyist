@@ -1206,7 +1206,7 @@ def arrival_pc(c, d, root_only=False):
     return (_root_pc(c) + _roll(opts, d)) % 12
 
 
-def walk_bar(beats, prev, d, arrive, next_arrive):
+def walk_bar(beats, prev, d, arrive, next_arrive, home=None):
     """One bar of a walking line, a note a beat: [midi]. beats is the
     chord on each beat; arrive is this bar's first note (chosen a bar
     ago, so last bar's lead-in pointed at it), next_arrive the next
@@ -1227,6 +1227,10 @@ def walk_bar(beats, prev, d, arrive, next_arrive):
     reg = _WALK.get('register_percentiles', {})
     centre = reg.get('p50', 41)
     lo_h, hi_h = reg.get('p5', 31), reg.get('p95', 52)
+    if home:
+        # an electric bass lives higher than an upright: the low string
+        # is a place to visit, not to walk on
+        lo_h, centre, hi_h = home
     out = []
     b = 0
     while b < n:
@@ -1353,7 +1357,9 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
         state['arrive'] = next_arrive
         line = walk_bar([_chord_at(chords, b + 1.0)
                          for b in range(bar.num)],
-                        prev, d, arrive, next_arrive)
+                        prev, d, arrive, next_arrive,
+                        home=(33, 43, 53) if 'electric' in
+                        state.get('sound', '') else None)
         target = _fold_bass(_near(_next_root(sec, off, chords), line[-1]),
                             28, 55)
         run = busy is not None and busy < 0.2 and d() < 0.5
@@ -1397,7 +1403,9 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
                     continue
                 pc = (_root_pc(c) + 7) % 12
             prev = put(b * beat, beat * 2 - bar.div // 2,
-                       _fold_bass(_near(pc, prev), 28, 55))
+                       _fold_bass(_near(pc, prev),
+                                  33 if 'electric' in state.get('sound', '')
+                                  else 28, 55))
         elif bar.num >= 4 and b == bar.num - 1 and absbar % 2 == 0:
             m = _near((_root_pc(c) + 7) % 12, prev)
             if m == prev:              # a pickup moves: into the next root
@@ -1699,6 +1707,7 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
                                          if n[0] == 'u' and n[1] == _SNARE
                                          else n for n in ns])
     elif role == 'bass':
+        state['sound'] = sound_id
         _bass(bar, state, sec, off, absbar, feel, chords)
     else:
         state['next_chord'] = None

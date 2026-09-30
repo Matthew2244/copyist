@@ -5760,6 +5760,22 @@ def check_band_plays_like_pros():
             and bn[4 * b] == bn[4 * b + 2]]
     check("a two-feel bass never strikes one note on 1 and 3", not same,
           same)
+    # a fresh take every build: another take plays the made-up parts
+    # differently; the same take plays them the same
+    lp = os.path.join(tmp, "b", "Leaves — for listening.musicxml")
+
+    def take(t):
+        chartc.TAKE = t
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(os.path.join(tmp, "t.chart"),
+                                 os.path.join(tmp, "b"))
+        return open(lp).read()
+    try:
+        t1, t2, t1b = take("11"), take("12"), take("11")
+    finally:
+        chartc.TAKE = ''
+    check("another take plays it new; the same take plays it the same",
+          t1 != t2 and t1 == t1b)
     six = ("B", 0, "6", None)
     check("a 6 chord is major: no b7 in its scale or rootless voicing",
           10 not in G._scale(six)

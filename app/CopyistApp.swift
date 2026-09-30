@@ -2500,6 +2500,14 @@ struct SettingsView: View {
                            isOn: onUnlessNo("listen_builds"))
                     Toggle("Feathered kick when swinging",
                            isOn: onUnlessNo("listen_feather"))
+                    // off keeps one take for every build; a number set
+                    // at the terminal plays that take and reads as off
+                    Toggle("A fresh take every build",
+                           isOn: Binding(
+                               get: { (cfg["listen_take"] ?? "new")
+                                   == "new" },
+                               set: { set("listen_take",
+                                          $0 ? "new" : "same") }))
                 }
                 group("Your words") {
                     let vp = NSHomeDirectory()
