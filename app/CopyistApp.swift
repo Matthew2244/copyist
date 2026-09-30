@@ -2264,6 +2264,10 @@ struct SettingsView: View {
     @State private var countin = ""
     @State private var printers: [String] = []
     @AccessibilityFocusState private var onEmbosser: Bool
+    /// the sound catalog as the engine reads it: (key, what it says,
+    /// installed) — one source for the terminal and the app
+    @State private var soundRows: [(String, String, Bool)] = []
+    @State private var pickedSounds: Set<String> = []
 
     let looks = ["", "jazz", "handwritten", "engraved", "plain"]
     let quants = ["", "eighths", "straight", "sixteenths", "triplets"]
@@ -2392,8 +2396,46 @@ struct SettingsView: View {
                     }
                 }
                 group("Sounds") {
+                    Toggle("Play the recorded instruments (off plays the "
+                           + "plain built-in synth)",
+                           isOn: onUnlessNo("use_samples"))
                     pathRow("Where sample libraries live",
                             key: "sounds_dir")
+                    Text("The band's recorded instruments, each with what "
+                         + "it plays, its size and its license. Pick "
+                         + "what to install; nothing downloads until you "
+                         + "press Install.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(pal.sub)
+                    ForEach(soundRows, id: \.0) { row in
+                        if row.2 {
+                            Text(row.1 + " — installed")
+                        } else {
+                            Toggle(row.1, isOn: Binding(
+                                get: { pickedSounds.contains(row.0) },
+                                set: { on in
+                                    if on { pickedSounds.insert(row.0) }
+                                    else { pickedSounds.remove(row.0) }
+                                }))
+                        }
+                    }
+                    HStack {
+                        Button("Install the chosen sounds") {
+                            let keys = soundRows.map { $0.0 }
+                                .filter { pickedSounds.contains($0) }
+                            model.run("Installing sounds",
+                                      args: ["sounds", "install",
+                                             keys.joined(separator: ", ")],
+                                      needsChart: false)
+                        }
+                        .disabled(pickedSounds.isEmpty)
+                        Button("Install everything the band plays") {
+                            model.run("Installing sounds",
+                                      args: ["sounds", "install", "band"],
+                                      needsChart: false)
+                        }
+                        .disabled(soundRows.allSatisfy { $0.2 })
+                    }
                 }
                 group("What the listen makes up") {
                     Text("Where the page leaves it to the band. Turn any "
@@ -2467,8 +2509,38 @@ struct SettingsView: View {
                     .split(separator: "\n").map(String.init)
             }
             showEmbosser(proxy)
+            loadSounds()
         }
         .onChange(of: model.wantEmbosser) { _ in showEmbosser(proxy) }
+        }
+    }
+
+    /// The catalog from the engine: 'chart sounds list', one library a
+    /// line, "  key: name — plays; size, license; installed".
+    func loadSounds() {
+        guard let tool = Tool.find() else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: tool.python)
+        p.arguments = [tool.script, "sounds", "list"]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = Pipe()
+        guard (try? p.run()) != nil else { return }
+        p.waitUntilExit()
+        let out = String(decoding: pipe.fileHandleForReading
+            .readDataToEndOfFile(), as: UTF8.self)
+        soundRows = out.split(separator: "\n").compactMap { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard let colon = t.firstIndex(of: ":"),
+                  t.hasSuffix("installed") else { return nil }
+            let key = String(t[..<colon])
+            var body = String(t[t.index(after: colon)...])
+                .trimmingCharacters(in: .whitespaces)
+            let isIn = !body.hasSuffix("not installed")
+            if let semi = body.range(of: "; ", options: .backwards) {
+                body = String(body[..<semi.lowerBound])
+            }
+            return (key, body, isIn)
         }
     }
 

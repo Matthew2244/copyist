@@ -313,6 +313,24 @@ In the Mac app, Settings has a switch for each one under **What a
 build makes**, and every switch says whether it is on. The MP3 alone
 and the braille alone each have their own button on the Build tab.
 
+**The sample shelf** is the band's recorded instruments, about 34 GB,
+installed where you choose and only when you ask:
+
+    chart sounds list              every library: what it plays, size, licence, installed or not
+    chart sounds install band      everything the band plays
+    chart sounds install piano, kit   just those
+    chart set sounds_dir=/Volumes/Samples/Copyist   put the shelf elsewhere
+    chart set use_samples=no       play the plain built-in synth instead
+
+Copyist fetches each library from its own project, unpacks it, makes
+what its reader needs (WAV twins for FLAC, 16-bit copies of 24-bit
+files; ffmpeg is needed for the FLAC ones) and builds its own extras
+(tenor, saxello, trombone falls, choir, organ) from them, then writes
+CREDITS.txt on the shelf naming who made each. Every library is CC0,
+CC-BY or MIT. In the Mac app it's the Sounds group in Settings: each
+library with a switch, where it goes, and one button to install; on
+Windows, "The sound shelf" on the Settings tab.
+
 **What the listen makes up** is yours to switch off, each one on out
 of the box: `listen_grooves` (the rhythm section playing the slashes),
 `listen_solos`, `listen_backgrounds`, `listen_endings` (the band's own

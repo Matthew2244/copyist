@@ -122,6 +122,26 @@ function Open-Talk([string]$p, [string]$cmd) {
     Start-Process -FilePath 'cmd.exe' -ArgumentList $line
 }
 
+function Do-Sounds {
+    # the sound shelf: what is installed, what could be, and an install
+    # that runs in a real console so the screen reader hears progress
+    $desk = Run-Chart 'sounds list'
+    $keys = @(($desk -split "`n") | ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -like '*not installed' } |
+        ForEach-Object { ($_ -split ':')[0] })
+    if ($keys.Count -eq 0) {
+        Show-Info ($desk + "`nEverything is already on the shelf.")
+        return
+    }
+    $c = Choose-FromList ($desk + "`nInstall which?") (
+        @('Everything the band plays') + $keys + @('Back'))
+    if (-not $c -or $c -eq 'Back') { return }
+    $what = if ($c -eq 'Everything the band plays') { 'band' } else { $c }
+    $line = '/c "' + $py + ' "' + $chartPy + '" sounds install ' + $what +
+        ' & echo. & echo Done. Press any key to close this window. & pause >nul"'
+    Start-Process -FilePath 'cmd.exe' -ArgumentList $line
+}
+
 function Offer-Teach([string]$p, [string]$log) {
     # after a build: if the take played notes Copyist could not name,
     # offer the conversation that names them - once, then every chart
@@ -275,7 +295,8 @@ $settingGroups = [ordered]@{
     'Where finished files go'            = @('pages_to', 'listens_to',
                                              'spoken_to', 'braille_to')
     'MIDI and demos'                     = @('midi', 'quant', 'countin')
-    'Sounds - the sample shelf'          = @('sounds', 'sounds_dir')
+    'Sounds - the sample shelf'          = @('use_samples', 'sounds',
+                                             'sounds_dir')
     'What the listen makes up'           = @('listen_grooves',
                                              'listen_solos',
                                              'listen_backgrounds',
@@ -298,7 +319,7 @@ function Do-Settings {
         $c = Choose-FromList (($shown -join "`n") +
             "`nChange which one?") ($keys + @('Back'))
         if (-not $c -or $c -eq 'Back') { continue }
-        if ($c -in @('notify', 'open') -or $c -like 'listen_*') {
+        if ($c -in @('notify', 'open', 'use_samples') -or $c -like 'listen_*') {
             $v = Choose-FromList "Set $c to:" @('yes', 'no', 'Back')
             if (-not $v -or $v -eq 'Back') { continue }
         } else {
@@ -524,6 +545,8 @@ Add-Action $talkFlow 'Name the drum notes' 'Your drum library''s note map, said 
 $setFlow = New-Page 4
 Add-Action $setFlow 'The settings desk' 'Your name, the look, where files go, how your playing is read.' 'Ctrl+Comma' {
     Do-Settings }
+Add-Action $setFlow 'The sound shelf' 'Install the band''s recorded instruments; where they go is in the settings desk.' '' {
+    Do-Sounds }
 Add-Action $setFlow 'Help - what this is' 'Copyist in a paragraph.' 'F1' {
     Show-Info ('Copyist turns a chart file - plain words and a ' +
         'played demo - into engraved parts, a conductor score, ' +

@@ -202,6 +202,9 @@ SETTINGS = (
     ('sounds', '', "the sample library the listen plays on — a "
                    "library's name or an .sf2 file's path; empty "
                    "plays the plain built-in synth"),
+    ('use_samples', 'yes', "the listen plays the recorded instruments "
+                           "on the shelf; no plays the plain built-in "
+                           "synth"),
     ('sounds_dir', '', "where sample libraries live and download; "
                        "empty uses the standard spot for this "
                        "computer"),
@@ -524,6 +527,8 @@ def resolve_sounds(cfg):
     setting may also be an .sf2 path for one library, or a name
     matched loosely against the shelf's SoundFonts."""
     import glob as _g
+    if cfg.get('use_samples', 'yes') == 'no':
+        return None                     # the writer chose the synth
     want = (cfg.get('sounds') or '').strip()
     home = sounds_home(cfg)
     floors = sorted(_g.glob(os.path.join(home, '*.sf2'))
@@ -574,7 +579,7 @@ def run_settings(argv):
     if k not in {s[0] for s in SETTINGS}:
         sys.exit(f"chart: no setting called '{k}' — settings lists "
                  "the ones that exist.")
-    if k in ('notify', 'open') + LISTEN_KEYS:
+    if k in ('notify', 'open', 'use_samples') + LISTEN_KEYS:
         if v.lower() not in ('yes', 'no', 'on', 'off'):
             sys.exit(f"chart: {k} is yes or no.")
         v = 'yes' if v.lower() in ('yes', 'on') else 'no'
@@ -1127,6 +1132,23 @@ def main():
         run_settings(sys.argv[1:])
         return
     if len(sys.argv) > 1 and sys.argv[1] == 'sounds':
+        sub = sys.argv[2] if len(sys.argv) > 2 else ''
+        if sub in ('list', 'catalog', 'install', 'remove'):
+            import chartsounds
+            cfg = load_cfg()
+            home = sounds_home(cfg)
+            rest = " ".join(a for a in sys.argv[3:] if a != '--yes')
+            if sub in ('list', 'catalog'):
+                say(f"The sound catalog — the shelf lives in {home}:")
+                for line in chartsounds.catalog_lines(home):
+                    say(line)
+                say("Install with: chart sounds install band (or all, or "
+                    "names); change the place with chart set sounds_dir=")
+            elif sub == 'install':
+                chartsounds.install(rest or 'band', home)
+            else:
+                chartsounds.remove(rest, home, '--yes' in sys.argv)
+            return
         run_sounds()
         return
     if len(sys.argv) > 1 and sys.argv[1] in ('import', 'i'):

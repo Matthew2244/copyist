@@ -5340,6 +5340,76 @@ def check_band_reacts():
     check("four soloist personalities", len(G.PERSONAS) == 4)
 
 
+def check_sound_shelf_installer():
+    """The sample shelf installs itself where the writer says (Matthew,
+    2026-09-29): a catalog of every library the band plays with its
+    source, size and licence; unpacking into the named folder, Mac junk
+    dropped; 24-bit WAVs brought to 16-bit in pure Python; credits
+    written; nothing fetched unasked. Offline here: no downloads."""
+    import struct
+    import wave as wv
+    import zipfile as zf
+    import chartsounds as cs
+    check("the catalog covers the band, each with a source and licence",
+          all(e.get("url") and e.get("license") for e in cs.CATALOG)
+          and {"piano", "kit", "brushes", "upright", "floor"}
+          <= {e["key"] for e in cs.find("band")})
+    try:
+        cs.find("kazoo")
+        bad = None
+    except SystemExit as e:
+        bad = str(e.code)
+    check("an unknown library is named", bad and "kazoo" in bad)
+    tmp = tempfile.mkdtemp()
+    w24 = os.path.join(tmp, "a.wav")
+    with wv.open(w24, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(3)
+        w.setframerate(44100)
+        w.writeframes(b"".join(struct.pack("<i", v << 8)[:3]
+                               for v in (0, 1000, -1000, 8388607 // 256)))
+    ok = cs.to_16bit(w24)
+    with wv.open(w24) as w:
+        sw, frames = w.getsampwidth(), w.readframes(4)
+    vals = struct.unpack("<4h", frames)
+    check("a 24-bit WAV becomes 16-bit, keeping the top bytes",
+          ok and sw == 2 and vals == (0, 1000, -1000, 32767), vals)
+    z = os.path.join(tmp, "lib.zip")
+    with zf.ZipFile(z, "w") as zz:
+        zz.writestr("lib-main/Programs/x.sfz", "<region> sample=a.wav")
+        zz.writestr("lib-main/.DS_Store", "junk")
+        zz.writestr("__MACOSX/lib-main/._x.sfz", "junk")
+    home = os.path.join(tmp, "shelf")
+    os.makedirs(home)
+    entry = {"key": "t", "name": "Test", "folder": "TestLib",
+             "plays": "a test", "license": "CC0", "mb": 1}
+    dest = cs._extract(z, home, entry)
+    names = sorted(os.listdir(dest))
+    check("unpacks into the catalog's folder, the archive's top folder "
+          "and the Mac junk gone", names == ["Programs"]
+          and os.path.exists(os.path.join(dest, "Programs", "x.sfz")),
+          names)
+    bomb = os.path.join(tmp, "bad.zip")
+    with zf.ZipFile(bomb, "w") as zz:
+        zz.writestr("../escape.txt", "no")
+    try:
+        cs._extract(bomb, home, dict(entry, folder="Bad"))
+        esc = False
+    except ValueError:
+        esc = True
+    check("an archive reaching outside its folder is refused", esc)
+    cs.CATALOG.append(dict(entry, credit="Test by Someone, CC0",
+                           url="x"))
+    try:
+        cs.write_credits(home)
+        cr = open(os.path.join(home, "CREDITS.txt")).read()
+    finally:
+        cs.CATALOG.pop()
+    check("the credits name who made what's installed",
+          "Test by Someone" in cr)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5405,6 +5475,7 @@ if __name__ == "__main__":
     check_listen_switches()
     check_plays_like_pros()
     check_band_reacts()
+    check_sound_shelf_installer()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()
