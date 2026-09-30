@@ -1485,7 +1485,28 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
         _styled_bass(bar, state, sec, off, absbar, chords,
                      *_new_style(feel, bar), put)
         return
-    if _is_swing(feel) and bar.den == 4:
+    two_now = False
+    if _is_swing(feel) and bar.den == 4 and not state.get('turn') and \
+            not re.search(r'\bwalk|\bin (?:4|four)\b|\bfour[ -]?feel',
+                          (feel or '').lower()):
+        # the bassist's own call on a head, in the moment (Matthew,
+        # 2026-09-30: "two feel ... decided live and in the moment, or if
+        # it's written in the chart or roadmap"): often in two the first
+        # time through, less later on, sometimes two for the first half
+        # and walking into the second
+        lap = absbar // 1000
+        key = (sec.get('name'), lap)
+        got = state.setdefault('two', {})
+        if key not in got:
+            d2 = _Dice('two feel', sec.get('name'), lap)
+            first = sec.get('_arc', 0) == 0
+            if d2() < (0.55 if first else 0.25):
+                got[key] = sec['bars'] if d2() < 0.65 else \
+                    max(sec['bars'] // 2, 1)
+            else:
+                got[key] = 0
+        two_now = off < got[key]
+    if _is_swing(feel) and bar.den == 4 and not two_now:
         # the bassist listens too: two feel at the top of a soloist's
         # turn, skips and triplet pickups as it builds, a run into the
         # next bar when the soloist breathes

@@ -808,6 +808,11 @@ All of these ride on a `from demo` line, after commas:
   comping sit behind the time, the bass a little less; `loose` gives it
   room; `on top` (or `pushing it`) leans ahead; `tight` locks it back
   in. A section that doesn't say goes back to tight.
+- **Two or four, the bassist's call.** On a head the bass decides in
+  the moment: often in two the first time through, less later, sometimes
+  two for the first half and walking into the second; solos walk. Say it
+  and it's settled: `two feel` or `in 2` for two, `walking`, `in 4` or
+  `four feel` for four.
 - **Bass range.** A four-string bass floors at its low E, and a made-up
   line on electric bass lives up the neck, visiting the low string
   rather than walking on it; write `5-string bass` for the low B.

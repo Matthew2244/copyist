@@ -4878,6 +4878,34 @@ def check_band_hears_the_lead():
     check("and plays them together, the kick last",
           {n[1] for n in first} == {('G', 5, 'circle-x'), ('C', 5, 'normal')}
           and b.onsets[max(b.onsets)][1][-1][1] == ('F', 4, 'normal'))
+    def bass_counts(feel):
+        out = set()
+        tmp_ = tempfile.mkdtemp()
+        cp = os.path.join(tmp_, "t.chart")
+        open(cp, "w").write(
+            "title: T\nkey: F\nmeter: 4/4\ntempo: 140\nfeel: " + feel +
+            "\n\nband:\n  trumpet\n  piano\n  bass\n  drums\n\n"
+            "section head, 4 bars\n  chords: F, Gm7 C7, F, C7\n")
+        was = chartc.TAKE
+        try:
+            for tk in range(1, 9):
+                chartc.TAKE = tk
+                with redirect_stdout(io.StringIO()):
+                    chartc.compile_chart(cp, os.path.join(tmp_, str(tk)))
+                x = open(os.path.join(tmp_, str(tk),
+                                      "T — for listening.musicxml")).read()
+                bp = re.search(r'<part id="P3">(.*?)</part>', x, re.S)
+                ms = re.findall(r'<measure number="1">(.*?)</measure>',
+                                bp.group(1), re.S)
+                out.add(ms[0].count('<pitch>'))
+        finally:
+            chartc.TAKE = was
+        return out
+    got = bass_counts("swing")
+    check("on a head the bassist chooses in the moment: some takes in two, "
+          "some walking", 2 in got and max(got) >= 4, str(got))
+    got = bass_counts("swing, walking")
+    check("the chart says walk: every take walks", min(got) >= 4, str(got))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)
