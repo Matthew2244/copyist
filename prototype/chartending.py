@@ -218,6 +218,12 @@ def parse(text, labels, groups=None):
             if re.fullmatch(r'fills?(?: it| in| over it)?', low):
                 steps.append(('fill', who))
                 continue
+            if who.lower() in ('drums', 'drum', 'drummer', 'kit') and \
+                    re.fullmatch(r"(?:solos?|takes? a solo|plays? alone)"
+                                 r"(?: out of time)?", low):
+                # the drummer alone, out of time, then the cue
+                steps.append(('drumsolo', None))
+                continue
             if re.fullmatch(r'(?:noodles?|solos?|plays? over it|'
                             r'(?:noodles?|solos?|plays?) over (?:the |that )?'
                             r'(?:last )?chord|ad lib(?:s)?)', low):
@@ -246,6 +252,17 @@ def parse(text, labels, groups=None):
             # the drummer's own last word after everyone's done, always
             # landing on the kick (Matthew's name for it, 2026-09-30)
             steps.append(('tag', ('drums', None)))
+            continue
+        if re.fullmatch(r"(?:a |the )?(?:drum|drummer'?s|drums) solo"
+                        r"(?: out of time)?", w, re.I):
+            steps.append(('drumsolo', None))
+            continue
+        if re.fullmatch(r"(?:(?:everybody|everyone|the band|band|all) )?"
+                        r"(?:go(?:es)? crazy|go(?:es)? for it|blows?|"
+                        r"wails?)|"
+                        r"crazy", w, re.I):
+            # the held chord, everybody going for it
+            steps.append(('crazy', None))
             continue
         if re.fullmatch(r'(?:a |the )?(?:(?:band )?unison(?: figure| hits?| '
                         r'line| lick)?|band figure|unison band figure)', w,
@@ -301,7 +318,8 @@ def parse(text, labels, groups=None):
                 "hold, roll, trash can, fill, <part> fills, <part> "
                 "noodles, <part> falls (or doits, scoops, plops), last "
                 "hit (on cue), button, cold, rit, fade, watch each "
-                "other, drums tag, drums dictate \"chords\", count in")
+                "other, drums tag, drums dictate \"chords\", count in, "
+                "unison line, drum solo, go crazy")
     if not steps:
         raise EndingError("the ending line names no steps")
     return steps
@@ -335,6 +353,14 @@ def shape(steps, labels=(), groups=None):
         ki.index('fill') > ki.index('cadenza')
     if dictate:
         hit = True                   # the band comes back in on a hit
+    later = [ki.index(k) for k in ('hold', 'crazy', 'drumsolo', 'roll',
+                                   'trash') if k in ki]
+    unison_first = 'unison' in ki and (not later or
+                                       ki.index('unison') < min(later))
+    sequence = not dictate and ('drumsolo' in ki or (
+        unison_first and ('crazy' in ki or 'hold' in ki)))
+    if sequence:
+        hit = True
     return {'held': held, 'hit': hit and 'stop' not in kinds,
             'stop': 'stop' in kinds, 'rit': 'rit' in kinds,
             'fade': 'fade' in kinds, 'trash': 'trash' in kinds,
@@ -345,6 +371,8 @@ def shape(steps, labels=(), groups=None):
             'arts': arts, 'tag': tag, 'dictate': dictate,
             'cadenza': cadenza, 'fill_after': fill_after,
             'count': 'count' in kinds, 'unison': 'unison' in kinds,
+            'sequence': sequence, 'unison_first': unison_first,
+            'drumsolo': 'drumsolo' in kinds, 'crazy': 'crazy' in kinds,
             'hit_cue': any(k in ('hit', 'button', 'trash') and a == 'cue'
                            for k, a in steps),
             'hit_held': any(k == 'hit' and a == 'held' for k, a in steps)}
@@ -357,6 +385,7 @@ def words(steps):
         if k in ('rit', 'fade'):
             continue                    # their own words, where they start
         w = {'hold': 'hold', 'roll': 'roll', 'trash': 'trash can ending',
+             'drumsolo': 'drum solo, out of time', 'crazy': 'go for it',
              'asis': 'as written',
              'stop': 'cold stop', 'button': 'button',
              'hit': 'last hit'}.get(k)
@@ -546,6 +575,25 @@ def timing(sh, meter, song):
             # no count: the drummer cues the band onto the last chord,
             # held, everyone going for it, until the drummer cues the hit
             segs.append(('crazy', None, q16(beat * (6 + 4 * dd()))))
+        clock['dictate'] = segs
+    elif sh.get('sequence'):
+        # the band's line together, then (if named) the drummer alone out
+        # of time, then the held chord (going crazy, or just ringing, the
+        # band's call when unsaid), then the hit on the drummer's cue
+        dd = G._Dice(song, 'sequence')
+
+        def q16(x):
+            return int(round(x * 4 / beat)) * beat // 4
+        segs = []
+        if sh.get('unison_first'):
+            segs.append(('unison', None, 2 * num * beat))
+        if sh.get('drumsolo'):
+            segs.append(('alone', None, q16(beat * (10 + 8 * dd()))))
+        crazy = sh.get('crazy') or (sh.get('held') and dd() < 0.6)
+        if crazy:
+            segs.append(('crazy', None, q16(beat * (6 + 4 * dd()))))
+        elif sh.get('held'):
+            segs.append(('held', None, q16(beat * (4 + 3 * dd()))))
         clock['dictate'] = segs
     return clock
 
@@ -820,7 +868,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
     hl = int(round(hl * 4 / beat)) * beat // 4
     if clock.get('dictate'):
         # the tune's last bar plays as it is; then the drummer's show
-        dchords = sh['dictate_chords']
+        dchords = sh.get('dictate_chords') or []
         dd = G._Dice(song, 'drum show')
         last_idea, last_cue, last_under = None, None, None
         for si, (kind, k, length) in enumerate(clock['dictate']):
@@ -906,6 +954,23 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                         else:
                             stop = L - late(beat * 0.25) - beat // 6
                         go_for_it(b, vs, land, stop)
+            elif kind == 'held':
+                # the last chord held and ringing (not going crazy), the
+                # drummer swelling under it, then the cue for the hit
+                land = late(beat * 0.08)
+                cue = _pick(dd, _CUES, last_cue)
+                cl = _CUE_LEN[cue] * beat
+                if drums:
+                    G.kit_hit(b, land, beat, dd)
+                    _roll(b, beat, beat // 2, L - cl - beat // 3,
+                          G._RIDE if dd() < 0.5 else G._SNARE, 34, 84)
+                    _drum_cue(b, beat, L - cl, L, cue, dd)
+                elif role == 'perc':
+                    _roll(b, beat, beat, L - cl, ('C', 5, 'normal'), 40, 90)
+                else:
+                    for p in voice_for(chord):
+                        b.add(land, max(1, L - cl - land - late(beat * 0.2)),
+                              ('p', p, 96))
             elif kind == 'band':
                 land = late(beat * 0.08)
                 if drums:

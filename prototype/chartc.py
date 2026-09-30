@@ -406,6 +406,62 @@ def bass_for_feel(feel):
         else 'double bass'
 
 
+def resolve_trades(chart, band, groups):
+    """Who trades in each trading section, in the order named: part
+    names, groups, 'the drums', or everybody (the horns, voices, chord
+    players and the drums; the bass sits it out unless named). Each
+    trader solos in the section."""
+    def inst(l):
+        return canonical_instrument(next(
+            b for b in band if b['label'] == l)['instrument'])
+    labels = [b['label'] for b in band]
+    drums = [l for l in labels if inst(l) == 'drums']
+    for sec in chart['sections']:
+        t = sec.get('trade')
+        if not t or isinstance(t[1], list):
+            continue
+        n, words, loc = t
+        w = (words or '').lower()
+        who = []
+        for piece in re.split(r',|\band\b|&', w):
+            piece = re.sub(r'^(?:the|a)\s+', '', piece.strip())
+            if not piece:
+                continue
+            if piece in ('everybody', 'everyone', 'all', 'the band',
+                         'band', 'us', 'all of us'):
+                who += [l for l in labels if l not in who and (
+                    chartgroove.role_of((SOUNDS.get(inst(l)) or ('', ''))[1],
+                                        (HORNS.get(inst(l)) or {}).get(
+                                            'clef', 'G'))
+                    in (None, 'comp', 'drums'))]
+                continue
+            if piece in ('drums', 'drummer', 'kit'):
+                who += [d for d in drums if d not in who]
+                continue
+            if piece in (groups or {}):
+                who += [l for l in groups[piece] if l not in who]
+                continue
+            hit = next((l for l in labels if l.lower() == piece), None)
+            if hit is None:
+                fail(f"{loc}: '{piece}' trades, but nobody in the band is "
+                     "called that")
+            if hit not in who:
+                who.append(hit)
+        if not who:                          # "trade 4s": everybody
+            who = [l for l in labels if chartgroove.role_of(
+                (SOUNDS.get(inst(l)) or ('', ''))[1],
+                (HORNS.get(inst(l)) or {}).get('clef', 'G'))
+                in (None, 'comp', 'drums')]
+        if len(who) < 2:
+            fail(f"{loc}: trading takes two players or more")
+        sec['trade'] = (n, who, loc)
+        have = {t_ for t_, ins, _l in sec['directives']
+                if ins.strip().lower().startswith('solo')}
+        for l in who:
+            if l not in have:
+                sec['directives'].append((l, 'solo', loc))
+
+
 def section_header(name, tail, loc):
     """The words after 'section NAME', comma by comma, in any order, the
     way a bandleader calls the form: '8 bars', 'label "Shout"', how many
@@ -1174,6 +1230,21 @@ def parse_chart(path):
         if m:
             cur['events'].append((int(m.group(1)), 'road',
                                   road_kind(m.group(2))))
+            continue
+        m = re.match(r"(?:(.+?)\s+)?(?:trade|trading|trades)\s+"
+                     r"(\d+|ones|twos|fours|eights|twelves|sixteens)"
+                     r"(?:s|'s)?(?:\s+bars?)?\s*(?:(?::|between|with|among|"
+                     r"for)\s*(.+))?$", s, re.I)
+        if m and cur is not None:
+            # trading: soloists taking turns every few bars, around and
+            # around, each answering what the last one played (Matthew,
+            # 2026-09-30: "trading for everyone, however many bars,
+            # being aware of what is being played")
+            words_n = {'ones': 1, 'twos': 2, 'fours': 4, 'eights': 8,
+                       'twelves': 12, 'sixteens': 16}
+            n_ = words_n.get(m.group(2).lower()) or int(m.group(2))
+            who_ = ', '.join(x for x in (m.group(1), m.group(3)) if x)
+            cur['trade'] = (n_, who_.strip(), loc)
             continue
         m = re.match(r'at bar (\d+):\s*cut(?: back)?(?: to)? here$', s)
         if m:
@@ -2048,6 +2119,7 @@ def compile_chart(chart_path, outdir):
                    'drum' not in next(b for b in band
                                       if b['label'] == l)['instrument'].lower()}
 
+    resolve_trades(chart, band, groups)
     plans, total = build_plans(chart, band, groups, labels)
     check_road(chart)
     if source is None and any(
@@ -3721,6 +3793,23 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                                else '')
     road_cues(plans, band, labels, findings)
     for pl in plans:
+        tr = pl['sec'].get('trade')
+        if tr:
+            said = f"trade {tr[0]}s: " + ", ".join(tr[1])
+            for l in labels:
+                pl['texts'][l].append((1, said))
+            if findings is not None:
+                findings.add(f"listen: {pl['sec']['label'] or pl['sec']['name']}"
+                             f" trades {tr[0]}s, " + ", then ".join(tr[1])
+                             + ", around again; each answers what the last "
+                             "one played" + (", and on the drummer's turn "
+                                             "the band lays out" if any(
+                                                 'drum' in canonical_instrument(
+                                                     next(b['instrument'] for b
+                                                          in band if b['label']
+                                                          == l_)) for l_ in
+                                                 tr[1]) else ""))
+    for pl in plans:
         if pl['sec'].get('open') and not pl['sec']['repeat']:
             said = 'vamp till cue' if pl['sec'].get('vamp') \
                 else 'open, till cue'
@@ -4023,18 +4112,29 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         order.append(l)
         return order + [l for l in who if l not in order]
 
+    def turn_at(sec, who, walk, at):
+        """(whose turn, its first bar, its end) at this bar of the
+        section's walk: contiguous shares, or trading chunks of N bars
+        going around the traders."""
+        tr = sec.get('trade')
+        if tr:
+            n = max(tr[0], 1)
+            chunk = at // n
+            return chunk % len(who), chunk * n, min(chunk * n + n, walk)
+        each = max(walk // max(len(who), 1), 1)
+        k = min(at // each, len(who) - 1)
+        return k, k * each, walk if k == len(who) - 1 else k * each + each
+
     def solo_turn(sec, off, cur_pass, passes, plan):
-        """(bar in the current soloist's turn, turn length) or None
-        when nobody solos here."""
+        """(bar in the current soloist's turn, turn length, whose turn,
+        (first bar, end)) or None when nobody solos here."""
         who = soloists(plan)
         if not who or not LISTEN_OPTS['solos']:
             return None
         walk = sec['bars'] * passes
-        each = max(walk // len(who), 1)
         at = cur_pass * sec['bars'] + off
-        k = min(at // each, len(who) - 1)
-        length = walk - k * each if k == len(who) - 1 else each
-        return (at - k * each, length, k)
+        k, lo, hi = turn_at(sec, who, walk, at)
+        return (at - lo, hi - lo, k, (lo, hi))
 
     def solo_busy(sec, plan, passes, bar_beats):
         """How busy the soloist is in this bar, 0 (resting) to 1 (a
@@ -4044,7 +4144,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             return None
         who = soloists(plan)
         walk = sec['bars'] * passes
-        story = solo_story(who[turn[2]], sec, who, walk, bar_beats)
+        if drumlike(who[turn[2]]):
+            return 0.8                    # the drummer's turn: room
+        story = solo_story(who[turn[2]], sec, who, walk, bar_beats,
+                           span=turn[3] if sec.get('trade') else None)
         t0, t1 = turn[0] * bar_beats, (turn[0] + 1) * bar_beats
         n = sum(1 for at, *_r in story if t0 <= at < t1)
         return min(n / (2.0 * bar_beats), 1.0)
@@ -4060,7 +4163,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             return None
         who = soloists(plan)
         walk = sec['bars'] * passes
-        story = solo_story(who[turn[2]], sec, who, walk, bar_beats)
+        if drumlike(who[turn[2]]):
+            return None
+        story = solo_story(who[turn[2]], sec, who, walk, bar_beats,
+                           span=turn[3] if sec.get('trade') else None)
         t0 = turn[0] * bar_beats
         now = [n for n in story if t0 <= n[0] < t0 + bar_beats]
         prev = [n for n in story if t0 - bar_beats <= n[0] < t0]
@@ -4115,17 +4221,26 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     stories = {}
     personas = {}
 
-    def solo_story(label, sec, who, walk, bar_beats):
-        """A soloist's planned solo over its share of the section. The
-        soloist after it hears how it ended: a line spilling over the
-        barline, or the last phrase to answer."""
+    def drumlike(label):
+        inst = canonical_instrument(next(
+            x['instrument'] for x in band if x['label'] == label))
+        return (HORNS.get(inst) or {}).get('clef') == 'percussion'
+
+    def solo_story(label, sec, who, walk, bar_beats, span=None):
+        """A soloist's planned solo over its share of the section (or,
+        trading, over one turn of it). The soloist after it hears how
+        it ended: a line spilling over the barline, or the last phrase
+        to answer."""
         k = who.index(label)
-        key = (sec['name'], label, walk)
+        key = (sec['name'], label, walk, span)
         if key in stories:
             return stories[key]
         each = max(walk // max(len(who), 1), 1)
-        lo_bar = k * each
-        hi_bar = walk if k == len(who) - 1 else lo_bar + each
+        if span:
+            lo_bar, hi_bar = span
+        else:
+            lo_bar = k * each
+            hi_bar = walk if k == len(who) - 1 else lo_bar + each
         b = next(x for x in band if x['label'] == label)
         inst = canonical_instrument(b['instrument'])
         h = HORNS.get(inst) or {}
@@ -4173,9 +4288,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         else:
             voice = 'horn'
         echo, after = None, 0.0
-        if k > 0:
-            prev = solo_story(who[k - 1], sec, who, walk, bar_beats)
-            prev_total = each * bar_beats
+        prev_label, prev_span, plo, phi = None, None, 0, 0
+        if span and lo_bar > 0:
+            pk, plo, phi = turn_at(sec, who, walk, lo_bar - 1)
+            prev_label, prev_span = who[pk], (plo, phi)
+        elif not span and k > 0:
+            prev_label, plo, phi = who[k - 1], (k - 1) * each, lo_bar
+        if prev_label and not drumlike(prev_label):
+            prev = solo_story(prev_label, sec, who, walk, bar_beats,
+                              span=prev_span)
+            prev_total = (phi - plo) * bar_beats
             over = [n for n in prev if n[0] >= prev_total - 1e-6]
             if over:
                 after = max(n[0] + n[1] for n in over) - prev_total + 0.5
@@ -4229,11 +4351,17 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         walk = sec['bars'] * passes         # a vamp's bars, every pass
         at = cur_pass * sec['bars'] + off
         absbar = absbar + 1000 * cur_pass   # a new pass, new notes
-        each = max(walk // max(len(who), 1), 1)
-        lo_bar = k * each
-        hi_bar = walk if k == len(who) - 1 else lo_bar + each
-        spill = at >= hi_bar and at < hi_bar + 2 and role not in (
-            'drums', 'perc')
+        if sec.get('trade'):
+            kk, lo_bar, hi_bar = turn_at(sec, who, walk, at)
+            if who[kk] != label:
+                return None
+            spill = False
+        else:
+            each = max(walk // max(len(who), 1), 1)
+            lo_bar = k * each
+            hi_bar = walk if k == len(who) - 1 else lo_bar + each
+            spill = at >= hi_bar and at < hi_bar + 2 and role not in (
+                'drums', 'perc')
         if not lo_bar <= at < hi_bar and not spill:
             return None
         pos, total = at - lo_bar, hi_bar - lo_bar
@@ -4263,7 +4391,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         # tell a story over the changes it will actually meet, and it
         # hears the soloist before it
         bar_beats = bmeter[0]
-        story = solo_story(label, sec, who, walk, bar_beats)
+        story = solo_story(label, sec, who, walk, bar_beats,
+                           span=(lo_bar, hi_bar) if sec.get('trade')
+                           else None)
         chartgroove.play_planned(bar, story, pos, bar_beats)
         if role == 'comp' and sound_id.startswith('keyboard'):
             # a pianist or organist keeps shells under the line; vibes,
@@ -4295,6 +4425,17 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             out.append((k, by[k][1], max(nxt - (k + by[k][1]), 0.0),
                         by[k][2]))
         return out
+
+    def drums_trade_turn(sec, plan, off, cur_pass, passes, label):
+        """In a trading section, the drummer's turn: everyone else out."""
+        if not sec.get('trade'):
+            return False
+        who = soloists(plan)
+        if not who:
+            return False
+        k, _lo, _hi = turn_at(sec, who, sec['bars'] * passes,
+                              cur_pass * sec['bars'] + off)
+        return drumlike(who[k]) and who[k] != label
 
     def next_chord(pi_):
         """The first chord of whatever the band plays next: the cut's
@@ -4909,12 +5050,19 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                           absbar, bmeter, gdiv, horn,
                                           label, groove_state,
                                           active_chord[0], plan)
-                        elif soloing:
-                            made = solo_bar(
+                        elif drums_trade_turn(sec, plan, off, cur_pass,
+                                              passes, label):
+                            made = None   # the drummer's turn: all out
+                        elif soloing and (made_s := solo_bar(
                                 sound_id, clef, staves, fifths, sec,
                                 off, absbar, bmeter, gdiv, horn, label,
                                 groove_state, active_chord[0], plan,
-                                cur_pass, passes)
+                                cur_pass, passes)) is not None:
+                            made = made_s
+                        elif soloing and my_role not in (
+                                'comp', 'bass', 'drums', 'perc') or \
+                                soloing and strolls(label, plan):
+                            made = None   # a horn between its turns
                         else:
                             made = chartgroove.realize(
                                 'groove', arg, sound_id, clef, staves,

@@ -350,6 +350,7 @@ def main():
     band = chart['band']
     groups = chartc.resolve_groups(band, chart.get('groups'))
     labels = [b['label'] for b in band]
+    chartc.resolve_trades(chart, band, groups)
     plans, total = chartc.build_plans(chart, band, groups, labels)
     chartc.road_cues(plans, band, labels, None)   # who cues, where cuts go
     findings = chartdemo.Findings()

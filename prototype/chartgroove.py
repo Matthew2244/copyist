@@ -2365,13 +2365,21 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
     # welcoming a new soloist, like the audience clapping them in —
     # right away, a bar later, or not at all, any phrasing (Matthew,
     # 2026-09-30)
-    if new_turn:
+    if new_turn and not sec.get('trade'):
         wd = _Dice('welcome', absbar, sec.get('name'))
         r = wd()
         if r < 0.45:
             state['welcome'] = (absbar, wd())
         elif r < 0.8:
             state['welcome'] = (absbar + 1, wd())
+    elif off == 0 and not lap and sec.get('_arc', 0) > 0:
+        # a new section gets its welcome too, like the audience going up
+        # for a shout chorus (Matthew, 2026-09-30): more likely the
+        # bigger the band's arrival, never automatic
+        wd = _Dice('section welcome', absbar, sec.get('name'))
+        if wd() < (0.6 if sec.get('_energy', 0.5) >= 0.8 else 0.25):
+            state['welcome'] = (absbar if wd() < 0.6 else absbar + 1,
+                                wd())
     wel = state.get('welcome')
     if wel and wel[0] == absbar and bar.num >= 4:
         state.pop('welcome', None)

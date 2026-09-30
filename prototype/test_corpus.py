@@ -5026,6 +5026,38 @@ def check_band_hears_the_lead():
     check("a written horn line with nowhere to breathe is named, with its "
           "bars and seconds", "bars 1-8 run 19 seconds with nowhere to "
           "breathe" in buf.getvalue(), buf.getvalue()[-400:])
+    tmp_t = tempfile.mkdtemp()
+    ct = os.path.join(tmp_t, "t.chart")
+    open(ct, "w").write(
+        "title: T\nkey: Bb\nmeter: 4/4\ntempo: 170\nfeel: swing\n\n"
+        "band:\n  trumpet\n  tenor = tenor sax\n  piano\n  bass\n"
+        "  drums\n\nsection solos, 12 bars\n  chords: Bb7 x12\n"
+        "  trade 4s: trumpet, tenor, drums\n"
+        "  ending: unison line, drum solo, go crazy, last hit\n")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(ct, os.path.join(tmp_t, "b"))
+    x = open(os.path.join(tmp_t, "b", "T — for listening.musicxml")).read()
+    names_ = dict(re.findall(r'<score-part id="([^"]+)"><part-name>([^<]*)',
+                             x))
+    who_ = {}
+    for pid, body in re.findall(r'<part id="([^"]+)">(.*?)</part>', x, re.S):
+        for n, m in re.findall(r'<measure number="(\d+)"[^>]*>(.*?)'
+                               r'</measure>', body, re.S):
+            if '<pitch>' in m or '<unpitched>' in m:
+                who_.setdefault(int(n), set()).add(names_[pid])
+    check("trading fours: trumpet 1-4, tenor 5-8, the drummer alone 9-12 "
+          "with the band out",
+          all('trumpet' in who_.get(b, ()) and 'tenor' not in who_.get(b, ())
+              for b in range(1, 5))
+          and all('tenor' in who_.get(b, ()) and 'trumpet' not in
+                  who_.get(b, ()) for b in range(5, 9))
+          and all(who_.get(b) == {'drums'} for b in range(9, 12)),
+          str(sorted(who_.items())))
+    ext = re.findall(r'<measure number="12e(\d)"', x)
+    check("the ending plays unison, drum solo, the held chord, the hit",
+          len(set(ext)) == 4 and "drum solo, out of time" in buf.getvalue(),
+          str(ext))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

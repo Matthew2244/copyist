@@ -820,6 +820,12 @@ All of these ride on a `from demo` line, after commas:
   playing, nothing the piano makes up goes below C3; with the bass out,
   the whole keyboard is the pianist's. The organ, which may be playing
   the bass itself, keeps its pedals.
+- **The drummer welcomes people in,** like an audience clapping: when
+  a soloist starts (the first one too) and when the band arrives in a
+  new section, more likely the bigger the arrival (a shout chorus):
+  hits after the one, a fill between hits, a push, right away or a bar
+  later, and sometimes not at all. Never every time; not on each turn of
+  a trade.
 - **Ride or hi-hat, the drummer's call.** In swing the drummer keeps
   time on the ride or on a closed hi-hat with the kick feathering light
   quarters, choosing per section: the hat more often on the opening
@@ -860,6 +866,15 @@ All of these ride on a `from demo` line, after commas:
   half. Say it and it's settled: `backgrounds pads`, `backgrounds riff`
   (one short figure the whole section shares), `backgrounds punches`,
   and `on cue` after any of them waits for the second half.
+- **Trading.** `trade 4s: trumpet, tenor, drums` (or `trading eights`,
+  `trade 2s between alto and bone`, just `trade 4s` for everybody: the
+  horns, voices, chord players and the drums) turns a solo section into
+  turns of that many bars, around and around in the order named. Each
+  turn opens by answering what the last player just played; on the
+  drummer's turn the whole band lays out, the classic fours with the
+  drums; a chord player or the bass between their own turns keeps
+  comping, a horn waits. The pages print "trade 4s" and the order; each
+  trader's part says solo.
 - **Vamps.** `section vamp, 2 bars, vamp till cue` (or `open`, `open
   till cue`, `repeat till cue`) prints once between repeat signs with
   the words, and goes round a few times in the listen, about eight bars
@@ -882,7 +897,15 @@ All of these ride on a `from demo` line, after commas:
       ending: drums dictate, last hit, max roach ending
       ending: hold, count in, unison figure, last hit
       ending: hold, alto cadenza, drums fill, last hit
+      ending: unison line, hold, go crazy, last hit
+      ending: unison line, drum solo, go crazy, last hit on cue
 
+  With the unison first, the band plays its line together right after
+  the tune's last bar, then (with `drum solo`) the drummer alone, out of
+  time, telling a story and cueing, then the held last chord, everybody
+  going for it with `go crazy` (or just holding it and ringing, the
+  band's call when you only say `hold`), then the hit, the drummer's
+  way.
   An ending is out of time unless the chart puts it in time: the
   drummer's stretches alone, a fill in a fermata, a line over the held
   chord all push and pull in the player's own time; a count-off and the

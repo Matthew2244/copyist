@@ -424,7 +424,10 @@ times`, `play N times`, `xN`, `vamp N times`), `open` / `till cue` /
 cues`), and where it goes after (`then cut to <section>`, `on cue, cut to
 <section>`, `then cut back [to <section>]`). A cut without a name lands on
 the nearest `at bar N: cut to here` / `cut back to here` mark that way;
-a cut back is taken once.
+a cut back is taken once. Inside a section, `trade Ns[: <parts>]` (twos,
+fours, eights; `between`/`with` read too; none named = everybody but the
+bass) makes the traders take N-bar turns in order, the band out on the
+drummer's.
 
 - **`name` is the rehearsal mark**, and it may be a letter, a number, or a
   word — the corpus uses all three styles (A–K in *Matt's Blues*, bar
