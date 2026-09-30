@@ -718,7 +718,11 @@ All of these ride on a `from demo` line, after commas:
   on Bb. They stay under it too: with the melody up high (E4 and above),
   a voicing that would sit on top of it drops an octave, so nothing
   masks the lead. A low melody (a tenor down around Bb3) is voiced
-  over, as usual. Passing notes go by without anyone voicing around them. A
+  over, as usual. The drummer hears the section's written hits (two or
+  more horns or voices striking together) and catches them: kick and
+  snare on a short hit, crash and kick on a held one or one after
+  space, often a snare set-up on the eighth before a hit that comes out
+  of a rest. A busy line gets caught at its accents, not note by note. Passing notes go by without anyone voicing around them. A
   guitar beside a piano voices around the piano. Vibes the chart gives
   nothing leave the comping to the piano or guitar (two chord players
   comping at once muddy the changes; the findings say so, and `vibes:

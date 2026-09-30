@@ -3855,6 +3855,28 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             chartgroove.comp_shells(bar, state, chords, absbar, nxt)
         return bar.xml()
 
+    def ensemble_hits(entries, bmeter):
+        """The section's written hits in a bar: onsets where two or more
+        horns or voices strike together, with the longest note there and
+        the air before the next hit."""
+        by = {}
+        for l_, s_, e_, _m in entries:
+            if l_ in groups['rhythm']:
+                continue
+            k_ = round(s_ * 12) / 12
+            got = by.setdefault(k_, [set(), 0.0])
+            got[0].add(l_)
+            got[1] = max(got[1], e_ - s_)
+        ons = sorted(k for k, v in by.items() if len(v[0]) >= 2)
+        if not ons:
+            return None
+        end = bmeter[0] * 4 / bmeter[1]
+        out = []
+        for i_, k in enumerate(ons):
+            nxt = ons[i_ + 1] if i_ + 1 < len(ons) else end
+            out.append((k, by[k][1], max(nxt - (k + by[k][1]), 0.0)))
+        return out
+
     def next_chord(pi_):
         """The first chord of whatever the band plays next: the cut's
         landing, else the next section."""
@@ -4071,6 +4093,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                         or label in LEAD['hears_comp'])
                 ] if listen and LEAD['map'] and my_role not in (
                     'bass', 'drums', 'perc') else None
+                chartgroove.ENSEMBLE_NOW = ensemble_hits(
+                    LEAD['map'].get(str(absbar if not cur_pass
+                                        else f'{absbar}x{cur_pass}'), ()),
+                    bmeter) if listen and LEAD['map'] and \
+                    my_role == 'drums' else None
                 resumed = None
                 if resume_div is not None:
                     # the bar after a realized one goes back to the
@@ -4798,6 +4825,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                          harmony_on=lambda l: l in chord_parts,
                          listen=True))
     chartgroove.LEAD_NOW = None
+    chartgroove.ENSEMBLE_NOW = None
     written.append(listen_path)
     # written in the chart or lifted from a score, a road map is read
     # back in bar numbers

@@ -4825,6 +4825,15 @@ def check_band_hears_the_lead():
     check("a comper leaves out the A under the melody's Bb, keeps the rest",
           got == [62], str(got))
     b = chartgroove.Bar(24, (4, 4), 0, 1)
+    chartgroove._catch(b, [(0.0, 0.5, 0.5), (1.5, 2.0, 0.5)], 0.6,
+                       chartgroove._Dice('t'))
+    got = {t: sorted(n[1][0] + str(n[1][1]) for n in ns)
+           for t, (_l, ns) in b.onsets.items()}
+    check("the drummer catches the section's hits: kick and snare on a "
+          "short one, crash and kick on a held one",
+          got.get(0) == ['C5', 'F4'] and got.get(36) == ['A5', 'F4'],
+          str(got))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
     for m in (60, 64, 70, 74):
         b.add(0, 48, ('p', m, 80))
     b._hear_the_lead([(0.0, 2.0, 67)])

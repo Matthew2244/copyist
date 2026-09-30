@@ -137,6 +137,41 @@ def _near(pc, anchor):
 LEAD_NOW = None
 
 
+# The horn section's written hits in the bar being made, for the
+# drummer: [(start, length, air after)] in quarters from the bar's start,
+# only where two or more horns or voices strike together.
+ENSEMBLE_NOW = None
+
+
+def _catch(bar, hits, heat, d):
+    """The drummer catches the band's figures: a short hit with air after
+    it gets kick and snare, a held one or one after space gets crash and
+    kick, and a hit coming out of a rest often gets its set-up, the snare
+    on the eighth before. A busy line is caught at its accents, not note
+    by note."""
+    beat = bar.div * 4 // bar.den
+    half = beat // 2
+    marks = [h for h in hits if h[2] >= 0.5 or h[1] >= 1.5]
+    if len(marks) > 4:
+        marks = [marks[0], marks[-1]]
+    prev_end = 0.0            # space counts from the bar's start
+    for s, ln, air in sorted(hits):
+        if (s, ln, air) not in marks:
+            prev_end = s + ln
+            continue
+        t = int(round(s * beat))
+        big = ln >= 1.5 or s - prev_end >= 1.5 or air >= 1.5
+        vel = int(92 + 12 * min(heat, 1.0))
+        if big:
+            bar.add(t, beat, ('u', _CRASH, vel + 4))
+        else:
+            bar.add(t, half, ('u', _SNARE, vel))
+        bar.add(t, half, ('u', _KICK, vel))
+        if s - prev_end >= 1.0 and t >= half and d() < 0.55:
+            bar.add(t - half, half, ('u', _SNARE, vel - 14))   # set-up
+        prev_end = s + ln
+
+
 def _heard(s, e):
     """A lead note the band would voice around: on a beat or held."""
     return e - s >= 0.75 or abs(s - round(s)) < 0.01
@@ -1785,6 +1820,8 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
                     del bar.onsets[tick]
         if state['hits'] is None and impl != 'mallets':
             _drummer_marks(bar, sec, off, absbar, heat, state)
+        if ENSEMBLE_NOW and impl not in ('brushes', 'mallets'):
+            _catch(bar, ENSEMBLE_NOW, heat, _Dice('catch', absbar))
         fills = {b: t for b, k, t in evs if k == 'fill'}
         if state.pop('cue_fill', False):
             fills[off + 1] = ''       # the drummer cues the band out
