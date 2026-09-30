@@ -722,6 +722,34 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
                 beat // 3 if sl % 3 else half, ('u', _SNARE, v))
 
 
+def _chop_wood(bar, how):
+    """Chopping wood on a shout: the comping snare gives way to the
+    cross-stick on the backbeat (2 and 4, or just 4), or a cross-stick
+    on 2 answered by the high tom on 4 and its 'and'; the ride and the
+    hat foot keep going."""
+    beat = bar.div * 4 // bar.den
+    half = beat // 2
+    for t in list(bar.onsets):
+        ln, ns = bar.onsets[t]
+        keep = [n for n in ns if not (n[0] == 'u' and n[1] == _SNARE)]
+        if keep:
+            bar.onsets[t] = (ln, keep)
+        else:
+            del bar.onsets[t]
+    if how in ('24', '24kick'):
+        for b in (1, 3):
+            bar.add(b * beat, half, ('u', _XSTICK, 96))
+        if how == '24kick':
+            for b in (0, 2):
+                bar.add(b * beat, half, ('u', _KICK, 78))
+    elif how == '4':
+        bar.add(3 * beat, half, ('u', _XSTICK, 100))
+    else:                                    # 2, then the tom on 4 and &
+        bar.add(beat, half, ('u', _XSTICK, 96))
+        bar.add(3 * beat, half, ('u', _HI_TOM, 100))
+        bar.add(3 * beat + half, half, ('u', _HI_TOM, 92))
+
+
 def _hat_time(bar, feather):
     """Swing time moved from the ride to a closed hi-hat played with the
     stick: the foot holds the hat shut (no chick of its own), and the
@@ -1942,12 +1970,28 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
                     ht = state.setdefault('hat_time', {})
                     if key not in ht:
                         d3 = _Dice('hat time', *key)
-                        p = 0.1 if sec.get('_turn') else \
+                        # a shout stays on the ride
+                        p = 0.0 if sec.get('_energy', 0) >= 0.8 else \
+                            0.1 if sec.get('_turn') else \
                             0.45 if sec.get('_arc', 0) == 0 else 0.25
                         ht[key] = (d3() < p, d3() < 0.7)
                     on_hat, feath = ht[key]
                 if on_hat:
                     _hat_time(bar, feath)
+                elif sec.get('_energy', 0) >= 0.8 and bar.num == 4 and \
+                        not re.search(r'\bride only\b', words):
+                    # a shout on the ride; the drummer may chop wood too
+                    # (Matthew, 2026-09-30): the cross-stick on 2 and 4,
+                    # on 4 alone, or a cross-stick on 2 with the high tom
+                    # on 4 and its 'and' — the drummer's call per shout
+                    ck = (sec.get('name'), absbar // 1000)
+                    chop = state.setdefault('chop', {})
+                    if ck not in chop:
+                        dc = _Dice('chop wood', *ck)
+                        chop[ck] = None if dc() < 0.45 else \
+                            ('24', '4', '2tom', '24kick')[int(dc() * 4) % 4]
+                    if chop[ck]:
+                        _chop_wood(bar, chop[ck])
         if not OPTS['feather']:
             # no feathered quarters: the kick only where it says
             # something (bombs, setups, fills)

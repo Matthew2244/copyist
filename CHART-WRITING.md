@@ -836,8 +836,11 @@ All of these ride on a `from demo` line, after commas:
 - **Ride or hi-hat, the drummer's call.** In swing the drummer keeps
   time on the ride or on a closed hi-hat with the kick feathering light
   quarters, choosing per section: the hat more often on the opening
-  head, rarely under a solo. `on the hat` (or `closed hi-hat`) and
-  `ride` in a section's feel or the drums' words settle it.
+  head, rarely under a solo, never on a shout, which stays on the ride.
+  On a shout the drummer may chop wood too, their call per shout: the
+  cross-stick on 2 and 4, on 4 alone, or a cross-stick on 2 answered by
+  the high tom on 4 and its 'and'. `on the hat` (or `closed hi-hat`),
+  `ride` and `ride only` settle it.
 - **The guitar in a small group** comps in spots like a pianist's left
   hand or plays four to the bar, choosing per section; with four horns
   or more it's a big band and the guitar plays four, Freddie Green.
@@ -916,6 +919,13 @@ All of these ride on a `from demo` line, after commas:
   going for it with `go crazy` (or just holding it and ringing, the
   band's call when you only say `hold`), then the hit, the drummer's
   way.
+  The drummer's cues out of time are big and plain, never the same
+  one twice running: three rising hits, a count, snare and kick
+  hammering four, stick clicks, the toms walking down, a run up the
+  toms, flams, a flam triplet, a choked crash and silence, a swell. Every
+  player hears the same cue, and there's half a beat to a beat and a
+  quarter of air after it so everyone gets ready; a band blowing
+  through the cue keeps blowing through the air.
   An ending is out of time unless the chart puts it in time: the
   drummer's stretches alone, a fill in a fermata, a line over the held
   chord all push and pull in the player's own time; a count-off and the

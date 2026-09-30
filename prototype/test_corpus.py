@@ -5070,6 +5070,27 @@ def check_band_hears_the_lead():
     check("a drum solo's time is the drummer's call: the foot on 2 and 4, "
           "on all four, a feathered kick, or none",
           len(modes) >= 3, str(modes))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    b.add(24, 12, ('u', chartgroove._SNARE, 60))
+    b.add(0, 24, ('u', chartgroove._RIDE, 80))
+    chartgroove._chop_wood(b, '2tom')
+    got = {t: [n[1] for n in ns] for t, (_l, ns) in b.onsets.items()}
+    check("chopping wood on a shout: cross-stick on 2, high tom on 4 and "
+          "its and, the ride still going, the comping snare out",
+          got.get(24) == [chartgroove._XSTICK]
+          and got.get(72) == [chartgroove._HI_TOM]
+          and got.get(84) == [chartgroove._HI_TOM]
+          and chartgroove._RIDE in got.get(0, []), str(got))
+    import chartending
+    cues_, airs = set(), []
+    for si in range(30):
+        c, cl, air = chartending._seg_cue('song', si, 24)
+        cues_.add(c)
+        airs.append(air)
+        assert (c, cl, air) == chartending._seg_cue('song', si, 24)
+    check("a drummer's ending cue: many kinds, the same for everyone, and "
+          "always half a beat or more of air before what comes next",
+          len(cues_) >= 7 and min(airs) >= 12, str((cues_, min(airs))))
     kinds_ = set()
     for k in range(60):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

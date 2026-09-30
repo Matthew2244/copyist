@@ -574,7 +574,7 @@ def timing(sh, meter, song):
         else:
             # no count: the drummer cues the band onto the last chord,
             # held, everyone going for it, until the drummer cues the hit
-            segs.append(('crazy', None, q16(beat * (6 + 4 * dd()))))
+            segs.append(('crazy', None, q16(beat * (7 + 4 * dd()))))
         clock['dictate'] = segs
     elif sh.get('sequence'):
         # the band's line together, then (if named) the drummer alone out
@@ -591,9 +591,9 @@ def timing(sh, meter, song):
             segs.append(('alone', None, q16(beat * (10 + 8 * dd()))))
         crazy = sh.get('crazy') or (sh.get('held') and dd() < 0.6)
         if crazy:
-            segs.append(('crazy', None, q16(beat * (6 + 4 * dd()))))
+            segs.append(('crazy', None, q16(beat * (7 + 4 * dd()))))
         elif sh.get('held'):
-            segs.append(('held', None, q16(beat * (4 + 3 * dd()))))
+            segs.append(('held', None, q16(beat * (5 + 3 * dd()))))
         clock['dictate'] = segs
     return clock
 
@@ -886,9 +886,8 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                     pool = ('motif', 'space', 'talk', 'groove', 'roll') \
                         if arc < 0.35 else _SOLO_IDEAS if arc < 0.8 else \
                         ('toms', 'triplets', 'poly', 'kick', 'motif')
-                    cue = _pick(dd, _CUES, last_cue)
+                    cue, cl, air = _seg_cue(song, si, beat)
                     last_cue = cue
-                    cl = _CUE_LEN[cue] * beat
                     end = max(beat, L - cl - beat // 3)
                     # a long stretch moves from one idea to the next
                     cuts = [0, end]
@@ -924,20 +923,19 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                         _rubato(b, 0, end, dd)
                     # soft and patient early, the big one last
                     _scale_vel(b, 0, end, 0.86 + 0.24 * arc)
-                    _drum_cue(b, beat, L - cl, L, cue, dd)
+                    _drum_cue(b, beat, L - cl, L - air, cue, dd)
                 elif role == 'perc':
                     _roll(b, beat, 0, L, ('C', 5, 'normal'), 40, 90)
             elif kind == 'crazy':
                 # the last chord, held, everybody going for it; then the
                 # drummer's cue for the hit
                 land = late(beat * 0.08)
-                cue = _pick(dd, _CUES, last_cue)
-                cl = _CUE_LEN[cue] * beat
+                cue, cl, air = _seg_cue(song, si, beat)
                 if drums:
                     b.add(land, beat, ('u', G._CRASH, 112))
                     b.add(land, beat, ('u', G._KICK, 104))
                     _trash_drums(b, beat, seed, L - cl - beat // 3)
-                    _drum_cue(b, beat, L - cl, L, cue, dd)
+                    _drum_cue(b, beat, L - cl, L - air, cue, dd)
                 elif role == 'perc':
                     _roll(b, beat, beat, L - (cl + beat // 4 if G._Dice(
                         song, 'drop for the cue')() < 0.55 else beat // 6),
@@ -958,13 +956,12 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                 # the last chord held and ringing (not going crazy), the
                 # drummer swelling under it, then the cue for the hit
                 land = late(beat * 0.08)
-                cue = _pick(dd, _CUES, last_cue)
-                cl = _CUE_LEN[cue] * beat
+                cue, cl, air = _seg_cue(song, si, beat)
                 if drums:
                     G.kit_hit(b, land, beat, dd)
                     _roll(b, beat, beat // 2, L - cl - beat // 3,
                           G._RIDE if dd() < 0.5 else G._SNARE, 34, 84)
-                    _drum_cue(b, beat, L - cl, L, cue, dd)
+                    _drum_cue(b, beat, L - cl, L - air, cue, dd)
                 elif role == 'perc':
                     _roll(b, beat, beat, L - cl, ('C', 5, 'normal'), 40, 90)
                 else:
@@ -1202,8 +1199,29 @@ def _fill(bar, beat, t0, t1, seed):
 _TOMS = [('E', 5, 'normal'), ('D', 5, 'normal'), ('A', 4, 'normal')]
 _SOLO_IDEAS = ('motif', 'roll', 'toms', 'talk', 'space', 'triplets',
                'groove', 'poly', 'kick')
-_CUES = ('three', 'count', 'setup', 'flam', 'swell')
-_CUE_LEN = {'three': 1, 'count': 2, 'setup': 1, 'flam': 1, 'swell': 2}
+_CUES = ('three', 'count', 'setup', 'flam', 'swell', 'hammer',
+         'clicks', 'toms_walk', 'run_up', 'choke', 'flam_triplets')
+_CUE_LEN = {'three': 1, 'count': 2, 'setup': 1, 'flam': 1, 'swell': 2,
+            'hammer': 2, 'clicks': 2, 'toms_walk': 2, 'run_up': 1,
+            'choke': 1, 'flam_triplets': 1}
+
+
+def _seg_cue(song, si, beat):
+    """The drummer's cue for this stretch of an ending, the same for
+    every player (they all have to hear the same cue), never the one
+    just used, and with air after it: half a beat to a beat and a
+    quarter of space before what comes next, so everyone gets ready
+    (Matthew, 2026-09-30). Returns (cue, cue length with its air,
+    air)."""
+    def pick(i):
+        d = G._Dice(song, 'seg cue', i)
+        return _CUES[int(d() * len(_CUES)) % len(_CUES)], d
+    cue, d = pick(si)
+    if si > 0 and pick(si - 1)[0] == cue:
+        cue = _CUES[(_CUES.index(cue) + 1) % len(_CUES)]
+    q = max(beat // 4, 1)
+    air = int(beat * (0.5 + 0.75 * d()) / q) * q
+    return cue, _CUE_LEN[cue] * beat + air, air
 
 
 def _pick(d, pool, last):
@@ -1452,6 +1470,45 @@ def _drum_cue(bar, beat, t0, t1, cue, d):
         at = t1 - beat // 2
         bar.add(at, beat // 2, ('u', G._SNARE, 116))
         bar.add(at, beat // 2, ('u', G._KICK, 110))
+    elif cue == 'hammer':
+        # snare and kick hammering quarters, building: nobody can miss it
+        step = (t1 - t0) // 4
+        for i in range(4):
+            bar.add(t0 + i * step, step // 2, ('u', G._SNARE, 96 + 8 * i))
+            bar.add(t0 + i * step, step // 2, ('u', G._KICK, 92 + 8 * i))
+        bar.add(t0 + 3 * step, step, ('u', G._CRASH, 116))
+    elif cue == 'clicks':
+        # stick clicks counting it off, the way a drummer counts a band in
+        step = (t1 - t0) // 4
+        for i in range(4):
+            bar.add(t0 + i * step, step // 2, ('u', ('C', 5, 'x'),
+                                              88 + 8 * i))
+    elif cue == 'toms_walk':
+        # the toms walking down, the kick under each
+        step = (t1 - t0) // 4
+        for i, dr in enumerate((_TOMS[0], _TOMS[1], _TOMS[2], _TOMS[2])):
+            bar.add(t0 + i * step, step, ('u', dr, 100 + 5 * i))
+            bar.add(t0 + i * step, step // 2, ('u', G._KICK, 96))
+    elif cue == 'run_up':
+        # a fast run up the toms to the snare
+        step = max((t1 - t0) // 6, 1)
+        seq = (_TOMS[2], _TOMS[2], _TOMS[1], _TOMS[1], _TOMS[0], G._SNARE)
+        for i, dr in enumerate(seq):
+            bar.add(t0 + i * step, step, ('u', dr, 90 + 5 * i))
+        bar.add(t0 + 5 * step, step, ('u', G._KICK, 110))
+    elif cue == 'choke':
+        # the crash grabbed short, then nothing: the silence is the cue
+        bar.add(t0, beat // 2, ('u', G._CRASH, 118, ('staccato',)))
+        bar.add(t0, beat // 2, ('u', G._KICK, 110))
+        bar.add(t0, beat // 2, ('u', G._SNARE, 104))
+    elif cue == 'flam_triplets':
+        step = (t1 - t0) // 3
+        for i in range(3):
+            at = t0 + i * step
+            bar.add(at, beat // 12 or 1, ('u', G._SNARE, 66))
+            bar.add(at + (beat // 12 or 1), step, ('u', G._SNARE,
+                                                   104 + 6 * i))
+        bar.add(t0 + 2 * step, step, ('u', G._KICK, 108))
     elif cue == 'swell':
         # a crescendo roll right into the chord
         _roll(bar, beat, t0, t1 - beat // 8, G._SNARE, 50, 120)
