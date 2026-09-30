@@ -3286,6 +3286,26 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         n = sum(1 for at, *_r in story if t0 <= at < t1)
         return min(n / (2.0 * bar_beats), 1.0)
 
+    def solo_answer(sec, plan, passes, bar_beats):
+        """The soloist's last phrase, when they breathe in this bar:
+        its rhythm as beats in the bar (up to four notes), so the piano
+        or the drummer can pick it up and answer (Matthew, 2026-09-30:
+        "if someone plays something during their solo, anyone should be
+        able to pick that phrase up in some kind of way and react")."""
+        turn = sec.get('_turn')
+        if not turn or turn[0] == 0:
+            return None
+        who = soloists(plan)
+        walk = sec['bars'] * passes
+        story = solo_story(who[turn[2]], sec, who, walk, bar_beats)
+        t0 = turn[0] * bar_beats
+        now = [n for n in story if t0 <= n[0] < t0 + bar_beats]
+        prev = [n for n in story if t0 - bar_beats <= n[0] < t0]
+        if len(now) > 2 or len(prev) < 2:
+            return None             # still talking, or nothing to answer
+        tail = prev[-4:]
+        return [round(n[0] - (t0 - bar_beats), 3) for n in tail]
+
     # ---- a mute nobody wrote: the brass's own call on made-up parts
     def band_mute(label, sec, kind):
         """'harmon mute', 'cup mute', 'plunger mute' or None: what a
@@ -3977,6 +3997,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                                  passes, plan)
                         sec['_busy'] = solo_busy(sec, plan, passes,
                                                  bmeter[0])
+                        sec['_answer'] = solo_answer(sec, plan, passes,
+                                                     bmeter[0])
                         if soloing and not LISTEN_OPTS['solos'] or \
                                 plan.get('bg', {}).get(label) and \
                                 not soloing and \

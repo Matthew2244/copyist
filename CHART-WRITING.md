@@ -692,6 +692,13 @@ All of these ride on a `from demo` line, after commas:
   drops bombs in the gaps, sets up each phrase, crashes in each new
   soloist, and fills from a whole vocabulary, never the same fill twice
   running. `listen_feather=no` stops the feathered kick in swing.
+- **Soloists sing, and the band listens.** A made-up solo phrases the
+  way a singer does: a phrase swells up its line and eases at the end,
+  its peak leaned on; horns and voices scoop into a long opening note
+  and may fall off or doit up at the end of a breath. When the soloist
+  breathes, the piano or the drummer may pick up the phrase they just
+  played and answer it. A drum solo is a story too: a theme developed,
+  a groove, the kick leading, three against four.
 - **Every build is a fresh take.** Nothing the band makes up plays the
   same way twice: a new build is a new take, and the findings name it.
   Like one? `chart set listen_take=<its number>` keeps it;

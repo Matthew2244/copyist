@@ -1649,6 +1649,7 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         state['hits'] = None
         return bar.xml()
     state['busy'] = sec.get('_busy')      # how busy the soloist is here
+    state['answer'] = sec.get('_answer')  # the soloist's phrase, to pick up
     state['heat'] = heat
     state['turn'] = sec.get('_turn')
     if role == 'perc':
@@ -1939,6 +1940,15 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
             bar.add(t, half, ('u', _KICK, int(78 + 20 * heat)))
             if d() < 0.6:
                 bar.add(t, half, ('u', _SNARE, int(62 + 20 * heat)))
+    elif state.get('answer') and d() < 0.4:
+        # the drummer picks up the soloist's phrase: its rhythm on the
+        # snare, the kick under the first of it
+        for i, b_ in enumerate(state['answer']):
+            t = int(round(b_ * beat))
+            if 0 <= t < bar.barlen:
+                bar.add(t, half, ('u', _SNARE, int(70 + 20 * heat)))
+                if i == 0:
+                    bar.add(t, half, ('u', _KICK, int(72 + 20 * heat)))
     else:
         # comping: a kick bomb and a snare answer, off the beat — in the
         # soloist's gaps, not on top of a busy line
@@ -2386,7 +2396,7 @@ def last_phrase(plan, total):
         start -= 1
     got = notes[start:start + 6]
     t0 = got[0][0]
-    return [(at - t0, min(ln, 1.0), m) for at, ln, m, _v in got]
+    return [(n[0] - t0, min(n[1], 1.0), n[2]) for n in got]
 
 
 def _one_voice(notes):
@@ -2404,6 +2414,57 @@ def _one_voice(notes):
             out[-1] = (pa, max(at - pa - 0.02, 0.05), pm, pv)
         out.append((at, ln, m, v))
     return out
+
+
+def _sing(notes, voice, d):
+    """Play it like a singer (Matthew, 2026-09-30: "all instruments when
+    soloing, think like a singer ... articulations"): each phrase —
+    notes between breaths — swells up through a rising line and tapers
+    at its end; its peak is leaned on; a long note that opens a phrase
+    is scooped into, a long note that ends one may fall off or doit up.
+    Horns and voices get the bends; keys, guitar and bass the shape and
+    the accents."""
+    if not notes:
+        return notes
+    bends = voice in ('horn', 'voice')
+    phrases, cur = [], [0]
+    for i in range(1, len(notes)):
+        gap = notes[i][0] - (notes[i - 1][0] + notes[i - 1][1])
+        if gap >= 0.75:
+            phrases.append(cur)
+            cur = []
+        cur.append(i)
+    phrases.append(cur)
+    out = [list(n) + [()] for n in notes]
+    for ph in phrases:
+        if not ph:
+            continue
+        top = max(ph, key=lambda i: notes[i][2])
+        n_ = len(ph)
+        for k, i in enumerate(ph):
+            at, ln, m, v = notes[i]
+            x = k / max(n_ - 1, 1)
+            rising = k and m > notes[ph[k - 1]][2]
+            # up through the line, easing at the end of the breath
+            v2 = v + (3 if rising else -1) + int(6 * (1 - abs(2 * x - 0.8)))
+            if k == n_ - 1 and n_ > 2:
+                v2 -= 6
+            arts = []
+            if i == top and n_ > 2:
+                arts.append('accent')
+                v2 += 6
+            if bends and ln >= 0.9:
+                if k == 0 and d() < 0.35:
+                    arts.append('scoop')
+                elif k == n_ - 1:
+                    r = d()
+                    if r < 0.22:
+                        arts.append('falloff')
+                    elif r < 0.34:
+                        arts.append('doit')
+            out[i][3] = max(30, min(v2, 118))
+            out[i][4] = tuple(arts)
+    return [tuple(n) for n in out]
 
 
 def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
@@ -2889,7 +2950,7 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
         cur = before[-1][2] if before else int(lo + (hi - lo) * 0.6)
         eighth_line(b0 + 0.5, b1 - b0 - 0.5, 'peak', cur, 96,
                     chord_fn(b0 + 0.5) or chord_fn(b0))
-    return _one_voice(notes)
+    return _sing(_one_voice(notes), voice, d)
 
 
 def play_planned(bar, plan, pos, bar_beats):
@@ -2899,7 +2960,9 @@ def play_planned(bar, plan, pos, bar_beats):
     if bar.den == 8:
         beat = bar.div // 2
     t0, t1 = pos * bar_beats, (pos + 1) * bar_beats
-    for at, ln, m, v in plan:
+    for n_ in plan:
+        at, ln, m, v = n_[:4]
+        arts = n_[4] if len(n_) > 4 else ()
         end = at + ln
         if end <= t0 + 1e-6 or at >= t1:
             continue
@@ -2907,9 +2970,11 @@ def play_planned(bar, plan, pos, bar_beats):
         ties = (('stop',) if at < t0 - 1e-6 else ()) + \
             (('start',) if end > t1 + 1e-6 else ())
         a, e = max(at, t0), min(end, t1)
+        # the articulation sits on the note's attack, not its tied tail
         bar.add(int(round((a - t0) * beat)),
                 max(1, int(round((e - a) * beat))),
-                ('p', m, max(30, min(v, 118)), (), ties))
+                ('p', m, max(30, min(v, 118)),
+                 arts if at >= t0 - 1e-6 else (), ties))
 
 
 # ------------------------------------------------ the pianist, properly
@@ -3136,6 +3201,16 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
         return next_chord if b >= bar.num + 0.5 and next_chord else c
 
     w0 = int(62 + 16 * heat)
+    ans = state.get('answer')
+    if ans and d() < 0.5:
+        # the soloist just said something and breathed: the piano says
+        # it back, their rhythm on the chord
+        lh(c0, 0, beat * 2, w0 - 4)
+        for b_ in ans:
+            b = 1.0 + b_
+            if b < bar.num + 1:
+                rh(chord_for(b), at_(b), half, w0 + 2)
+        return
     if tex == 'lay_out':
         if d() < 0.4:                 # one light touch in the space
             b = [2.5, 3.5, 4.5][int(d() * 3) % 3]

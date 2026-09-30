@@ -5796,6 +5796,31 @@ def check_band_plays_like_pros():
         tmp, "fb", "Feel — for listening.musicxml"))
     check("a laid-back section lays back, and the next one is tight again",
           fp["feels"] == [(8.0, "back"), (16.0, "tight")], fp["feels"])
+    # the conversation: when the soloist breathes, someone picks up the
+    # phrase they just played — the piano's comping on their rhythm
+    open(os.path.join(tmp, "c.chart"), "w").write(
+        "title: Talk\nkey: F\nmeter: 4/4\ntempo: 140\nfeel: swing\n\n"
+        "band:\n  tenor = tenor sax\n  piano\n  bass\n  drums\n\n"
+        "section A, 16 bars, repeat 2x\n  chords: F7, Bb7, F7, F7, Bb7, "
+        "Bb7, F7, D7, Gm7, C7, F7, C7, F7, Bb7, F7, C7\n  tenor: solo\n"
+        "  ending: as written\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(os.path.join(tmp, "c.chart"),
+                             os.path.join(tmp, "cb"))
+    cp_ = chartaudio.parse_score(os.path.join(
+        tmp, "cb", "Talk — for listening.musicxml"))
+    ce = {p["name"]: p["events"] for p in cp_["parts"]}
+    answered = 0
+    for b in range(1, 32):
+        said = {round(e[0] - 4 * (b - 1), 2) for e in ce["tenor"]
+                if 4 * (b - 1) <= e[0] < 4 * b}
+        now_t = [e for e in ce["tenor"] if 4 * b <= e[0] < 4 * b + 4]
+        rh = {round(e[0] - 4 * b, 2) for e in ce["piano"]
+              if 4 * b <= e[0] < 4 * b + 4 and e[2] >= 60}
+        if len(now_t) <= 2 and len(said & rh) >= 2:
+            answered += 1
+    check("the piano picks up the soloist's phrase when they breathe",
+          answered >= 1, answered)
     six = ("B", 0, "6", None)
     check("a 6 chord is major: no b7 in its scale or rootless voicing",
           10 not in G._scale(six)
