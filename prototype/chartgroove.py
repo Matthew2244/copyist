@@ -25,7 +25,9 @@ voicing. `hits` bars realize as exactly the kicks the pattern names.
 These bars are read by chartaudio only, never engraved, so a note's
 <duration> in ticks is the contract; <type> is best-effort cosmetics.
 """
+import json
 import math
+import os
 import re
 
 # ---------------------------------------------------------------- chords
@@ -379,6 +381,16 @@ def _next_root(sec, off, chords):
             if c is not None:
                 return _bass_pc(c)
     return _bass_pc(chords[-1][1]) if chords else 0
+
+
+def _next_chord(sec, off, chords):
+    """The chord the next bar opens with (round the section's top at
+    its end)."""
+    for o in list(range(off + 1, sec['bars'])) + list(range(0, off + 1)):
+        for _b, c in sec['content'][o]:
+            if c is not None:
+                return c
+    return chords[-1][1] if chords else None
 
 
 def _chord_at(chords, beat):
@@ -1026,91 +1038,153 @@ def _fold_bass(m, lo=31, hi=50):
     return m
 
 
-def walk_bar(beats, prev, next_pc, d, same=False):
+def _load_walk():
+    """The walking statistics learned from real bassists
+    (learn_walking.py over FiloBass, CC BY 4.0); built-in numbers from
+    the same run if the file is missing."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               'data', 'walking_stats.json')) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {'arrival_degree': {'dom': {'0': .68, '7': .13, '4': .08},
+                                   'min': {'0': .74, '7': .07, '3': .06},
+                                   'maj': {'0': .69, '7': .17, '4': .07},
+                                   'half': {'0': .85, '6': .04},
+                                   'dim': {'0': .62, '3': .02}},
+                'approach_interval': {'-1': .31, '1': .22, '2': .14,
+                                      '-5': .11, '7': .06, '-2': .035},
+                'middle': {'tone': .62, 'chromatic': .21, 'scale': .17},
+                'step': {'1': .2, '-1': .15, '-2': .13, '2': .07, '5': .06,
+                         '4': .055, '7': .044, '3': .035, '-3': .033,
+                         '-7': .032, '-6': .027, '-4': .026, '-8': .025,
+                         '-5': .023, '6': .019, '-12': .019, '12': .011},
+                'register_percentiles': {'p5': 31, 'p50': 41, 'p95': 52},
+                'bars_with_offbeats': .34}
+
+
+_WALK = _load_walk()
+
+
+def _family(c):
+    q = (c[2] if c else '') or 'maj'
+    if q in ('m7b5', 'm9b5'):
+        return 'half'
+    if q.startswith('dim'):
+        return 'dim'
+    if q.startswith('maj') or q in ('6', '69', '6/9', 'maj'):
+        return 'maj'
+    if q.startswith('m'):
+        return 'min'
+    return 'dom'
+
+
+def _roll(weights, d):
+    """A weighted pick: [(item, weight)] -> item."""
+    tot = sum(w for _i, w in weights)
+    if tot <= 0:
+        return weights[0][0]
+    r = d() * tot
+    for item, w in weights:
+        r -= w
+        if r <= 0:
+            return item
+    return weights[-1][0]
+
+
+def arrival_pc(c, d, root_only=False):
+    """The note a bassist lands on when a chord arrives — the root most
+    of the time, the fifth or third otherwise, in the proportions real
+    players use (FiloBass); an inverted chord's bass note always."""
+    if c is None:
+        return 0
+    if c[3] or root_only:
+        return _bass_pc(c)
+    tones = {i % 12 for i in _tones(c)}
+    dist = _WALK['arrival_degree'].get(_family(c), {'0': 1})
+    opts = [(int(k), v) for k, v in dist.items()
+            if int(k) == 0 or (int(k) in tones and int(k) in (3, 4, 6, 7))]
+    return (_root_pc(c) + _roll(opts, d)) % 12
+
+
+def walk_bar(beats, prev, d, arrive, next_arrive):
     """One bar of a walking line, a note a beat: [midi]. beats is the
-    chord on each beat. Roots on the changes (on a chord held over from
-    the last bar, sometimes its 3rd or 5th instead); the beats between
-    walk the chord's scale toward the next root, or outline the chord,
-    or go root-fifth and slide chromatically; the last beat leads into
-    the next bar — a half step under or over the next root, or its
-    fifth. Lives between G1 and D3, E1 the floor, no note struck twice
-    in a row (Matthew, 2026-09-29: "walking bass overall sounds meh
-    ... think professional")."""
+    chord on each beat; arrive is this bar's first note (chosen a bar
+    ago, so last bar's lead-in pointed at it), next_arrive the next
+    bar's. The beats between are chosen the way real bassists choose
+    (learn_walking.py over FiloBass: ~62% chord tones, ~20% chromatic
+    passing, ~17% scale; mostly steps, real leaps of a 4th or 5th, the
+    direction turning about half the time, a note almost never struck
+    twice); the last beat leads in a half step under (31%) or over
+    (22%), a whole step over (14%), a fifth under (11%) or over (6%).
+    Home is G1-E3 around F2, E1 the floor (Matthew, 2026-09-29:
+    "walking bass overall sounds meh ... think professional ... lowest
+    range on a bass should be an e")."""
     n = len(beats)
+    steps = {int(k): v for k, v in _WALK['step'].items() if k != '0'}
+    mid = _WALK['middle']
+    appr = [(int(k), v) for k, v in _WALK['approach_interval'].items()
+            if int(k) in (-1, 1, 2, -2, -5, 7)]
+    reg = _WALK.get('register_percentiles', {})
+    centre = reg.get('p50', 41)
+    lo_h, hi_h = reg.get('p5', 31), reg.get('p95', 52)
     out = []
     b = 0
     while b < n:
         c = beats[b]
-        # the span this chord holds, up to the bar's last beat
         e = b + 1
         while e < n and beats[e] == c:
             e += 1
-        root = _bass_pc(c)
-        tones = [(_root_pc(c) + i) % 12 for i in _tones(c)]
-        sc = sorted({(_root_pc(c) + i) % 12 for i in _scale(c)})
+        root = _root_pc(c)
+        tones = {(root + i) % 12 for i in _tones(c)}
+        sc = {(root + i) % 12 for i in _scale(c)}
         anchor = out[-1] if out else prev
-        first = root
-        if b == 0 and same and d() < 0.35:
-            first = tones[1 + int(d() * 2) % (len(tones) - 1)]
-        m0 = _fold_bass(_near(first, anchor))
+        first = arrive if b == 0 else arrival_pc(c, d)
+        m0 = _fold_bass(_near(first, anchor), lo_h, hi_h)
         if out and m0 == out[-1]:
-            m0 = _fold_bass(m0 + (12 if m0 < 40 else -12))
+            m0 = _fold_bass(m0 + (12 if m0 < centre else -12), lo_h, hi_h)
         seg = [m0]
         last_seg = e == n
-        # where this chord's run is heading: the next change's root
         if last_seg:
-            goal_pc = next_pc
+            goal_pc = next_arrive
+            nc = None
         else:
-            goal_pc = _bass_pc(beats[e])
-        goal = _near(goal_pc, m0)
-        if not 31 <= goal <= 50:
-            goal = _fold_bass(goal)
-        inner = (e - b) - 1 - (1 if last_seg or e - b >= 2 else 0)
-        # the middle of the span
-        shape = d()
+            nc = beats[e]
+            goal_pc = arrival_pc(nc, d)
+        want = e - b                    # notes this chord gets
         cur = m0
-        dirn = 1 if goal > m0 else -1
-        if abs(goal - m0) < 3:
-            dirn = 1 if m0 < 40 else -1
-        for k in range(max(inner, 0)):
-            if shape < 0.5:                    # walk the scale
-                q = cur + dirn
-                while q % 12 not in sc:
-                    q += dirn
-            elif shape < 0.8:                  # outline the chord
-                q = cur + dirn
-                while q % 12 not in tones:
-                    q += dirn
-            else:                              # root-fifth, then slide
-                q = _near((_root_pc(c) + 7) % 12, cur) if k == 0 \
-                    else cur + dirn
-            if not 28 <= q <= 55:
-                dirn = -dirn
-                q = cur + dirn
-                while q % 12 not in sc:
-                    q += dirn
-            seg.append(q)
-            cur = q
-        # the lead-in to the next change
-        if len(seg) < e - b:
-            # lead into the next root from where the line has got to
-            goal = _fold_bass(_near(goal_pc, cur))   # where the next
-            # bar will really start, so the lead-in lands on it
-            r = d()
-            if r < 0.4:
-                ap = goal - 1
-            elif r < 0.7:
-                ap = goal + 1
-            elif r < 0.85:
-                ap = _near((goal_pc + 7) % 12, cur)
-            else:                              # the scale step over
-                ap = goal + 1
-                while ap % 12 not in sc:
-                    ap += 1
-            if ap == cur or not 28 <= ap <= 55:
-                ap = goal - 1 if goal - 1 != cur else goal + 1
-            seg.append(ap)
-        out += seg[:e - b]
+        while len(seg) < want - 1:
+            left = want - len(seg)      # beats still to play, lead-in too
+            goal = _fold_bass(_near(goal_pc, cur), lo_h, hi_h)
+            opts = []
+            for m in range(max(28, cur - 9), min(55, cur + 9) + 1):
+                if m == cur or (len(seg) > 1 and m == seg[-2]
+                                and d() < 0.7):
+                    continue
+                pc = m % 12
+                cat = 'tone' if pc in tones else 'scale' if pc in sc \
+                    else 'chromatic'
+                w = steps.get(m - cur, 0.004) * mid.get(cat, 0.1)
+                if cat == 'chromatic':
+                    # chromatic notes pass: they move by a half step on
+                    # to something, so keep them a step off the goal path
+                    w *= 0.6 if abs(m - cur) <= 2 else 0.15
+                gap = abs(goal - m)
+                w *= 1.0 / (1.0 + max(0, gap - 4 * (left - 1)) ** 2)
+                w *= 1.0 / (1.0 + ((m - centre) / 11.0) ** 4)
+                opts.append((m, w))
+            cur = _roll(opts, d) if opts else cur + 1
+            seg.append(cur)
+        if len(seg) < want:
+            goal = _fold_bass(_near(goal_pc, cur), lo_h, hi_h)
+            opts = []
+            for iv, w in appr:
+                ap = goal + iv
+                if ap == cur or not 28 <= ap <= 55:
+                    continue
+                opts.append((ap, w))
+            seg.append(_roll(opts, d) if opts else goal - 1)
+        out += seg[:want]
         b = e
     return [_fold_bass(m, 28, 55) for m in out]
 
@@ -1166,16 +1240,26 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
             fifth = (_root_pc(c3) + 7) % 12 if c3 == c1 else _bass_pc(c3)
             prev = put(2 * beat, 2 * beat - beat // 8, _near(fifth, prev))
             return
+        c1 = _chord_at(chords, 1.0)
+        arrive = state.pop('arrive', None)
+        if arrive is None or (c1 and (arrive - _root_pc(c1)) % 12 not in
+                              {i % 12 for i in _tones(c1)}
+                              and arrive != _bass_pc(c1)):
+            arrive = arrival_pc(c1, d, root_only=True)
+        nxt_c = _next_chord(sec, off, chords)
+        # a new section or soloist lands on the root, like anyone would
+        next_arrive = arrival_pc(nxt_c, d, root_only=(
+            off + 1 >= sec['bars'] or (off + 1) % 4 == 0)) \
+            if nxt_c else _next_root(sec, off, chords)
+        state['arrive'] = next_arrive
         line = walk_bar([_chord_at(chords, b + 1.0)
                          for b in range(bar.num)],
-                        prev, _next_root(sec, off, chords), d,
-                        same=state.get('bass_chord') == _chord_at(chords,
-                                                                  1.0))
-        state['bass_chord'] = _chord_at(chords, float(bar.num))
+                        prev, d, arrive, next_arrive)
         target = _fold_bass(_near(_next_root(sec, off, chords), line[-1]),
                             28, 55)
         run = busy is not None and busy < 0.2 and d() < 0.5
-        skip = heat > 0.55 and d() < 0.35 * heat
+        skip = d() < (0.12 + 0.3 * heat) * \
+            (_WALK.get('bars_with_offbeats', 0.34) / 0.34)
         for b, midi in enumerate(line):
             last = b == len(line) - 1
             if last and run:

@@ -293,3 +293,10 @@ you cannot.
 MIT for the engine. Instrument data derived from MuseScore is GPL-3 and lives in
 a separate optional package, so the core stays reusable by anybody, commercial
 notation tools included. See DESIGN.md §17.
+
+The band in the listen learned from real players. `prototype/data/walking_stats.json`
+holds statistics derived by `prototype/learn_walking.py` from FiloBass
+(Xavier Riley and Simon Dixon, Queen Mary University of London, ISMIR 2023),
+48 transcribed professional walking bass lines, licensed CC BY 4.0
+(https://zenodo.org/records/10069709). Only the derived numbers ship here,
+not the transcriptions.

@@ -5683,6 +5683,22 @@ def check_band_plays_like_pros():
           "E1 the floor, nothing over G3",
           runs < 5 and min(bass) >= 28 and max(bass) <= 55,
           (runs, min(bass), max(bass)))
+    # measured against real bassists (FiloBass): mostly roots when a
+    # chord arrives, lead-ins a step or a fifth from where it lands
+    roots = "C F Bb Eb A D G G C F Bb Eb A D G G".split()
+    pcs = {"C": 0, "F": 5, "Bb": 10, "Eb": 3, "A": 9, "D": 2, "G": 7}
+    on = {round(e[0]): e[2] for e in ev["bass"]
+          if abs(e[0] - round(e[0])) < 0.02}
+    arr = [(on[4 * b] - pcs[roots[b % 16]]) % 12 for b in range(2, 30)
+           if 4 * b in on]
+    check("the bass lands on the root most of the time, else 5th or 3rd",
+          0.5 <= arr.count(0) / len(arr) <= 0.95
+          and all(a in (0, 3, 4, 6, 7) for a in arr), arr)
+    leads = [on[4 * b + 3] - on[4 * b + 4] for b in range(2, 29)
+             if 4 * b + 3 in on and 4 * b + 4 in on]
+    good = sum(1 for x in leads if x in (-1, 1, 2, -2, -5, 7, 5, -7))
+    check("every lead-in is a step or a fifth from where the bass lands",
+          good >= 0.9 * len(leads), leads)
     pn = ev["piano"]
     rh = [e for e in pn if e[2] >= 64]
     lh = [e for e in pn if e[2] < 64]
