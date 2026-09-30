@@ -1161,6 +1161,10 @@ def main():
             "everything; add 'check' to just prove it, 'read' to hear "
             "a part, 'parts' for the band, 'new --demo take.mid' to "
             "start one from your playing.")
+        say("Brand new? 'chart first.chart new' (Enter at the demo "
+            "question), then 'chart first.chart edit' and say the tune, "
+            "like: blues in F, swing at 140, head twice, solos for "
+            "everybody, head out. Then 'chart first.chart' builds it.")
         say("Without a chart: 'chart import score.musicxml' brings in "
             "a file, 'chart settings' shows your defaults, 'chart "
             "sounds' the sample shelf, 'chart instruments' the band "
