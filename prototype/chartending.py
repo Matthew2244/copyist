@@ -411,6 +411,11 @@ def _voicing(role, sound_id, chord):
     if role == 'bass':
         return [G._near(root, 36)]
     guide = G._guide(chord)
+    if role == 'comp' and sound_id.startswith('pitched-percussion'):
+        # four mallets up the middle of the bars, no pianist's left hand
+        # (a vibraphone's floor is F3)
+        return sorted({max(G._near(pc, 67), 53 + (pc - 53) % 12)
+                       for pc in guide})
     if role == 'comp':
         anchor = 57 if 'guitar' in sound_id else 62
         vs = sorted({G._near(pc, anchor) for pc in guide})

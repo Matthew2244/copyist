@@ -381,6 +381,99 @@ INSTRUMENT_ALIASES = {
 }
 
 
+_TIMES = {'once': 1, 'twice': 2, 'one': 1, 'two': 2, 'three': 3,
+          'four': 4, 'five': 5, 'six': 6, 'eight': 8}
+
+
+def _count(word):
+    return _TIMES.get(word) or int(word)
+
+
+def section_header(name, tail, loc):
+    """The words after 'section NAME', comma by comma, in any order, the
+    way a bandleader calls the form: '8 bars', 'label "Shout"', how many
+    times round ('repeat 3x', 'play 3 times', 'x3', 'vamp 4 times'),
+    'open' or 'till cue' (with 'vamp' for a vamp), who gives the cue
+    ('drums cue', 'cue from the singer'), and where it goes after
+    ('then cut to coda', 'on cue, cut to shout')."""
+    sec = {'name': name, 'bars': None, 'label': None, 'repeat': 0,
+           'open': False, 'vamp': False, 'cue_from': None, 'cut_to': None}
+    lab = re.search(r',\s*label "([^"]*)"', tail)
+    if lab:
+        sec['label'] = lab.group(1)
+        tail = tail[:lab.start()] + tail[lab.end():]
+    n = r'(\d+|once|twice|one|two|three|four|five|six|eight)'
+    pieces = [p.strip().lower() for p in tail.split(',')]
+    i = 0
+    while i < len(pieces):
+        p = pieces[i]
+        i += 1
+        if not p:
+            continue
+        if p == 'on cue' and i < len(pieces) and re.match(
+                r'(?:then )?(?:cut|go|jump|skip) to ', pieces[i]):
+            p = 'on cue ' + pieces[i]       # "on cue, cut to shout"
+            i += 1
+        m = re.fullmatch(r'(\d+) bars?', p)
+        if m:
+            sec['bars'] = int(m.group(1))
+            continue
+        m = (re.fullmatch(r'(?:repeat|play|vamp|repeat it)(?: it)? ' + n +
+                          r'(?:x| times?)?', p)
+             or re.fullmatch(n + r'(?:x| times)', p)
+             or re.fullmatch(r'x' + n, p))
+        if m:
+            sec['repeat'] = _count(m.group(1))
+            if sec['repeat'] < 2 and not p.startswith('vamp'):
+                sec['repeat'] = 0              # "play once" is no repeat
+            if p.startswith('vamp'):
+                sec['vamp'] = True
+                sec['repeat'] = max(sec['repeat'], 2) if \
+                    sec['repeat'] > 1 else 0
+            continue
+        m = re.fullmatch(r'(open|vamp|repeat|play)?\s*(?:(?:till|until) '
+                         r'(?:the )?cue|on cue)?', p)
+        if m and p:
+            if p in ('repeat', 'play'):
+                fail(f"{loc}: section {name}: say how many times, like "
+                     f"'{p} 3 times', or 'till cue'")
+            sec['open'] = True
+            sec['vamp'] = sec['vamp'] or p.startswith('vamp')
+            continue
+        m = (re.fullmatch(r'(?:the )?([\w ]+?)(?:\'s)? cues?(?: (?:it|out|'
+                          r'the band))?', p)
+             or re.fullmatch(r'(?:on |at )?(?:the )?cue (?:from|by) '
+                             r'(?:the )?([\w ]+)', p))
+        if m:
+            sec['cue_from'] = m.group(1).strip()
+            continue
+        m = re.fullmatch(r'(on cue )?(?:then )?(?:cut|go|jump|skip) '
+                         r'to (?:the )?(?:letter )?([\w .-]+)', p)
+        if m:
+            sec['cut_to'] = m.group(2).strip()
+            if m.group(1):
+                sec['open'] = True
+            continue
+        fail(f"{loc}: section {name}: cannot read '{p}'. A section "
+             "takes 'N bars', 'label \"...\"', how many times ('repeat "
+             "3 times', 'vamp 4x'), 'till cue' or 'vamp till cue', who "
+             "cues it ('drums cue', 'cue from the singer'), and 'then cut "
+             "to <section>'")
+    if sec['bars'] is None:
+        fail(f"{loc}: section {name} must declare its length")
+    if sec['cue_from'] or sec['cut_to']:
+        fail(f"{loc}: section {name}: who cues it and 'cut to' are on "
+             "the way, not built yet")
+    if sec['open'] and sec['repeat']:
+        fail(f"{loc}: section {name} is both till cue and "
+             f"{sec['repeat']} times: pick one")
+    if sec['cue_from'] and not sec['open']:
+        fail(f"{loc}: section {name}: {sec['cue_from']} cues it, but it "
+             "does not go round till a cue. Add 'till cue' (or 'vamp "
+             "till cue')")
+    return sec
+
+
 def canonical_instrument(name):
     n = name.strip().lower()
     return INSTRUMENT_ALIASES.get(n, n)
@@ -847,21 +940,12 @@ def parse_chart(path):
                                    'engraved': bool(m.group(2)),
                                    'texts': texts}
                 continue
-            m = re.match(r'section ([\w .-]+?)'
-                         r'(?:,\s*(\d+) bars)?'
-                         r'(?:,\s*label "([^"]*)")?'
-                         r'(?:,\s*repeat (\d+)x)?'
-                         r'(,\s*(?:open(?: till cue)?|vamp(?: till cue)?|'
-                         r'repeat till cue))?\s*$', s)
+            m = re.match(r'section ([\w .-]+?)((?:,.*)?)$', s)
             if m:
-                if m.group(2) is None:
-                    fail(f"{loc}: section {m.group(1)} must declare its length")
-                cur = {'name': m.group(1).strip(), 'bars': int(m.group(2)),
-                       'label': m.group(3), 'repeat': int(m.group(4) or 0),
-                       'open': bool(m.group(5)), 'content': None,
-                       'vamp': bool(m.group(5)) and 'vamp' in m.group(5),
-                       'feel': None, 'directives': [], 'events': [],
-                       'endings': []}
+                cur = dict(section_header(m.group(1).strip(), m.group(2),
+                                          loc),
+                           content=None, feel=None, directives=[],
+                           events=[], endings=[])
                 chart['sections'].append(cur)
                 continue
             m = re.match(r'(\w+):\s*(.+)$', s)
@@ -3047,6 +3131,46 @@ LISTEN_OPTS = {'grooves': True, 'solos': True, 'backgrounds': True,
                'builds': True, 'feather': True}
 
 
+_STEPS_PC = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
+
+
+def bar_notes(xml, div, transpose=0):
+    """One measure's pitched notes as [(start, end, midi)] in quarters
+    from the bar's start, concert pitch (the written pitch less the
+    part's transposition)."""
+    out, pos, last = [], 0, 0
+    for el in re.finditer(r'<(note|backup|forward|attributes)\b.*?</\1>',
+                          xml, re.S):
+        e, k = el.group(0), el.group(1)
+        if k == 'attributes':
+            d = re.search(r'<divisions>(\d+)', e)
+            if d:
+                div = int(d.group(1))
+            continue
+        du = re.search(r'<duration>(\d+)', e)
+        dur = int(du.group(1)) if du else 0
+        if k == 'backup':
+            pos -= dur
+            continue
+        if k == 'forward':
+            pos += dur
+            continue
+        if '<grace' in e:
+            continue
+        chorded = '<chord/>' in e
+        st = last if chorded else pos
+        m = re.search(r'<step>(\w)</step>(?:\s*<alter>(-?\d+)</alter>)?'
+                      r'\s*<octave>(-?\d+)</octave>', e)
+        if m:
+            p = (12 * (int(m.group(3)) + 1) + _STEPS_PC[m.group(1)]
+                 + int(m.group(2) or 0) - transpose)
+            out.append((st / div, (st + dur) / div, p))
+        if not chorded:
+            last = pos
+            pos += dur
+    return out
+
+
 def vamp_passes(sec):
     """How many times round an open section goes in the listen: about
     eight bars of it, two to four passes."""
@@ -3499,7 +3623,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         elif role == 'bass':
             voice = 'bass'
         elif role == 'comp':
-            voice = 'guitar' if 'guitar' in sid else 'keys'
+            # a vibes or marimba player blows single lines with two
+            # mallets, never a pianist's run with a left hand under it
+            voice = 'guitar' if 'guitar' in sid else 'mallets' if \
+                sid.startswith('pitched-percussion') else 'keys'
         else:
             voice = 'horn'
         echo, after = None, 0.0
@@ -3547,6 +3674,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         plays over the changes, in the listen only (Matthew,
         2026-09-29). A drummer takes a drum solo; a pianist keeps
         left-hand shells under the line."""
+        chartgroove.LEAD_NOW = None       # the soloist IS the lead
         role = chartgroove.role_of(sound_id, clef)
         bar = chartgroove.Bar(div, bmeter, fifths, staves,
                               shift=horn['transpose'] if horn else 0)
@@ -3594,9 +3722,46 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         bar_beats = bmeter[0]
         story = solo_story(label, sec, who, walk, bar_beats)
         chartgroove.play_planned(bar, story, pos, bar_beats)
-        if role == 'comp' and 'guitar' not in sound_id:
+        if role == 'comp' and sound_id.startswith('keyboard'):
+            # a pianist or organist keeps shells under the line; vibes,
+            # marimba and guitar play the line alone (Matthew,
+            # 2026-09-30: "vibes play lines, not chords")
             chartgroove.comp_shells(bar, state, chords, absbar, nxt)
         return bar.xml()
+
+    # ---- the lead, heard by the band: a first pass collects it. The
+    # first keyboard comping is the one the other chord players (a
+    # guitar beside a piano) voice around, as they would on the stand.
+    LEAD = {'collect': None, 'map': None, 'compers': set(),
+            'hears_comp': set()}
+
+    # ---- who comps: one chord player at a time unless the chart says
+    sid_of = {}
+    for bb in band:
+        _s = SOUNDS.get(canonical_instrument(bb['instrument']))
+        sid_of[bb['label']] = _s[1] if _s else ''
+    strolled = {}
+    _chordy = [l for l in groups['rhythm']
+               if sid_of.get(l, '').startswith(('keyboard', 'pluck.guitar',
+                                                  'pitched-percussion'))]
+    _keys = [l for l in _chordy if sid_of[l].startswith('keyboard')]
+    if _keys:
+        LEAD['compers'] = {_keys[0]}
+        LEAD['hears_comp'] = set(_chordy) - {_keys[0]}
+
+    def strolls(label, plan):
+        """A mallet player the chart didn't give anything to, in a
+        section where a keyboard or guitar is comping too."""
+        if not sid_of.get(label, '').startswith('pitched-percussion'):
+            return False
+        for other in groups['rhythm']:
+            if other == label or not sid_of.get(other, '').startswith(
+                    ('keyboard', 'pluck.guitar')):
+                continue
+            k_ = plan['content'][other][0]
+            if k_ in ('default', 'groove'):
+                return True
+        return False
 
     # ---- emit one part's measures
     def part_measures(label, with_directions, with_harmony, listen=False,
@@ -3618,6 +3783,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         # plays when the page says slashes (Matthew's ruling, 2026-09-20)
         _snd = SOUNDS.get(canonical_instrument(b['instrument']))
         sound_id = _snd[1] if _snd else ''
+        my_role = chartgroove.role_of(sound_id, clef)
         groove_state = {}
         active_chord = [None]   # harmony carried bar to bar, all parts
 
@@ -3691,6 +3857,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             if kind == 'default':
                 kind = 'groove' if default_groove else 'tacet'
                 arg = '' if kind == 'groove' else None
+                if listen and kind == 'groove' and strolls(label, plan):
+                    # two chord players comping at once muddy the
+                    # changes: unasked, the vibes stroll while the
+                    # piano or guitar comps (Matthew, 2026-09-30)
+                    kind, arg = 'tacet', None
+                    strolled.setdefault(label, []).append(
+                        sec['label'] or sec['name'])
             lo_ = sec_src[pi_]
             if listen and kind == 'groove' and sp and lo_ is not None \
                     and written_notes(sp, lo_, lo_ + sec['bars'] - 1):
@@ -3727,6 +3900,20 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 absbar = plan['start'] + off
                 bmeter = meter_at(meters, absbar)
                 pieces = []
+                bar_div0 = cur_div
+                # what the lead plays in this bar, heard by whoever is
+                # making something up under it (not by the lead itself)
+                # the bass walks through its approach notes and the
+                # drums have no pitch: only chord players and horns
+                # making something up voice around the lead
+                chartgroove.LEAD_NOW = [
+                    (s_, e_, m_) for l_, s_, e_, m_ in LEAD['map'].get(
+                        str(absbar if not cur_pass
+                            else f'{absbar}x{cur_pass}'), ())
+                    if l_ != label and (l_ not in LEAD['compers']
+                                        or label in LEAD['hears_comp'])
+                ] if listen and LEAD['map'] and my_role not in (
+                    'bass', 'drums', 'perc') else None
                 resumed = None
                 if resume_div is not None:
                     # the bar after a realized one goes back to the
@@ -4253,6 +4440,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                        ('<direction', '<attributes'))
                                    for p in pieces))
                 mnum = absbar if not cur_pass else f'{absbar}x{cur_pass}'
+                if listen and LEAD['collect'] is not None and (
+                        absbar in demo_measures[label]
+                        or kind == 'engraved' or soloing
+                        or label in LEAD['compers']):
+                    # the lead in this bar: a written line, a lifted
+                    # part, the soloist — what the others listen to
+                    LEAD['collect'].setdefault(str(mnum), []).extend(
+                        (label,) + n for n in bar_notes(
+                            "".join(pieces), bar_div0,
+                            horn['transpose'] if horn else 0))
                 out.append((f'    <measure number="{mnum}">\n' + open_bl +
                             "".join(pieces) + barline + '    </measure>\n',
                             pure_rest, head_ok))
@@ -4404,17 +4601,35 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                          harmony_on=lambda l: l in chord_parts))
     written = [score_path]
     listen_path = os.path.join(outdir, f'{title} — for listening.musicxml')
+    # two passes: the first only learns what the lead plays in every
+    # bar; the second is the band, each chair hearing it
+    import copy as _copy
+    kept = _copy.deepcopy((realized_bars, played_written, strolled))
+    LEAD['collect'] = {}
+    document(labels, directions_on=lambda l: l == labels[0],
+             harmony_on=lambda l: l in chord_parts, listen=True)
+    LEAD['map'], LEAD['collect'] = LEAD['collect'], None
+    for live, was in zip((realized_bars, played_written, strolled), kept):
+        live.clear()
+        live.update(was)
     with open(listen_path, 'w', encoding='utf-8') as f:
         f.write(document(labels,
                          directions_on=lambda l: l == labels[0],
                          harmony_on=lambda l: l in chord_parts,
                          listen=True))
+    chartgroove.LEAD_NOW = None
     written.append(listen_path)
     # written in the chart or lifted from a score, a road map is read
     # back in bar numbers
     road_said = say_road(listen_path)
     if road_said:
         findings.add(road_said)
+    for l, secs in strolled.items():
+        findings.add(f"listen: {l} leaves the comping to the piano or "
+                     "guitar in " + ", ".join(dict.fromkeys(secs))
+                     + ", so two chord players never fight over the "
+                     "changes; anything written for it still plays. "
+                     f"Write '{l}: groove' to have both comp")
     if realized_bars:
         findings.add("listen: made up from the chord symbols (the "
                      "rhythm section, solos and backgrounds) — "

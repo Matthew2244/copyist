@@ -126,6 +126,22 @@ def _near(pc, anchor):
 # dynamic.
 
 
+# What the lead is playing in the bar being made (the melody, a written
+# line, the soloist): [(start, end, midi)] in quarters from the bar's
+# start, concert pitch. The chart compiler sets it for a chair that is
+# making something up (comping, backgrounds), and that chair leaves out
+# any note a half step from a lead note it would sound against — the
+# pianist who hears the melody's Bb and drops the A from a Bbmaj7
+# (Matthew, 2026-09-30: "make sure everyone is context aware and knows
+# what to play and what not to play").
+LEAD_NOW = None
+
+
+def _heard(s, e):
+    """A lead note the band would voice around: on a beat or held."""
+    return e - s >= 0.75 or abs(s - round(s)) < 0.01
+
+
 class Bar:
     def __init__(self, div, bmeter, fifths, staves, shift=0):
         self.div = div
@@ -172,6 +188,25 @@ class Bar:
                 dot = ticks in (3 * q, 3 * q // 2, 3 * q // 4)
                 return name, dot
         return '16th', False
+
+    def _hear_the_lead(self, lead):
+        """Drop every pitched note a half step (or a minor ninth, or
+        more octaves) from a lead note it overlaps by an eighth or more,
+        so a voicing never rubs against the melody or the soloist."""
+        q = float(self.div)
+        heard = [(s, e, m) for s, e, m in lead if _heard(s, e)]
+        if not heard:
+            return
+        for tick in list(self.onsets):
+            ticks, notes = self.onsets[tick]
+            a, b = tick / q, (tick + ticks) / q
+            keep = [n for n in notes if n[0] != 'p' or not any(
+                min(b, e) - max(a, s) >= 0.5 - 1e-6
+                and (n[1] - m) % 12 in (1, 11) for s, e, m in heard)]
+            if keep:
+                self.onsets[tick] = (ticks, keep)
+            else:
+                del self.onsets[tick]
 
     def _one(self, note, ticks, chorded):
         kind, what, vel = note[:3]
@@ -227,6 +262,8 @@ class Bar:
                 + '      </note>\n')
 
     def xml(self):
+        if LEAD_NOW:
+            self._hear_the_lead(LEAD_NOW)
         if not self.onsets:
             return None
         out = []
@@ -2504,6 +2541,7 @@ _VOICES = {
     # most beats a phrase may run, runs allowed, eighth-line density
     'horn': (12, True, 1.0), 'voice': (7, False, 0.7),
     'keys': (16, True, 1.0), 'guitar': (14, True, 1.0),
+    'mallets': (14, True, 1.0),
     'bass': (8, False, 0.7),
 }
 

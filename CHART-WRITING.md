@@ -129,6 +129,13 @@ recording convention, not a voicing.
       tenor: solo
       all: groove "greasy - stay out of the way"
 
+- **Say how many times round the way you'd call it.** After the bars,
+  in any order: `repeat 3x`, `repeat 3 times`, `play 3 times`, `x3`,
+  `3 times`, or for a vamp `vamp 4 times` (`vamp 4x`). `till cue`,
+  `open`, `vamp till cue` and `repeat till cue` go round until someone
+  calls it. A word the header doesn't know gets a sentence listing
+  what it takes.
+
 - **Write bar ranges however you'd say them.** `bars 2-9`, `bars 2 to
   9`, `bars 2 through 9` and a typed dash all work, and one bar is just
   `bar 5`.
@@ -682,6 +689,17 @@ All of these ride on a `from demo` line, after commas:
   section split between them. A pianist keeps left-hand shells under
   the line; a drummer takes a drum solo. The page keeps its slashes and
   the word, and a solo you played in from MIDI plays exactly as played.
+- **The band listens to the lead.** Whoever is making something up
+  (the comping, backgrounds) hears the melody, any written line and the
+  soloist, and leaves out a note a half step from what the lead is
+  holding: the pianist drops the A from a Bbmaj7 while the melody sits
+  on Bb. Passing notes go by without anyone voicing around them. A
+  guitar beside a piano voices around the piano. Vibes the chart gives
+  nothing leave the comping to the piano or guitar (two chord players
+  comping at once muddy the changes; the findings say so, and `vibes:
+  groove` puts them back in). A vibes, marimba or guitar solo is a
+  single line; only a pianist or organist keeps a left hand under the
+  solo.
 - **The band plays like professionals.** Every chair is levelled
   before the mix (the libraries differ by as much as 45 dB raw), then
   set the way an engineer would: horns out front, trumpet just over the

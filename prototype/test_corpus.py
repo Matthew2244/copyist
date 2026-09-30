@@ -10,6 +10,7 @@ Usage:  python3 test_corpus.py
 """
 
 import io
+import re
 import os
 import shutil
 import subprocess
@@ -4708,6 +4709,88 @@ def check_mutes_sound():
           "harmon mute" in x and "<words>open</words>" in x)
 
 
+def check_band_hears_the_lead():
+    """Matthew, 2026-09-30, after the Lantern Waltz listen: "vibes play
+    lines, not chords when a vibes player solos ... sounded like it
+    didn't know any of the chord changes ... make sure everyone is
+    context aware and knows what to play and what not to play." The
+    compers and background horns hear the melody and the soloist and
+    leave out a note a half step from it; a vibes soloist plays the line
+    alone; vibes the chart gave nothing leave the comping to the piano;
+    and the section header takes the band's own words for the form."""
+    import chartc
+    import chartgroove
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    b.add(0, 48, ('p', 57, 80))
+    b.add(0, 48, ('p', 69, 80))
+    b.add(0, 48, ('p', 62, 80))
+    b._hear_the_lead([(0.0, 2.0, 70)])
+    got = sorted(n[1] for n in b.onsets[0][1])
+    check("a comper leaves out the A under the melody's Bb, keeps the rest",
+          got == [62], str(got))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    b.add(0, 48, ('p', 69, 80))
+    b._hear_the_lead([(0.5, 1.0, 70)])
+    check("a passing eighth off the beat is not voiced around",
+          [n[1] for n in b.onsets[0][1]] == [69])
+    sec = chartc.section_header("vamp", ", 2 bars, vamp 4 times", "t")
+    check("header: vamp 4 times", sec['repeat'] == 4 and sec['vamp']
+          and not sec['open'])
+    sec = chartc.section_header(
+        "vamp", ', label "Vamp", 4 bars, vamp till cue', "t")
+    check("header: label, bars, vamp till cue in any order",
+          sec['open'] and sec['vamp'] and sec['bars'] == 4
+          and sec['label'] == 'Vamp')
+    sec = chartc.section_header("A", ", 8 bars, play 3 times", "t")
+    sec2 = chartc.section_header("A", ", 8 bars, x3", "t")
+    check("header: play 3 times and x3", sec['repeat'] == 3
+          and sec2['repeat'] == 3)
+    try:
+        chartc.section_header("A", ", 8 bars, wiggle", "t")
+        said = ""
+    except SystemExit as e:
+        said = str(e.code)
+    check("header: an unknown word says what a section takes",
+          "cannot read 'wiggle'" in said, said)
+    tmp = tempfile.mkdtemp()
+    open(os.path.join(tmp, "v.chart"), "w").write(
+        "title: V\nkey: F\nmeter: 4/4\ntempo: 140\nfeel: swing\n\n"
+        "band:\n  vibes\n  piano\n  bass\n  drums\n\n"
+        "section head, 4 bars\n  chords: Fmaj7, Bbmaj7, Gm7 C7, Fmaj7\n\n"
+        "section solos, 8 bars\n  chords: Fmaj7, Bbmaj7, Gm7, C7, Am7, "
+        "D7, Gm7, C7\n  vibes: solo\n")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(os.path.join(tmp, "v.chart"),
+                             os.path.join(tmp, "b"))
+    out = buf.getvalue()
+    check("vibes the chart gave nothing leave the comping to the piano",
+          "vibes leaves the comping to the piano or guitar in head" in out,
+          out[-600:])
+    x = open(os.path.join(tmp, "b", "V — for listening.musicxml")).read()
+    vib = re.search(r'<part id="P1">(.*?)</part>', x, re.S).group(1)
+    solo = "".join(m for n, m in re.findall(
+        r'<measure number="(\d+)">(.*?)</measure>', vib, re.S)
+        if 5 <= int(n) <= 11)
+    last = "".join(m for n, m in re.findall(
+        r'<measure number="(\d+)">(.*?)</measure>', vib, re.S)
+        if int(n) == 12)
+    lows = [12 * (int(o) + 1) + "C D EF G A B".index(st) + int(a or 0)
+            for st, a, o in re.findall(
+                r'<step>(\w)</step>(?:<alter>(-?\d)</alter>)?'
+                r'<octave>(\d)</octave>', last)]
+    check("the vibes' last chord sits on the bars (F3 and up), four "
+          "mallets, no pianist's low root", lows and min(lows) >= 53,
+          str(lows))
+    head = "".join(m for n, m in re.findall(
+        r'<measure number="(\d+)">(.*?)</measure>', vib, re.S)
+        if int(n) <= 4)
+    check("a vibes solo is a line: no chords stacked under it",
+          "<pitch>" in solo and "<chord/>" not in solo)
+    check("vibes lay out while the piano comps the head",
+          "<pitch>" not in head)
+
+
 def check_bandleader_round():
     """Faith as bandleader, 2026-09-30, writing Lantern Waltz by hand:
     a double harmonized in scale steps ('alto: double flugel a sixth
@@ -6407,6 +6490,7 @@ if __name__ == "__main__":
     check_fall_keyswitch_any_timing()
     check_swung_and_straight_funk()
     check_bandleader_round()
+    check_band_hears_the_lead()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

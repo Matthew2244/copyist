@@ -341,6 +341,43 @@ def build_organ(shelf, sr=44100):
     return made
 
 
+_VIBES = 'VCSL/Idiophones/Struck Idiophones/Vibraphone'
+# four real dynamics, quietest first: soft mallets v1, v2, hard v2, v3
+_VIBES_LAYERS = (('Soft Mallets', 'v1', 1, 40), ('Soft Mallets', 'v2', 41, 70),
+                 ('Hard Mallets', 'v2', 71, 100),
+                 ('Hard Mallets', 'v3', 101, 127))
+
+
+def build_vibes(shelf):
+    """VCSL's vibraphone (CC0) as one program: soft mallets for the quiet
+    notes, hard for the loud, the way a player reaches for a harder
+    pair. VCSL names these an octave low (Yamaha style) — measured
+    2026-09-30, the partial an octave above the name is ~40 dB louder —
+    so +12. A long release is the damper pedal down: bars ring into
+    each other the way a vibes player lets them."""
+    src = os.path.join(shelf, _VIBES)
+    if not os.path.isdir(src):
+        return []
+    lines = ['// Copyist: VCSL vibraphone (CC0), soft and hard mallets',
+             '<group> ampeg_release=0.9', '']
+    for folder, layer, lo_v, hi_v in _VIBES_LAYERS:
+        by_key = {k: [f for f in fs if '_%s_' % layer in f]
+                  for k, fs in scan(os.path.join(src, folder), 12).items()}
+        keys = sorted(k for k, fs in by_key.items() if fs)
+        for i, k in enumerate(keys):
+            lo = (keys[i - 1] + k) // 2 + 1 if i else max(k - 6, 0)
+            hi = (k + keys[i + 1]) // 2 if i + 1 < len(keys) \
+                else min(k + 6, 127)
+            f = os.path.join('..', _VIBES, folder, by_key[k][0])
+            lines.append('<region> sample=%s lokey=%d hikey=%d '
+                         'pitch_keycenter=%d lovel=%d hivel=%d'
+                         % (f, lo, hi, k, lo_v, hi_v))
+    out = os.path.join(shelf, 'Copyist-Extras', 'vibraphone.sfz')
+    with open(out, 'w', encoding='utf-8') as fh:
+        fh.write('\n'.join(lines) + '\n')
+    return ['vibraphone.sfz']
+
+
 def main(shelf):
     made = []
     for rel, shift, name, spread in MAPS:
@@ -351,6 +388,7 @@ def main(shelf):
         if write_map(out, os.path.join('..', rel), scan(src, shift),
                      spread):
             made.append(name)
+    made.extend(build_vibes(shelf))
     made.extend(build_choir(shelf))
     return made
 
