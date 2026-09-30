@@ -738,10 +738,20 @@ All of these ride on a `from demo` line, after commas:
   a voicing that would sit on top of it drops an octave, so nothing
   masks the lead. A low melody (a tenor down around Bb3) is voiced
   over, as usual. The drummer hears the section's written hits (two or
-  more horns or voices striking together) and catches them: kick and
-  snare on a short hit, crash and kick on a held one or one after
-  space, often a snare set-up on the eighth before a hit that comes out
-  of a rest. A busy line gets caught at its accents, not note by note. Passing notes go by without anyone voicing around them. A
+  more horns or voices striking together) and catches the real hits: a
+  short one with air after it, or a held one coming out of space (a
+  long note that ends a moving phrase is a phrase end, and gets filled,
+  not slammed). Kick and snare on the short ones; on the big ones the
+  drummer's own choice in the moment: a crash, a choke, a hi-hat bark,
+  the floor tom, two toms stepping down, the ride bell, snare and kick.
+  Some bars the drummer plays the figure's shape on the toms, high tom
+  for its top notes and the floor for its lowest. Often a snare set-up
+  on the eighth before a hit out of a rest; one crash a bar at most.
+  Sections, soloists and landings are marked the same way: a crash
+  about half the time, otherwise another hit, the kick alone, or just
+  the change in what they play. The laps of a vamp keep going without
+  a crash each time round; the band coming back after a break always
+  gets one. Passing notes go by without anyone voicing around them. A
   guitar beside a piano voices around the piano. Vibes the chart gives
   nothing leave the comping to the piano or guitar (two chord players
   comping at once muddy the changes; the findings say so, and `vibes:

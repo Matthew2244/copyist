@@ -4054,9 +4054,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             if l_ in groups['rhythm']:
                 continue
             k_ = round(s_ * 12) / 12
-            got = by.setdefault(k_, [set(), 0.0])
+            got = by.setdefault(k_, [set(), 0.0, 0])
             got[0].add(l_)
             got[1] = max(got[1], e_ - s_)
+            got[2] = max(got[2], _m)
         ons = sorted(k for k, v in by.items() if len(v[0]) >= 2)
         if not ons:
             return None
@@ -4064,7 +4065,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         out = []
         for i_, k in enumerate(ons):
             nxt = ons[i_ + 1] if i_ + 1 < len(ons) else end
-            out.append((k, by[k][1], max(nxt - (k + by[k][1]), 0.0)))
+            out.append((k, by[k][1], max(nxt - (k + by[k][1]), 0.0),
+                        by[k][2]))
         return out
 
     def next_chord(pi_):

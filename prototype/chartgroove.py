@@ -151,22 +151,53 @@ def _catch(bar, hits, heat, d):
     by note."""
     beat = bar.div * 4 // bar.den
     half = beat // 2
-    marks = [h for h in hits if h[2] >= 0.5 or h[1] >= 1.5]
+    # a hit is a short note with air after it, or a held note that comes
+    # out of space; a long note ending a moving phrase is a phrase end,
+    # and the drummer fills that space instead of slamming it
+    marks, pe = [], 0.0
+    for h in sorted(hits):
+        if (h[1] <= 0.75 and h[2] >= 0.5) or (h[1] >= 1.5 and h[0] - pe
+                                               >= 1.0):
+            marks.append(h)
+        pe = h[0] + h[1]
     if len(marks) > 4:
         marks = [marks[0], marks[-1]]
+    # some bars the drummer plays the figure's shape on the toms: high
+    # tom for its highest notes, the floor for its lowest
+    melodic = len(marks) >= 2 and d() < 0.35 and all(
+        len(h) > 3 for h in marks)
+    if melodic:
+        lo_p = min(h[3] for h in marks)
+        hi_p = max(h[3] for h in marks)
     prev_end = 0.0            # space counts from the bar's start
-    for s, ln, air in sorted(hits):
-        if (s, ln, air) not in marks:
+    # one crash a bar at most, and none on top of the drummer's own
+    crashed = any(n[1] == _CRASH for _l, ns in bar.onsets.values()
+                  for n in ns if n[0] == 'u')
+    for hit in sorted(hits):
+        s, ln, air = hit[:3]
+        if hit not in marks:
             prev_end = s + ln
             continue
         t = int(round(s * beat))
         big = ln >= 1.5 or s - prev_end >= 1.5 or air >= 1.5
         vel = int(92 + 12 * min(heat, 1.0))
-        if big:
-            bar.add(t, beat, ('u', _CRASH, vel + 4))
+        if melodic:
+            f = (hit[3] - lo_p) / max(hi_p - lo_p, 1)
+            drum = _HI_TOM if f > 0.66 else _MID_TOM if f > 0.33 \
+                else _FLOOR_TOM
+            bar.add(t, half, ('u', drum, vel + 8))
+            bar.add(t, half, ('u', _KICK, vel))
+            if big and not crashed and d() < 0.5:
+                bar.add(t, beat, ('u', _CRASH, vel + 4))   # and ring it
+                crashed = True
+        elif big and not crashed:
+            # the big one, the drummer's own way: often a crash, but a
+            # choke, a bark or snare and kick as often
+            if kit_hit(bar, t, beat, d, big=True) == 'crash':
+                crashed = True
         else:
-            bar.add(t, half, ('u', _SNARE, vel))
-        bar.add(t, half, ('u', _KICK, vel))
+            bar.add(t, half, ('u', _SNARE, vel if not big else vel + 6))
+            bar.add(t, half, ('u', _KICK, vel))
         if s - prev_end >= 1.0 and t >= half and d() < 0.55:
             bar.add(t - half, half, ('u', _SNARE, vel - 14))   # set-up
         prev_end = s + ln
@@ -513,6 +544,9 @@ def _chord_at(chords, beat):
 # staff positions from instruments.DRUM_MAP, notehead included
 _XSTICK = ('C', 5, 'x')
 _BELL = ('F', 5, 'diamond')
+_HI_TOM = ('E', 5, 'normal')
+_MID_TOM = ('D', 5, 'normal')
+_FLOOR_TOM = ('A', 4, 'normal')
 _COWBELL = ('B', 5, 'triangle')
 _RIDE = ('F', 5, 'x')
 _HATF = ('D', 4, 'x')
@@ -1784,7 +1818,7 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
             _fill(bar, _FILLS[int(d() * len(_FILLS)) % len(_FILLS)],
                   int(round((at - 1) * beat)), max(heat, 0.6), d)
         if role == 'drums' and off + 2 not in brk:
-            state['crash_next'] = True
+            state['crash_next'] = 'break'      # the band is back: commit
         state['hits'] = None
         return bar.xml()
     state['busy'] = sec.get('_busy')      # how busy the soloist is here
@@ -2050,10 +2084,12 @@ def kit_hit(bar, t, beat, d, big=True):
     bark with the kick, snare or both, anything"): a crash and kick that
     ring, a choked cymbal, a lone snare, a hi-hat bark (open, then shut
     with the foot) with the kick, the snare or both, or snare and kick."""
+    # and the toms and the bell (Matthew, 2026-09-30: "or just a tom hit
+    # as well... anything. Drummers create melody too")
     kinds = ('crash', 'crash', 'choke', 'snare', 'bark_k', 'bark_s',
-             'bark_ks', 'snare_kick') if big else \
+             'bark_ks', 'snare_kick', 'floor', 'toms', 'bell') if big else \
         ('choke', 'snare', 'bark_k', 'bark_s', 'bark_ks', 'snare_kick',
-         'crash')
+         'crash', 'floor', 'hi_tom', 'toms', 'bell')
     k = kinds[int(d() * len(kinds)) % len(kinds)]
     h = beat // 2
     if k == 'crash':
@@ -2067,6 +2103,19 @@ def kit_hit(bar, t, beat, d, big=True):
     elif k == 'snare_kick':
         bar.add(t, h, ('u', _SNARE, 110))
         bar.add(t, h, ('u', _KICK, 104))
+    elif k == 'floor':
+        bar.add(t, beat, ('u', _FLOOR_TOM, 112))
+        bar.add(t, h, ('u', _KICK, 104))
+    elif k == 'hi_tom':
+        bar.add(t, h, ('u', _HI_TOM, 108))
+    elif k == 'toms':                       # high, then down to the floor
+        bar.add(t, h // 2 or 1, ('u', _HI_TOM, 106))
+        if t + h // 2 < bar.barlen:
+            bar.add(t + h // 2, h, ('u', _FLOOR_TOM, 112))
+            bar.add(t + h // 2, h, ('u', _KICK, 102))
+    elif k == 'bell':
+        bar.add(t, beat, ('u', _BELL, 104))
+        bar.add(t, h, ('u', _KICK, 100))
     else:
         bar.add(t, h, ('u', _OPEN_HAT, 104))
         if t + h < bar.barlen:
@@ -2109,10 +2158,26 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
     new_turn = turn is not None and turn[0] == 0
     last_of_turn = turn is not None and turn[0] == turn[1] - 1
     landing = state.pop('crash_next', False)
-    if (off == 0 and sec.get('_arc', 0) > 0) or new_turn or landing:
-        # a new section, a new soloist, or the landing after a fill
-        bar.add(0, beat, ('u', _CRASH, int(84 + 24 * heat)))
-        bar.add(0, beat, ('u', _KICK, int(82 + 20 * heat)))
+    # a vamp or a written-out repeat's later laps (absbar carries 1000
+    # per lap) keep going: the crash is for the first time in
+    lap = absbar >= 1000
+    if (off == 0 and sec.get('_arc', 0) > 0 and not lap) or new_turn \
+            or landing:
+        # a new section, a new soloist, or the landing after a fill,
+        # marked the drummer's own way in the moment: a crash is only
+        # one choice (Matthew, 2026-09-30: "a drummer may not crash per
+        # se") — a choke, a snare, a hi-hat bark, the kick alone, or
+        # nothing but the change in what they play
+        md = _Dice('mark', absbar, sec.get('name'))
+        r = md()
+        crash = 1.0 if landing == 'break' else 0.55 if landing else 0.45
+        if r < crash:
+            bar.add(0, beat, ('u', _CRASH, int(88 + 20 * heat)))
+            bar.add(0, beat, ('u', _KICK, int(84 + 18 * heat)))
+        elif r < crash + 0.25:
+            kit_hit(bar, 0, beat, md, big=heat > 0.5)
+        elif r < crash + 0.4:
+            bar.add(0, beat, ('u', _KICK, int(82 + 20 * heat)))
     # welcoming a new soloist, like the audience clapping them in —
     # right away, a bar later, or not at all, any phrasing (Matthew,
     # 2026-09-30)

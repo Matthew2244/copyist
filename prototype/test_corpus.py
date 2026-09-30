@@ -4838,9 +4838,17 @@ def check_band_hears_the_lead():
     got = {t: sorted(n[1][0] + str(n[1][1]) for n in ns)
            for t, (_l, ns) in b.onsets.items()}
     check("the drummer catches the section's hits: kick and snare on a "
-          "short one, crash and kick on a held one",
-          got.get(0) == ['C5', 'F4'] and got.get(36) == ['A5', 'F4'],
+          "short one, a big hit of their own choosing on a held one out "
+          "of space", got.get(0) == ['C5', 'F4'] and bool(got.get(36)),
           str(got))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    chartgroove._catch(b, [(0.0, 0.5, 0.5, 77), (1.0, 0.5, 0.5, 72),
+                           (2.0, 0.5, 1.5, 65)], 0.6, lambda: 0.1)
+    toms = [n[1][:2] for t in sorted(b.onsets) for n in b.onsets[t][1]
+            if n[1] not in (chartgroove._KICK, chartgroove._CRASH)]
+    check("a melodic drummer plays the figure's shape on the toms: high "
+          "tom on its top note, floor tom on its lowest",
+          toms == [('E', 5), ('D', 5), ('A', 4)], str(toms))
     b = chartgroove.Bar(24, (4, 4), 0, 1)
     for m in (60, 64, 70, 74):
         b.add(0, 48, ('p', m, 80))
