@@ -2543,6 +2543,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                                  harm=steps))
 
     auto_cues(plans, band, labels, resolved, chart, findings)
+    breath_report(band, labels, resolved, chart, findings)
     return resolved, horn_of, (fifths, mode)
 
 
@@ -2657,6 +2658,51 @@ def harmonize_res(res, steps, key):
         o, d = divmod(idx, 7)
         return o * 12 + scale[d]
     return map_res(res, move)
+
+
+def breath_report(band, labels, resolved, chart, findings):
+    """A horn player or a singer needs somewhere to breathe: a written
+    line that runs longer than a comfortable breath at this tempo with
+    no rest in it (an eighth or more) is named in the findings, with
+    where, so the writer can mark a breath or open a gap. A DAW never
+    runs out of air; a player does."""
+    try:
+        bpm = float(re.match(r'[\d.]+', str(chart['header'].get(
+            'tempo', '120'))).group())
+    except (AttributeError, ValueError):
+        bpm = 120.0
+    meters = chart.get('meters') or [(1, (4, 4))]
+    for l in labels:
+        inst = canonical_instrument(next(
+            b for b in band if b['label'] == l)['instrument'])
+        sid = (SOUNDS.get(inst) or ('', ''))[1]
+        if not sid.startswith(('brass', 'wind', 'voice')):
+            continue
+        for it in resolved[l]:
+            if it.get('cue'):
+                continue
+            r = it['res']
+            tl = sorted((a, b_) for a, b_, ps in r.get('timeline') or []
+                        if ps)
+            if not tl:
+                continue
+            num, den = meter_at(meters, r['at'])
+            bt = 24 * 4 * num // den
+            run_start, prev_end = tl[0][0], tl[0][1]
+            worst = (0, 0, 0)
+            for a, b_ in tl[1:] + [(10 ** 9, 10 ** 9)]:
+                if a - prev_end >= 12:              # an eighth of air
+                    if prev_end - run_start > worst[0]:
+                        worst = (prev_end - run_start, run_start, prev_end)
+                    run_start = a
+                prev_end = max(prev_end, b_)
+            secs = worst[0] / 24 * 60.0 / bpm
+            if secs > 12:
+                b0 = r['at'] + worst[1] // bt
+                b1 = r['at'] + (worst[2] - 1) // bt
+                findings.add(f"{l}: bars {b0}-{b1} run {secs:.0f} seconds "
+                             "with nowhere to breathe; mark a breath or "
+                             "open an eighth of air somewhere in there")
 
 
 def auto_cues(plans, band, labels, resolved, chart, findings):

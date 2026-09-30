@@ -1334,6 +1334,11 @@ of the listen MP3, high tick on one, so you can play along like it's
 a session; add a number for more bars. The from-bar trim still lands on
 the music, past the click.
 
+A DAW never runs out of air; a player does. The findings name any
+written horn or vocal line that runs longer than a comfortable breath at
+your tempo (about twelve seconds) with no rest of an eighth or more,
+with its bars, so you can mark a breath or open a gap.
+
 ## House rules the tools live by
 
 - Ears first: every output exists in a spoken or listenable form.

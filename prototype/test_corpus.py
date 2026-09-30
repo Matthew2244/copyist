@@ -5013,6 +5013,19 @@ def check_band_hears_the_lead():
     check("with the bass playing, the piano's left hand stays above C3 "
           "(an F2 goes up to F3, not doubling the one already there)",
           got == [53, 57], str(got))
+    tmp_b = tempfile.mkdtemp()
+    cb = os.path.join(tmp_b, "b.chart")
+    open(cb, "w").write(
+        "title: B\nkey: F\nmeter: 4/4\ntempo: 100\n\nband:\n  trumpet\n"
+        "\nfigure long, 8 bars:\n  notes: F4 w, G4 w, A4 w, Bb4 w, C5 w, "
+        "D5 w, E5 w, F5 w\n\nsection A, 8 bars\n  chords: F x8\n"
+        "  trumpet: figure long\n")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(cb, os.path.join(tmp_b, "o"))
+    check("a written horn line with nowhere to breathe is named, with its "
+          "bars and seconds", "bars 1-8 run 19 seconds with nowhere to "
+          "breathe" in buf.getvalue(), buf.getvalue()[-400:])
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)
