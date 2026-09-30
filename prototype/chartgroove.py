@@ -2226,42 +2226,38 @@ def comp_shells(bar, state, chords, absbar=0, next_chord=None):
 
 
 def drum_solo(bar, absbar, pos, total, seed):
-    """A drummer's solo chorus: two-bar phrases of snare and tom
-    figures over the kick, the hat foot keeping 2 and 4, a crash where
-    each four-bar phrase starts."""
-    import math
+    """A drummer's solo chorus, in time, told as a story (Matthew,
+    2026-09-30: "drum solos can be anything ... go into whatever groove,
+    have a theme and develop it ... use the kick more ... poly rhythms"):
+    each two-bar phrase one idea from the same vocabulary the ending
+    drummer uses, the ideas growing across the chorus; the hat foot
+    keeps the form audible, a crash marks each four-bar phrase, and the
+    last bar sets the band up to come back in."""
+    import chartending as E
     beat = bar.div * 4 // bar.den
-    q = beat // 4
     n = bar.num
+    arc = (pos + 0.5) / max(total, 1)
+    pd = _Dice(seed, 'solo phrase', pos // 2)
+    pool = ('motif', 'space', 'groove', 'talk') if arc < 0.3 else \
+        ('talk', 'toms', 'poly', 'kick', 'groove', 'motif') if arc < 0.75 \
+        else ('triplets', 'toms', 'poly', 'kick', 'roll')
+    idea = pool[int(pd() * len(pool)) % len(pool)]
     d = _Dice(seed, 'drums', absbar)
-    heat = 0.4 + 0.5 * math.sin(math.pi * min((pos + 0.5) /
-                                              max(total, 1), 1.0))
-    toms = [('E', 5, 'normal'), ('D', 5, 'normal'), ('A', 4, 'normal')]
     if pos % 4 == 0:
         bar.add(0, beat, ('u', _CRASH, 100))
         bar.add(0, beat, ('u', _KICK, 96))
-    for b in range(n):
-        if b % 2 == 1:
-            bar.add(b * beat, beat // 2, ('u', _HATF, 60))
-    fill_bar = pos % 2 == 1
-    for b in range(n):
-        if b == 0 and pos % 4 == 0:
-            continue
-        r = d()
-        dense = fill_bar and b >= n - 2 or r < heat * 0.5
-        step = q if dense and r < heat else 2 * q
-        for k in range(0, beat, step):
-            t = b * beat + k
-            if fill_bar and b >= n - 2:
-                drum = toms[min(int((t - (n - 2) * beat) /
-                                    (2 * beat / 3)), 2)]
-            else:
-                drum = _SNARE if d() < 0.6 else toms[int(d() * 3) % 3]
-            vel = 70 + int(30 * heat) - (18 if k else 0) + \
-                int((d() - 0.5) * 12)
-            bar.add(t, step, ('u', drum, max(30, min(vel, 120))))
-        if b % 2 == 0 and d() < 0.7:
-            bar.add(b * beat, beat // 2, ('u', _KICK, 84))
+    if idea != 'groove':
+        for b in range(n):
+            if b % 2 == 1 and d() < 0.85:
+                bar.add(b * beat, beat // 2, ('u', _HATF, 60))
+    last = pos == total - 1
+    end = bar.barlen - (beat if last else 0)
+    E._drum_idea(bar, beat, beat // 2 if pos % 4 == 0 else 0, end, idea, d)
+    E._scale_vel(bar, 0, end, 0.85 + 0.3 * arc)
+    if last:
+        # the set-up that brings the band back in
+        E._drum_cue(bar, beat, end, bar.barlen,
+                    ('setup', 'three', 'flam')[int(d() * 3) % 3], d)
 
 
 def backgrounds(bar, state, chords, voice, voices, lo, hi, style, off,

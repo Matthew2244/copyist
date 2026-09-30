@@ -476,9 +476,16 @@ def timing(sh, meter, song):
     if sh['trash']:
         hold += num * 0.5
     total = int(round((num + hold) * 4)) * beat // 4   # to a sixteenth
+    # the count-off, as long as the drummer makes it: 'three, four',
+    # a bar, or two bars ('one ... two ... one, two, three, four')
+    cd_ = G._Dice(song, 'count length')()
+    count_beats = (2 if num >= 4 else num) if cd_ < 0.25 else \
+        2 * num if cd_ < 0.55 else num
+    clock0 = {'count_beats': count_beats}
     clock = {'beat': beat, 'len': total,
              'breath': int(beat * (0.2 + 0.35 * d())),
              'drummer': d(), 'fill_len': int(beat * (1.5 + 1.5 * d()))}
+    clock.update(clock0)
     if sh.get('dictate_chords'):
         # the drummer's show: alone, then a band chord on the drummer's
         # call, over and over; each stretch as long as it feels, the
@@ -498,7 +505,7 @@ def timing(sh, meter, song):
             segs.append(('band', k, q16(beat * (2.5 + 2.5 * dd()))))
         segs.append(('alone', None, q16(beat * (8 + 7 * dd()))))
         if sh.get('count'):
-            segs.append(('count', None, num * beat))
+            segs.append(('count', None, clock0['count_beats'] * beat))
             if sh.get('unison'):
                 segs.append(('unison', None, 2 * num * beat))
         else:
@@ -775,7 +782,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         # the tune's last bar plays as it is; then the drummer's show
         dchords = sh['dictate_chords']
         dd = G._Dice(song, 'drum show')
-        last_idea, last_cue = None, None
+        last_idea, last_cue, last_under = None, None, None
         for si, (kind, k, length) in enumerate(clock['dictate']):
             b = bar_of(length)
             L = b.barlen
@@ -788,9 +795,9 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                     n_alone = sum(1 for kk, _k, _l in clock['dictate']
                                   if kk == 'alone')
                     arc = alone_i / max(n_alone - 1, 1)
-                    pool = ('motif', 'space', 'talk', 'roll') if arc < 0.35 \
-                        else _SOLO_IDEAS if arc < 0.8 else \
-                        ('toms', 'triplets', 'talk', 'motif')
+                    pool = ('motif', 'space', 'talk', 'groove', 'roll') \
+                        if arc < 0.35 else _SOLO_IDEAS if arc < 0.8 else \
+                        ('toms', 'triplets', 'poly', 'kick', 'motif')
                     cue = _pick(dd, _CUES, last_cue)
                     last_cue = cue
                     cl = _CUE_LEN[cue] * beat
@@ -800,11 +807,33 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                     if end > 6 * beat:
                         cuts = [0, int(end * (0.4 + 0.2 * dd())) // (
                             beat // 4) * (beat // 4), end]
+                    fake = end > 7 * beat and arc > 0.3 and dd() < 0.35
+                    if fake:
+                        # the fake-out: a cue, a slow-down like the chord
+                        # is coming — then off again, and the real cue
+                        f0 = int(end * (0.35 + 0.15 * dd())) // (
+                            beat // 4) * (beat // 4)
+                        fcue = _pick(dd, _CUES, cue)
+                        fl = _CUE_LEN[fcue] * beat
+                        idea = _pick(dd, pool, last_idea)
+                        _drum_idea(b, beat, 0, max(beat, f0 - beat // 3),
+                                   idea, dd)
+                        _rubato(b, 0, f0, dd)
+                        _drum_cue(b, beat, f0, f0 + fl, fcue, dd)
+                        # the hang: nothing, a beat and a bit
+                        g0 = f0 + fl + beat + beat // 2
+                        idea = _pick(dd, ('triplets', 'toms', 'kick',
+                                          'poly'), idea)
+                        last_idea = idea
+                        _drum_idea(b, beat, g0, end, idea, dd)
+                        _rubato(b, g0, end, dd)
+                        cuts = []
                     for c0, c1 in zip(cuts, cuts[1:]):
                         idea = _pick(dd, pool, last_idea)
                         last_idea = idea
                         _drum_idea(b, beat, c0, c1, idea, dd)
-                    _rubato(b, 0, end, dd)
+                    if cuts:
+                        _rubato(b, 0, end, dd)
                     # soft and patient early, the big one last
                     _scale_vel(b, 0, end, 0.86 + 0.24 * arc)
                     _drum_cue(b, beat, L - cl, L, cue, dd)
@@ -842,8 +871,19 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                 if drums:
                     b.add(land, beat, ('u', G._CRASH, 110))
                     b.add(land, beat, ('u', G._KICK, 100))
-                    _roll(b, beat, beat // 2, L - late(beat * 0.2) - 1,
-                          G._SNARE, 40, 66)
+                    # under the chord: a snare roll, a cymbal swell, a
+                    # tom rumble, or just let it ring — not the same
+                    # thing under every chord
+                    under = _pick(dd, ('roll', 'swell', 'rumble', 'ring',
+                                       'ring'), last_under)
+                    last_under = under
+                    end_u = L - late(beat * 0.2) - 1
+                    if under == 'roll':
+                        _roll(b, beat, beat // 2, end_u, G._SNARE, 40, 70)
+                    elif under == 'swell':
+                        _roll(b, beat, beat // 2, end_u, G._RIDE, 30, 84)
+                    elif under == 'rumble':
+                        _roll(b, beat, beat // 2, end_u, _TOMS[2], 36, 80)
                 elif role == 'perc':
                     b.add(land, beat, ('u', ('C', 5, 'normal'), 100))
                 else:
@@ -854,9 +894,8 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                 extras.append(attrs(L) + figure_body(L))
                 continue
             elif kind == 'count' and drums:
-                # the conductor counts it off; the drummer clicks it in
-                for i in range(num):
-                    b.add(i * beat, beat // 4, ('u', G._HATF, 64))
+                _count_off(b, beat, L // beat, G._Dice(song, 'count off'),
+                           num)
             extras.append(attrs(L) + (b.xml() if b.onsets else rest(L)))
         # everyone on the hit: short, or ringing when it's held
         b = bar_of(hl)
@@ -1005,12 +1044,12 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
     if not clock.get('dictate') and (sh.get('count') or sh.get('unison')):
         ins = []
         if sh.get('count'):
-            cb = bar_of(num * beat)
+            cn = clock['count_beats'] * beat
+            cb = bar_of(cn)
             if drums:
-                for i in range(num):
-                    cb.add(i * beat, beat // 4, ('u', G._HATF, 64))
-            ins.append(attrs(num * beat) + (cb.xml() if cb.onsets
-                                            else rest(num * beat)))
+                _count_off(cb, beat, clock['count_beats'],
+                           G._Dice(song, 'count off'), num)
+            ins.append(attrs(cn) + (cb.xml() if cb.onsets else rest(cn)))
         if sh.get('unison'):
             ins.append(attrs(2 * num * beat) + figure_body(2 * num * beat))
         k = len(extras) - (1 if sh['hit'] and extras else 0)
@@ -1058,7 +1097,8 @@ def _fill(bar, beat, t0, t1, seed):
 
 
 _TOMS = [('E', 5, 'normal'), ('D', 5, 'normal'), ('A', 4, 'normal')]
-_SOLO_IDEAS = ('motif', 'roll', 'toms', 'talk', 'space', 'triplets')
+_SOLO_IDEAS = ('motif', 'roll', 'toms', 'talk', 'space', 'triplets',
+               'groove', 'poly', 'kick')
 _CUES = ('three', 'count', 'setup', 'flam', 'swell')
 _CUE_LEN = {'three': 1, 'count': 2, 'setup': 1, 'flam': 1, 'swell': 2}
 
@@ -1097,6 +1137,54 @@ def _drum_idea(bar, beat, t0, t1, idea, d):
             rep += 1
             if rep == 4:
                 cell = sorted(set(cell + [cell[-1] + q]))
+    elif idea == 'groove':
+        # the drummer slides into a groove for a while — swing time with
+        # comping, or a funky beat — then it breaks up
+        funky = d() < 0.5
+        for bt in range(t0, t1, beat):
+            k = (bt - t0) // beat
+            if funky:
+                for h in range(4):
+                    bar.add(bt + h * beat // 4, beat // 4,
+                            ('u', G._HAT, 70 if h % 2 else 88))
+                if k % 2 == 1:
+                    bar.add(bt, beat // 2, ('u', G._SNARE, 108))
+                if k % 2 == 0 or d() < 0.4:
+                    bar.add(bt + (beat // 2 if d() < 0.4 else 0), beat // 2,
+                            ('u', G._KICK, 96))
+            else:
+                bar.add(bt, beat // 2, ('u', G._RIDE, 84))
+                if k % 2 == 1:
+                    bar.add(bt + 2 * beat // 3, beat // 3,
+                            ('u', G._RIDE, 70))
+                    bar.add(bt, beat // 2, ('u', G._HATF, 70))
+                if d() < 0.45:
+                    bar.add(bt + (2 * beat // 3 if d() < 0.6 else 0),
+                            beat // 3, ('u', G._SNARE if d() < 0.7
+                                        else G._KICK, 60 + int(d() * 50)))
+    elif idea == 'poly':
+        # three against four: accents every three sixteenths walking
+        # around the toms over a steady kick
+        q = beat // 4
+        kit = [G._SNARE, _TOMS[0], _TOMS[1], _TOMS[2]]
+        for i, t in enumerate(range(t0, t1, q)):
+            acc = i % 3 == 0
+            bar.add(t, q, ('u', kit[(i // 3) % 4] if acc else G._SNARE,
+                           110 if acc else 44))
+            if (t - t0) % beat == 0:
+                bar.add(t, q, ('u', G._KICK, 88))
+    elif idea == 'kick':
+        # the kick leads: kick figures with the snare and floor tom
+        # answering, the feet talking
+        q = beat // 4
+        for t in range(t0, t1, q):
+            r = d()
+            if r < 0.34:
+                bar.add(t, q, ('u', G._KICK, 96 + int(d() * 20)))
+            elif r < 0.46:
+                bar.add(t, q, ('u', G._SNARE, 100 + int(d() * 18)))
+            elif r < 0.54:
+                bar.add(t, q, ('u', _TOMS[2], 104))
     elif idea == 'roll':
         _roll(bar, beat, t0, t1, G._SNARE, 40, 100)
         for t in range(t0 + beat, t1, beat):
@@ -1172,6 +1260,26 @@ def _rubato(bar, t0, t1, d):
             moved[nt] = (ln, ns)
     bar.onsets.clear()
     bar.onsets.update(moved)
+
+
+def _count_off(bar, beat, n, d, num=4):
+    """The count-off, the drummer's way this time: on the hi-hat foot,
+    the closed hat, the rim, the ride bell or the snare; as long as they
+    make it — 'three, four', a bar, or two bars with the first one in
+    half time (Matthew, 2026-09-30: "can be any drum, hihat, whatever in
+    the moment ... could also be whatever how long")."""
+    piece = [G._HATF, G._HAT, ('C', 5, 'x'), G._BELL, G._SNARE][
+        int(d() * 5) % 5]
+    v = 70 + int(d() * 20)
+    if n > num:
+        # two bars: one ... two ... then one, two, three, four
+        for t in range(0, num * beat, 2 * beat):
+            bar.add(t, beat // 4, ('u', piece, v))
+        for i in range(n - num):
+            bar.add((num + i) * beat, beat // 4, ('u', piece, v + 4 * i))
+        return
+    for i in range(n):
+        bar.add(i * beat, beat // 4, ('u', piece, v + 4 * i))
 
 
 def _scale_vel(bar, t0, t1, k):
