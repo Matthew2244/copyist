@@ -970,7 +970,8 @@ def parse_chart(path):
             if m and m.group(1) in ('title', 'composer', 'arranger', 'key',
                                     'meter', 'tempo', 'feel', 'source',
                                     'demo', 'countin', 'dynamics', 'look',
-                                    'lyricist', 'from', 'rev', 'number'):
+                                    'lyricist', 'from', 'rev', 'number',
+                                    'cues'):
                 chart['header'][m.group(1)] = m.group(2).strip().strip('"')
                 continue
             fail(f"{loc}: cannot read '{s}'")
@@ -2541,6 +2542,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                                  octaves=shift // 12,
                                                  harm=steps))
 
+    auto_cues(plans, band, labels, resolved, chart, findings)
     return resolved, horn_of, (fifths, mode)
 
 
@@ -2655,6 +2657,86 @@ def harmonize_res(res, steps, key):
         o, d = divmod(idx, 7)
         return o * 12 + scale[d]
     return map_res(res, move)
+
+
+def auto_cues(plans, band, labels, resolved, chart, findings):
+    """A horn or a singer coming back after eight bars or more of rest
+    gets the last two bars of the melody before their entrance printed
+    small on their page, the way a copyist cues a part so the player can
+    find the way in. Pages only; a cue is never played. A cue the writer
+    placed wins, and a chart saying 'cues: no' in its header gets none."""
+    if str(chart['header'].get('cues', '')).lower() in ('no', 'off',
+                                                          'none'):
+        return
+    meters = chart.get('meters') or [(1, (4, 4))]
+    rhythm = set()
+    for b in band:
+        inst = canonical_instrument(b['instrument'])
+        snd, h = SOUNDS.get(inst), HORNS.get(inst) or {}
+        if chartgroove.role_of(snd[1] if snd else '', h.get('clef', 'G')):
+            rhythm.add(b['label'])          # a chord, bass or drum chair
+
+    def plays(l, pl):
+        if any(i['plan'] is pl and not i.get('cue') for i in resolved[l]):
+            return True
+        if pl['content'][l][0] not in ('default', 'tacet'):
+            return True
+        return any(isinstance(t[1], str) and t[1].lower().startswith(
+            ('solo', 'backgrounds')) for t in pl['texts'].get(l, ()))
+    for l in labels:
+        if l in rhythm:
+            continue
+        rest = 0
+        for i, pl in enumerate(plans):
+            if not plays(l, pl):
+                rest += pl['sec']['bars'] * max(pl['sec']['repeat'], 1)
+                continue
+            if rest >= 8 and i > 0 and not any(
+                    i_['plan'] is plans[i - 1] and i_.get('cue')
+                    for i_ in resolved[l]):
+                prev = plans[i - 1]
+                cands = [x for x in labels if x != l and x not in rhythm
+                         and any(it['plan'] is prev and not it.get('cue')
+                                 for it in resolved[x])]
+                if cands:
+                    src = cands[0]
+                    end_bar = prev['start'] + prev['sec']['bars'] - 1
+                    first = max(prev['start'], end_bar - 1)
+                    num, den = meter_at(meters, first)
+                    bt = 24 * 4 * num // den
+                    for it in [it for it in resolved[src]
+                               if it['plan'] is prev and not it.get('cue')]:
+                        r = it['res']
+                        shift = (first - r['at']) * bt
+                        tl = [(max(a - shift, 0), b - shift, ps)
+                              for a, b, ps in r.get('timeline') or []
+                              if b > shift and a < shift + 2 * bt]
+                        if not tl:
+                            continue
+                        nb = r['bars'][1] - r['bars'][0] + 1
+                        per = max(r.get('n_units', nb) // max(nb, 1), 1)
+                        skip = (first - r['at']) * per
+                        keep_u = (end_bar - first + 1) * per
+                        r2 = dict(r, timeline=tl, at=first,
+                                  bars=(1, end_bar - first + 1),
+                                  n_units=keep_u,
+                                  grids={k - skip: v for k, v in (
+                                      r.get('grids') or {}).items()
+                                      if skip <= k < skip + keep_u},
+                                  dyns=[], staves=None, trills={},
+                                  trems={}, ks={}, lyrics=None,
+                                  lyrics_text=None)
+                        resolved[l].append(dict(it, res=r2, cue=True,
+                                                src_label=src, octaves=0,
+                                                harm=0))
+                        prev['texts'][l].append((first - prev['start'] + 1,
+                                                 f"({src} cue)"))
+                        findings.add(f"{l}: back in at bar {pl['start']} "
+                                     f"after {rest} bars rest — the "
+                                     f"{src}'s last bars cued small on "
+                                     "the page")
+                        break
+            rest = 0
 
 
 def soli_res(res, k, n, style, plan, chart, fold=None, moved=None):

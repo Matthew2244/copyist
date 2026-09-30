@@ -4962,6 +4962,30 @@ def check_band_hears_the_lead():
     check("a beginner's wrong answer asks again instead of ending the "
           "interview", got == "4/4" and said_ and "'swing'" in said_[0],
           repr((got, said_)))
+    tmp_c = tempfile.mkdtemp()
+    cc = os.path.join(tmp_c, "c.chart")
+    body = ("key: F\nmeter: 4/4\ntempo: 120\n\nband:\n  trumpet\n"
+            "  alto = alto sax\n  piano\n  bass\n  drums\n\n"
+            "figure line, 8 bars:\n  notes: F4 w, G4 w, A4 w, Bb4 w, C5 w, "
+            "D5 w, E5 w, F5 w\n\n"
+            "section A, 8 bars\n  chords: F x8\n  alto: figure line\n\n"
+            "section B, 8 bars\n  chords: F x8\n  trumpet: figure line\n")
+    open(cc, "w").write("title: C\n" + body)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(cc, os.path.join(tmp_c, "b"))
+    x = open(os.path.join(tmp_c, "b", "C — trumpet.musicxml")).read()
+    check("a horn back after eight bars rest gets the last two bars of the "
+          "melody cued small, and the page says whose",
+          "back in at bar 9 after 8 bars rest" in buf.getvalue()
+          and "(alto cue)" in x and x.count("<cue/>") == 2,
+          buf.getvalue()[-300:])
+    open(cc, "w").write("title: C\ncues: no\n" + body)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(cc, os.path.join(tmp_c, "b2"))
+    check("'cues: no' in the header: no automatic cues",
+          "cued small" not in buf.getvalue())
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

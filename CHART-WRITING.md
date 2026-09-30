@@ -614,7 +614,11 @@ below`, `a 10th under`, `in thirds above`. Every note moves that many
 steps along the scale of the key in force where the line starts, so the
 harmony stays in the key; a chromatic note in the lead (a leading tone,
 a blue note) harmonizes from the scale tone it bends. The findings and
-the read-aloud say "doubles the flugel a sixth below". `cue` prints another part's line small, labelled "(trumpet
+the read-aloud say "doubles the flugel a sixth below". A horn or a singer coming back after eight bars or more of rest gets
+a cue without asking: the last two bars of whoever carried the melody
+just before, printed small on their page and labelled, so they can find
+the way in; the findings say where each one went. A cue you place
+yourself wins, and `cues: no` in the header turns them off. `cue` prints another part's line small, labelled "(trumpet
 cue)", never played and never counted in your range. It's there so you
 can find your entrance. `build: add trumpet at 11` prints "+trumpet" in
 every part at that bar, the montuno entrance cue. And `on pass 2: mute
