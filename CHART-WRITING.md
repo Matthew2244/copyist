@@ -743,7 +743,9 @@ All of these ride on a `from demo` line, after commas:
   long note that ends a moving phrase is a phrase end, and gets filled,
   not slammed). Kick and snare on the short ones; on the big ones the
   drummer's own choice in the moment: a crash, a choke, a hi-hat bark,
-  the floor tom, two toms stepping down, the ride bell, snare and kick.
+  open hat with crash and kick, the floor tom, two toms stepping down,
+  the ride bell, snare and kick, or a quick lick landing the hit
+  ("snare snare kick", "snare, high tom, floor tom, kick").
   Some bars the drummer plays the figure's shape on the toms, high tom
   for its top notes and the floor for its lowest. Often a snare set-up
   on the eighth before a hit out of a rest; one crash a bar at most.
@@ -761,6 +763,15 @@ All of these ride on a `from demo` line, after commas:
   under it or steps into the next one as an approach, a riff moves with
   the chords as they go by, and a blues lick waits for a chord it
   belongs on (a dominant, a minor, a plain triad, never a major 7th).
+- **Written lines are phrased, not typed in.** A horn or a singer
+  reading a written line swells up to its highest note and eases off
+  after, leans on an off-beat with space or a longer note after it, lets
+  a short last note go, and in swing plays the on-beat eighths inside a
+  run lighter so the line swings (never the phrase's peak). The band's
+  last hit is the drummer's own in the moment too: crash, kick and
+  snare, open hat with crash and kick, crash and floor tom, a lick into
+  it; a held last chord always gets something that rings, and a short
+  button may be choked.
 - **The band plays like professionals.** Every chair is levelled
   before the mix (the libraries differ by as much as 45 dB raw), then
   set the way an engineer would: horns out front, trumpet just over the

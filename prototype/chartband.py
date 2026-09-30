@@ -551,6 +551,64 @@ def _dyn_curve(part):
     return f
 
 
+def _phrasing(events, swings):
+    """How a horn player or a singer reads a written line, as a weight
+    for each note (1.0 = as marked): a phrase swells up to its highest
+    note and eases off after; an off-beat with space or a longer note
+    after it is leaned on; in swing the on-beat eighths inside a run
+    are lighter, so the line swings; a short last note is let go.
+    Made-up solos shape themselves and are left alone."""
+    def swung(q):
+        r = None
+        for at, v in swings:
+            if at <= q + 1e-9:
+                r = v
+        return bool(r)
+    top = {}
+    for i, (q, d, m, _g, art) in enumerate(events):
+        if art and art.get('lead'):
+            continue
+        if q not in top or m > events[top[q]][2]:
+            top[q] = i
+    ons = sorted(top)
+    w = {}
+    light = set()
+    phrase = []
+
+    def close(ph):
+        if len(ph) < 2:
+            return
+        peak = max(range(len(ph)), key=lambda k: events[top[ph[k]]][2])
+        if ph[peak] in light:
+            w[ph[peak]] /= 0.9            # the peak is leaned on, not lit
+        for k, q in enumerate(ph):
+            dist = abs(k - peak) / max(peak, len(ph) - 1 - peak, 1)
+            w[q] = w.get(q, 1.0) * (0.93 + 0.13 * (1 - dist))
+        q_last = ph[-1]
+        if events[top[q_last]][1] <= 1.0:
+            w[q_last] *= 0.94
+    for k, q in enumerate(ons):
+        d = events[top[q]][1]
+        nq = ons[k + 1] if k + 1 < len(ons) else None
+        gap = (nq - (q + d)) if nq is not None else 9.0
+        phrase.append(q)
+        off = abs(q % 1 - 0.5) < 0.02
+        nxt_long = nq is not None and events[top[nq]][1] >= 1.0
+        if gap >= 0.5 or nq is None:
+            close(phrase)
+            phrase = []
+        if off and (gap >= 0.25 or nxt_long):
+            w[q] = w.get(q, 1.0) * 1.12            # lean on it
+        elif abs(q % 1) < 0.02 and d <= 0.5 and swung(q) and \
+                nq is not None and abs(nq - q - 0.5) < 0.02 and \
+                phrase and phrase[0] != q:
+            w[q] = w.get(q, 1.0) * 0.9             # the swing's light one
+            light.add(q)
+    close(phrase)
+    return [1.0 if art and art.get('lead') else w.get(q, 1.0)
+            for (q, _d, _m, _g, art) in events]
+
+
 def _shape(art, d, vel, fam):
     """The page's marks -> what the player does: length, weight,
     brightness, and pitch/amp curves. Returns (d, vel, brightness,
@@ -892,6 +950,11 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         onsets = sorted({q for q, *_ in events})
         nxt_of = {q: (onsets[k + 1] if k + 1 < len(onsets) else None)
                   for k, q in enumerate(onsets)}
+        # a horn or a singer reads a written line: phrasing, not a flat
+        # row of equal notes
+        phr = _phrasing(events, swings) if fam in (
+            'brass', 'reed', 'flute', 'voice') and not \
+            part['percussion'] else None
         for i, (q_on, q_dur, midi, gain, art) in enumerate(events):
             soloing = bool(art and art.get('lead')) and \
                 not part['percussion'] and fam != 'bass'
@@ -932,6 +995,8 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
             a = max(a, 0.0)
             vel *= 0.96 + 0.08 * (2.2 if fk == 'loose' else 1.0) * \
                 (_hash01(idx, midi, i) - 0.5) + 0.04
+            if phr is not None:
+                vel *= phr[i]
             if part['percussion']:
                 nat = chokes.get(i)
                 if nat is not None:

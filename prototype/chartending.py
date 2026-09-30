@@ -768,8 +768,8 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         short = (b.barlen - at - late(beat * 0.3) - beat // 4) \
             if sh.get('hit_held') else beat // 2
         if drums:
-            for dr, v in ((G._CRASH, 100), (G._KICK, 94), (G._SNARE, 86)):
-                b.add(at, short, ('u', dr, v))
+            G.final_hit(b, at, beat, G._Dice('last hit', label, at),
+                        short)
         elif role == 'perc':
             b.add(at, short, ('u', ('C', 5, 'normal'), 94))
         elif pitches:
@@ -915,10 +915,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         ring = (b.barlen - at - late(beat * 0.3) - beat // 4) \
             if sh.get('hit_held') else beat // 2
         if drums:
-            for dr, v in ((G._CRASH, 110), (G._KICK, 104),
-                          (G._SNARE, 94)):
-                b.add(at, ring if dr == G._CRASH else beat // 2,
-                      ('u', dr, v))
+            G.final_hit(b, at, beat, G._Dice('last hit', label, at), ring)
         elif role == 'perc':
             b.add(at, beat // 2, ('u', ('C', 5, 'normal'), 96))
         else:

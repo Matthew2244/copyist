@@ -2078,6 +2078,70 @@ def _fill(bar, kind, start, heat, d):
 _OPEN_HAT = ('G', 5, 'circle-x')
 
 
+def _lick(bar, t, beat, strokes, vel):
+    """A quick lick of sixteenths landing its last stroke on t (or,
+    with no room before t, starting there). Returns where it lands."""
+    u = max(beat // 4, 1)
+    start = t - (len(strokes) - 1) * u
+    if start < 0:
+        start = t
+    for i, dr in enumerate(strokes):
+        tt = start + i * u
+        if tt < bar.barlen:
+            bar.add(tt, u, ('u', dr, min(vel - 8 + 5 * i, 122)))
+    return min(start + (len(strokes) - 1) * u, bar.barlen - 1)
+
+
+def final_hit(bar, t, beat, d, ring):
+    """The band's last hit, the drummer's way in the moment (Matthew,
+    2026-09-30: "open hat and kick, or open hat, crash cymbal and kick
+    ... a short snare snare kick ... snare high tom floor tom kick, or
+    whatever"), always making sense: a held last chord gets something
+    that rings; a short button may be choked or dry."""
+    kinds = ['classic', 'hat_crash', 'crash_kick', 'crash_floor',
+             'hat_kick']
+    if t >= 3 * max(beat // 4, 1):
+        kinds += ['ssk', 'shfk']        # a lick needs room to land on it
+    if ring <= beat:
+        kinds += ['choke', 'snare_kick']
+    k = kinds[int(d() * len(kinds)) % len(kinds)]
+    h = beat // 2
+    land = t
+    if k in ('ssk', 'shfk'):
+        strokes = (_SNARE, _SNARE, _KICK) if k == 'ssk' else \
+            (_SNARE, _HI_TOM, _FLOOR_TOM, _KICK)
+        # the ringing cymbal goes down first: a bar keeps one length per
+        # stroke, and the lick's short kick would clip it
+        bar.add(t, ring, ('u', _CRASH, 110))
+        land = _lick(bar, t, beat, strokes, 110)
+    elif k == 'classic':
+        bar.add(t, ring, ('u', _CRASH, 110))
+        bar.add(t, h, ('u', _KICK, 104))
+        bar.add(t, h, ('u', _SNARE, 94))
+    elif k == 'hat_crash':
+        bar.add(t, ring, ('u', _CRASH, 108))
+        bar.add(t, ring, ('u', _OPEN_HAT, 104))
+        bar.add(t, h, ('u', _KICK, 104))
+    elif k == 'crash_kick':
+        bar.add(t, ring, ('u', _CRASH, 110))
+        bar.add(t, h, ('u', _KICK, 106))
+    elif k == 'crash_floor':
+        bar.add(t, ring, ('u', _CRASH, 108))
+        bar.add(t, beat, ('u', _FLOOR_TOM, 112))
+        bar.add(t, h, ('u', _KICK, 104))
+    elif k == 'hat_kick':
+        bar.add(t, ring, ('u', _OPEN_HAT, 108))
+        bar.add(t, h, ('u', _KICK, 106))
+    elif k == 'choke':
+        bar.add(t, h, ('u', _CRASH, 112, ('staccato',)))
+        bar.add(t, h, ('u', _KICK, 106))
+        bar.add(t, h, ('u', _SNARE, 100))
+    else:                                   # snare and kick, dry
+        bar.add(t, h, ('u', _SNARE, 114))
+        bar.add(t, h, ('u', _KICK, 108))
+    return k
+
+
 def kit_hit(bar, t, beat, d, big=True):
     """One hit the drummer's own way, in the moment (Matthew,
     2026-09-30: "a choke with the cymbal and kick, a snare hit, a hihat
@@ -2087,10 +2151,13 @@ def kit_hit(bar, t, beat, d, big=True):
     # and the toms and the bell (Matthew, 2026-09-30: "or just a tom hit
     # as well... anything. Drummers create melody too")
     kinds = ('crash', 'crash', 'choke', 'snare', 'bark_k', 'bark_s',
-             'bark_ks', 'snare_kick', 'floor', 'toms', 'bell') if big else \
+             'bark_ks', 'snare_kick', 'floor', 'toms', 'bell', 'hat_crash',
+             'ssk', 'shfk') if big else \
         ('choke', 'snare', 'bark_k', 'bark_s', 'bark_ks', 'snare_kick',
-         'crash', 'floor', 'hi_tom', 'toms', 'bell')
+         'crash', 'floor', 'hi_tom', 'toms', 'bell', 'ssk', 'shfk')
     k = kinds[int(d() * len(kinds)) % len(kinds)]
+    if k in ('ssk', 'shfk') and t < 3 * max(beat // 4, 1):
+        k = 'snare_kick'                # no room for a lick into it
     h = beat // 2
     if k == 'crash':
         bar.add(t, beat, ('u', _CRASH, 108))
@@ -2116,6 +2183,15 @@ def kit_hit(bar, t, beat, d, big=True):
     elif k == 'bell':
         bar.add(t, beat, ('u', _BELL, 104))
         bar.add(t, h, ('u', _KICK, 100))
+    elif k == 'hat_crash':                  # open hat, crash and kick
+        bar.add(t, beat, ('u', _OPEN_HAT, 104))
+        bar.add(t, beat, ('u', _CRASH, 106))
+        bar.add(t, h, ('u', _KICK, 102))
+    elif k in ('ssk', 'shfk'):   # "snare snare kick", "snare hi floor kick"
+        if big and d() < 0.5 and t not in bar.onsets:
+            bar.add(t, beat, ('u', _CRASH, 104))     # rings: first down
+        _lick(bar, t, beat, (_SNARE, _SNARE, _KICK) if k == 'ssk' else
+              (_SNARE, _HI_TOM, _FLOOR_TOM, _KICK), 108)
     else:
         bar.add(t, h, ('u', _OPEN_HAT, 104))
         if t + h < bar.barlen:

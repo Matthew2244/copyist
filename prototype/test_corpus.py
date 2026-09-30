@@ -4849,6 +4849,39 @@ def check_band_hears_the_lead():
     check("a melodic drummer plays the figure's shape on the toms: high "
           "tom on its top note, floor tom on its lowest",
           toms == [('E', 5), ('D', 5), ('A', 4)], str(toms))
+    import chartband
+    ev = [(0.5, 0.5, 70, 1, None), (1.0, 0.5, 72, 1, None),
+          (1.5, 0.5, 74, 1, None), (2.0, 0.5, 77, 1, None),
+          (2.5, 0.5, 74, 1, None), (3.0, 1.0, 72, 1, None),
+          (5.5, 0.5, 79, 1, None)]
+    w = chartband._phrasing(ev, [(0, (2 / 3, 1.0))])
+    check("a written line phrased like a player: the peak leaned on, the "
+          "swing's on-beat eighth lighter, the off-beat into a held note "
+          "pushed, the end eased, a lone off-beat hit leaned on",
+          w[3] > 1.0 and w[1] < w[2] and w[4] > 1.1 and w[5] < 1.0
+          and w[6] > 1.1, str([round(x, 2) for x in w]))
+    ev2 = [(0.0, 0.5, 70, 1, {'lead': True}), (0.5, 0.5, 72, 1,
+                                                {'lead': True})]
+    check("a made-up solo is left to shape itself",
+          chartband._phrasing(ev2, []) == [1.0, 1.0])
+    seen = set()
+    for k in range(40):
+        b = chartgroove.Bar(24, (4, 4), 0, 1)
+        kind = chartgroove.final_hit(b, 48, 24, chartgroove._Dice(
+            'final', k), 60)
+        seen.add(kind)
+        rings = any(n[1] in (chartgroove._CRASH, chartgroove._OPEN_HAT)
+                    and ln >= 48 for _t, (ln, ns) in b.onsets.items()
+                    for n in ns)
+        if not rings:
+            break
+    check("the last hit is the drummer's choice every take, and a held "
+          "last chord always rings (crash or open hat)",
+          rings and len(seen) >= 5, str(seen))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    k0 = chartgroove.final_hit(b, 0, 24, lambda: 0.99, 12)
+    check("no lick lands late: a hit on the downbeat never starts one",
+          k0 not in ('ssk', 'shfk') and min(b.onsets) == 0, k0)
     b = chartgroove.Bar(24, (4, 4), 0, 1)
     for m in (60, 64, 70, 74):
         b.add(0, 48, ('p', m, 80))
