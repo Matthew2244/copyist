@@ -798,6 +798,31 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         return chartaudio._sec_of(chartaudio._warp(q, swings),
                                   tempos, holds)
 
+    # a soloist swings flatter than the drummer's ride (Friberg &
+    # Sundstrom 2002; Corcoran & Frieler 2021: soloists near 1.3:1)
+    def _flat(sw):
+        out = []
+        for q, r in sw:
+            if isinstance(r, tuple) and r[0]:
+                ratio = r[0] / (1 - r[0])
+                rs = 1 + (ratio - 1) * 0.35
+                out.append((q, (rs / (1 + rs), r[1])))
+            else:
+                out.append((q, r))
+        return out
+    swings_solo = _flat(swings)
+
+    def sec_solo(q):
+        return chartaudio._sec_of(chartaudio._warp(q, swings_solo),
+                                  tempos, holds)
+
+    def bpm_at(q):
+        got = tempos[0][1] if tempos else 120.0
+        for at, bpm in tempos:
+            if at <= q + 1e-9:
+                got = bpm
+        return got
+
     feels = plan.get('feels', ())
 
     def feel_at(q):
@@ -862,8 +887,18 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         nxt_of = {q: (onsets[k + 1] if k + 1 < len(onsets) else None)
                   for k, q in enumerate(onsets)}
         for i, (q_on, q_dur, midi, gain, art) in enumerate(events):
-            a = sec_of(q_on) + lead
-            b = sec_of(q_on + q_dur) + lead
+            soloing = bool(art and art.get('lead')) and \
+                not part['percussion'] and fam != 'bass'
+            so = sec_solo if soloing else sec_of
+            a = so(q_on) + lead
+            b = so(q_on + q_dur) + lead
+            if soloing and abs(q_on - round(q_on)) < 0.02:
+                # a soloist sits behind on the downbeats, offbeats with
+                # the ride: ~30 ms at 150, more slow, none past ~210
+                # (Nelias et al. 2022, 456 Weimar solos)
+                bpm = bpm_at(q_on)
+                a += max(0.0, min(0.045, 0.030 * (150.0 / bpm) ** 0.8)) \
+                    * max(0.0, min(1.0, (215.0 - bpm) / 65.0))
             d = max(b - a, 0.03)
             g0 = dyn(q_on)
             g1 = dyn(q_on + q_dur)
@@ -878,8 +913,13 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
             a += (h - 0.5) * (0.006 if part['percussion'] else 0.016) * jit
             # where the band sits against the time, when the chart says
             if fk == 'back':
-                a += 0.006 if part['percussion'] else \
-                    0.012 if fam == 'bass' else 0.022
+                # laid back the way players mean it: the soloist and
+                # horns well behind (50-80 ms in the literature), the
+                # comping less, the bass and drums nearly with the time
+                a += 0.005 if part['percussion'] else \
+                    0.014 if fam == 'bass' else \
+                    0.030 if fam in ('piano', 'organ', 'guitar') else \
+                    0.060
             elif fk == 'push':
                 a -= 0.003 if part['percussion'] else \
                     0.005 if fam == 'bass' else 0.010

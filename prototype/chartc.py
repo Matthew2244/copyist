@@ -3113,6 +3113,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
              for l in labels if l not in groups.get('rhythm', ())
              and horn_of.get(l) and horn_of[l].get('clef') != 'percussion'],
             key=lambda x: -x[2])
+        sh['inst'] = {b['label']: canonical_instrument(b['instrument'])
+                      for b in band}
+        # who soloed: they're the ones who blow over a held last chord
+        sh['soloists'] = sorted({l for p_ in plans for l in labels
+                                 if any(isinstance(t[1], str) and
+                                        t[1].lower().startswith('solo')
+                                        for t in p_['texts'].get(l, ()))})
         if sh.get('cadenza') == 'lead':
             # 'cadenza' with nobody named: the top voice on the stand
             sh['cadenza'] = sh['voices'][0][0] if sh['voices'] else None

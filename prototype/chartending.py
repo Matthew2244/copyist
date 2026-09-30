@@ -601,11 +601,41 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                     b.add(land, max(1, stop - land), ('p', p, 100))
             return
         lead = bool(order) and label == order[0]
-        hold_p = 0.55 if lead else 0.35
-        if r < hold_p:
+        inst = sh.get('inst', {}).get(label, '')
+        # sections mostly hold; the tune's soloists and the lead blow
+        # over it; trumpets shake, saxes trill (live, in the moment —
+        # the research and Matthew agree)
+        soloed = label in sh.get('soloists', ())
+        blow_p = 0.6 if soloed else 0.3 if lead else 0.12
+        shake_p = 0.35 if 'trumpet' in inst or 'flugel' in inst or \
+            'cornet' in inst else 0.25 if 'trombone' in inst else 0.0
+        trill_p = 0.3 if 'sax' in inst or 'clarinet' in inst or \
+            'flute' in inst else 0.0
+        if r < blow_p and chord:
+            kind = 'blow'
+        elif r < blow_p + shake_p:
+            kind = 'shake'
+        elif r < blow_p + shake_p + trill_p:
+            kind = 'trill'
+        else:
+            kind = 'hold'
+        if kind == 'hold':
+            top_up = lead and 'trumpet' in inst and dm() < 0.35
             for p in vs:
-                b.add(land, max(1, stop - land), ('p', p, 102))
-        elif r < hold_p + 0.4 and chord:
+                # the lead trumpet may go for a screamer an octave up
+                b.add(land, max(1, stop - land),
+                      ('p', p + (12 if top_up else 0), 104))
+        elif kind == 'trill':
+            step = max(beat // 6, 2)
+            for p in vs:
+                b.add(land, beat // 2, ('p', p, 102))
+                up = p + (2 if dm() < 0.6 else 1)
+                t, k = land + beat // 2, 0
+                while t < stop - step:
+                    b.add(t, step, ('p', up if k % 2 == 0 else p, 96))
+                    t += step
+                    k += 1
+        elif kind == 'blow':
             # blowing over it: lines, fast, in this player's range
             for p in vs:
                 b.add(land, beat // 2, ('p', p, 104))
@@ -696,6 +726,21 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                 f'        <duration>{ticks}</duration>\n'
                 '        <voice>1</voice>\n      </note>\n')
 
+    def falls_off():
+        """Does this player fall off the last hit? What the roadmap says
+        stands; otherwise it's their call in the moment, and once in a
+        while the whole band does it (Matthew, 2026-09-30: "someone may
+        choose to fall off of whatever the last note ... that could be
+        anyone ... everyone might decide in the moment to fall")."""
+        if sh['arts'].get(label):
+            return sh['arts'][label] == 'falloff'
+        if drums or role == 'perc' or sh.get('no_falls'):
+            return False
+        if G._Dice(song, 'everyone falls')() < 0.12:
+            return True
+        p_ = 0.35 if role == 'comp' else 0.2 if role == 'bass' else 0.28
+        return G._Dice(song, label, 'falls off')() < p_
+
     def hit_body(length):
         b = bar_of(length)
         at = late(beat * 0.12)
@@ -709,8 +754,15 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         elif role == 'perc':
             b.add(at, short, ('u', ('C', 5, 'normal'), 94))
         elif pitches:
+            fall = falls_off()
+            keys = role == 'comp' and 'guitar' not in sound_id
+            fa = arts or (('falloff',) if fall and not keys else ())
+            ln_ = max(short, beat) if fa else short
             for p in pitches:
-                b.add(at, short, ('p', p, 98, arts))
+                b.add(at, min(ln_, b.barlen - at), ('p', p, 98, fa))
+            if fall and keys:
+                _gliss_down(b, beat, at + beat // 3, max(pitches),
+                            b.barlen)
         return b.xml() or rest(b.barlen)
 
     extras = []
@@ -735,9 +787,9 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                     n_alone = sum(1 for kk, _k, _l in clock['dictate']
                                   if kk == 'alone')
                     arc = alone_i / max(n_alone - 1, 1)
-                    pool = ('space', 'roll', 'talk') if arc < 0.35 else \
-                        _SOLO_IDEAS if arc < 0.8 else \
-                        ('toms', 'triplets', 'talk', 'roll')
+                    pool = ('motif', 'space', 'talk', 'roll') if arc < 0.35 \
+                        else _SOLO_IDEAS if arc < 0.8 else \
+                        ('toms', 'triplets', 'talk', 'motif')
                     cue = _pick(dd, _CUES, last_cue)
                     last_cue = cue
                     cl = _CUE_LEN[cue] * beat
@@ -752,7 +804,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                         last_idea = idea
                         _drum_idea(b, beat, c0, c1, idea, dd)
                     # soft and patient early, the big one last
-                    _scale_vel(b, 0, end, 0.62 + 0.45 * arc)
+                    _scale_vel(b, 0, end, 0.86 + 0.24 * arc)
                     _drum_cue(b, beat, L - cl, L, cue, dd)
                 elif role == 'perc':
                     _roll(b, beat, 0, L, ('C', 5, 'normal'), 40, 90)
@@ -817,8 +869,14 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         elif role == 'perc':
             b.add(at, beat // 2, ('u', ('C', 5, 'normal'), 96))
         else:
-            for p in voice_for(chord):
-                b.add(at, ring, ('p', p, 106, arts))
+            vs = voice_for(chord)
+            fall = falls_off()
+            keys = role == 'comp' and 'guitar' not in sound_id
+            fa = arts or (('falloff',) if fall and not keys else ())
+            for p in vs:
+                b.add(at, max(ring, beat) if fa else ring, ('p', p, 106, fa))
+            if fall and keys and vs:
+                _gliss_down(b, beat, at + beat // 3, max(vs), b.barlen)
         extras.append(attrs(hl) + (b.xml() or rest(hl)))
     elif sh['stop']:
         if hitting:
@@ -953,7 +1011,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         extras[k:k] = ins
     if sh['tag']:
         who, pieces = sh['tag']
-        length = 6 * beat
+        length = 4 * beat
         if label == who or (drums and who.lower() in ('drums', 'drummer',
                                                       'kit')):
             extras.append(attrs(length) + _tag(bar_of(length), beat,
@@ -994,9 +1052,9 @@ def _fill(bar, beat, t0, t1, seed):
 
 
 _TOMS = [('E', 5, 'normal'), ('D', 5, 'normal'), ('A', 4, 'normal')]
-_SOLO_IDEAS = ('roll', 'toms', 'talk', 'space', 'triplets')
-_CUES = ('three', 'count', 'setup', 'flam')
-_CUE_LEN = {'three': 1, 'count': 2, 'setup': 1, 'flam': 1}
+_SOLO_IDEAS = ('motif', 'roll', 'toms', 'talk', 'space', 'triplets')
+_CUES = ('three', 'count', 'setup', 'flam', 'swell')
+_CUE_LEN = {'three': 1, 'count': 2, 'setup': 1, 'flam': 1, 'swell': 2}
 
 
 def _pick(d, pool, last):
@@ -1014,7 +1072,26 @@ def _drum_idea(bar, beat, t0, t1, idea, d):
     take their time"): a roll that builds, a tom melody, snare and kick
     talking, big hits with space, triplets around the kit."""
     span = max(t1 - t0, 1)
-    if idea == 'roll':
+    if idea == 'motif':
+        # one idea, worked: a short cell stated, said again, then moved
+        # around the kit and stretched — not a stream of notes
+        q = beat // 4
+        cell = sorted({int(d() * 4) * q, int(d() * 4) * q,
+                       int(d() * 4) * q})
+        voices = [G._SNARE, _TOMS[0], _TOMS[1], _TOMS[2]]
+        rep, t = 0, t0
+        while t < t1 - q:
+            v = voices[(rep // 2) % 4] if rep else G._SNARE
+            for c in cell:
+                if t + c < t1:
+                    bar.add(t + c, q, ('u', v, 92 + 6 * (rep % 3)))
+            bar.add(t, q, ('u', G._KICK, 90))
+            # the answer leaves space; the development fills a little
+            t += beat * (2 if rep % 2 else 1)
+            rep += 1
+            if rep == 4:
+                cell = sorted(set(cell + [cell[-1] + q]))
+    elif idea == 'roll':
         _roll(bar, beat, t0, t1, G._SNARE, 40, 100)
         for t in range(t0 + beat, t1, beat):
             if d() < 0.3:
@@ -1092,6 +1169,10 @@ def _drum_cue(bar, beat, t0, t1, cue, d):
         at = t1 - beat // 2
         bar.add(at, beat // 2, ('u', G._SNARE, 116))
         bar.add(at, beat // 2, ('u', G._KICK, 110))
+    elif cue == 'swell':
+        # a crescendo roll right into the chord
+        _roll(bar, beat, t0, t1 - beat // 8, G._SNARE, 50, 120)
+        bar.add(t1 - beat // 4, beat // 4, ('u', G._KICK, 108))
     else:                                     # flam
         at = t1 - beat
         bar.add(at, beat // 8, ('u', G._SNARE, 70))
@@ -1157,6 +1238,21 @@ def _gliss(bar, beat, land, pitches, me, t1):
             break
         bar.add(at, max(int(step * 2), 2),
                 ('p', m, int(60 + 30 * i / len(keys))))
+
+
+def _gliss_down(bar, beat, t0, top, t1):
+    """Keys fall off the last chord: a palm down the white keys from the
+    top of the chord, an octave and a half or so, quick and loosening."""
+    white = (0, 2, 4, 5, 7, 9, 11)
+    keys = [m for m in range(top, top - 20, -1) if m % 12 in white]
+    span = beat * 0.7
+    step = span / max(len(keys), 1)
+    for i, m in enumerate(keys):
+        at = int(t0 + i * step * (1 + 0.5 * i / len(keys)))
+        if at >= t1:
+            break
+        bar.add(at, max(int(step * 2), 2),
+                ('p', m, int(92 - 40 * i / len(keys))))
 
 
 def band_choice(feel, song, has_keys, has_horns, written=None,
@@ -1248,13 +1344,13 @@ def _tag(bar, beat, pieces, song):
     d = G._Dice(song, 'tag')
     if not pieces:
         pieces = band_tag(d)
-    # a real breath after the band's hit, then unhurried strokes, the
-    # last gap the longest, landing on the kick (Matthew: "everyone
-    # relax, take your time ... even the max roach thing")
-    t = beat * (0.9 + 0.8 * d())
+    # straight in after the band's hit, committed, each stroke given
+    # its room and the last one landing on the kick (Matthew: "relax as
+    # in don't rush your ideas ... still go for it")
+    t = beat * (0.35 + 0.35 * d())
     n = len(pieces)
     for i, p in enumerate(pieces):
-        vel = 84 + int(20 * (i + 1) / n) + int((d() - 0.5) * 8)
-        bar.add(int(t), beat // 2, ('u', _KIT[p], vel))
-        t += beat * (0.42 + 0.2 * d() + (0.3 if i == n - 2 else 0))
+        vel = 94 + int(18 * (i + 1) / n) + int((d() - 0.5) * 8)
+        bar.add(int(t), beat // 2, ('u', _KIT[p], min(vel, 124)))
+        t += beat * (0.36 + 0.16 * d() + (0.18 if i == n - 2 else 0))
     return bar.xml()

@@ -6020,6 +6020,28 @@ def check_endings_in_the_moment():
     last = max(ev["bass"], key=lambda e: e[0])
     check("a held last hit rings under its fermata", last[1] >= 3.0,
           last[:2])
+    # anyone may fall off the last hit, in the moment: across tunes the
+    # piano sometimes hits and slides off, sometimes doesn't
+    slid = []
+    for n in range(8):
+        open(os.path.join(tmp, "e.chart"), "w").write(
+            f"title: Fall {n}\nkey: Bb\nmeter: 4/4\ntempo: 160\n"
+            "feel: swing\n\nband:\n  piano\n  bass\n  drums\n\n"
+            "section A, 4 bars\n  chords: Bb6, G7, Cm7 F7, Bb6\n"
+            "  ending: hold, last hit\n")
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(os.path.join(tmp, "e.chart"),
+                                 os.path.join(tmp, "fb"))
+        fl = chartaudio.parse_score(os.path.join(
+            tmp, "fb", f"Fall {n} — for listening.musicxml"))
+        pn = sorted(e for p in fl["parts"] if p["name"] == "piano"
+                    for e in p["events"])
+        hit_t = max(e[0] for p in fl["parts"] if p["name"] == "bass"
+                    for e in p["events"])
+        after = [e[2] for e in pn if e[0] > hit_t + 0.2]
+        slid.append(len(after) >= 5 and after[0] > after[-1])
+    check("in the moment, the keys sometimes fall off the last hit",
+          any(slid) and not all(slid), slid)
     # a transposing horn noodles and takes its cadenza in the tune's
     # key, at a speed a player plays (both were a major sixth off on
     # alto, and in thirty-seconds)
