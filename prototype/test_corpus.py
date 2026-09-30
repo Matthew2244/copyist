@@ -5058,6 +5058,15 @@ def check_band_hears_the_lead():
     check("the ending plays unison, drum solo, the held chord, the hit",
           len(set(ext)) == 4 and "drum solo, out of time" in buf.getvalue(),
           str(ext))
+    kinds_ = set()
+    for k in range(60):
+        b = chartgroove.Bar(24, (4, 4), 0, 1)
+        kinds_.add(chartgroove.land_hit(b, 0, 24, chartgroove._Dice(
+            'land', k)))
+    check("a fill lands the drummer's way: crash and snare, open hat and "
+          "snare, open hat and kick, not only crash and kick",
+          {'crash_snare', 'hat_snare', 'hat_kick', 'crash_kick'} <= kinds_,
+          str(kinds_))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

@@ -2200,6 +2200,31 @@ def _lick(bar, t, beat, strokes, vel):
     return min(start + (len(strokes) - 1) * u, bar.barlen - 1)
 
 
+def land_hit(bar, t, beat, d, crash_only=False):
+    """Where a fill lands, the drummer's way (Matthew, 2026-09-30: "not
+    need to end with crash cymbal and kick... crash cymbal and snare,
+    open hat and snare, open hat and kick, etc")."""
+    kinds = ['crash_kick', 'crash_snare', 'hat_snare', 'hat_kick',
+             'crash_snare_kick', 'hat_crash_kick', 'choke_snare',
+             'snare_kick']
+    if crash_only:
+        kinds = ['crash_kick', 'crash_snare', 'crash_snare_kick',
+                 'hat_crash_kick']
+    k = kinds[int(d() * len(kinds)) % len(kinds)]
+    h = beat // 2
+    if 'crash' in k and 'choke' not in k:
+        bar.add(t, beat, ('u', _CRASH, 108))
+    if k.startswith('hat'):
+        bar.add(t, beat, ('u', _OPEN_HAT, 104))
+    if k == 'choke_snare':
+        bar.add(t, h, ('u', _CRASH, 110, ('staccato',)))
+    if 'snare' in k:
+        bar.add(t, h, ('u', _SNARE, 108))
+    if 'kick' in k:
+        bar.add(t, h, ('u', _KICK, 102))
+    return k
+
+
 def final_hit(bar, t, beat, d, ring):
     """The band's last hit, the drummer's way in the moment (Matthew,
     2026-09-30: "open hat and kick, or open hat, crash cymbal and kick
@@ -2354,6 +2379,23 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
         # nothing but the change in what they play
         md = _Dice('mark', absbar, sec.get('name'))
         r = md()
+        late = state.pop('land_late', None)
+        if landing and late:
+            # the fill carried over the barline: it keeps going to its
+            # landing on the 'and' of one or on two
+            time_after = {t: v for t, v in bar.onsets.items() if t > late}
+            _fill(bar, state.get('last_fill') or 'toms_down', 0, 0.8, md)
+            for t in [t for t in bar.onsets if t >= late]:
+                del bar.onsets[t]
+            bar.onsets.update(time_after)     # and the time picks up
+            land_hit(bar, late, beat, md)
+            landing, r = False, 1.0
+        elif landing and landing != 'break' and r < 0.8:
+            land_hit(bar, 0, beat, md)
+            landing, r = False, 1.0
+        elif landing == 'break':
+            land_hit(bar, 0, beat, md, crash_only=True)
+            landing, r = False, 1.0
         crash = 1.0 if landing == 'break' else 0.55 if landing else 0.45
         if r < crash:
             bar.add(0, beat, ('u', _CRASH, int(88 + 20 * heat)))
@@ -2426,7 +2468,19 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
             beats = 2 if (heat > 0.65 or last_of_turn) and d() < 0.55 \
                 else 1
             _fill(bar, kind, (bar.num - beats) * beat, heat, d)
-            state['crash_next'] = True     # and land it on the one
+            # where it lands is the drummer's call: on the one, early on
+            # the 'and' of four, or late into the next bar (Matthew,
+            # 2026-09-30: "not every fill needs to end on the downbeat")
+            wl = d()
+            if wl < 0.25:
+                t_ = bar.barlen - half
+                for t in [t for t in bar.onsets if t >= t_]:
+                    del bar.onsets[t]
+                land_hit(bar, t_, beat, d)
+            else:
+                state['crash_next'] = True     # and land it
+                if wl > 0.72:
+                    state['land_late'] = half if d() < 0.5 else beat
         elif r < 0.75:
             # the setup: snare and kick on the and of four
             t = (bar.num - 1) * beat + half

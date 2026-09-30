@@ -820,6 +820,13 @@ All of these ride on a `from demo` line, after commas:
   playing, nothing the piano makes up goes below C3; with the bass out,
   the whole keyboard is the pianist's. The organ, which may be playing
   the bass itself, keeps its pedals.
+- **Fills land anywhere.** A phrase-end fill lands where the drummer
+  feels it: on the one, early on the 'and' of four, or late, carried
+  over the barline onto the 'and' of one or beat two, the time picking
+  up after. The landing is the drummer's call too: crash and kick,
+  crash and snare, open hat and snare, open hat and kick, open hat with
+  crash and kick, a choke with snare, snare and kick. A fill the chart
+  writes lands where the chart says.
 - **The drummer welcomes people in,** like an audience clapping: when
   a soloist starts (the first one too) and when the band arrives in a
   new section, more likely the bigger the arrival (a shout chorus):
@@ -867,8 +874,8 @@ All of these ride on a `from demo` line, after commas:
   (one short figure the whole section shares), `backgrounds punches`,
   and `on cue` after any of them waits for the second half.
 - **Trading.** `trade 4s: trumpet, tenor, drums` (or `trading eights`,
-  `trade 2s between alto and bone`, just `trade 4s` for everybody: the
-  horns, voices, chord players and the drums) turns a solo section into
+  `trade 2s between alto and bone`, just `trade 4s` for everybody:
+  anyone in the band, bass and percussion too) turns a solo section into
   turns of that many bars, around and around in the order named. Each
   turn opens by answering what the last player just played; on the
   drummer's turn the whole band lays out, the classic fours with the

@@ -429,11 +429,8 @@ def resolve_trades(chart, band, groups):
                 continue
             if piece in ('everybody', 'everyone', 'all', 'the band',
                          'band', 'us', 'all of us'):
-                who += [l for l in labels if l not in who and (
-                    chartgroove.role_of((SOUNDS.get(inst(l)) or ('', ''))[1],
-                                        (HORNS.get(inst(l)) or {}).get(
-                                            'clef', 'G'))
-                    in (None, 'comp', 'drums'))]
+                # anyone can trade (Matthew, 2026-09-30)
+                who += [l for l in labels if l not in who]
                 continue
             if piece in ('drums', 'drummer', 'kit'):
                 who += [d for d in drums if d not in who]
@@ -447,11 +444,8 @@ def resolve_trades(chart, band, groups):
                      "called that")
             if hit not in who:
                 who.append(hit)
-        if not who:                          # "trade 4s": everybody
-            who = [l for l in labels if chartgroove.role_of(
-                (SOUNDS.get(inst(l)) or ('', ''))[1],
-                (HORNS.get(inst(l)) or {}).get('clef', 'G'))
-                in (None, 'comp', 'drums')]
+        if not who:                          # "trade 4s": anyone
+            who = list(labels)
         if len(who) < 2:
             fail(f"{loc}: trading takes two players or more")
         sec['trade'] = (n, who, loc)
