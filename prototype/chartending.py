@@ -461,19 +461,20 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                 _roll(b, beat, beat, let_go, ('C', 5, 'normal'), 48, 104)
         elif pitches:
             if label in sh['noodle']:
-                for p in pitches:
-                    b.add(land, beat, ('p', p, 94))
+                for p in pitches[:1]:            # a horn lands one note
+                    b.add(land, beat * 9 // 10 - land, ('p', p, 94))
                 nb = bar_of(L)
                 lo = min(pitches) - 2
                 G.improvise(nb, {'sol_last': max(pitches)},
                             [(1.0, chord)] if chord else [], None, '',
                             lo, lo + 19, 9000, 1, 2, seed, mode='solo')
-                for t, (ln, ns) in sorted(nb.onsets.items()):
-                    if beat <= t < let_go:
-                        for nn in ns:
-                            b.add(t + late(beat * 0.08),
-                                  min(ln, let_go - t),
-                                  ('p', nn[1], min(nn[2], 82)))
+                line = [(t + late(beat * 0.08), min(ln, let_go - t),
+                         nn[1], min(nn[2], 82))
+                        for t, (ln, ns) in sorted(nb.onsets.items())
+                        if beat <= t < let_go for nn in ns]
+                # one horn, one note at a time, over the held chord
+                for at_, ln_, m_, v_ in G._one_voice(line):
+                    b.add(int(at_), max(int(ln_), 1), ('p', m_, v_))
             elif sh['trash']:
                 _trash_pitched(b, beat, pitches, role, let_go)
             else:
