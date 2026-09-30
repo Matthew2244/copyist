@@ -5979,6 +5979,11 @@ def check_endings_in_the_moment():
           "and everyone on the hit",
           len(cad) >= 6 and not others and len(fill) >= 4,
           (len(cad), others[:3], len(fill)))
+    pl = build("hold, drums fill, last hit, hold it")
+    ev = {p["name"]: sorted(p["events"]) for p in pl["parts"]}
+    last = max(ev["bass"], key=lambda e: e[0])
+    check("a held last hit rings under its fermata", last[1] >= 3.0,
+          last[:2])
     # a transposing horn noodles and takes its cadenza in the tune's
     # key, at a speed a player plays (both were a major sixth off on
     # alto, and in thirty-seconds)

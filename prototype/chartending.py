@@ -58,6 +58,9 @@ _STEP_WORDS = [
     ('hold', r'hold(?: it| the (?:last )?chord| out)?|fermata|'
              r'let (?:it )?ring|ring out'),
     ('button', r'button|stinger'),
+    ('hitheld', r'(?:the )?(?:last |final )?hit,? (?:and )?(?:hold(?: it)?|'
+                r'held|let (?:it )?ring|ring)|(?:the )?(?:last |final )?'
+                r'hit with a fermata|held (?:last |final )?hit'),
     ('hit', r'(?:the )?(?:last |final )?(?:hit|cut ?off|cut it off)'),
     ('asis', r'as written|none|no ending|just stop|nothing|'
              r'play it as written'),
@@ -228,7 +231,12 @@ def parse(text, labels, groups=None):
             continue
         for kind, rx in _STEP_WORDS:
             if re.fullmatch(rx, w, re.I):
-                if kind == 'watch':
+                if kind == 'hitheld':
+                    steps.append(('hit', 'held'))
+                elif kind == 'hold' and steps and steps[-1][0] == 'hit':
+                    # 'last hit, hold it': the hit itself rings
+                    steps[-1] = ('hit', 'held')
+                elif kind == 'watch':
                     steps.append((kind, w.lower()))
                 else:
                     steps.append((kind, 'cue' if cue else None))
@@ -284,7 +292,8 @@ def shape(steps, labels=(), groups=None):
             'cadenza': cadenza, 'fill_after': fill_after,
             'count': 'count' in kinds or bool(dictate),
             'hit_cue': any(k in ('hit', 'button', 'trash') and a == 'cue'
-                           for k, a in steps)}
+                           for k, a in steps),
+            'hit_held': any(k == 'hit' and a == 'held' for k, a in steps)}
 
 
 def words(steps):
@@ -325,6 +334,8 @@ def words(steps):
             who, pieces = a
             w = f"{who} tag" + (f" ({', '.join(pieces)})" if pieces
                                 else '')
+        if k == 'hit' and a == 'held':
+            w = 'last hit, held'
         if a == 'cue' and k in ('hit', 'button', 'trash', 'hold', 'stop'):
             w += ' on cue'
         out.append(w)
@@ -525,7 +536,10 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
     def hit_body(length):
         b = bar_of(length)
         at = late(beat * 0.12)
-        short = beat // 2
+        # a held hit rings under its fermata, everyone letting go
+        # together-ish; a plain one is short
+        short = (b.barlen - at - late(beat * 0.3) - beat // 4) \
+            if sh.get('hit_held') else beat // 2
         if drums:
             for dr, v in ((G._CRASH, 100), (G._KICK, 94), (G._SNARE, 86)):
                 b.add(at, short, ('u', dr, v))
@@ -538,6 +552,9 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
 
     extras = []
     last = None
+    hl = int(beat * (4 + 2 * G._Dice(song, 'held hit')())) * 4 // 4 \
+        if sh.get('hit_held') else 2 * beat     # how long a held hit rings
+    hl = int(round(hl * 4 / beat)) * beat // 4
     if clock.get('dictate'):
         # the tune's last bar plays as it is; then the drummer's show
         dchords = sh['dictate_chords']
@@ -645,12 +662,12 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                 _gliss(b, beat, land, pitches, me, let_go)
         last = attrs(L) + (b.xml() if b.onsets else rest(L))
         if sh['hit']:
-            extras.append(attrs(2 * beat) + (hit_body(2 * beat) if hitting
-                                             else rest(2 * beat)))
+            extras.append(attrs(hl) + (hit_body(hl) if hitting
+                                       else rest(hl)))
     elif sh['hit']:
         # a button: one short hit straight after the last bar
-        extras.append(attrs(2 * beat) + (hit_body(2 * beat) if hitting
-                                         else rest(2 * beat)))
+        extras.append(attrs(hl) + (hit_body(hl) if hitting
+                                   else rest(hl)))
     elif arts and pitches:
         # no hold, no hit: the last note carries the fall or doit
         b = bar_of(num * beat)
@@ -874,7 +891,11 @@ def band_choice(feel, song, has_keys, has_horns, written=None,
         elif r2 < 0.68 and has_keys:
             steps[at:at] = [('gliss', None)] + ([] if trash
                                                 else [('fill', None)])
-    if hit and d() < 0.3:
+    if held and hit and d() < 0.25:
+        # and sometimes the last hit rings, fermata, instead of cutting
+        steps = [('hit', 'held') if k == 'hit' else (k, a)
+                 for k, a in steps]
+    elif hit and d() < 0.3:
         steps.append(('tag', ('drums', None)))
     return steps
 

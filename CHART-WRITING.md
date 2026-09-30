@@ -736,7 +736,8 @@ All of these ride on a `from demo` line, after commas:
   chord), `piano gliss` / `organ gliss` (a sweep up the keys into the
   last hit while the band holds; with a drum fill they land it
   together), `<part> falls` (or doits,
-  scoops, plops; a group or `everyone` too), `last hit` (`on cue`),
+  scoops, plops; a group or `everyone` too), `last hit` (`on cue`, or
+  `last hit, hold it` to let it ring under a fermata),
   `button`, `cold`, `rit`, `fade`, `drums tag` (the drummer's own
   little thing after the last note, or spelled out in quotes), `drums
   dictate` (the drummer plays alone, the band hits a chord on the
