@@ -2667,6 +2667,43 @@ def _sing(notes, voice, d, lo=0, hi=127):
     return [tuple(n) for n in out]
 
 
+def _blue_ok(c):
+    """Where a blue note belongs: a dominant, a minor, a plain triad."""
+    q = c[2] or 'maj'
+    return not (q.startswith('maj') and q != 'maj' or q in ('6', '69'))
+
+
+def _knows_the_changes(notes, chord_fn):
+    """The last word on a made-up solo: every note fits the chord under
+    it (its scale, its tones, a blue note where the blues belongs) or is
+    a chromatic approach, a step from where the line goes next. Anything
+    else moves to the nearest note that fits."""
+    out = []
+    for i, n in enumerate(notes):
+        at, p = n[0], n[2]
+        c = chord_fn(at)
+        if c is None:
+            out.append(n)
+            continue
+        root = _root_pc(c)
+        ok = {x % 12 for x in _scale(c)} | {x % 12 for x in _tones(c)}
+        if _blue_ok(c):
+            q = c[2] or 'maj'
+            minor = q.startswith('m') and not q.startswith('maj')
+            ok |= {6} if minor else {3, 6}
+        rel = (p - root) % 12
+        nxt = notes[i + 1] if i + 1 < len(notes) else None
+        if rel in ok or (nxt is not None and 0 < abs(nxt[2] - p) <= 2
+                         and nxt[0] - at <= 1.0):
+            out.append(n)
+            continue
+        cands = [m for m in range(p - 2, p + 3)
+                 if (m - root) % 12 in ok]
+        q_ = min(cands, key=lambda m: (abs(m - p), m)) if cands else p
+        out.append((n[0], n[1], q_) + tuple(n[3:]))
+    return out
+
+
 def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
               voice='horn', echo=None, start_after=0.0,
               next_soloist=False, persona=None, breaks=()):
@@ -3028,18 +3065,24 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
         elif kind == 'line':
             cur = eighth_line(t, length, a, cur, v, c0)
         elif kind == 'riff':
-            c = c0
-            root = _root_pc(c)
-            top = fit(snap(cur + 5, c, _tones(c)), a)
-            cell = [(0.0, top), (0.5, scale_move(top, -1, c)),
-                    (1.0, snap(top - 3, c, _tones(c)))]
-            if persona == 'bluesy':
-                # the blues lick: the minor third bent up to the major,
-                # home to the root
-                r0 = fit(_near(root, cur), a)
-                cell = [(0.0, r0 + 3), (0.5, r0 + 4), (1.0, r0),
-                        (1.5, r0 - 2)]
+            top = fit(snap(cur + 5, c0, _tones(c0)), a)
             for r in range(3):
+                # the riff follows the changes: each time round it sits
+                # on the chord sounding then (it used to keep the first
+                # chord's notes over the next one — "it didn't know any
+                # of the chord changes", Matthew, 2026-09-30)
+                c = chord_fn(t + r * 2.0) or c0
+                root = _root_pc(c)
+                top = fit(snap(top, c, _tones(c)), a)
+                cell = [(0.0, top), (0.5, scale_move(top, -1, c)),
+                        (1.0, snap(top - 3, c, _tones(c)))]
+                if persona == 'bluesy' and _blue_ok(c):
+                    # the blues lick: the minor third bent up to the
+                    # major, home to the root — over a dominant, a minor
+                    # or a plain triad, never over a major seventh
+                    r0 = fit(_near(root, cur), a)
+                    cell = [(0.0, r0 + 3), (0.5, r0 + 4), (1.0, r0),
+                            (1.5, r0 - 2)]
                 for on, q in cell:
                     at = t + r * 2.0 + on
                     if at < min(t + length, total):
@@ -3150,7 +3193,8 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
         cur = before[-1][2] if before else int(lo + (hi - lo) * 0.6)
         eighth_line(b0 + 0.5, b1 - b0 - 0.5, 'peak', cur, 96,
                     chord_fn(b0 + 0.5) or chord_fn(b0))
-    return _sing(_one_voice(notes), voice, d, lo, hi)
+    return _sing(_knows_the_changes(_one_voice(notes), chord_fn),
+                 voice, d, lo, hi)
 
 
 def play_planned(bar, plan, pos, bar_beats):

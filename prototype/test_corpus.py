@@ -4731,6 +4731,18 @@ def check_band_hears_the_lead():
     b = chartgroove.Bar(24, (4, 4), 0, 1)
     b.add(0, 48, ('p', 69, 80))
     b._hear_the_lead([(0.5, 1.0, 70)])
+    fn = lambda t: ('B', -1, 'maj7', None) if t < 3 else \
+        ('A', 0, 'm7', None)
+    got = chartgroove._knows_the_changes(
+        [(0.0, 1.0, 68, 80), (3.0, 0.5, 70, 80), (3.5, 0.5, 69, 80)], fn)
+    check("a soloist's Ab over Bbmaj7 moves to a note that fits; a Bb "
+          "stepping into the A over Am7 stays, it's an approach",
+          got[0][2] in (67, 69) and [n[2] for n in got[1:]] == [70, 69],
+          str(got))
+    check("the blues lick waits for a chord it belongs on",
+          chartgroove._blue_ok(('B', -1, '7', None))
+          and chartgroove._blue_ok(('C', 0, 'm7', None))
+          and not chartgroove._blue_ok(('B', -1, 'maj7', None)))
     check("a passing eighth off the beat is not voiced around",
           [n[1] for n in b.onsets[0][1]] == [69])
     sec = chartc.section_header("vamp", ", 2 bars, vamp 4 times", "t")

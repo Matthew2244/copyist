@@ -699,7 +699,10 @@ All of these ride on a `from demo` line, after commas:
   comping at once muddy the changes; the findings say so, and `vibes:
   groove` puts them back in). A vibes, marimba or guitar solo is a
   single line; only a pianist or organist keeps a left hand under the
-  solo.
+  solo. Every made-up solo knows the changes: each note fits the chord
+  under it or steps into the next one as an approach, a riff moves with
+  the chords as they go by, and a blues lick waits for a chord it
+  belongs on (a dominant, a minor, a plain triad, never a major 7th).
 - **The band plays like professionals.** Every chair is levelled
   before the mix (the libraries differ by as much as 45 dB raw), then
   set the way an engineer would: horns out front, trumpet just over the
