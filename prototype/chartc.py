@@ -2143,7 +2143,11 @@ def compile_chart(chart_path, outdir):
                                for i in played if i.get('src_label')})
                 ex = sorted({i['exploded'] for i in played
                              if i.get('exploded')})
-                if ex:
+                so = sorted({i['soli'] for i in played if i.get('soli')})
+                if so:
+                    what = ("soli under the " + " and ".join(so)
+                            + ", voiced from the changes")
+                elif ex:
                     what = "exploded from the " + " and ".join(ex)
                 elif srcs:
                     what = "doubles the " + " and ".join(srcs)
@@ -2428,6 +2432,28 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                              "range")
             if div_word:
                 plan['texts'][target].append((1, 'div.'))
+    # ---- soli: a written lead voiced down through the section from the
+    # chord symbols (four-way close, drop 2 for four voices or more)
+    for plan in plans:
+        for target, (srcl, k, n, style, loc) in plan.get('soli',
+                                                          {}).items():
+            if srcl not in labels:
+                fail(f"{loc}: '{srcl}' is not a band part to voice under")
+            items = [i for i in resolved[srcl] if i['plan'] is plan]
+            if not items:
+                fail(f"{loc}: nothing to voice — '{srcl}' has no written "
+                     "line in this section")
+            fold = (horn_of.get(target) or {}).get('fold')
+            moved = []
+            for i in items:
+                r = soli_res(i['res'], k, n, style, plan, chart, fold,
+                             moved)
+                resolved[target].append(dict(i, res=r, cue=False,
+                                             src_label=None, soli=srcl))
+            if moved:
+                findings.add(f"{target}: soli under the {srcl}, "
+                             f"{len(moved)} note(s) moved an octave into "
+                             "range")
     # ---- double and cue: another part's resolved line joins this one.
     # It re-renders with the TARGET's transposition and key, so a
     # doubled line is written for the player who now plays it; a cue
@@ -2583,6 +2609,93 @@ def harmonize_res(res, steps, key):
     return map_res(res, move)
 
 
+def soli_res(res, k, n, style, plan, chart, fold=None, moved=None):
+    """Voice k of n under a lead line (voice 0 is the lead itself): at
+    each note, the chord sounding there as four notes; a chord tone in
+    the lead is voiced close below it, a passing tone in parallel scale
+    thirds; drop 2 (the second voice down an octave) for four voices or
+    more unless 'close' was asked. A note past the chair's range moves
+    an octave in."""
+    import chartgroove as G
+    meters = chart.get('meters') or [(1, (4, 4))]
+    DIVQ = 24
+
+    def chord_at(tick):
+        absbar = res['at']
+        t = tick
+        while True:
+            num, den = meter_at(meters, absbar)
+            bt = DIVQ * 4 * num // den
+            if t < bt:
+                break
+            t -= bt
+            absbar += 1
+        off = absbar - plan['start']
+        beat = t / DIVQ + 1
+        rows = plan['sec']['content']
+        c = None
+        for o in range(0, min(off, len(rows) - 1) + 1):
+            for b_, cc in rows[o]:
+                if cc is not None and (o < off or b_ <= beat + 1e-6):
+                    c = cc
+        return c
+
+    def four(c, lead=None):
+        root = G._root_pc(c)
+        iv = [i for i in G._tones(c) if i < 12]
+        if len(iv) < 4:
+            iv.append(9 if 4 in iv else 10)
+        if 11 in iv and 4 in iv and (lead is None
+                                     or (lead - root) % 12 != 11):
+            # a major chord voices as a sixth unless the melody is on the
+            # major seventh: the 7 under the root is the rub arrangers
+            # write around
+            iv = [9 if i == 11 else i for i in iv]
+        return [(root + i) % 12 for i in iv[:4]]
+
+    style = style or ('drop2' if n >= 4 else 'close')
+    tl = []
+    for a, b, ps in res.get('timeline') or []:
+        if not ps:
+            continue
+        m = max(ps)
+        c = chord_at(a)
+        voices = [m]
+        if c is not None and m % 12 in four(c, m):
+            pcs = four(c, m)
+            cur = m
+            while len(voices) < n:
+                cur -= 1
+                if cur % 12 in pcs:
+                    voices.append(cur)
+        else:
+            sc = sorted({(G._root_pc(c) + i) % 12 for i in G._scale(c)}) \
+                if c is not None else None
+            cur = m
+            while len(voices) < n:
+                steps = 0
+                while steps < 2:
+                    cur -= 1
+                    if sc is None or cur % 12 in sc:
+                        steps += 1
+                voices.append(cur)
+        if style == 'drop2' and n >= 4:
+            voices[1] -= 12
+        voices.sort(reverse=True)
+        p = voices[k] if k < len(voices) else voices[-1]
+        if fold:
+            q = p
+            while p < fold[0]:
+                p += 12
+            while p > fold[1]:
+                p -= 12
+            if p != q and moved is not None:
+                moved.append(a)
+        tl.append((a, b, [p]))
+    return dict(res, timeline=tl, staves=None, trills={}, trems={}, ks={},
+                lyrics=None, lyrics_text=None)
+
+
 def octave_words(n):
     """' an octave down', ' two octaves up', or '' — said after a part
     name, the way the double was asked for."""
@@ -2684,6 +2797,7 @@ def build_plans(chart, band, groups, labels):
             solo_slashes = False
             bg_style = None
             explode_src = None
+            soli_src = None
             demo_refs, fall, quant, short = [], False, None, False
             legato, ghost = False, False
             no_trills = False
@@ -2923,6 +3037,16 @@ def build_plans(chart, band, groups, labels):
                     doubles = (src, 0) if harm else \
                         octave_phrase(m.group(1).strip())
                     continue
+                m = re.match(r'(?:soli|harmoni[sz]e)\s+(?:on\s+|under\s+)?'
+                             r'(?:the\s+)?([\w ]+?)(?:,?\s+(close|drop 2|'
+                             r'drop two))?$', piece)
+                if m:
+                    # the arranger's soli: one written lead, each chair a
+                    # voice under it from the chord symbols
+                    soli_src = (m.group(1).strip(),
+                                'close' if m.group(2) == 'close' else
+                                'drop2' if m.group(2) else None)
+                    continue
                 m = re.match(r'(?:explode|divisi|div\.?)\s+(?:from\s+)?'
                              r'(?:the\s+)?([\w ]+)$', piece)
                 if m:
@@ -3006,6 +3130,20 @@ def build_plans(chart, band, groups, labels):
                          f"'notes: ...' under it, then '{target}: figure "
                          f"NAME' here")
                 fail(f"{loc}: instruction '{piece}' is not built yet")
+            if soli_src:
+                inst_of = {x['label']: canonical_instrument(
+                    x['instrument']) for x in band}
+                chairs = sorted(tgts, key=lambda c: -(
+                    HORNS.get(inst_of.get(c), {}).get('comf',
+                                                       (0, 0))[1]))
+                lead_in = soli_src[0] in chairs
+                others = [c for c in chairs if c != soli_src[0]]
+                n_voices = len(others) + 1
+                for k, c in enumerate(others, 1):
+                    plan.setdefault('soli', {})[c] = (
+                        soli_src[0], k, n_voices, soli_src[1], loc)
+                if not lead_in and not others:
+                    fail(f"{loc}: soli needs chairs to voice")
             if explode_src:
                 # top voice to the highest-reaching chair, the next
                 # down, and so on (MuseScore: a short chord doubles

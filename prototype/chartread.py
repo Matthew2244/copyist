@@ -212,6 +212,9 @@ def part_section(plan, label, chord_parts, figures=None):
                 lines.append(f"The {item['src_label']}'s line prints "
                              "small here as a cue — not yours to play.")
                 continue
+            if item.get('soli'):
+                lines.append(f"Your soli voice under the {item['soli']}, "
+                             "voiced from the changes, written for you.")
             if item.get('src_label'):
                 oct_ = chartc.octave_words(item.get('octaves', 0))
                 oct_ += chartc.harmony_words(item.get('harm', 0))

@@ -460,6 +460,7 @@ a cut back is taken once.
   | `backgrounds, on cue` | the figure marked "backgrounds on cue" |
   | `tacet` | whole-section multirest in the part |
   | `as demo` | "as demo" over slashes — symbols-level (DESIGN.md §11) |
+  | `soli on <part>` / `harmonize <part>` [`, close` / `, drop 2`] | a group voices a written lead from the chord symbols, one voice per chair under it (drop 2 for four or more, a major chord as a sixth unless the lead is on the 7th) |
   | `double <part>` | this part plays another part's line (printed full size); `double <part> an octave down` / `up`, `two octaves down`, `8va`, `8vb` move it by octaves (so does `cue`); `double <part> a third below` (second through seventh, ninth, tenth; `above`/`below`, `in thirds`) harmonizes it in scale steps of the key in force |
   | `cue <part>` | another part's line printed cue-size, not played — "(Piano cue)" |
   | `cresc bars A-B` / `dim bars A-B` | a hairpin under those bars — printed as a wedge, played as a swell; `crescendo`, `diminuendo` and `decresc` all read |

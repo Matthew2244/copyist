@@ -4862,6 +4862,33 @@ def check_band_hears_the_lead():
           and not chartgroove._blue_ok(('B', -1, 'maj7', None)))
     check("a passing eighth off the beat is not voiced around",
           [n[1] for n in b.onsets[0][1]] == [69])
+    import chartdemo
+    tmp0 = tempfile.mkdtemp()
+    sp = os.path.join(tmp0, "s.chart")
+    open(sp, "w").write(
+        "title: S\nkey: Bb\nmeter: 4/4\ntempo: 120\n\nband:\n  trumpet\n"
+        "  alto = alto sax\n  tenor = tenor sax\n  bone = trombone\n"
+        "  bari = baritone sax\n\ngroup section: trumpet, alto, tenor, "
+        "bone, bari\n\nfigure f, 2 bars:\n  notes: D5 q, F5 q, A5 q, F5 q,"
+        " D5 w\n\nsection A, 2 bars\n  chords: Bbmaj7, Cm7 F7\n"
+        "  trumpet: figure f\n  section: soli on trumpet\n")
+    ch = chartc.parse_chart(sp)
+    bd = ch['band']
+    gr = chartc.resolve_groups(bd, ch.get('groups'))
+    lb = [x['label'] for x in bd]
+    pl, _t = chartc.build_plans(ch, bd, gr, lb)
+    rs, _h, _k = chartc.resolve_demo(ch, pl, bd, lb, sp,
+                                     chartdemo.Findings(), (4, 4))
+    col = [[rs[l][0]['res']['timeline'][i][2][0] for l in lb]
+           for i in range(5)]
+    check("soli: the trumpet's D over Bbmaj7 voiced D G F D Bb (a sixth, "
+          "drop 2, the lead doubled below)", col[0] == [74, 67, 65, 62, 58],
+          str(col[0]))
+    check("soli: the lead on the major seventh keeps it (A F... over "
+          "Bbmaj7)", col[2][0] == 81 and 69 in col[2], str(col[2]))
+    check("soli: every chair a different note, top to bottom",
+          all(c == sorted(c, reverse=True) and len(set(c)) == 5
+              for c in col), str(col))
     sec = chartc.section_header("vamp", ", 2 bars, vamp 4 times", "t")
     check("header: vamp 4 times", sec['repeat'] == 4 and sec['vamp']
           and not sec['open'])
