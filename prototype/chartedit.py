@@ -1675,9 +1675,15 @@ def _who_for(plan, ctx):
             if not a:
                 return _head_lineup(plan, head, ctx)
         else:
+            tune = _melody_default(plan, ctx)
+            said = (" and ".join(tune) + (" have" if len(tune) > 1 else
+                                          " has") + " the melody, "
+                    if tune else "")
             a = ask(f"Who plays in {plan['name']}? like 'horns tacet; "
                     "trumpet from demo bars 5-12', or Enter for the "
-                    "defaults (rhythm grooves, horns tacet)")
+                    f"defaults ({said}rhythm grooves, horns tacet)")
+            if not a and tune:
+                a = " and ".join(tune) + " has the melody"
         if not a:
             return _perc_plays(ctx, [])
         while True:
@@ -1955,6 +1961,7 @@ def _gather_plans(ctx):
                 b += f", {p['feel']}"
             bits.append(b)
         say("Placed: " + "; ".join(bits) + ".")
+    gaps = _melody_in_breath(ctx, gaps)
     _resolve_gaps(plans, gaps, vocab)
     if not plans:
         # the guided walk — he pressed Enter, it leads
@@ -1967,6 +1974,64 @@ def _gather_plans(ctx):
                 _mk(nm)
             plans.append(p)
     return plans, hdr
+
+
+_MEL_RX = [
+    re.compile(r"(?:the\s+)?(.+?)\s+(?:takes|has|plays|sings|gets|carries|"
+               r"leads)(?:\s+(?:the\s+)?(?:melody|tune|lead|head|line))?"
+               r"(?:\s+in\s+(?:the\s+)?(.+))?$", re.I),
+    re.compile(r"(?:the\s+)?(?:melody|tune|lead)\s+(?:is\s+)?(?:on|in|with)"
+               r"\s+(?:the\s+)?(.+?)(?:\s+in\s+(?:the\s+)?(.+))?$", re.I),
+]
+
+
+def _melody_in_breath(ctx, gaps):
+    """'alto takes the melody', 'melody on alto in the head': who has
+    the tune, said in the breath. It becomes the head's default at the
+    who-plays question (Harbor Lights, 2026-09-29: the breath used to
+    give up on it). Returns the gaps it didn't claim."""
+    names = {n.lower(): n for n in ctx["labels"] + ctx["groupnames"]}
+    rest = []
+    for g in gaps:
+        got = None
+        for rx in _MEL_RX:
+            m = rx.fullmatch(g.strip())
+            if not m:
+                continue
+            who = [w.strip().lower() for w in
+                   re.split(r",|\band\b|&", m.group(1)) if w.strip()]
+            if who and all(w in names for w in who):
+                got = ([names[w] for w in who], m.group(2))
+                break
+        if got:
+            ctx.setdefault("breath_melody", []).append(got)
+            say(" and ".join(got[0]) + " "
+                + ("have" if len(got[0]) > 1 else "has")
+                + " the melody" + (f" in the {got[1]}" if got[1] else
+                                   " in the head") + ".")
+        else:
+            rest.append(g)
+    return rest
+
+
+_NO_TUNE = ('intro', 'tag', 'outro', 'coda', 'ending', 'vamp',
+            'interlude', 'fill', 'break', 'shout', 'send off')
+
+
+def _melody_default(plan, ctx):
+    """The players the breath gave the tune to, for this section."""
+    out = []
+    nm = plan["name"].lower()
+    fam = (plan.get("family") or "").lower()
+    for who, where in ctx.get("breath_melody", ()):
+        if where:
+            w = where.lower().strip()
+            if w in (nm, fam) or (w == 'head' and fam == 'head'):
+                out += who
+        elif plan["kind"] == "plain" and not any(
+                nm.startswith(x) for x in _NO_TUNE):
+            out += who
+    return list(dict.fromkeys(out))
 
 
 def _resolve_gaps(plans, gaps, vocab):

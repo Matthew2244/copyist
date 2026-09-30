@@ -5429,6 +5429,30 @@ def check_shelf_drive_missing():
           chart.resolve_sounds({"use_samples": "no"}) is None)
 
 
+def check_melody_in_the_breath():
+    """'alto takes the melody' said in the breath gives the head's
+    sections the alto on the tune by default (Harbor Lights, 2026-09-29:
+    the breath gave up on it); an intro or tag never gets it."""
+    import chartedit
+    ctx = {"labels": ["alto", "trumpet", "piano"], "groupnames": ["horns"]}
+    with redirect_stdout(io.StringIO()):
+        rest = chartedit._melody_in_breath(
+            ctx, ["alto takes the melody", "kazoo takes the melody",
+                  "melody on trumpet in the bridge"])
+    check("the breath's melody words are read, a stranger is not",
+          rest == ["kazoo takes the melody"]
+          and ctx["breath_melody"] == [(["alto"], None),
+                                       (["trumpet"], "bridge")])
+    head = {"name": "A2", "kind": "plain", "family": "head"}
+    intro = {"name": "intro", "kind": "plain"}
+    bridge = {"name": "bridge", "kind": "plain"}
+    check("the head's sections default to the tune, the intro does not",
+          chartedit._melody_default(head, ctx) == ["alto"]
+          and chartedit._melody_default(intro, ctx) == []
+          and chartedit._melody_default(bridge, ctx) == ["alto",
+                                                         "trumpet"])
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5496,6 +5520,7 @@ if __name__ == "__main__":
     check_band_reacts()
     check_sound_shelf_installer()
     check_shelf_drive_missing()
+    check_melody_in_the_breath()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()
