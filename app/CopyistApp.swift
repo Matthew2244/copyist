@@ -2585,7 +2585,12 @@ struct SettingsView: View {
     func pathRow(_ label: String, key: String) -> some View {
         HStack {
             Text(label + ": "
-                 + ((cfg[key]?.isEmpty == false) ? cfg[key]! : "not set"))
+                 + ((cfg[key]?.isEmpty == false) ? cfg[key]!
+                    : key == "sounds_dir"
+                    // unset means the standard place: say where it is
+                    ? "the standard place, ~/Library/Application Support/"
+                      + "Copyist/Sounds"
+                    : "not set"))
                 .lineLimit(1)
             Spacer()
             Button("Choose…") {
