@@ -256,6 +256,21 @@ the horn's bottom note, Copyist folds the line up and tells you it did.
 **Ceilings are chops**: a high note gets flagged "lead territory, know whose
 chops are on the chair" and is never touched.
 
+## What the band plays
+
+When a chart says solo, backgrounds, vamp, fill into bar 9, break, or how it
+ends, the listen plays it. Where a part has only slashes, the rhythm section
+makes up its own part from the chord symbols. The bass walks, the piano comps
+with both hands, and the drummer keeps time and sets up the next section. The
+pages keep their slashes, and each of these can be switched off in Settings.
+
+The players learned from real ones. The walking bass comes from 48 transcribed
+professional lines, the soloists from 347 swing solos in the Weimar Jazz
+Database, the drummer from the Groove MIDI Dataset's jazz drummers, and the
+swing feel and the soloing pianist's left hand from the Jazz Trio Database. The
+scripts that measured them are in `prototype/learn_*.py`, and only the numbers
+ship. Credits are under License.
+
 ## Verified results
 
 On the included fixture, ten bars of two-hand piano, 110 notes:

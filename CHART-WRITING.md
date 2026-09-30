@@ -196,12 +196,26 @@ recording convention, not a voicing.
   ending's changes, and the listen MP3 takes the first ending, jumps
   back, and takes the second. A trimmed listen lands where the band
   actually reaches that bar, not where the printed number sits.
+- **Fills and breaks** are said the way you'd call them on the stand:
+
+      section A, 8 bars
+        fill into bar 5 from beat 3
+        at bar 7: break, 2 bars, fill into it
+        fill into the next section
+
+  The drummer fills exactly there and the band lands on the one. In a
+  break the rhythm section hits the downbeat together and stops, and
+  the soloist or the tune carries on alone until the band comes back.
+  The drum part says Fill and every part says Break.
 - Chords split a bar evenly unless you place them: `Eb7@3` is "E flat
   seven on beat three", and off-beats take any spelling you'd use,
   `4+`, `4.5`, or `and-of-4`. The format meets your habit.
 - `from demo bars 2-9` lifts YOUR played line, bars 2 to 9 of your DAW,
   cleans it up (your lay-back is measured and kept as feel, not printed
-  as wrong rhythms), and lands it at the same bars of the chart.
+  as wrong rhythms), and lands it at the same bars of the chart. If
+  those bars sit outside the section you wrote it in, it lands at the
+  top of that section instead and the findings say so; `at bar 3`
+  moves it anywhere you like.
 - **The same line on a drum or percussion part writes a real drum
   book.** Kick and snare on their own lines, cymbals with x heads, the
   open hat circled, the ride bell a diamond. When cymbals and drums
