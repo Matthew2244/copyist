@@ -314,8 +314,11 @@ function Do-Settings {
         if (-not $g -or $g -eq 'Back') { return }
         $desk = Run-Chart 'settings'
         $keys = $settingGroups[$g]
-        $shown = ($desk -split "`n") | Where-Object {
-            $line = $_; ($keys | Where-Object { $line -like "$_*" }) }
+        # the engine indents each setting; match the name exactly, so
+        # 'sounds' never claims 'sounds_dir'
+        $shown = ($desk -split "`n") | ForEach-Object { $_.Trim() } |
+            Where-Object {
+                $line = $_; ($keys | Where-Object { $line -like "$_ (*" }) }
         $c = Choose-FromList (($shown -join "`n") +
             "`nChange which one?") ($keys + @('Back'))
         if (-not $c -or $c -eq 'Back') { continue }
@@ -392,7 +395,23 @@ function Do-BringIn {
             if ($c -like 'Add them*') { $into = ' --into "' + $last + '"' }
         }
     }
-    $out = Run-Chart ('import "' + $f + '"' + $into)
+    $song = ''
+    if (-not $into -and ($words -contains $ext -or $ext -in @('.abc', '.cho',
+            '.chordpro', '.chopro', '.crd', '.pro'))) {
+        # a playlist (an iReal Pro link can be the whole Jazz 1460):
+        # ask which song, by name or number
+        $listed = Run-Chart ('import "' + $f + '" --list')
+        $n = 0
+        [void][int]::TryParse(($listed -split ' ')[0], [ref]$n)
+        if ($n -gt 1) {
+            $pick = [Microsoft.VisualBasic.Interaction]::InputBox(
+                ("This file holds $n songs. Type a song's name, or its " +
+                 "number from 1 to $n. Leave it empty for the first song."),
+                'Which song?', '')
+            if ($pick.Trim()) { $song = ' --song "' + $pick.Trim() + '"' }
+        }
+    }
+    $out = Run-Chart ('import "' + $f + '"' + $into + $song)
     $made = ($out -split "`n" | Where-Object { $_ -like 'chart: *' } |
         Select-Object -Last 1)
     $shown = ($out -split "`n" | Where-Object { $_ -notlike 'chart: *' }) -join "`n"

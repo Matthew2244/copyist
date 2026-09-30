@@ -477,7 +477,45 @@ final class AppModel: ObservableObject {
                 return
             }
         }
-        run("Bring in a file", args: ["import", path], needsChart: false)
+        var args = ["import", path]
+        if wordsLike || ext.isEmpty, let n = songsIn(path), n > 1 {
+            // a playlist (an iReal Pro link is often the whole Jazz
+            // 1460): ask which song, by name or number
+            let a = NSAlert()
+            a.messageText = "This file holds \(n) songs. Which one?"
+            a.informativeText = "Type a song's name, or its number from 1 "
+                + "to \(n). Leave it empty for the first song."
+            let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 280,
+                                              height: 24))
+            f.placeholderString = "Song name or number"
+            f.setAccessibilityLabel("Song name or number")
+            a.accessoryView = f
+            a.window.initialFirstResponder = f
+            a.addButton(withTitle: "Bring it in")
+            a.addButton(withTitle: "Cancel")
+            if a.runModal() != .alertFirstButtonReturn { return }
+            let pick = f.stringValue.trimmingCharacters(in: .whitespaces)
+            if !pick.isEmpty { args += ["--song", pick] }
+        }
+        run("Bring in a file", args: args, needsChart: false)
+    }
+
+    /// How many songs a text file holds ('chart import FILE --list'),
+    /// or nil when it can't tell.
+    func songsIn(_ path: String) -> Int? {
+        guard let tool = Tool.find() else { return nil }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: tool.python)
+        p.arguments = [tool.script, "import", path, "--list"]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = Pipe()
+        guard (try? p.run()) != nil else { return nil }
+        p.waitUntilExit()
+        let out = String(decoding: pipe.fileHandleForReading
+            .readDataToEndOfFile(), as: UTF8.self)
+        guard let first = out.split(separator: " ").first else { return nil }
+        return Int(first)
     }
 
     func stopRun() {
