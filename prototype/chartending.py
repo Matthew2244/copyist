@@ -594,7 +594,7 @@ def _gliss(bar, beat, land, pitches, me, t1):
                 ('p', m, int(60 + 30 * i / len(keys))))
 
 
-def band_choice(feel, song, has_keys, has_horns):
+def band_choice(feel, song, has_keys, has_horns, written=None):
     """The roadmap says nothing about the ending (or says 'band's
     choice'): the band decides in the moment, the way a group does,
     from the feel, a different call in every tune. Returns steps."""
@@ -602,6 +602,13 @@ def band_choice(feel, song, has_keys, has_horns):
     d = G._Dice(song, 'choice')
     style, traits = _G.style_of(feel or '')
     r = d()
+    if written == 'long':
+        # the written parts hold their last note: the band holds with them
+        return [('hold', None)] + ([('gliss', None)] if has_keys
+                                   and d() < 0.3 else [])
+    if written == 'short':
+        # the written parts end on a short one: the band stops with them
+        return [('stop', None)]
     if 'ballad' in traits or 'ballad' in (feel or '').lower():
         steps = [('rit', None), ('hold', None)]
     elif not (feel or '').strip():
@@ -623,7 +630,9 @@ def band_choice(feel, song, has_keys, has_horns):
     held = any(k == 'hold' for k, _ in steps)
     hit = any(k in ('hit', 'button', 'stop') for k, _ in steps)
     if held and has_keys and d() < 0.4:
-        steps.append(('gliss', None))
+        # the gliss happens over the hold, before any hit: said in order
+        at = next(i for i, (k, _) in enumerate(steps) if k == 'hold') + 1
+        steps.insert(at, ('gliss', None))
     if hit and d() < 0.3:
         steps.append(('tag', ('drums', None)))
     return steps

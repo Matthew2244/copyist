@@ -5491,6 +5491,33 @@ def check_playlist_picking():
           and any("about 140" in f for f in find), names)
 
 
+def check_band_ending_follows_the_writing():
+    """Left to the band, the ending follows what the written parts do:
+    a long last note means the band holds with it, short last notes
+    mean it stops with them; the findings say why."""
+    import chartc
+    tmp = tempfile.mkdtemp()
+
+    def said(notes):
+        open(os.path.join(tmp, "t.chart"), "w").write(
+            "title: W\nkey: F\nmeter: 4/4\ntempo: 120\nfeel: swing\n\n"
+            "band:\n  tenor = tenor sax\n  piano\n  bass\n  drums\n\n"
+            f"figure end, 2 bars:\n  notes: {notes}\n\n"
+            "section A, 2 bars\n  chords: F7, F7\n  tenor: figure end\n")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            chartc.compile_chart(os.path.join(tmp, "t.chart"),
+                                 os.path.join(tmp, "b"))
+        return buf.getvalue()
+    long_ = said("F4 w, A4 w")
+    short = said("F4 w, A4 q, rest q, rest h")
+    check("a long written last note: the band holds with it",
+          "band chose one: hold" in long_ and "long last note" in long_)
+    check("short written last notes: the band stops with them",
+          "cold stop" in short and "short last notes" in short)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_percussion_section_grooves():
     """
     Matthew, 2026-09-28: "percussion should be able to do all those
@@ -5560,6 +5587,7 @@ if __name__ == "__main__":
     check_shelf_drive_missing()
     check_melody_in_the_breath()
     check_playlist_picking()
+    check_band_ending_follows_the_writing()
     check_tuplet_ladder()
     check_meter_charts()
     check_poly_charts()

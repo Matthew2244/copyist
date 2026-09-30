@@ -2892,6 +2892,36 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     for i, pl in enumerate(plans):
         # where each section sits in the tune: the band builds across it
         pl['sec']['_arc'] = i / max(len(plans) - 1, 1)
+    def written_ending(pl):
+        """How the written parts end the tune: 'long' when one holds
+        its last note half a bar or more, 'short' when they all end on
+        short notes, None when nothing written plays the last bar."""
+        last = pl['start'] + pl['sec']['bars'] - 1
+        shape = None
+        for l in labels:
+            xml = demo_measures.get(l, {}).get(last)
+            kind_, arg_ = pl['content'][l]
+            if xml is None and kind_ == 'engraved' and source:
+                lo_, hi_, at_ = arg_
+                src = lo_ + (last - (pl['start'] + at_ - 1))
+                if lo_ <= src <= hi_:
+                    xml = source[src_of[l]]['measures'].get(str(src))
+            if not xml or '<note' not in xml:
+                continue
+            dv = re.search(r'<divisions>(\d+)</divisions>', xml)
+            durs = [int(x) for x in re.findall(
+                r'<note(?:(?!</note>).)*?<pitch>(?:(?!</note>).)*?'
+                r'<duration>(\d+)</duration>', xml, re.S)]
+            if not durs:
+                continue
+            div_ = int(dv.group(1)) if dv else chartdemo.DIV
+            n_, d_ = meter_at(chart.get('meters') or [(1, meter)], last)
+            bar_len = div_ * 4 * n_ // d_
+            if max(durs) * 2 >= bar_len or '<tie type="start"' in xml:
+                return 'long'
+            shape = 'short'
+        return shape
+
     keys_l = next((b['label'] for b in band if canonical_instrument(
         b['instrument']) in ('piano', 'organ', 'keyboard', 'rhodes')),
         None)
@@ -2920,7 +2950,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         if any(k == 'choice' for k, _ in steps):
             chosen = chartending.band_choice(
                 pl['sec']['feel'] or hdr.get('feel') or '', song,
-                keys_l is not None, bool(groups.get('horns')))
+                keys_l is not None, bool(groups.get('horns')),
+                written_ending(pl))
+            pl['_written_end'] = written_ending(pl)
             j = next(n for n, (k, _) in enumerate(steps) if k == 'choice')
             have = {k for k, _ in steps}
             # what the roadmap already says stands; the band fills in
@@ -2942,9 +2974,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 pl.setdefault('listen_words', []).append(
                     (max(1, nb - 1), 'rit.'))
             if findings is not None:
+                why = {'long': ", holding with the written parts' "
+                              "long last note",
+                       'short': ", stopping with the written parts' short "
+                                "last notes"}.get(pl.get('_written_end'), '')
                 findings.add("listen: the roadmap names no ending, so the "
-                             f"band chose one: {said}. Write 'ending:' on "
-                             "the last section to decide it yourself")
+                             f"band chose one: {said}{why}. Write 'ending:' "
+                             "on the last section to decide it yourself")
             continue
         players = [l for l in labels
                    if pl['content'][l][0] not in ('tacet', 'default')
