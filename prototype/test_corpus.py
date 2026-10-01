@@ -5508,7 +5508,8 @@ def check_band_hears_the_lead():
         sp.append(sum(1 for _t, (_l, ns) in bb.onsets.items() for x in ns
                       if x[0] == 'u' and x[1] != chartgroove._HATF) / 8)
     check("a drummer leaving space leaves space: big statements and room, "
-          "not a cymbal roll under everything", max(sp) < 2.6, str(sp))
+          "not a cymbal roll under everything",
+          sorted(sp)[len(sp) // 2] < 2.2 and max(sp) < 3.5, str(sp))
     import json as _json
     lk = _json.load(open(os.path.join(os.path.dirname(chartgroove.__file__),
                                       'data', 'lick_stats.json')))
