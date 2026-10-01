@@ -1791,6 +1791,20 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
                [(1, 2.5, 'r'), (3.5, .5, 'f'), (4, 1, 'r')])
     else:
         pat = pats.get(style) or [(1, 2, 'r'), (3, 2, 'f')]
+    if n >= 4 and ((off + 1) % 4 == 0 or off == sec['bars'] - 1) and \
+            style not in ('reggae',):
+        # the end of a phrase, the bassist's call in the moment: lock
+        # right on through, or turn it around into the next — the fifth
+        # then a half step into the next root, or the next root early on
+        # the 'and' of 4 (the groove locked in at 90%+ the same bar to
+        # bar; real players vary it where the phrase turns)
+        dt = _Dice('bass turn', absbar, style)
+        r_ = dt()
+        if r_ < 0.3:
+            pat = [x for x in pat if x[0] < 4] + [(4, .5, 'f'),
+                                                   (4.5, .5, 'appr')]
+        elif r_ < 0.55:
+            pat = [x for x in pat if x[0] < 4.5] + [(4.5, .5, 'next')]
     for item in pat:
         b, ln, what = item[:3]
         vel = item[3] if len(item) > 3 else None
@@ -2388,13 +2402,23 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
         if rhythm is None and style == 'swing':
             rhythm = ([(2, .5), (4, .5)] if 'two' in traits else
                       [(b + .5, .5) for b in range(1, bar.num + 1)])
+        nxt_c = state.get('next_chord')
+        push = False
+        if rhythm and style != 'swing' and bar.num >= 4 and \
+                absbar % 4 == 0 and nxt_c is not None and \
+                _Dice('comp push', absbar, style)() < 0.5:
+            # the end of a phrase: the next chord anticipated on the 'and'
+            # of 4, the push every Latin and funk comper turns a phrase with
+            rhythm = [x for x in rhythm if x[0] < 4.5] + [(4.5, .5)]
+            push = True
         if rhythm:
             for b, ln in rhythm:
                 if b > bar.num + 0.99:
                     continue
                 put(int(round((b - 1) * beat)),
                     max(1, int(round(ln * beat))),
-                    voicing(_chord_at(chords, b)),
+                    voicing(nxt_c if push and b >= 4.5 else
+                            _chord_at(chords, b)),
                     vel=80 if style == 'funk' else 70,
                     may_rest=style == 'swing')   # an ostinato IS the groove
             return

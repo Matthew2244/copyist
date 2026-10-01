@@ -5621,6 +5621,36 @@ def check_band_hears_the_lead():
           "not a fixed whole step to A), a trumpet's shake (written a tone "
           "up) to a chord tone above", tr_ == 68 and (sh_ - 2 - 10) % 12 in
           (0, 4, 7, 10), str((tr_, sh_)))
+    c_bt = os.path.join(tmp_gy, "bt.chart")
+    open(c_bt, "w", encoding="utf-8").write(
+        "title: Turn\nkey: C\nmeter: 4/4\ntempo: 130\nfeel: bossa\n\n"
+        "band:\n  flute\n  piano\n  bass\n  drums\n\nsection A, 16 bars\n"
+        "  chords: Dm7, G7, Cmaj7, A7, Dm7, G7, Em7, A7, Dm7, G7, Cmaj7, "
+        "A7, Dm7, G7, Cmaj7, Cmaj7\n  flute: solo\n")
+    turned = locked = 0
+    was_take = chartc.TAKE
+    try:
+        for tk in range(4):
+            chartc.TAKE = tk
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(c_bt, os.path.join(tmp_gy, "bt%d" % tk))
+            sc_ = chartaudio.parse_score([os.path.join(
+                tmp_gy, "bt%d" % tk, f) for f in os.listdir(os.path.join(
+                    tmp_gy, "bt%d" % tk)) if 'listening' in f][0])
+            bs_ = [e for p_ in sc_["parts"] if p_["name"] == "bass"
+                   for e in p_["events"]]
+            for bar_ in range(16):
+                ons = sorted({round(q - 4 * bar_, 2) for q, *_r in bs_
+                              if 4 * bar_ <= q < 4 * bar_ + 4})
+                if bar_ % 4 == 3:
+                    turned += ons != [0.0, 1.5, 2.0, 3.5]
+                elif bar_ % 4 == 1:
+                    locked += ons == [0.0, 1.5, 2.0, 3.5]
+    finally:
+        chartc.TAKE = was_take
+    check("a groove locks in, and the bass turns the end of a phrase now and "
+          "then (a lead-in or the next root early on the 'and' of 4)",
+          turned >= 3 and locked >= 12, str((turned, locked)))
     import chart as chart_cli
     broken_cm = []
     for mt in ("6/8", "12/8"):

@@ -956,6 +956,12 @@ All of these ride on a `from demo` line, after commas:
   a big new section; the buzz roll is a rare, shout-chorus sound. The
   walking bass lands on the root of a new chord about four times in
   five, the fifth or third the rest, the root always at a new section.
+- **Grooves lock in and turn.** In funk, Latin, bossa, samba, baião
+  and the other grooves the rhythm section locks onto its pattern, and
+  at the end of a phrase it's each player's call: the bass may play the
+  fifth and a half step into the next chord, or the next root early on
+  the 'and' of 4; the comping may anticipate the next chord on the 'and'
+  of 4. Then it's right back in the pocket.
 - **Swing at every tempo.** The rhythm section plays the tempo the way
   players feel it: slow (under 100) with room for every skip on the ride,
   ghosted snare and a feathered kick; medium and medium-up as you'd
