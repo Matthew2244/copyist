@@ -5181,6 +5181,23 @@ def check_band_hears_the_lead():
           "snare, open hat and kick, not only crash and kick",
           {'crash_snare', 'hat_snare', 'hat_kick', 'crash_kick'} <= kinds_,
           str(kinds_))
+    tmp_f = tempfile.mkdtemp()
+    cf = os.path.join(tmp_f, "f.chart")
+    open(cf, "w").write(
+        "title: F\nkey: F\nmeter: 4/4\ntempo: 130\nfeel: swing\n\n"
+        "band:\n  trumpet\n  piano\n  bass\n  drums\n\n"
+        "section A, 4 bars\n  chords: F x4\n  at bar 1: segno\n"
+        "  at bar 3: to coda\n\nsection B, 4 bars\n  chords: Bb7 x4\n"
+        "  at bar 4: d.s. al coda\n\nsection coda, 2 bars\n"
+        "  chords: F x2\n  at bar 1: coda\n")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(cf, os.path.join(tmp_f, "b"))
+    dp = open(os.path.join(tmp_f, "b", "F — drums.musicxml")).read()
+    check("the drummer knows the form: a fill before the To Coda and the "
+          "D.S., printed on the drum part",
+          "fill before each road-map jump (bar 3, 8)" in buf.getvalue()
+          and dp.count(">Fill<") >= 2, buf.getvalue()[-300:])
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

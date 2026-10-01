@@ -3619,6 +3619,36 @@ def bar_notes(xml, div, transpose=0):
     return out
 
 
+def form_fills(plans, band, findings):
+    """The drummer knows the form: the bar before the road map jumps (a
+    D.S. or D.C., the To Coda, a cut) gets a fill setting the band up
+    for where it goes, and the drum part says "Fill" there the way a
+    copyist writes it. A fill the chart already places wins."""
+    drums = [b['label'] for b in band
+             if canonical_instrument(b['instrument']) == 'drums']
+    if not drums:
+        return
+    added = []
+    for pl in plans:
+        sec = pl['sec']
+        jumps = [b for b, k, t in sec['events'] if k == 'road' and (
+            str(t).startswith(('ds', 'dc')) or t == 'tocoda')]
+        if sec.get('_cut') and not sec.get('open'):
+            jumps.append(sec['bars'])     # a till-cue section has its cue
+        for b in jumps:
+            if any(k == 'fill' and bb == b for bb, k, _t in sec['events']):
+                continue
+            sec['events'].append((b, 'fill', ''))
+            for l in drums:
+                pl['texts'][l].append((b, 'Fill'))
+            added.append(pl['start'] + b - 1)
+    if added and findings is not None:
+        findings.add("drums: a fill before each road-map jump (bar "
+                     + ", ".join(str(a) for a in sorted(set(added)))
+                     + "), the way a drummer who knows the form sets the "
+                     "band up")
+
+
 _COUNT_PIECES = {44: 'the hi-hat foot', 42: 'the closed hat', 37: 'the rim',
                  53: 'the ride bell', 38: 'the snare'}
 
@@ -3851,6 +3881,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     except (AttributeError, ValueError):
         chartgroove.BPM = 120.0
     count_off = decide_count_off(hdr, band, plans, chart, findings)
+    form_fills(plans, band, findings)
     for pl in plans:
         tr = pl['sec'].get('trade')
         if tr:
