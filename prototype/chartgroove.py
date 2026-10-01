@@ -2971,8 +2971,11 @@ def solo_accents(bar, d, amount=1.0, end=None):
         t = pool[int(d() * len(pool)) % len(pool)]
         if any(n[1] in (_CRASH, _OPEN_HAT) for n in bar.onsets[t][1]):
             continue
-        bar.add(t, beat, ('u', _CRASH if d() < 0.6 else _OPEN_HAT,
-                          100 + int(14 * d())))
+        floor = any(n[1] == _FLOOR_TOM for n in bar.onsets[t][1])
+        # no crash with the floor tom in a solo (Matthew, 2026-10-01:
+        # "take out the crash and floor tom hit during drum solos")
+        cym = _OPEN_HAT if floor or d() >= 0.6 else _CRASH
+        bar.add(t, beat, ('u', cym, 100 + int(14 * d())))
 
 
 def drum_solo(bar, absbar, pos, total, seed, echo=None):

@@ -848,8 +848,9 @@ All of these ride on a `from demo` line, after commas:
   on a vamp. `countoff: no` in the header starts it cold, `countoff:
   yes` always counts; `--count-in` puts the click there instead.
 - **A drum solo has colour.** Crashes and open hats land on top of the
-  drummer's own strokes (a crash with the floor tom, an open hat with
-  the snare, a crash with the kick), mostly where a phrase starts or a
+  drummer's own strokes (an open hat with the floor tom or the snare, a
+  crash with the kick, the snare or a tom, never a crash with the floor
+  tom), mostly where a phrase starts or a
   beat lands, more as the solo builds.
 - **Rolls at the speed of real hands.** A snare buzz roll is the
   fastest, about twenty strokes a second; an open roll on the toms or a

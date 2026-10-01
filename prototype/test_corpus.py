@@ -5114,8 +5114,12 @@ def check_band_hears_the_lead():
     chartgroove.solo_accents(b, chartgroove._Dice('acc'), 1.5)
     cym = [t for t, (_l, ns) in b.onsets.items() for n in ns
            if n[1] in (chartgroove._CRASH, chartgroove._OPEN_HAT)]
-    check("a drum solo's crashes and open hats land on its own strokes",
-          cym and all(t in (0, 24, 48, 72) for t in cym), str(cym))
+    check("a drum solo's crashes and open hats land on its own strokes, "
+          "never a crash with the floor tom",
+          cym and all(t in (0, 24, 48, 72) for t in cym)
+          and not any(n[1] == chartgroove._CRASH
+                      for _t, (_l, ns) in b.onsets.items() for n in ns),
+          str(cym))
     b = chartgroove.Bar(24, (4, 4), 0, 1)
     chartgroove.drum_solo(b, 200, 0, 4, 'drums', echo=[
         (0.0, 0.5, 72), (0.5, 0.5, 76), (1.0, 1.0, 79)])
