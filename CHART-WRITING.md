@@ -935,6 +935,17 @@ All of these ride on a `from demo` line, after commas:
   pattern to its first hit rather than replacing it, so it comes right
   back when the line breathes. Every choice is the player's in the
   moment, different every take.
+- **The rhythm section plays like the players it learned from,** and
+  is measured against them (prototype/bench_band.py). The swing
+  drummer's hi-hat foot has real habits: 2 and 4, and often the chick
+  on the 'ands' of 1 and 3 too; the kick drops on the 'ands' as well as
+  the beats, feathered only some phrases; the snare comping spreads over
+  the bar and stays lighter under a busy soloist. Swing fills are
+  triplet-based, mostly snare and floor tom with the kick under the
+  first stroke, a beat or two long and now and then most of a bar into
+  a big new section; the buzz roll is a rare, shout-chorus sound. The
+  walking bass lands on the root of a new chord about four times in
+  five, the fifth or third the rest, the root always at a new section.
 - **Chokes where they belong.** A choked cymbal is a drum-solo sound
   and a last-hit sound, with the whole band landing together. Keeping
   time behind the band, in a landing after a fill, a section mark or a

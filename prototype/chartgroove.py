@@ -885,7 +885,7 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
     # lock in and start from a foundation ... and build from there")
     ph = _Dice('ride home', absbar // 4)
     home = _roll(weights, ph)
-    pick = home if d() < 0.7 else _roll(weights, d)
+    pick = home if d() < 0.6 else _roll(weights, d)
     base = int(62 + 16 * heat)
     bell = d() < 0.06 + 0.08 * heat
     for sl in pick:
@@ -901,15 +901,23 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
         bar.add(at, ln, ('u', cym, max(30, min(v, 118))))
     # the hi-hat foot: 2 and 4 mostly; sometimes only 4, all four when
     # it's hot, and now and then an 'and' dropped in
-    r = ph()                         # the foot's habit for the phrase
-    if r < 0.1:
+    # the foot's habit for the phrase, from real drummers (Groove MIDI:
+    # half their foot on 2 and 4, a quarter on the 'ands' of 1 and 3)
+    r = ph()
+    if r < 0.08:
         feet = [4]
-    elif r < 0.18 and heat > 0.5:
+    elif r < 0.16 and heat > 0.5:
         feet = [1, 2, 3, 4]
+    elif r < 0.36:
+        feet = [2, 4, 1.5, 3.5]          # the chick on the 'ands' too
+    elif r < 0.5:
+        feet = [2, 4, 3.5]
     else:
         feet = [2, 4]
-    if d() < 0.15 and bar.num >= 4:
-        feet.append(1.5 if d() < 0.5 else 3.5)
+    if d() < 0.2 and bar.num >= 4:
+        extra = 1.5 if d() < 0.5 else 3.5
+        if extra not in feet:
+            feet.append(extra)
     hv = int(54 + 16 * heat)
     for b in feet:
         if b <= bar.num + 0.5:
@@ -919,13 +927,14 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
         bar.add(3 * beat + half, half, ('u', ('G', 5, 'circle-x'),
                                         int(56 + 14 * heat)))
     # the kick: feathered quarters, or a few placed kicks
-    if feather and ph() < 0.35:      # feathered for the whole phrase, or not
+    if feather and ph() < 0.25:      # feathered for the whole phrase, or not
         for b in range(bar.num):
             bar.add(b * beat, half, ('u', _KICK, 26 + int(d() * 12)))
     else:
-        kn = _roll([(0, 0.33 + 0.2 * (1 - heat)), (1, 0.2), (2, 0.25 * heat
-                                                           + 0.1),
-                    (3, 0.15 * heat)], d)
+        # real drummers drop a kick or three most bars, the 'ands' among
+        # them (Groove MIDI: ours were plain quarters or nothing)
+        kn = _roll([(0, 0.22 + 0.1 * (1 - heat)), (1, 0.24),
+                    (2, 0.26 + 0.1 * heat), (3, 0.16 + 0.1 * heat)], d)
         ks = [(_SLOT_NAMES.index(k), w) for k, w in
               stats.get('kick_slot', {'1': .22, '3': .18, '3&': .11,
                                       '4&': .1}).items()
@@ -942,7 +951,7 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
     sn = _roll([(int(k), w) for k, w in stats.get(
         'snare_per_bar', {'0': .25, '1': .11, '2': .17, '3': .12,
                           '4': .1}).items() if int(k) <= 5], d)
-    sn = int(round(sn * (0.4 + 0.9 * heat)))
+    sn = int(round(sn * (0.7 + 0.6 * heat)))
     if busy is not None and busy > 0.6:
         sn //= 2                         # the soloist is talking
     ss = [(_SLOT_NAMES.index(k), w) for k, w in
@@ -956,12 +965,17 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
     # drummer found something and sits on it), or moves on
     held = _Dice('comp idea held', absbar // 4)() < 0.5
     pd = _Dice('comp idea', absbar // 4 * 2 if held else absbar // 2)
+    # as many different spots as the drummer means to hit, spread over
+    # the bar (drawing with repeats collapsed a busy bar to two or three,
+    # and keeping the earliest bunched it at the front)
     cell = set()
-    for _ in range(max(sn, 1) + 1):
+    for _ in range(4 * max(sn, 1) + 4):
+        if len(cell) >= max(sn, 0):
+            break
         sl = _roll(ss, pd)
         if _slot_beat(sl) <= bar.num + 0.99:
             cell.add(sl)
-    cell = sorted(cell)[:max(sn, 0)]
+    cell = sorted(cell)
     if absbar % 2 == 1 and cell:
         # the answer: one moved to a neighbouring partial, one maybe
         # dropped or added
@@ -1959,6 +1973,13 @@ def walk_bar(beats, prev, d, arrive, next_arrive, home=None):
                     w *= 0.6 if abs(m - cur) <= 2 else 0.15
                 gap = abs(goal - m)
                 w *= 1.0 / (1.0 + max(0, gap - 4 * (left - 1)) ** 2)
+                if len(seg) > 1 or out:
+                    # a walking line has momentum: going up, it tends to
+                    # keep going up (FiloBass turns 43% of the time; ours
+                    # zig-zagged at 52%)
+                    prev_n = seg[-2] if len(seg) > 1 else out[-1]
+                    if (m - cur) * (cur - prev_n) > 0:
+                        w *= 1.35
                 w *= 1.0 / (1.0 + ((m - centre) / 11.0) ** 4)
                 opts.append((m, w))
             cur = _roll(opts, d) if opts else cur + 1
@@ -2071,8 +2092,11 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
             arrive = arrival_pc(c1, d, root_only=True)
         nxt_c = _next_chord(sec, off, chords)
         # a new section or soloist lands on the root, like anyone would
+        # a new section or soloist lands on the root; inside the form the
+        # bassist lands where real bassists do (FiloBass: the root two
+        # times in three, the fifth or the third much of the rest)
         next_arrive = arrival_pc(nxt_c, d, root_only=(
-            off + 1 >= sec['bars'] or (off + 1) % 4 == 0)) \
+            off + 1 >= sec['bars'] or (off + 1) % 8 == 0)) \
             if nxt_c else _next_root(sec, off, chords)
         state['arrive'] = next_arrive
         line = walk_bar([_chord_at(chords, b + 1.0)
@@ -2417,6 +2441,7 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         # swing time: the snare comps (a backbeat groove's snare is the
         # time itself, never cleared for a bigger idea)
         state['swing_time'] = _is_swing(feel) and not _new_style(feel, bar)
+        globals()['FILL_SWING'] = bool(_is_swing(feel))
         words = ((arg if isinstance(arg, str) else '') + ' ' + (feel or '')
                  ).lower()
         impl = implement(words, feel)
@@ -2505,9 +2530,7 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
             at = float(fills[off + 1]) if fills[off + 1] else \
                 max(1.0, bar.num - 1.0)
             d = _Dice('written fill', absbar)
-            kind = _FILLS[int(d() * len(_FILLS)) % len(_FILLS)]
-            if kind == state.get('last_fill'):
-                kind = _FILLS[(_FILLS.index(kind) + 1) % len(_FILLS)]
+            kind = pick_fill(d, FILL_SWING, state.get('last_fill'))
             state['last_fill'] = kind
             _fill(bar, kind, int(round((at - 1) * beat)), max(heat, 0.6),
                   d)
@@ -2655,8 +2678,29 @@ def _heat(sec, off):
 
 
 _FILLS = ('toms_down', 'triplets_around', 'snare_kick_talk', 'space_hits',
-          'buzz_roll', 'flam_setup', 'toms_up')
+          'buzz_roll', 'flam_setup', 'toms_up', 'snare_floor')
+# how often a swing drummer reaches for each, from the real drummers'
+# fills (Groove MIDI: triplet-based, snare and floor tom, little high
+# tom; a buzz roll is a big-band shout sound, not an everyday fill)
+_SWING_FILLS = (('triplets_around', 24), ('snare_floor', 16),
+                ('toms_down', 14), ('snare_kick_talk', 14),
+                ('space_hits', 11), ('flam_setup', 9), ('toms_up', 6),
+                ('buzz_roll', 6))
 
+
+def pick_fill(d, swing, last=None):
+    """The drummer's fill, in the moment, never the one just played."""
+    if swing:
+        pool = [(k, w) for k, w in _SWING_FILLS if k != last]
+        return _roll(pool, d)
+    k = _FILLS[int(d() * len(_FILLS)) % len(_FILLS)]
+    if k == last:
+        k = _FILLS[(_FILLS.index(k) + 1 + int(d() * 3)) % len(_FILLS)]
+    return k
+
+
+# whether the tune swings, for the fills' own rhythm (set per bar)
+FILL_SWING = False
 
 # the tune's tempo, for anything with a speed limit in real hands
 BPM = 120.0
@@ -2708,10 +2752,14 @@ def _fill(bar, kind, start, heat, d):
     def hit(t, drum, ln, v, kick=False):
         on_beat = (t - start) % beat == 0
         bar.add(t, ln, ('u', drum, min(v + (10 if on_beat else 0), 122)))
-        if kick or on_beat:
+        # the kick under the fill's first stroke and every other beat,
+        # not doubling every beat (real fills: kick 12% of the strokes)
+        if kick or (on_beat and ((t - start) // beat) % 2 == 0):
             bar.add(t, ln, ('u', _KICK, min(base + 6, 118)))
+    trip = FILL_SWING
     if kind in ('toms_down', 'toms_up'):
-        step = beat // 4
+        # in swing the toms move in triplets, not straight sixteenths
+        step = beat // 3 if trip else beat // 4
         n = span // step
         order = toms if kind == 'toms_down' else list(reversed(toms))
         for i in range(n):
@@ -2719,9 +2767,17 @@ def _fill(bar, kind, start, heat, d):
                 base - 8 + int(10 * i / n))
     elif kind == 'triplets_around':
         step = beat // 3
+        way = [_SNARE, toms[2], toms[3]] if span > 2 * beat else \
+            [_SNARE, _SNARE, toms[3]]
         for i in range(span // step):
-            hit(start + i * step, [_SNARE, toms[1], toms[3]][i % 3], step,
+            hit(start + i * step, way[i % 3], step,
                 base - 6 + int(8 * i * step / span))
+    elif kind == 'snare_floor':
+        # snare, snare, floor tom in triplets, the kick on each beat
+        step = beat // 3
+        for i in range(span // step):
+            hit(start + i * step, (_SNARE, _SNARE, toms[3])[i % 3], step,
+                base - 4 + (6 if i % 3 == 2 else 0))
     elif kind == 'snare_kick_talk':
         for b, drum in [(0.0, _SNARE), (0.5, _KICK), (1.0, _SNARE),
                         (1.5, _SNARE), (1.75, _KICK)]:
@@ -3061,13 +3117,14 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
         into_next = last_of_turn and (not sec.get('trade') or d() < 0.3)
         if big_end and r < 0.3 + 0.5 * heat and not (
                 last_of_turn and sec.get('trade')) or into_next:
-            kind = _FILLS[int(d() * len(_FILLS)) % len(_FILLS)]
-            if kind == state.get('last_fill'):
-                kind = _FILLS[(_FILLS.index(kind) + 1 + int(d() * 3))
-                              % len(_FILLS)]
+            kind = pick_fill(d, FILL_SWING, state.get('last_fill'))
             state['last_fill'] = kind
-            beats = 2 if (heat > 0.65 or last_of_turn) and d() < 0.55 \
-                else 1
+            # how long, the drummer's call: a beat, two, and now and then
+            # most of the bar into a big new section (real fills run a
+            # beat to four; ours were nearly always one)
+            r_len = d()
+            beats = 3 if big_end and heat > 0.5 and r_len < 0.18 and \
+                bar.num >= 4 else 2 if r_len < 0.55 + 0.15 * heat else 1
             # it starts where it starts: on a beat, or on the 'and'
             # (Matthew, 2026-10-01: "not everything has to start on the
             # down beat")
