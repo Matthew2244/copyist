@@ -298,12 +298,33 @@ the band decides in the moment. Every build is a fresh take, and the findings
 name it so you can keep one you like. The band plays tight unless a section says
 laid back, loose or on top.
 
+The band listens to each other. The rhythm section plays in the order a band
+listens: the horns and singers first, then the bass, then the chord players,
+each hearing what the others really play in that bar. Chord players stay above
+the bass line and out of the singer's spot. A second comper finds its own
+register instead of doubling the first. The comping plays in the melody's holes,
+and the drummer waits for a phrase to finish before filling. When piano and
+guitar are both on the stand, the bandleader decides per section who comps.
+
+Players lock into a pattern and build from it. The pianist sits on a comping
+figure for a phrase and develops it. The drummer has a home ride pattern and
+hi-hat habit, and the grooves turn at the end of a phrase and go right back in
+the pocket. Swing plays differently at a ballad tempo and at a burning one.
+
+It knows the feels a working band gets called for: swing, ballad, waltz,
+shuffle, bossa, samba, baião, Latin and Afro 12/8, funk, second line, reggae,
+Motown, hip-hop and gypsy jazz.
+
 The players learned from real ones. The walking bass comes from 48 transcribed
 professional lines, the soloists from 347 swing solos in the Weimar Jazz
 Database, the drummer from the Groove MIDI Dataset's jazz drummers, and the
 swing feel and the soloing pianist's left hand from the Jazz Trio Database. The
-scripts that measured them are in `prototype/learn_*.py`, and only the numbers
-ship. Credits are under License.
+soloists also speak those players' shared vocabulary: short figures over each
+kind of chord and across ii-V and V-I changes, each kept only when several
+different players used it. The scripts that measured them are in
+`prototype/learn_*.py`, and only the numbers ship. The band is graded against
+the same players, and against arranging rules like low interval limits and
+voicing, by `prototype/bench_*.py`. Credits are under License.
 
 ## Verified results
 
@@ -348,9 +369,10 @@ holds statistics derived by `prototype/learn_walking.py` from FiloBass
 (Xavier Riley and Simon Dixon, Queen Mary University of London, ISMIR 2023),
 48 transcribed professional walking bass lines, licensed CC BY 4.0
 (https://zenodo.org/records/10069709). `prototype/data/solo_stats.json` comes from
-`prototype/learn_solos.py` over the Weimar Jazz Database 2.1 (Jazzomat Research
-Project, Hochschule für Musik Weimar): contains information from the Weimar
-Jazz Database, which is made available under the ODbL.
+`prototype/learn_solos.py`, and `prototype/data/lick_stats.json` from
+`prototype/learn_licks.py`, both over the Weimar Jazz Database 2.1 (Jazzomat
+Research Project, Hochschule für Musik Weimar): contains information from the
+Weimar Jazz Database, which is made available under the ODbL.
 `prototype/data/timing_stats.json` (the swing ratio at each tempo) comes from
 `prototype/learn_timing.py` over the Jazz Trio Database v0.2 (Huw Cheston et
 al., University of Cambridge), MIT licence.
