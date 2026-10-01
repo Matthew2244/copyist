@@ -754,6 +754,22 @@ All of these ride on a `from demo` line, after commas:
   octave (up over a baritone, down under a soprano) or drops out, so
   the voice has its own room and nothing to fight for pitch. The bass
   keeps its line.
+  The band listens to each other, not just the lead. The rhythm
+  section plays in the order a band listens: the horns and singers
+  first, then the bass, then the first chord player, then the second,
+  each hearing what the ones before it really play in that bar. A
+  chord player keeps its voicing above the bass line for as long as the
+  chord rings, a walking bass that climbs included. A second comper
+  never doubles the first comper's notes or sits a step off them: it
+  finds its own spot for the whole voicing, usually an octave away, and
+  only leaves a note to the other player when there's no room. Neither
+  doubles a horn's or a singer's held note or rubs a step off it,
+  unless it's catching the kicks with the section. The bass goes under
+  a low written line, a bari or bass trombone. And when piano and guitar
+  are both in the band and the chart doesn't say, the bandleader calls
+  it per section: both comp, or one comps while the other lays out
+  (likelier behind a singer, rare in a shout), a fresh call every take.
+  The build names who laid out where; `guitar: groove` keeps both in.
   Backgrounds made up behind a soloist or a singer are voiced as one
   section, the way an arranger writes them: the top horn leads by step,
   each chair takes the next chord tone down without crossing the chair

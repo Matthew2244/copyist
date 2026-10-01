@@ -5377,6 +5377,95 @@ def check_band_hears_the_lead():
           "phrase they really played to answer",
           [b_ for b_, _a in last4] == [1.0, 1.0, 0.125, 0.0]
           and last4[2][1] == [2.0, 2.5, 3.0, 3.5], str(last4))
+    def _ears(band, pitches):
+        was_b = chartgroove.BAND_NOW
+        try:
+            chartgroove.BAND_NOW = band
+            bb = chartgroove.Bar(24, (4, 4), 0, 1)
+            for m in pitches:
+                bb.add(0, 96, ('p', m, 60))
+            bb.xml()
+            return sorted(n[1] for n in bb.onsets[0][1]) if bb.onsets \
+                else []
+        finally:
+            chartgroove.BAND_NOW = was_b
+    got_c = _ears({'comp': [(0.0, 4.0, 60), (0.0, 4.0, 64)]}, (60, 62, 67))
+    check("a second comper hears the first: the whole voicing finds its "
+          "own spot (an octave away) rather than doubling the first "
+          "comper's notes or sitting a step off them, and keeps all its "
+          "notes", len(got_c) == 3 and not any(
+              abs(x - o) <= 2 for x in got_c for o in (60, 64)),
+          str(got_c))
+    got_b = _ears({'bass': [(0.0, 2.0, 45), (2.0, 4.0, 52)]}, (50, 55, 60))
+    check("a chord player stays above the bass line for as long as the "
+          "chord rings, a climbing walk included", got_b == [55, 60, 62],
+          str(got_b))
+    got_l = _ears({'low': [(0.0, 4.0, 45)]}, (48,))
+    check("the bass goes under a low written line (a bari, a bass bone)",
+          got_l == [36], str(got_l))
+    tmp_gp = tempfile.mkdtemp()
+    c_gp = os.path.join(tmp_gp, "g.chart")
+    open(c_gp, "w").write(
+        "title: Two Compers\nkey: Bb\nmeter: 4/4\ntempo: 150\n"
+        "feel: swing\n\nband:\n  tenor = tenor sax\n  guitar\n  piano\n"
+        "  bass\n  drums\n\nsection solos, 8 bars, repeat 2x\n"
+        "  chords: Bb7, Eb7, Bb7, Fm7 Bb7, Eb7, Edim7, Bb7, F7\n"
+        "  tenor: solo\n")
+    clash_gp = tot_gp = 0
+    for tk in (1, 2, 3):
+        was_take = chartc.TAKE
+        try:
+            chartc.TAKE = tk
+            od = os.path.join(tmp_gp, str(tk))
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(c_gp, od)
+        finally:
+            chartc.TAKE = was_take
+        lx = [f for f in os.listdir(od) if 'listening' in f][0]
+        sc = chartaudio.parse_score(os.path.join(od, lx))
+        evs = {}
+        for pt in sc['parts']:
+            nm = (pt.get('name') or '').lower()
+            if nm in ('guitar', 'piano'):
+                evs[nm] = [(q, q + d_, m) for q, d_, m, *_r in pt['events']]
+        for q1, e1, m1 in evs.get('guitar', ()):
+            if q1 >= 60:
+                continue       # the last bar: the band holds the last chord
+            tot_gp += 1
+            if any(min(e1, e2) - max(q1, q2) >= 0.25 and abs(m1 - m2) <= 2
+                   and m1 >= 48 for q2, e2, m2 in evs.get('piano', ())):
+                clash_gp += 1
+    check("guitar and piano comping together listen to each other: the "
+          "guitar almost never doubles the piano's note or sits a step "
+          "from it", tot_gp and clash_gp < 0.03 * tot_gp,
+          str((clash_gp, tot_gp)))
+    c_wc = os.path.join(tmp_gp, "w.chart")
+    open(c_wc, "w").write(
+        "title: Who Comps\nkey: F\nmeter: 4/4\ntempo: 120\nfeel: swing\n"
+        "\nband:\n  singer = voice\n  guitar\n  piano\n  bass\n  drums\n\n"
+        "figure line, 4 bars:\n  notes: C5 h, A4 h, G4 w, F4 h, D4 h, C4 w\n\n"
+        "section verse, 4 bars, repeat 2x\n  chords: F, D7, Gm7, C7\n"
+        "  singer: figure line\n\nsection bridge, 4 bars\n"
+        "  chords: Bb, Bdim7, F, C7\n  singer: figure line\n")
+    outs = []
+    for tk in range(1, 9):
+        was_take = chartc.TAKE
+        try:
+            chartc.TAKE = tk
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                chartc.compile_chart(c_wc, os.path.join(tmp_gp, 'w%d' % tk))
+        finally:
+            chartc.TAKE = was_take
+        outs.append(buf.getvalue())
+    who_out = [o_ for o_ in outs if 'lays out in' in o_]
+    check("behind a singer the bandleader decides who comps, take by take: "
+          "sometimes one comper lays out (not always the same one), "
+          "sometimes both play",
+          0 < len(who_out) < len(outs)
+          and any('guitar lays out' in o_ for o_ in who_out)
+          and any('piano lays out' in o_ for o_ in who_out),
+          str(len(who_out)))
     import chartending as E_
     quiet = 0
     for k in range(20):
@@ -5555,7 +5644,7 @@ def check_band_hears_the_lead():
                              os.path.join(tmp, "b"))
     out = buf.getvalue()
     check("vibes the chart gave nothing leave the comping to the piano",
-          "vibes leaves the comping to the piano or guitar in head" in out,
+          "vibes lays out in head and leaves the comping to piano" in out,
           out[-600:])
     x = open(os.path.join(tmp, "b", "V — for listening.musicxml")).read()
     vib = re.search(r'<part id="P1">(.*?)</part>', x, re.S).group(1)

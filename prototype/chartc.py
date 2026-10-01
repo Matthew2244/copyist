@@ -4631,7 +4631,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     # first keyboard comping is the one the other chord players (a
     # guitar beside a piano) voice around, as they would on the stand.
     LEAD = {'collect': None, 'map': None, 'compers': set(),
-            'hears_comp': set()}
+            'hears_comp': set(), 'heard': None}
 
     # ---- who comps: one chord player at a time unless the chart says
     sid_of = {}
@@ -4649,6 +4649,55 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         LEAD['compers'] = {_keys[0]}
         LEAD['hears_comp'] = set(_chordy) - {_keys[0]}
 
+    def listen_order(part_labels):
+        """The order the band listens in, the bandleader's: the lead
+        and the written lines (horns, singers, strings) first, then the
+        bass, then the first comper, then the other chord players, the
+        drums last. Each chair hears everyone before it."""
+        def rank(l):
+            if l in bass_labels:
+                return 1
+            if l in LEAD['compers']:
+                return 2
+            if l in _chordy:
+                return 3
+            if l in groups['rhythm']:
+                return 4
+            return 0
+        return sorted(part_labels, key=lambda l: (rank(l),
+                                                  part_labels.index(l)))
+
+    def band_now(label, my_role, key):
+        """What this chair hears from the chairs ahead of it in the
+        listening order, this bar: the bass line (a chord player stays
+        above it), the first comper (a second comper never doubles or
+        rubs against it), and the low written lines (the bass goes
+        under a bari or bass trombone)."""
+        got = LEAD['heard'].get(key)
+        if not got:
+            return None
+        me_comp = label in _chordy or my_role == 'comp'
+        out = {'bass': [], 'comp': [], 'low': [], 'horns': []}
+        order_ = listen_order(labels)
+        firsts = [l for l in order_[:order_.index(label)]
+                  if l in _chordy] if label in order_ else []
+        for l_, s_, e_, m_ in got:
+            if l_ == label:
+                continue
+            if l_ in bass_labels and my_role != 'bass':
+                out['bass'].append((s_, e_, m_))
+            elif me_comp and l_ in _chordy and l_ in firsts:
+                out['comp'].append((s_, e_, m_))
+            elif me_comp and l_ not in groups['rhythm'] and \
+                    e_ - s_ >= 0.75:
+                # a horn's or a singer's held note: the comper doesn't
+                # double it or rub a step off it
+                out['horns'].append((s_, e_, m_))
+            elif my_role == 'bass' and l_ not in groups['rhythm'] \
+                    and m_ < 52:
+                out['low'].append((s_, e_, m_))
+        return out if any(out.values()) else None
+
     def strolls(label, plan):
         """A mallet player the chart didn't give anything to, in a
         section where a keyboard or guitar is comping too."""
@@ -4662,6 +4711,39 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             if k_ in ('default', 'groove'):
                 return True
         return False
+
+    _VOICE_INST = {'voice', 'soprano', 'mezzo', 'alto voice', 'tenor voice',
+                   'baritone voice', 'bass voice'}
+
+    def lays_out(label, plan, pi_):
+        """The bandleader's call for a section where nobody wrote the
+        piano or guitar anything: both comp (each hearing the other), or
+        one comps and the other lays out. Behind a singer one comper is
+        the usual call (two compers and a voice fill the middle of the
+        band); in a shout both play; a fresh call every section and
+        every take (Matthew, 2026-10-01: "make everyone more aware")."""
+        if label not in _chordy or sid_of.get(label, '').startswith(
+                'pitched-percussion'):
+            return False
+        mates = [o for o in _chordy if o != label and not sid_of.get(
+            o, '').startswith('pitched-percussion') and
+            plan['content'][o][0] in ('default', 'groove')]
+        if not mates:
+            return False
+        sec = plan['sec']
+        sung = any(canonical_instrument(x['instrument']) in _VOICE_INST
+                   and plan['content'][x['label']][0] not in ('tacet',
+                                                              'default')
+                   for x in band)
+        d_ = chartgroove._Dice('who comps', sec['name'], pi_)
+        p_one = 0.2 if sec.get('_energy', 0) >= 0.8 else \
+            0.65 if sung else 0.4
+        if d_() >= p_one:
+            return False                    # both comp, listening
+        pair = sorted([label] + mates, key=lambda l: (
+            l not in LEAD['compers'], labels.index(l)))
+        comps = pair[0] if d_() < 0.55 else pair[1]
+        return label != comps
 
     # ---- emit one part's measures
     def part_measures(label, with_directions, with_harmony, listen=False,
@@ -4760,10 +4842,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             if kind == 'default':
                 kind = 'groove' if default_groove else 'tacet'
                 arg = '' if kind == 'groove' else None
-                if listen and kind == 'groove' and strolls(label, plan):
+                if listen and kind == 'groove' and (
+                        strolls(label, plan) or lays_out(label, plan, pi_)):
                     # two chord players comping at once muddy the
                     # changes: unasked, the vibes stroll while the
-                    # piano or guitar comps (Matthew, 2026-09-30)
+                    # piano or guitar comps (Matthew, 2026-09-30), and
+                    # the piano and guitar take turns when the leader
+                    # calls it
                     kind, arg = 'tacet', None
                     strolled.setdefault(label, []).append(
                         sec['label'] or sec['name'])
@@ -4823,6 +4908,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                         or label in LEAD['hears_comp'])
                 ] if listen and LEAD['map'] and my_role not in (
                     'bass', 'drums', 'perc') else None
+                chartgroove.BAND_NOW = band_now(
+                    label, my_role, str(absbar if not cur_pass
+                                        else f'{absbar}x{cur_pass}')) \
+                    if listen and LEAD['heard'] is not None else None
                 chartgroove.FLOOR_NOW = 48 if (
                     listen and sound_id.startswith('keyboard')
                     and 'organ' not in sound_id and any(
@@ -5428,6 +5517,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     elif cue:
                         pieces.append(cue)
                 mnum = absbar if not cur_pass else f'{absbar}x{cur_pass}'
+                if listen and LEAD['heard'] is not None:
+                    # the band's ears: what this chair really played in
+                    # this bar, heard by the chairs that play after it
+                    LEAD['heard'].setdefault(str(mnum), []).extend(
+                        (label,) + n for n in bar_notes(
+                            "".join(pieces), bar_div0,
+                            horn['transpose'] if horn else 0))
                 if listen and LEAD['collect'] is not None and (
                         absbar in demo_measures[label]
                         or kind == 'engraved' or soloing
@@ -5448,6 +5544,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         # the ending is its own moment: the last bar's listening filters
         # (the lead, the bass floor, the kicks) don't carry into it
         chartgroove.LEAD_NOW = chartgroove.FLOOR_NOW = None
+        chartgroove.BAND_NOW = None
         chartgroove.ENSEMBLE_NOW = None
         if listen and endsh and out:
             last_pl = plans[-1]
@@ -5574,10 +5671,17 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                          f'</midi-instrument>')
             L.append('</score-part>\n')
         L.append('  </part-list>\n')
+        made_ = {}
+        if listen and LEAD['heard'] is not None:
+            # the band plays in its listening order, each chair hearing
+            # the ones before it; the score keeps its own order
+            for l in listen_order(part_labels):
+                made_[l] = part_measures(l, directions_on(l),
+                                         harmony_on(l), listen, part_mode)
         for i, l in enumerate(part_labels, 1):
             L.append(f'  <part id="P{i}">\n')
-            L.append(part_measures(l, directions_on(l), harmony_on(l),
-                                   listen, part_mode))
+            L.append(made_[l] if l in made_ else part_measures(
+                l, directions_on(l), harmony_on(l), listen, part_mode))
             L.append('  </part>\n')
         L.append('</score-partwise>\n')
         return "".join(L)
@@ -5604,11 +5708,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     for live, was in zip((realized_bars, played_written, strolled), kept):
         live.clear()
         live.update(was)
+    LEAD['heard'] = {}
     with open(listen_path, 'w', encoding='utf-8') as f:
         f.write(document(labels,
                          directions_on=lambda l: l == labels[0],
                          harmony_on=lambda l: l in chord_parts,
                          listen=True))
+    LEAD['heard'] = None
+    chartgroove.BAND_NOW = None
     chartgroove.LEAD_NOW = None
     chartgroove.ENSEMBLE_NOW = None
     chartgroove.FLOOR_NOW = None
@@ -5619,9 +5726,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     if road_said:
         findings.add(road_said)
     for l, secs in strolled.items():
-        findings.add(f"listen: {l} leaves the comping to the piano or "
-                     "guitar in " + ", ".join(dict.fromkeys(secs))
-                     + ", so two chord players never fight over the "
+        others = [o for o in _chordy if o != l] or ['the other chord player']
+        findings.add(f"listen: {l} lays out in "
+                     + ", ".join(dict.fromkeys(secs))
+                     + f" and leaves the comping to {' and '.join(others)}"
+                     ", so two chord players never fight over the "
                      "changes; anything written for it still plays. "
                      f"Write '{l}: groove' to have both comp")
     if realized_bars:

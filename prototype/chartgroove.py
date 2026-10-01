@@ -145,6 +145,12 @@ ENSEMBLE_NOW = None
 # playing, so the piano's left hand stays out of its register (below
 # C3 a piano under a walking bass is mud).
 FLOOR_NOW = None
+# What the chairs ahead of this one in the band's listening order really
+# play in this bar (see chartc.listen_order): {'bass': [...], 'comp':
+# [...], 'low': [...]}, each a list of (start, end, midi) in beats. The
+# band's ears (Matthew, 2026-10-01: "make everyone more aware of
+# everything").
+BAND_NOW = None
 
 
 def _catch(bar, hits, heat, d):
@@ -343,6 +349,97 @@ class Bar:
                 out.append(n)
             self.onsets[t] = (ln, out)
 
+    def _hear_the_band(self, band):
+        """The chair listens to the ones ahead of it, the way a real
+        rhythm section does (2026-10-01, measured across the test book:
+        guitar and piano landed on the same notes or a step apart 165
+        times in one tune, the piano's left hand sat under a walking bass
+        that had climbed, a walking bass sat over a bari soli line):
+        a chord player stays above the bass line; a second comper never
+        doubles the first comper's note and never sits a step from it,
+        moving an octave or leaving that note to the other player; the
+        bass goes under a low written line. A horn's or a singer's held
+        note is heard the same way: the comper doesn't double it or sit a
+        step off it, unless it's catching the kicks with the section."""
+        q = float(self.div)
+
+        def sounding(notes, a, b, least):
+            return [m for s, e, m in notes if min(b, e) - max(a, s)
+                    >= least - 1e-6]
+        for tick in list(self.onsets):
+            ticks, notes = self.onsets[tick]
+            a, b = tick / q, (tick + ticks) / q
+            bass = sounding(band.get('bass') or (), a, b, 0.25)
+            comp = sounding(band.get('comp') or (), a, b, 0.25)
+            if not ENSEMBLE_NOW:
+                # (catching the kicks with the horns, the comper doubles
+                # them on purpose)
+                comp = comp + sounding(band.get('horns') or (), a, b, 0.5)
+            low = sounding(band.get('low') or (), a, b, 0.5)
+            # the voicing clears the bass line for as long as it rings:
+            # a walking bass that climbs mustn't walk up through it
+            floor = max(bass) if bass else None
+
+            def place(m):
+                if low:
+                    # the bassist under the horns' bottom note
+                    while m >= min(low) and m - 12 >= 28:
+                        m -= 12
+                if floor is not None:
+                    # a chord player above the bass, not on it or under it
+                    while m <= floor + 2:
+                        m += 12
+                return m
+
+            def rubs(m):
+                return 2 if m in comp else 1 if any(
+                    abs(m - o) <= 2 for o in comp) else 0
+            pitched = [n for n in notes if n[0] == 'p']
+            shift = 0
+            if comp and pitched:
+                # the second comper finds its own spot for the whole
+                # voicing (where it is, an octave up, an octave down)
+                # before giving up any note of it: a guitarist moves up
+                # the neck, he doesn't stop comping
+                best = None
+                for sh in (0, 12, -12):
+                    ms = [place(n[1] + sh) for n in pitched]
+                    if not all(48 <= x <= 79 for x in ms):
+                        continue
+                    cost = sum(rubs(x) for x in ms)
+                    if best is None or cost < best[0]:
+                        best = (cost, sh)
+                if best is not None:
+                    shift = best[1]
+            out, seen = [], set()
+            kept = 0
+            for n in notes:
+                if n[0] != 'p':
+                    out.append(n)
+                    continue
+                m = place(n[1] + shift)
+                if comp and rubs(m):
+                    moved = None
+                    mid = sum(comp) / len(comp)
+                    for x in ((m - 12, m + 12) if m <= mid else
+                              (m + 12, m - 12)):
+                        if 48 <= x <= 79 and not rubs(x) and (
+                                floor is None or x > floor + 2):
+                            moved = x
+                            break
+                    if moved is None:
+                        continue        # leave that note to the other
+                    m = moved
+                if m > 88 or m in seen:
+                    continue
+                seen.add(m)
+                kept += 1
+                out.append((n[0], m) + tuple(n[2:]))
+            if out:
+                self.onsets[tick] = (ticks, out)
+            else:
+                del self.onsets[tick]
+
     def _hear_the_lead(self, lead):
         """Drop every pitched note a half step (or a minor ninth, or
         more octaves) from a lead note it overlaps by an eighth or more,
@@ -474,6 +571,8 @@ class Bar:
             self._above_the_bass(FLOOR_NOW)
         if LEAD_NOW:
             self._hear_the_lead(LEAD_NOW)
+        if BAND_NOW:
+            self._hear_the_band(BAND_NOW)
         if not self.onsets:
             # the filters can empty a bar; it is then a rest, never None
             # to a caller that already saw notes in it
