@@ -742,7 +742,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
             step = max(beat // 6, 2)
             for p in vs:
                 b.add(land, beat // 2, ('p', p, 102))
-                up = p + (2 if dm() < 0.6 else 1)
+                up = upper_in_chord(p, shift, chord, 1, 2)
                 t, k = land + beat // 2, 0
                 while t < stop - step:
                     b.add(t, step, ('p', up if k % 2 == 0 else p, 96))
@@ -765,7 +765,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                       ('p', m_, v_))
             _rubato(b, beat // 2, stop, dm)
         else:
-            _trash_pitched(b, beat, vs, role, stop)
+            _trash_pitched(b, beat, vs, role, stop, chord, shift)
 
     def figure_body(length):
         """The unison figure for this part: every pitched chair on the
@@ -1635,9 +1635,28 @@ def _trash_drums(bar, beat, seed, t1):
         bar.add(k + int(d() * beat / 3), beat, ('u', G._CRASH, 102))
 
 
-def _trash_pitched(bar, beat, pitches, role, t1):
+def upper_in_chord(p, shift, chord, lo=1, hi=2, prefer_tones=False):
+    """The note above p (written pitch) a trill or a shake goes to: in
+    the chord's own scale, a chord tone first for a shake — a fixed
+    whole step put an A over a held Bb7 (2026-10-01)."""
+    if chord is None:
+        return p + lo + (1 if hi > lo else 0)
+    root = G._root_pc(chord)
+    tones = {x % 12 for x in G._tones(chord)}
+    sc = {x % 12 for x in G._scale(chord)} | tones
+    conc = p - shift
+    pool = [m for m in range(conc + lo, conc + hi + 1)
+            if (m - root) % 12 in (tones if prefer_tones else sc)]
+    if not pool and prefer_tones:
+        pool = [m for m in range(conc + lo, conc + hi + 1)
+                if (m - root) % 12 in sc]
+    return (pool[0] if pool else conc + lo) + shift
+
+
+def _trash_pitched(bar, beat, pitches, role, t1, chord=None, shift=0):
     """Over a trash can the band doesn't sit still: keys tremolo the
-    chord, the bass shakes the root, a horn shakes its note."""
+    chord, the bass shakes the root, a horn shakes its note (to a note
+    of the chord above it)."""
     step = beat // 4
     lo = min(pitches)
     bar_on = sorted(pitches)
@@ -1648,7 +1667,8 @@ def _trash_pitched(bar, beat, pitches, role, t1):
         elif role == 'bass':
             group = [lo if k == 0 else lo + 7]
         else:
-            group = [p + (2 if k else 0) for p in pitches]
+            group = [upper_in_chord(p, shift, chord, 2, 5, True) if k else p
+                     for p in pitches]
         v = int(78 + 28 * t / max(t1, 1))
         for p in group:
             bar.add(t, step, ('p', p, v))

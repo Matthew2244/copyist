@@ -5613,6 +5613,14 @@ def check_band_hears_the_lead():
     check("a form that ends on its turnaround resolves home the last time: "
           "a Bb blues ending on F7 holds and hits Bb7",
           bs_ and bs_[-1][2] % 12 == 10, str(bs_[-3:]))
+    import chartending as E_up
+    bb7 = ('B', -1, '7', None)
+    tr_ = E_up.upper_in_chord(67, 0, bb7, 1, 2)
+    sh_ = E_up.upper_in_chord(67 + 2, 2, bb7, 2, 5, True)
+    check("over a held Bb7 a trill on G goes to Ab (the scale's next note, "
+          "not a fixed whole step to A), a trumpet's shake (written a tone "
+          "up) to a chord tone above", tr_ == 68 and (sh_ - 2 - 10) % 12 in
+          (0, 4, 7, 10), str((tr_, sh_)))
     import chart as chart_cli
     broken_cm = []
     for mt in ("6/8", "12/8"):
