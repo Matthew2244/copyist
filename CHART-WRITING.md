@@ -738,7 +738,10 @@ All of these ride on a `from demo` line, after commas:
   solo go into cups together; the mute comes out for whatever's next. Soloists named in one section take turns in the order you call them, the
   section split between them. A pianist keeps left-hand shells under
   the line; a drummer takes a drum solo. The page keeps its slashes and
-  the word, and a solo you played in from MIDI plays exactly as played.
+  the word, and a solo you played in from MIDI plays exactly as played,
+  and the band reacts to it, not to a made-up one: they leave room where
+  you're busy, fill where you breathe, and answer the phrase you
+  actually played.
 - **The band listens to the lead.** Whoever is making something up
   (the comping, backgrounds) hears the melody, any written line and the
   soloist, and leaves out a note a half step from what the lead is

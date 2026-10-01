@@ -4233,7 +4233,21 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         k, lo, hi = turn_at(sec, who, walk, at)
         return (at - lo, hi - lo, k, (lo, hi))
 
-    def solo_busy(sec, plan, passes, bar_beats):
+    def played(label, absbar, cur_pass):
+        """The onsets (beats into the bar) of a solo the player played in
+        from MIDI, in this bar, as the band hears it; None when this
+        bar's solo is made up. A played-in solo is what the band reacts
+        to — not the solo Copyist would have made up (Matthew,
+        2026-10-01: "If I were to do a solo in midi, it would
+        respect right?")."""
+        if absbar is None or absbar not in demo_measures.get(label, {}) \
+                or not LEAD['map']:
+            return None
+        key = str(absbar if not cur_pass else f'{absbar}x{cur_pass}')
+        return sorted({round(s_, 3) for l_, s_, _e, _m in
+                       LEAD['map'].get(key, ()) if l_ == label})
+
+    def solo_busy(sec, plan, passes, bar_beats, absbar=None, cur_pass=0):
         """How busy the soloist is in this bar, 0 (resting) to 1 (a
         solid line of eighths), so the band can leave room or answer."""
         turn = sec.get('_turn')
@@ -4243,13 +4257,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         walk = sec['bars'] * passes
         if drumlike(who[turn[2]]):
             return 0.8                    # the drummer's turn: room
+        mine = played(who[turn[2]], absbar, cur_pass)
+        if mine is not None:
+            return min(len(mine) / (2.0 * bar_beats), 1.0)
         story = solo_story(who[turn[2]], sec, who, walk, bar_beats,
                            span=turn[3] if sec.get('trade') else None)
         t0, t1 = turn[0] * bar_beats, (turn[0] + 1) * bar_beats
         n = sum(1 for at, *_r in story if t0 <= at < t1)
         return min(n / (2.0 * bar_beats), 1.0)
 
-    def solo_answer(sec, plan, passes, bar_beats):
+    def solo_answer(sec, plan, passes, bar_beats, absbar=None, cur_pass=0):
         """The soloist's last phrase, when they breathe in this bar:
         its rhythm as beats in the bar (up to four notes), so the piano
         or the drummer can pick it up and answer (Matthew, 2026-09-30:
@@ -4262,6 +4279,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         walk = sec['bars'] * passes
         if drumlike(who[turn[2]]):
             return None
+        mine = played(who[turn[2]], absbar, cur_pass)
+        if mine is not None:
+            # a played-in solo: the phrase the player really played
+            off_ = absbar - plan.get('start', absbar)
+            pa, pp = (absbar - 1, cur_pass) if off_ > 0 or not cur_pass \
+                else (absbar + sec['bars'] - 1, cur_pass - 1)
+            before = played(who[turn[2]], pa, pp) or []
+            if len(mine) > 2 or len(before) < 2:
+                return None
+            return before[-4:]
         story = solo_story(who[turn[2]], sec, who, walk, bar_beats,
                            span=turn[3] if sec.get('trade') else None)
         t0 = turn[0] * bar_beats
@@ -5191,9 +5218,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         sec['_turn'] = solo_turn(sec, off, cur_pass,
                                                  passes, plan)
                         sec['_busy'] = solo_busy(sec, plan, passes,
-                                                 bmeter[0])
+                                                 bmeter[0], absbar,
+                                                 cur_pass)
                         sec['_answer'] = solo_answer(sec, plan, passes,
-                                                     bmeter[0])
+                                                     bmeter[0], absbar,
+                                                     cur_pass)
                         if soloing and not LISTEN_OPTS['solos'] or \
                                 plan.get('bg', {}).get(label) and \
                                 not soloing and \

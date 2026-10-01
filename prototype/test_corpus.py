@@ -5347,6 +5347,36 @@ def check_band_hears_the_lead():
     check("behind a soloist the bass walks: two-feel bars are a rare call "
           "of the moment", bass_bars and bass_two < 0.05 * bass_bars,
           str((bass_two, bass_bars)))
+    tmp_ps = tempfile.mkdtemp()
+    c_ps = os.path.join(tmp_ps, "s.chart")
+    open(c_ps, "w").write(
+        "title: Played Solo\nkey: F\nmeter: 4/4\ntempo: 140\nfeel: swing\n"
+        "\nband:\n  tenor = tenor sax\n  piano\n  bass\n  drums\n\n"
+        "figure my solo, 4 bars:\n  notes: C4 e, D4 e, F4 e, A4 e, C5 e, "
+        "A4 e, F4 e, D4 e, C4 e, D4 e, F4 e, A4 e, C5 e, A4 e, F4 e, D4 e, "
+        "F4 h, rest h, rest w\n\nsection solos, 4 bars\n  chords: F7 x4\n"
+        "  tenor: solo\n  tenor: figure my solo\n")
+    heard_ps = []
+    was_real = chartgroove.realize
+
+    def _spy_ps(kind, arg, sound_id, clef, staves, fifths, sec, off, *a,
+                **k):
+        if 'drum' in sound_id:
+            heard_ps.append((sec.get('_busy'), sec.get('_answer')))
+        return was_real(kind, arg, sound_id, clef, staves, fifths, sec, off,
+                        *a, **k)
+    chartgroove.realize = _spy_ps
+    try:
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(c_ps, os.path.join(tmp_ps, "o"))
+    finally:
+        chartgroove.realize = was_real
+    last4 = heard_ps[-4:]
+    check("a solo played in from MIDI is what the band reacts to: busy "
+          "where the player was busy, room where they rested, and the "
+          "phrase they really played to answer",
+          [b_ for b_, _a in last4] == [1.0, 1.0, 0.125, 0.0]
+          and last4[2][1] == [2.0, 2.5, 3.0, 3.5], str(last4))
     import chartending as E_
     quiet = 0
     for k in range(20):
