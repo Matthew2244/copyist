@@ -5084,12 +5084,38 @@ def check_band_hears_the_lead():
     b = chartgroove.Bar(24, (4, 4), 0, 1)
     b.add(0, 12, ('u', chartgroove._SNARE, 100))
     b.add(6, 6, ('u', chartgroove._SNARE, 90))
-    chartgroove._chopping_hand(b)
+    chartgroove._chopping_hand(b, '24')
     got = {t: [n[1] for n in ns] for t, (_l, ns) in b.onsets.items()}
-    check("chopping wood, the left hand stays on the rim: a snare stroke "
-          "lands on the cross-stick, a fast one on the high tom",
-          got.get(0) == [chartgroove._XSTICK]
-          and got.get(6) == [chartgroove._HI_TOM], str(got))
+    check("chopping wood is solid: the cross-stick exactly on 2 and 4; "
+          "the hand on the rim sends a stray snare to the kick, a fast "
+          "one to the high tom",
+          got.get(24) == [chartgroove._XSTICK]
+          and got.get(72) == [chartgroove._XSTICK]
+          and got.get(0) == [chartgroove._KICK]
+          and got.get(6) == [chartgroove._HI_TOM]
+          and sum(v.count(chartgroove._XSTICK) for v in got.values()) == 2,
+          str(got))
+    shapes = {}
+    for how in ('copy', 'quarters', 'chick', 'skip'):
+        b = chartgroove.Bar(24, (4, 4), 0, 1)
+        for t in (0, 24, 40, 48, 72, 88):
+            b.add(t, 12, ('u', chartgroove._RIDE, 76))
+        chartgroove._hat_time(b, False, how)
+        shapes[how] = tuple(sorted((t, n[1][0] + str(n[1][1]))
+                                   for t, (_l, ns) in b.onsets.items()
+                                   for n in ns))
+        vels = [n[2] for _l, ns in b.onsets.values() for n in ns]
+    check("the hi-hat swing has its ways (the ride's pattern, quarters, "
+          "tsss-chick, skips), all different, none quiet",
+          len(set(shapes.values())) == 4 and min(vels) >= 60, str(shapes))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    for t in (0, 24, 48, 72):
+        b.add(t, 12, ('u', chartgroove._FLOOR_TOM, 90))
+    chartgroove.solo_accents(b, chartgroove._Dice('acc'), 1.5)
+    cym = [t for t, (_l, ns) in b.onsets.items() for n in ns
+           if n[1] in (chartgroove._CRASH, chartgroove._OPEN_HAT)]
+    check("a drum solo's crashes and open hats land on its own strokes",
+          cym and all(t in (0, 24, 48, 72) for t in cym), str(cym))
     b = chartgroove.Bar(24, (4, 4), 0, 1)
     chartgroove.drum_solo(b, 200, 0, 4, 'drums', echo=[
         (0.0, 0.5, 72), (0.5, 0.5, 76), (1.0, 1.0, 79)])

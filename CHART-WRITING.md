@@ -836,6 +836,10 @@ All of these ride on a `from demo` line, after commas:
   and the band just starts, more often on a ballad or a tune that opens
   on a vamp. `countoff: no` in the header starts it cold, `countoff:
   yes` always counts; `--count-in` puts the click there instead.
+- **A drum solo has colour.** Crashes and open hats land on top of the
+  drummer's own strokes (a crash with the floor tom, an open hat with
+  the snare, a crash with the kick), mostly where a phrase starts or a
+  beat lands, more as the solo builds.
 - **Rolls at the speed of real hands.** A snare buzz roll is the
   fastest, about twenty strokes a second; an open roll on the toms or a
   cymbal about thirteen; at a fast tempo they drop to sextuplets or
@@ -847,14 +851,18 @@ All of these ride on a `from demo` line, after commas:
   later, and sometimes not at all. Never every time; not on each turn of
   a trade.
 - **Ride or hi-hat, the drummer's call.** In swing the drummer keeps
-  time on the ride or on a closed hi-hat with the kick feathering light
-  quarters, choosing per section: the hat more often on the opening
+  time on the ride or on the hi-hat, firm enough to carry the band, in
+  one of its ways (the ride's pattern on the closed hat, quarters
+  leaning on 2 and 4, "tsss-chick" with the hat open on 1 and 3 and shut
+  by the foot on 2 and 4, or quarters with the swung skips into 2 and
+  4), the kick feathering light quarters under it if they like, choosing per section: the hat more often on the opening
   head, rarely under a solo, never on a shout, which stays on the ride.
   On a shout the drummer may chop wood too, their call per shout: the
   cross-stick on 2 and 4, on 4 alone, or a cross-stick on 2 answered by
   the high tom on 4 and its 'and'; chopping, the left hand stays on the
-  rim, so anything the bar would put on the snare lands on the
-  cross-stick (a fast run on the high tom). `on the hat` (or `closed hi-hat`),
+  rim, so the cross-stick pattern stays exactly the same every bar at
+  one weight (the foundation), and anything else the bar would put on
+  the snare goes to the kick (a fast run on the high tom). `on the hat` (or `closed hi-hat`),
   `ride` and `ride only` settle it.
 - **The guitar in a small group** comps in spots like a pianist's left
   hand or plays four to the bar, choosing per section; with four horns

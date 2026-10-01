@@ -750,47 +750,76 @@ def _chop_wood(bar, how):
         bar.add(3 * beat + half, half, ('u', _HI_TOM, 92))
 
 
-def _chopping_hand(bar):
-    """Chopping wood, the left hand lies across the snare on the rim:
-    there's no time to get back to the snare head, so whatever the bar
-    would have put on the snare lands on the cross-stick, or, in a fast
-    run, on the high tom (Matthew, 2026-10-01)."""
+def _chopping_hand(bar, how='24'):
+    """Chopping wood is the foundation, so it's solid (Matthew,
+    2026-10-01): the cross-stick pattern exactly, every bar, at one
+    weight. The left hand lies across the snare on the rim, so there's
+    no time to get back to the snare head: whatever else the bar would
+    have put on the snare goes to the kick, or in a fast run the high
+    tom, and no stray cross-stick muddies the pattern."""
     beat = bar.div * 4 // bar.den
     q = max(beat // 2, 1)
     for t in list(bar.onsets):
         ln, ns = bar.onsets[t]
         out, seen = [], set()
         for n in ns:
+            if n[0] == 'u' and n[1] == _XSTICK:
+                continue                      # the pattern goes back below
             if n[0] == 'u' and n[1] == _SNARE:
-                n = ('u', _XSTICK if t % q == 0 else _HI_TOM) + tuple(n[2:])
+                n = ('u', _KICK if t % q == 0 else _HI_TOM) + tuple(n[2:])
             k = (n[0], n[1])
             if k in seen:
                 continue
             seen.add(k)
             out.append(n)
-        bar.onsets[t] = (ln, out)
+        if out:
+            bar.onsets[t] = (ln, out)
+        else:
+            del bar.onsets[t]
+    beats = {'24': (1, 3), '24kick': (1, 3), '4': (3,), '2tom': (1,)}.get(
+        how, (1, 3))
+    for b in beats:
+        if b < bar.num:
+            bar.add(b * beat, beat // 2, ('u', _XSTICK, 100))
 
 
-def _hat_time(bar, feather):
-    """Swing time moved from the ride to a closed hi-hat played with the
-    stick: the foot holds the hat shut (no chick of its own), and the
-    kick may feather light quarters under it."""
+def _hat_time(bar, feather, how='copy'):
+    """Swing time on the hi-hat instead of the ride, one of the ways a
+    drummer plays it (Matthew, 2026-10-01: "look up other hihat swing
+    patterns"): the ride's pattern on the closed hat ('copy'); quarter
+    notes leaning on 2 and 4 ('quarters'); "tsss-chick", the hat open on
+    1 and 3 and shut by the foot on 2 and 4 ('chick'); or quarters with
+    the swung skip notes into 2 and 4 ('skip'). Firm enough to carry
+    the band. The kick may feather light quarters under it."""
     beat = bar.div * 4 // bar.den
+    half = beat // 2
+    rides = sorted(t for t, (_l, ns) in bar.onsets.items()
+                   if any(n[0] == 'u' and n[1] == _RIDE for n in ns))
     for t in list(bar.onsets):
         ln, ns = bar.onsets[t]
-        keep = []
-        for n in ns:
-            if n[0] == 'u' and n[1] == _RIDE:
-                keep.append(('u', _HAT, max((n[2] or 70) - 4, 30))
-                            + tuple(n[3:]))
-            elif n[0] == 'u' and n[1] == _HATF:
-                continue
-            else:
-                keep.append(n)
+        keep = [n for n in ns if not (n[0] == 'u' and n[1] in (_RIDE,
+                                                               _HATF))]
         if keep:
             bar.onsets[t] = (ln, keep)
         else:
             del bar.onsets[t]
+    if how == 'copy':
+        for t in rides:
+            back = (t // beat) % 2 == 1 and t % beat == 0
+            bar.add(t, half, ('u', _HAT, 84 if back else 74))
+    else:
+        for b in range(bar.num):
+            t = b * beat
+            if how == 'chick':
+                if b % 2 == 0:
+                    bar.add(t, beat, ('u', _OPEN_HAT, 78))
+                else:
+                    bar.add(t, half, ('u', _HATF, 92))
+                    bar.add(t, half, ('u', _HAT, 80))
+            else:
+                bar.add(t, half, ('u', _HAT, 86 if b % 2 else 72))
+                if how == 'skip' and b % 2 == 0:
+                    bar.add(t + 2 * beat // 3, beat // 3, ('u', _HAT, 62))
     if feather:
         for b in range(bar.num):
             t = b * beat
@@ -2015,10 +2044,14 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
                         p = 0.0 if sec.get('_energy', 0) >= 0.8 else \
                             0.1 if sec.get('_turn') else \
                             0.45 if sec.get('_arc', 0) == 0 else 0.25
-                        ht[key] = (d3() < p, d3() < 0.7)
-                    on_hat, feath = ht[key]
+                        ht[key] = (d3() < p, d3() < 0.7,
+                                   ('copy', 'copy', 'quarters', 'chick',
+                                    'skip')[int(d3() * 5) % 5])
+                    on_hat, feath = ht[key][:2]
                 if on_hat:
-                    _hat_time(bar, feath)
+                    _hat_time(bar, feath, (state.get('hat_time', {}).get(
+                        (sec.get('name'), absbar // 1000)) or
+                        (0, 0, 'copy'))[2])
                 elif sec.get('_energy', 0) >= 0.8 and bar.num == 4 and \
                         not re.search(r'\bride only\b', words):
                     # a shout on the ride; the drummer may chop wood too
@@ -2048,8 +2081,9 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
             _drummer_marks(bar, sec, off, absbar, heat, state)
         if ENSEMBLE_NOW and impl not in ('brushes', 'mallets'):
             _catch(bar, ENSEMBLE_NOW, heat, _Dice('catch', absbar))
-        if state.pop('chopping', None):
-            _chopping_hand(bar)
+        chopping = state.pop('chopping', None)
+        if chopping:
+            _chopping_hand(bar, chopping)
         fills = {b: t for b, k, t in evs if k == 'fill'}
         if state.pop('cue_fill', False):
             fills[off + 1] = ''       # the drummer cues the band out
@@ -2917,6 +2951,30 @@ def comp_shells(bar, state, chords, absbar=0, next_chord=None):
             bar.add(t0, min(ln, bar.barlen - t0), ('p', m, w))
 
 
+def solo_accents(bar, d, amount=1.0, end=None):
+    """A drum solo's colour (Matthew, 2026-10-01: "more crashes with
+    drums, like with any tom, snare, kick ... same goes for open hats"):
+    a crash or an open hat on top of a stroke already there, never on an
+    empty spot, mostly where a phrase starts or a beat lands, so it
+    says something with what the drummer is playing."""
+    beat = bar.div * 4 // bar.den
+    end = bar.barlen if end is None else end
+    strong = [t for t, (_l, ns) in bar.onsets.items() if t < end and any(
+        n[0] == 'u' and n[1] in (_KICK, _SNARE, _HI_TOM, _MID_TOM,
+                                 _FLOOR_TOM) for n in ns)]
+    if not strong:
+        return
+    on_beat = [t for t in strong if t % beat == 0] or strong
+    n_acc = int(amount * 1.5 + d() * 1.2)
+    for _ in range(n_acc):
+        pool = on_beat if d() < 0.7 else strong
+        t = pool[int(d() * len(pool)) % len(pool)]
+        if any(n[1] in (_CRASH, _OPEN_HAT) for n in bar.onsets[t][1]):
+            continue
+        bar.add(t, beat, ('u', _CRASH if d() < 0.6 else _OPEN_HAT,
+                          100 + int(14 * d())))
+
+
 def drum_solo(bar, absbar, pos, total, seed, echo=None):
     """A drummer's solo chorus, in time, told as a story (Matthew,
     2026-09-30: "drum solos can be anything ... go into whatever groove,
@@ -2988,6 +3046,7 @@ def drum_solo(bar, absbar, pos, total, seed, echo=None):
     # the second half of a phrase develops the first: stronger, busier
     E._scale_vel(bar, 0, end, 0.85 + 0.3 * arc + (0.08 if pos % 4 >= 2
                                                    else 0))
+    solo_accents(bar, d, 0.6 + 0.8 * arc, end)
     if last:
         # the set-up that brings the band back in
         E._drum_cue(bar, beat, end, bar.barlen,

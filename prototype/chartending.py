@@ -923,6 +923,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                         _rubato(b, 0, end, dd)
                     # soft and patient early, the big one last
                     _scale_vel(b, 0, end, 0.86 + 0.24 * arc)
+                    G.solo_accents(b, dd, 0.5 + arc, end)
                     _drum_cue(b, beat, L - cl, L - air, cue, dd)
                 elif role == 'perc':
                     _roll(b, beat, 0, L, ('C', 5, 'normal'), 40, 90)
@@ -1671,8 +1672,8 @@ def band_choice(feel, song, has_keys, has_horns, written=None,
         # and sometimes the last hit rings, fermata, instead of cutting
         steps = [('hit', 'held') if k == 'hit' else (k, a)
                  for k, a in steps]
-    elif hit and d() < (0.5 if any(k == 'dictate' for k, _ in steps)
-                        else 0.35):
+    elif hit and d() < (0.65 if any(k == 'dictate' for k, _ in steps)
+                        else 0.5):
         steps.append(('tag', ('drums', None)))
     return steps
 
