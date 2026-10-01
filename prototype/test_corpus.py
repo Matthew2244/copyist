@@ -4734,8 +4734,8 @@ def check_cues_and_cuts():
           chartband.SYNTH_VOICE == 55 and not any(
               f.startswith('voice') for frags, _v in chartband._SFZ_VOICES
               for f in frags)
-          and any(fr == 'voice' and db <= -5 for fr, db, _p in
-                  chartband._SEATS))
+          and any(fr == 'voice' and -4 <= db <= -2 for fr, db, _p in
+                  chartband._SEATS))       # 4 dB up (Matthew, 2026-10-01)
     sec = chartc.section_header(
         "solos", ", 8 bars, till cue, drums cue, on cue, cut to shout", "t")
     check("header: till cue, drums cue, on cue cut to shout",
@@ -5304,6 +5304,15 @@ def check_band_hears_the_lead():
           all(a_ > b_ for a_, b_ in zip(vs, vs[1:])) and vs[-1] % 12 == 7,
           str(vs))
     import chartband
+    co = [(0.0, 42, 80), (1.0, 38, 100), (2.0, 49, 108), (2.0, 36, 106)]
+    soft = chartband.opening_dynamic(co, [0.4, 0.35])
+    loud = chartband.opening_dynamic(co, [1.0])
+    mf = chartband.opening_dynamic(co, [])
+    check("the count-off respects how the tune opens: soft and no cymbal "
+          "into a quiet tune, harder into a loud one, as is at mf",
+          all(k != 49 for _t, k, _v in soft) and max(v for *_x, v in soft)
+          < 70 and max(v for *_x, v in loud) > 108 and mf == co,
+          str((soft, loud)))
     r_ = chartband.top_swing([(0.0, (0.70, 1.0))])
     check("the count-off swings like the tune it counts in: in a swing "
           "tune its 'and' sits late, in a straight tune right in the middle",

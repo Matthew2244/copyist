@@ -380,7 +380,8 @@ what its reader needs (WAV twins for FLAC, 16-bit copies of 24-bit
 files; ffmpeg is needed for the FLAC ones) and builds its own extras
 (tenor, saxello, vibraphone, trombone falls, organ) from them, then
 writes CREDITS.txt on the shelf naming who made each. Singers sing on
-the SoundFont's synth voice, sitting under the band; it comes with the
+the SoundFont's synth voice, sitting in the band where you can hear the
+line without it taking over; it comes with the
 band download. The sampled VocalSet choir is an optional extra. Every library is CC0,
 CC-BY or MIT. In the Mac app it's the Sounds group in Settings: each
 library with a switch, where it goes, and one button to install; on
@@ -868,7 +869,9 @@ All of these ride on a `from demo` line, after commas:
   on a vamp. `countoff: no` in the header starts it cold, `countoff:
   yes` always counts; `--count-in` puts the click there instead. The
   count-off is part of the song: in a swing tune its pickup swings
-  like the band.
+  like the band, and it's played at the tune's opening dynamic: a
+  quiet tune is counted in softly and lands with no cymbal, a loud
+  one is kicked off hard.
 - **Two hands, two feet.** A drummer never hits three drums or cymbals
   at once. When the parts pile up, the drummer keeps what matters most
   (a crash, the snare, the kick, the hat foot) and drops the rest.

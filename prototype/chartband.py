@@ -174,12 +174,12 @@ _SEATS = (
     ('brass.', 0.0, 0.3),
     ('pluck.bass', -4.5, 0.0), ('strings.contrabass', -4.0, 0.0),
     ('keyboard.piano', -15.0, 0.30), ('keyboard.organ', -16.0, 0.25),
-    ('keyboard', -15.0, 0.25), ('pluck.guitar', -13.0, -0.35),
+    ('keyboard', -15.0, 0.25), ('pluck.guitar', -11.0, -0.35),
     ('pitched-percussion.vibraphone', -8.0, 0.35),
     ('drum.group', -6.5, 0.0),
     ('drum.', -4.0, 0.45), ('metal.', -5.0, 0.45), ('wood.', -5.0, 0.45),
     ('rattle.', -6.0, 0.45),
-    ('voice', -7.0, 0.0),          # a synth voice sits under the band
+    ('voice', -3.0, 0.0),          # the synth voice, 4 dB up (Matthew, 2026-10-01)
     ('wind.', -1.0, -0.20), ('strings.', -1.0, -0.25),
 )
 
@@ -517,6 +517,24 @@ def _family(program, percussion):
         if program in rng:
             return fam
     return 'synth'
+
+
+def opening_dynamic(count_off, levels):
+    """A count-off (time, drum key, velocity) scaled to where the band
+    opens: levels are each playing part's dynamic at bar one (0.8 is
+    mf, unmarked). Soft: everything down and the crash and open hat on
+    the landing give way (a soft tune isn't kicked off with a cymbal).
+    Loud: a little harder."""
+    if not count_off:
+        return count_off
+    lv = max(levels) if levels else 0.8
+    f = max(0.45, min(1.2, lv / 0.8))
+    out = []
+    for t, k, v in count_off:
+        if lv < 0.6 and k in (49, 57, 46):
+            continue                       # no cymbal on a quiet entrance
+        out.append((t, k, max(24, min(127, int(round(v * f))))))
+    return out
 
 
 def _dyn_curve(part):
@@ -1000,6 +1018,14 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         else:
             count_off = [(b * pulse, key, 70 + int(28 * i / max(
                 len(at) - 1, 1))) for i, b in enumerate(at)]
+        # the count-off and the fill are played at the tune's own
+        # opening dynamic: a pianissimo ballad is counted in softly and
+        # lands quietly (no crash), a fortissimo shout is kicked off hard
+        # (Matthew, 2026-10-01: "depending on the dynamics of the song in
+        # the beginning, count offs / fills going into the song should
+        # respect")
+        count_off = opening_dynamic(count_off, [
+            _dyn_curve(p_)(0.0) for p_ in plan['parts'] if p_['events']])
         lead = beats * pulse
 
     # each chair's players, and the section spread: chairs sharing one
