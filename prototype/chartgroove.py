@@ -374,12 +374,15 @@ class Bar:
                 + '      </note>\n')
 
     def xml(self):
+        had = bool(self.onsets)
         if FLOOR_NOW:
             self._above_the_bass(FLOOR_NOW)
         if LEAD_NOW:
             self._hear_the_lead(LEAD_NOW)
         if not self.onsets:
-            return None
+            # the filters can empty a bar; it is then a rest, never None
+            # to a caller that already saw notes in it
+            return self._rest(self.barlen) if had else None
         out = []
         pos = 0
         for tick in sorted(self.onsets):
@@ -781,6 +784,43 @@ def _chopping_hand(bar, how='24'):
     for b in beats:
         if b < bar.num:
             bar.add(b * beat, beat // 2, ('u', _XSTICK, 100))
+
+
+def _with_the_kicks(bar, state, chords, hits, who):
+    """The rhythm section on the horns' kicks, the band as one: on each
+    hit the piano punches a voicing, the bass the root, held as long as
+    the hit, nothing in between, so the kicks have air."""
+    beat = bar.div * 4 // bar.den
+    hits = _kicks_of(hits)
+    if not hits:
+        return False                  # a line, not kicks: play as usual
+    for s0, ln, _air, *_r in hits:
+        c = _chord_at(chords, s0 + 1.0)
+        if c is None:
+            continue
+        t = int(round(s0 * beat))
+        dur = max(int(round(min(ln, 2.0) * beat)) - beat // 8, beat // 4)
+        if who == 'bass':
+            m = _fold_bass(_near(_bass_pc(c), state.get('bass', 38)), 28, 55)
+            bar.add(t, dur, ('p', m, 104))
+            state['bass'] = m
+        else:
+            for m in rootless_voicing(c, None):
+                bar.add(t, dur, ('p', m, 100, ('accent',)))
+    return True
+
+
+def _kicks_of(hits):
+    """The section's kicks among its notes together: a short hit with
+    air after it, or a held one coming out of space (the drummer's own
+    test, _catch). A soli line moving together is not kicks."""
+    out, pe = [], 0.0
+    for h in sorted(hits):
+        if (h[1] <= 0.75 and h[2] >= 0.5) or (h[1] >= 1.5 and h[0] - pe
+                                               >= 1.0):
+            out.append(h)
+        pe = h[0] + h[1]
+    return out if len(out) <= 4 and len(out) * 2 >= len(hits) else []
 
 
 def _hat_time(bar, feather, how='copy'):
@@ -2115,9 +2155,15 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
                 bar.onsets[tick] = (ln, [('u', _XSTICK, n[2])
                                          if n[0] == 'u' and n[1] == _SNARE
                                          else n for n in ns])
+    elif role == 'bass' and ENSEMBLE_NOW and _with_the_kicks(
+            bar, state, chords, ENSEMBLE_NOW, 'bass'):
+        state['sound'] = sound_id
     elif role == 'bass':
         state['sound'] = sound_id
         _bass(bar, state, sec, off, absbar, feel, chords)
+    elif ENSEMBLE_NOW and _with_the_kicks(bar, state, chords,
+                                          ENSEMBLE_NOW, 'comp'):
+        pass
     else:
         state['next_chord'] = None
         if off + 1 < sec['bars']:

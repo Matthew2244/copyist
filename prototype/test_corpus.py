@@ -5236,6 +5236,35 @@ def check_band_hears_the_lead():
     check("a lead trumpet's shake: the note wobbling up about a minor "
           "third and back, quickly, after the attack",
           len(ups) >= 4 and bend[1][0] >= 0.1, str(bend[:6]))
+    tmp_s8 = tempfile.mkdtemp()
+    c8 = os.path.join(tmp_s8, "e.chart")
+    open(c8, "w").write(
+        "title: Eight Takes\nkey: Bb\nmeter: 4/4\ntempo: 170\nfeel: swing\n"
+        "\nband:\n  trumpet\n  tenor = tenor sax\n  bone = trombone\n"
+        "  piano\n  bass\n  drums\n\ngroup horns: trumpet, tenor, bone\n\n"
+        "figure shout, 4 bars:\n  notes: F5 q, rest e, F5 e, rest q, D5 q, "
+        "Eb5 e, E5 e, F5 q, rest h, Bb5 q, rest q, G5 e, F5 e, rest q, "
+        "Bb4 w\n\nsection solos, 8 bars\n  chords: Bb7 x8\n"
+        "  trade 2s: trumpet, tenor, drums\n\nsection shout, 8 bars\n"
+        "  chords: Bb7 x4, Eb7 x2, Bb7 x2\n  trumpet: figure shout, figure "
+        "shout at bar 5\n  horns: soli on trumpet\n"
+        "  ending: unison line, drum solo, go crazy, last hit, max roach "
+        "ending\n")
+    crashed = []
+    was_take = chartc.TAKE
+    try:
+        for tk in range(1, 9):
+            chartc.TAKE = tk
+            try:
+                with redirect_stdout(io.StringIO()):
+                    chartc.compile_chart(c8, os.path.join(tmp_s8, str(tk)))
+            except Exception as e:
+                crashed.append((tk, repr(e)))
+    finally:
+        chartc.TAKE = was_take
+    check("eight takes of a tune with trades, a shout and a big ending all "
+          "compile (a choice one take makes must never crash it)",
+          not crashed, crashed)
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

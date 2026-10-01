@@ -820,6 +820,11 @@ All of these ride on a `from demo` line, after commas:
   phrase in a shout, the brass and saxes make the section's call
   together: fall off it, or the trumpets shake it while the others
   hold, or just hold it; a mark the chart writes always wins.
+- **The band lands the kicks together.** In a shout, the piano and the
+  bass may play the horns' kicks with them (the piano punching the
+  voicing, the bass the root, nothing between, so the hits have air),
+  each player's call per shout; a soli line moving together isn't
+  kicks, and there they comp and walk as usual.
 - **The pianist strolls,** now and then: under a horn's solo the piano
   (or guitar) may lay out for the first half of the turn, the soloist
   with bass and drums alone, then come back in. Their call, about one

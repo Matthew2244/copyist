@@ -4549,6 +4549,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                 (HORNS.get(inst) or {}).get('clef', 'G'))
         return 'horn' if r is None else r
 
+    def plays_kicks(label, sec, lap):
+        """In a shout, whether this chord player or bassist plays the
+        section's kicks with the horns (the whole band landing each hit
+        together) — their call per shout: the piano usually, the bass
+        about half the time."""
+        r_ = chartgroove._Dice('kicks', label, sec['name'], lap)()
+        return r_ < (0.5 if my_role_of(label) == 'bass' else 0.7)
+
     def drums_trade_turn(sec, plan, off, cur_pass, passes, label):
         """In a trading section, the drummer's turn: everyone else out."""
         if not sec.get('trade'):
@@ -4789,8 +4797,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 chartgroove.ENSEMBLE_NOW = ensemble_hits(
                     LEAD['map'].get(str(absbar if not cur_pass
                                         else f'{absbar}x{cur_pass}'), ()),
-                    bmeter) if listen and LEAD['map'] and \
-                    my_role == 'drums' else None
+                    bmeter) if listen and LEAD['map'] and (
+                        my_role == 'drums' or (
+                            my_role in ('comp', 'bass')
+                            and sec.get('_energy', 0) >= 0.8
+                            and plays_kicks(label, sec, cur_pass))) \
+                    else None
                 resumed = None
                 if resume_div is not None:
                     # the bar after a realized one goes back to the
@@ -5397,6 +5409,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         # ---- the ending, in the listen: the last bar held, whatever
         # plays over it, and the hit on the cue
         endsh = plans[-1].get('ending') if plans else None
+        # the ending is its own moment: the last bar's listening filters
+        # (the lead, the bass floor, the kicks) don't carry into it
+        chartgroove.LEAD_NOW = chartgroove.FLOOR_NOW = None
+        chartgroove.ENSEMBLE_NOW = None
         if listen and endsh and out:
             last_pl = plans[-1]
             last_abs = last_pl['start'] + last_pl['sec']['bars'] - 1
