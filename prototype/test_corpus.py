@@ -5563,6 +5563,39 @@ def check_band_hears_the_lead():
             check("Afro 12/8: the bembé bell on the ride bell, the bass "
                   "anticipating the fifth", 53 in drm and 2.0 in bon,
                   str((sorted(bon), sorted(drm))))
+    rng5 = [(60, 81), (55, 76), (49, 70), (40, 65), (36, 60)]
+    bad_sv = []
+    last_v = None
+    for root_ in range(12):
+        for q_ in ('maj7', '7', 'm7', 'm7b5', '6', 'dim7'):
+            c_ = ('CDEFGAB'[[0, 2, 4, 5, 7, 9, 11].index(root_)]
+                  if root_ in (0, 2, 4, 5, 7, 9, 11) else
+                  'CDEFGAB'[[0, 2, 4, 5, 7, 9, 11].index(root_ - 1)],
+                  0 if root_ in (0, 2, 4, 5, 7, 9, 11) else 1, q_, None)
+            r_ = chartgroove._root_pc(c_)
+            pcs_ = list(chartgroove._guide(c_))
+            for x in chartgroove._tones(c_):
+                if (r_ + x) % 12 not in pcs_ and (r_ + x) % 12 != r_:
+                    pcs_.append((r_ + x) % 12)
+            pcs_ = pcs_ + [r_]
+            v_ = chartgroove.section_voicing(pcs_, r_, rng5, last_v)
+            last_v = v_
+            ms_ = sorted(v_)
+            if len(set(ms_)) < len(ms_):
+                bad_sv.append(('double', c_, v_))
+            for lo_n, hi_n in zip(ms_, ms_[1:]):
+                iv_ = hi_n - lo_n
+                if iv_ in chartgroove._LIL and lo_n < chartgroove._LIL[iv_]:
+                    bad_sv.append(('mud', c_, v_))
+    check("a five-horn section is voiced the way an arranger would: no "
+          "interval below its low limit, no two horns on one note, every "
+          "chord type in every key", not bad_sv, str(bad_sv[:3]))
+    cl_ = chartgroove.clear_low_limits([49, 51, 57])
+    check("a chord player's voicing is lifted out of the mud: C#3 against "
+          "D#3 (a step at the bottom, too low) opens up",
+          all(not ((b_ - a_) in chartgroove._LIL
+                   and a_ < chartgroove._LIL[b_ - a_])
+              for a_, b_ in zip(cl_, cl_[1:])) and len(cl_) == 3, str(cl_))
     import chart as chart_cli
     broken_cm = []
     for mt in ("6/8", "12/8"):

@@ -802,6 +802,15 @@ All of these ride on a `from demo` line, after commas:
   each chair takes the next chord tone down without crossing the chair
   above, and with five or more horns the bari (or the bass trombone)
   holds the root at the bottom.
+  The section's last look is an arranger's: no interval sits below its
+  low limit (a third at A2 is mud, so the horn above the bottom takes a
+  fifth or a seventh, the voice above moving up to make room), no two
+  horns land on one note, no gap wider than an octave above the bottom,
+  the 3rd and 7th always there. A horn whose note would rub with the
+  soloist sits that hit out rather than jump an octave on its own and
+  cross the horn next to it. Every chord player's comping voicing gets
+  the same low-limit check (prototype/bench_backgrounds.py and
+  bench_comping.py measure it).
   A walking bass lands a chord tone on beats 1 and 3 and passes on 2
   and 4; it doesn't lean on the 4th over a dominant, which would sound
   like a sus nobody wrote. The drummer hears the section's written hits (two or

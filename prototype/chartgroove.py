@@ -157,6 +157,9 @@ MELODY_NOW = None
 # whether the lead in this bar is an improvising soloist (a pianist comps
 # under a soloist's lines sparingly, but does comp)
 LEAD_IS_SOLO = False
+# set while a voiced horn section's background bar is written: its notes
+# keep their place in the section voicing or sit out, never move alone
+SECTION_NOW = False
 
 
 def melody_room(start, bar, beat):
@@ -522,7 +525,10 @@ class Bar:
                     m_ = n[1] - 12
                     while m_ > top:
                         m_ -= 12
-                    if m_ < 50:
+                    if m_ < 50 or SECTION_NOW:
+                        # (a horn in a voiced section sits the hit out
+                        # rather than jump an octave on its own and
+                        # cross or double the horn next to it)
                         continue
                     n = (n[0], m_) + tuple(n[2:])
                 moved.append(n)
@@ -542,6 +548,8 @@ class Bar:
             spaced = []
             for n in moved:
                 if n[0] == 'p' and near and n[1] >= 50 and crowds(n[1]):
+                    if SECTION_NOW:
+                        continue
                     up = min(near) < 60
                     for x in ((n[1] + 12, n[1] - 12) if up else
                               (n[1] - 12, n[1] + 12)):
@@ -2303,6 +2311,7 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
             while v and max(v) > ceiling:
                 v = sorted(m - 12 if m > ceiling else m for m in v)
             v = sorted(m + 12 if m < floor else m for m in v)
+            v = clear_low_limits(v)
             state['comp'] = sum(v) // len(v)
             return v
         pcs = _guide(c)
@@ -3754,7 +3763,78 @@ def section_voicing(pcs, root, ranges, last=None):
                 got += 12
             got = min(got, out[-1] - 1)
         out.append(got)
+    # the arranger's last look, bottom up: no interval below its low
+    # limit (a third down at A2 is mud: the voice above takes a fifth or a
+    # seventh over the bottom instead), and no two horns on one note
+    chord_pcs = set(pcs) | {root}
+    for i in range(n - 1, 0, -1):
+        low_, up_ = out[i], out[i - 1]
+        iv = up_ - low_
+        bad = iv <= 0 or (iv in _LIL and low_ < _LIL[iv]) or \
+            up_ in out[:i - 1]
+        if not bad:
+            continue
+        ceiling = out[i - 2] - 1 if i >= 2 else ranges[i - 1][1] + 2
+        cands = [m for m in range(low_ + 3, ceiling + 1)
+                 if m % 12 in chord_pcs and m not in out[:i - 1]
+                 and not ((m - low_) in _LIL and low_ < _LIL[m - low_])
+                 and ranges[i - 1][0] - 2 <= m]
+        if not cands and i >= 2:
+            # boxed in: the voice above moves up a chord tone to make
+            # room, if it stays under its own neighbour and in its range
+            ab_ceiling = out[i - 3] - 1 if i >= 3 else ranges[i - 2][1] + 2
+            ups = [m for m in range(out[i - 2] + 1, ab_ceiling + 1)
+                   if m % 12 in chord_pcs and m not in out]
+            if ups:
+                out[i - 2] = ups[0]
+                ceiling = out[i - 2] - 1
+                cands = [m for m in range(low_ + 3, ceiling + 1)
+                         if m % 12 in chord_pcs and m not in out[:i - 1]
+                         and not ((m - low_) in _LIL and
+                                  low_ < _LIL[m - low_])
+                         and ranges[i - 1][0] - 2 <= m]
+        if cands:
+            out[i - 1] = min(cands, key=lambda m: abs(m - up_))
+    for i in range(1, n):
+        if out[i] in out[:i]:
+            # two horns on one note: the lower one takes the next chord
+            # tone down that still sits above the chair under it
+            floor_ = out[i + 1] + 1 if i + 1 < n else ranges[i][0] - 2
+            down = [m for m in range(out[i] - 1, floor_ - 1, -1)
+                    if m % 12 in chord_pcs and m not in out]
+            if down:
+                out[i] = down[0]
     return out
+
+
+# the lowest the lower note of each interval should sit (MIDI): the
+# standard low interval limits
+_LIL = {1: 52, 2: 51, 3: 48, 4: 46, 5: 46, 6: 47, 7: 34, 8: 41, 9: 41,
+        10: 41, 11: 41}
+
+
+def clear_low_limits(v):
+    """A chord player's voicing with nothing under its low interval
+    limit: the lower note of a too-low tight interval moves up an octave
+    (or drops, if that would double a note), bottom up, until it's clear
+    (2026-10-01, measured: the funk guitar voiced C#3 against D#3 over
+    B7 — mud — 29 times in 405)."""
+    v = sorted(set(v))
+    for _ in range(8):
+        hit = None
+        for a_, b_ in zip(v, v[1:]):
+            iv = b_ - a_
+            if iv in _LIL and a_ < _LIL[iv]:
+                hit = a_
+                break
+        if hit is None:
+            return v
+        v.remove(hit)
+        if hit + 12 not in v and len(v) >= 1:
+            v = sorted(v + [hit + 12])
+        if len(v) < 2:
+            return v
+    return v
 
 
 def backgrounds(bar, state, chords, voice, voices, lo, hi, style, off,

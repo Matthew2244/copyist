@@ -4191,7 +4191,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         chartgroove.backgrounds(bar, state, chords, k, len(who), lo, hi,
                                 style.split()[0], off, sec['name'],
                                 ranges=ranges)
-        return bar.xml()
+        chartgroove.SECTION_NOW = len(who) > 1
+        try:
+            return bar.xml()
+        finally:
+            chartgroove.SECTION_NOW = False
 
     # ---- where the band is inside a soloist's turn, for dynamics
     def soloists(plan):
