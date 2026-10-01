@@ -5466,6 +5466,41 @@ def check_band_hears_the_lead():
           and any('guitar lays out' in o_ for o_ in who_out)
           and any('piano lays out' in o_ for o_ in who_out),
           str(len(who_out)))
+    was_l = chartgroove.LEAD_NOW
+    kept_h = 0
+    try:
+        chartgroove.LEAD_NOW = [(1.0, 1.5, 64), (1.5, 2.0, 65),
+                                (2.0, 2.5, 67), (2.5, 3.0, 69)]
+        for k in range(10):
+            bb = chartgroove.Bar(24, (4, 4), 0, 1)
+            bb.add(0, 24, ('p', 53, 60))           # on the one: stays
+            bb.add(24, 12, ('p', 52, 60))          # with the line's attack
+            bb.add(42, 12, ('p', 50, 60 + k))      # inside the run
+            bb.xml()
+            kept_h += 42 in bb.onsets
+            assert 0 in bb.onsets and 24 in bb.onsets
+    finally:
+        chartgroove.LEAD_NOW = was_l
+    check("comping plays in the melody's holes: a stab inside a moving run "
+          "is usually left out, one with the melody's attack or on the one "
+          "stays", kept_h == 0, str(kept_h))
+    was_m = chartgroove.MELODY_NOW
+    try:
+        bb = chartgroove.Bar(24, (4, 4), 0, 1)
+        chartgroove.MELODY_NOW = [(0.0, 2.0, 60), (2.0, 3.0, 62),
+                                  (3.0, 3.5, 64)]
+        moved = chartgroove.melody_room(48, bb, 24)
+        chartgroove.MELODY_NOW = [(0.0, 3.5, 60), (3.5, 4.0, 62)]
+        none_ = chartgroove.melody_room(48, bb, 24)
+        chartgroove.MELODY_NOW = [(0.0, 4.0, 60)]
+        held = chartgroove.melody_room(48, bb, 24)
+    finally:
+        chartgroove.MELODY_NOW = was_m
+    check("the drummer hears the melody: a fill waits for the phrase's "
+          "last note, is skipped when the melody moves to the barline, and "
+          "goes right where it was under a held note",
+          moved == 84 and none_ is None and held == 48,
+          str((moved, none_, held)))
     import chartending as E_
     quiet = 0
     for k in range(20):

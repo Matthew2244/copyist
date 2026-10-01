@@ -4247,6 +4247,22 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         return sorted({round(s_, 3) for l_, s_, _e, _m in
                        LEAD['map'].get(key, ()) if l_ == label})
 
+    def melody_busy(absbar, cur_pass, bar_beats):
+        """How busy the melody (a singer, a horn head, any written line
+        out front) is in this bar, on the soloist's scale, so the comping
+        and the drummer lay back while it moves and come forward when it
+        holds or breathes, the way they do behind a soloist (2026-10-01,
+        measured: the comping played as much or more where the melody
+        moved as where it held). None when no melody plays here."""
+        if not LEAD['map']:
+            return None
+        key = str(absbar if not cur_pass else f'{absbar}x{cur_pass}')
+        ons = {round(s_, 3) for l_, s_, _e, _m in LEAD['map'].get(key, ())
+               if l_ not in groups['rhythm'] and l_ not in LEAD['compers']}
+        if not ons:
+            return None
+        return min(0.85 * len(ons) / (2.0 * bar_beats), 1.0)
+
     def solo_busy(sec, plan, passes, bar_beats, absbar=None, cur_pass=0):
         """How busy the soloist is in this bar, 0 (resting) to 1 (a
         solid line of eighths), so the band can leave room or answer."""
@@ -4908,6 +4924,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                         or label in LEAD['hears_comp'])
                 ] if listen and LEAD['map'] and my_role not in (
                     'bass', 'drums', 'perc') else None
+                chartgroove.MELODY_NOW = [
+                    (s_, e_, m_) for l_, s_, e_, m_ in LEAD['map'].get(
+                        str(absbar if not cur_pass
+                            else f'{absbar}x{cur_pass}'), ())
+                    if l_ not in LEAD['compers'] and l_ not in
+                    groups['rhythm']] if listen and LEAD['map'] and \
+                    my_role == 'drums' else None
                 chartgroove.BAND_NOW = band_now(
                     label, my_role, str(absbar if not cur_pass
                                         else f'{absbar}x{cur_pass}')) \
@@ -5312,6 +5335,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         sec['_answer'] = solo_answer(sec, plan, passes,
                                                      bmeter[0], absbar,
                                                      cur_pass)
+                        sec['_melody_busy'] = melody_busy(
+                            absbar, cur_pass, bmeter[0]) \
+                            if sec['_busy'] is None else None
                         if soloing and not LISTEN_OPTS['solos'] or \
                                 plan.get('bg', {}).get(label) and \
                                 not soloing and \
@@ -5544,7 +5570,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         # the ending is its own moment: the last bar's listening filters
         # (the lead, the bass floor, the kicks) don't carry into it
         chartgroove.LEAD_NOW = chartgroove.FLOOR_NOW = None
-        chartgroove.BAND_NOW = None
+        chartgroove.BAND_NOW = chartgroove.MELODY_NOW = None
         chartgroove.ENSEMBLE_NOW = None
         if listen and endsh and out:
             last_pl = plans[-1]
@@ -5715,7 +5741,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                          harmony_on=lambda l: l in chord_parts,
                          listen=True))
     LEAD['heard'] = None
-    chartgroove.BAND_NOW = None
+    chartgroove.BAND_NOW = chartgroove.MELODY_NOW = None
     chartgroove.LEAD_NOW = None
     chartgroove.ENSEMBLE_NOW = None
     chartgroove.FLOOR_NOW = None

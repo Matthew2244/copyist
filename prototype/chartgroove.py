@@ -151,6 +151,29 @@ FLOOR_NOW = None
 # band's ears (Matthew, 2026-10-01: "make everyone more aware of
 # everything").
 BAND_NOW = None
+# The melody and the soloist in this bar, for the drummer: (start, end,
+# midi) in beats. A fill waits for the phrase to finish.
+MELODY_NOW = None
+
+
+def melody_room(start, bar, beat):
+    """Where a fill can start without playing over a moving melody
+    (Matthew, 2026-10-01: measured, a third to two thirds of the
+    drummer's fills landed while the singer or the horns were still
+    moving): after the phrase's last note starts, half a beat on, on an
+    eighth; None if the melody keeps moving to the barline. Under a held
+    note is where a fill belongs, and stays."""
+    if not MELODY_NOW:
+        return start
+    half = beat // 2
+    s0 = start / float(beat)
+    ons = [s for s, _e, _m in MELODY_NOW if s >= s0 - 0.5 - 1e-6]
+    if not ons:
+        return start
+    t = int((max(ons) + 0.5) * beat + half - 1) // half * half
+    if t <= start:
+        return start
+    return t if bar.barlen - t >= half else None
 
 
 def _catch(bar, hits, heat, d):
@@ -348,6 +371,36 @@ class Bar:
                     n = (n[0], m) + tuple(n[2:])
                 out.append(n)
             self.onsets[t] = (ln, out)
+
+    def _in_the_holes(self, lead):
+        """Comp in the holes, not on top of the line: a strike that would
+        land inside the lead's moving run (a lead note just before it and
+        just after it, within half a beat) is usually left out; striking
+        with the lead's own attack, or on the one, supports it and stays
+        (2026-10-01, measured: the comping played more where the melody
+        moved than where it held)."""
+        q = float(self.div)
+        ons = sorted({s for s, _e, _m in lead})
+        if len(ons) < 3:
+            return
+        for tick in list(self.onsets):
+            t = tick / q
+            if tick == 0:
+                continue
+            ln, notes = self.onsets[tick]
+            if not any(n[0] == 'p' for n in notes):
+                continue
+            if any(abs(s - t) < 0.05 for s in ons):
+                continue                       # with the melody's attack
+            before = any(t - 0.5 - 1e-6 <= s < t - 0.05 for s in ons)
+            after = any(t + 0.05 < s <= t + 0.5 + 1e-6 for s in ons)
+            if before and after and _Dice('holes', tick, len(ons),
+                                          ons[0])() < 0.8:
+                keep = [n for n in notes if n[0] != 'p']
+                if keep:
+                    self.onsets[tick] = (ln, keep)
+                else:
+                    del self.onsets[tick]
 
     def _hear_the_band(self, band):
         """The chair listens to the ones ahead of it, the way a real
@@ -571,6 +624,7 @@ class Bar:
             self._above_the_bass(FLOOR_NOW)
         if LEAD_NOW:
             self._hear_the_lead(LEAD_NOW)
+            self._in_the_holes(LEAD_NOW)
         if BAND_NOW:
             self._hear_the_band(BAND_NOW)
         if not self.onsets:
@@ -2312,7 +2366,9 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
             state['crash_next'] = 'break'      # the band is back: commit
         state['hits'] = None
         return bar.xml()
-    state['busy'] = sec.get('_busy')      # how busy the soloist is here
+    # how busy the soloist is here, or the melody when nobody solos
+    state['busy'] = sec.get('_busy') if sec.get('_busy') is not None \
+        else sec.get('_melody_busy')
     state['answer'] = sec.get('_answer')  # the soloist's phrase, to pick up
     state['heat'] = heat
     state['turn'] = sec.get('_turn')
@@ -2834,7 +2890,8 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
     half = beat // 2
     d = _Dice('marks', absbar, sec.get('name'))
     turn = sec.get('_turn')
-    busy = sec.get('_busy')
+    busy = sec.get('_busy') if sec.get('_busy') is not None else \
+        sec.get('_melody_busy')
     new_turn = turn is not None and turn[0] == 0
     last_of_turn = turn is not None and turn[0] == turn[1] - 1
     landing = state.pop('crash_next', False)
@@ -2854,6 +2911,11 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
         md = _Dice('mark', absbar, sec.get('name'))
         r = md()
         late = state.pop('land_late', None)
+        if late and MELODY_NOW and any(
+                s_ < late / float(beat) + 1e-6 for s_, _e, _m in MELODY_NOW):
+            # the melody comes in before the late landing: the drummer
+            # lands on one with it instead of filling over its entrance
+            late = None
         if landing:
             # a fill that ended on the snare: the comping gives it room
             # before coming back in (Matthew, 2026-10-01)
@@ -2955,6 +3017,11 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
             # (Matthew, 2026-10-01: "not everything has to start on the
             # down beat")
             f0 = (bar.num - beats) * beat + (half if d() < 0.35 else 0)
+            # the drummer hears the melody: the fill waits for the phrase
+            # to finish, or isn't played at all
+            f0 = melody_room(f0, bar, beat)
+            if f0 is None:
+                return
             _fill(bar, kind, f0, heat, d)
             # where it lands is the drummer's call: on the one, early on
             # the 'and' of four, or late into the next bar (Matthew,

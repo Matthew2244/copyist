@@ -770,6 +770,14 @@ All of these ride on a `from demo` line, after commas:
   it per section: both comp, or one comps while the other lays out
   (likelier behind a singer, rare in a shout), a fresh call every take.
   The build names who laid out where; `guitar: groove` keeps both in.
+  Behind a melody, a singer or a horn head, the band listens the way it
+  does behind a soloist: the comping lays back while the line moves and
+  comes forward when it holds or breathes, playing in its holes (a stab
+  in the middle of a moving run is left out; one with the melody's
+  attack, or on the one, supports it). The drummer hears the melody
+  too: a fill waits for the phrase's last note, fills under a held note
+  as always, is skipped when the line moves right to the barline, and
+  never carries a fill over the barline into the melody's entrance.
   Backgrounds made up behind a soloist or a singer are voiced as one
   section, the way an arranger writes them: the top horn leads by step,
   each chair takes the next chord tone down without crossing the chair
