@@ -879,7 +879,12 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
         if (heat < 0.4 or (busy is not None and busy > 0.7)) and n <= 5:
             w *= 1.8                     # it lays back
         weights.append((sl, w))
-    pick = _roll(weights, d)
+    # a home pattern for the phrase, the drummer's foundation, and a
+    # variation now and then in the moment (Matthew, 2026-10-01: "folks
+    # lock in and start from a foundation ... and build from there")
+    ph = _Dice('ride home', absbar // 4)
+    home = _roll(weights, ph)
+    pick = home if d() < 0.7 else _roll(weights, d)
     base = int(62 + 16 * heat)
     bell = d() < 0.06 + 0.08 * heat
     for sl in pick:
@@ -895,7 +900,7 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
         bar.add(at, ln, ('u', cym, max(30, min(v, 118))))
     # the hi-hat foot: 2 and 4 mostly; sometimes only 4, all four when
     # it's hot, and now and then an 'and' dropped in
-    r = d()
+    r = ph()                         # the foot's habit for the phrase
     if r < 0.1:
         feet = [4]
     elif r < 0.18 and heat > 0.5:
@@ -913,7 +918,7 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
         bar.add(3 * beat + half, half, ('u', ('G', 5, 'circle-x'),
                                         int(56 + 14 * heat)))
     # the kick: feathered quarters, or a few placed kicks
-    if feather and d() < 0.35:
+    if feather and ph() < 0.35:      # feathered for the whole phrase, or not
         for b in range(bar.num):
             bar.add(b * beat, half, ('u', _KICK, 26 + int(d() * 12)))
     else:
@@ -946,7 +951,10 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
     # talks: stated in the first bar, varied in the second — not a new
     # scatter every bar (Matthew, 2026-09-30: "the ideas are also
     # telling a story and not running into each other")
-    pd = _Dice('comp idea', absbar // 2)
+    # the idea carries through the phrase about half the time (the
+    # drummer found something and sits on it), or moves on
+    held = _Dice('comp idea held', absbar // 4)() < 0.5
+    pd = _Dice('comp idea', absbar // 4 * 2 if held else absbar // 2)
     cell = set()
     for _ in range(max(sn, 1) + 1):
         sl = _roll(ss, pd)
@@ -3288,7 +3296,13 @@ def comp_shells(bar, state, chords, absbar=0, next_chord=None):
     (Matthew, 2026-09-29: the left hand "only using one note ... not
     natural at all")."""
     beat = bar.div * 4 // bar.den
-    d = _Dice('shells', absbar)
+    # a two-bar figure the player sits on for the phrase more often than
+    # not, the last bar free to turn it around (patterns: Matthew,
+    # 2026-10-01) — or a fresh spot every bar, in the moment
+    held = _Dice('shells held', absbar // 4)() < 0.6 and not (
+        absbar % 4 == 3 and _Dice('shells turn', absbar // 4)() < 0.5)
+    d = _Dice('shells', absbar // 4, absbar % 2) if held else \
+        _Dice('shells', absbar)
     # how many this bar: none, one, or two — about 0.9 on average
     k = _roll([(0, 0.22), (1, 0.62), (2, 0.16)], d)
     if k == 0:
@@ -4502,30 +4516,48 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
     modal_ok = static and ((c0[2] or '').startswith(('m7', 'm9', 'm11'))
                            or 'sus' in (c0[2] or '')
                            or (c0[2] or '') in ('maj7', 'maj9', '6', '69'))
-    # a new texture every two bars, never the one just played
-    if absbar % 2 == 0 or 'tex' not in state:
+    # the pianist locks into a pattern and builds from it (Matthew,
+    # 2026-10-01: "think of patterns ... folks lock in and start from a
+    # foundation, or start with a pattern and build from there"): one
+    # texture and a two-bar rhythm for a four-bar phrase, the last bar
+    # free to turn it around; the next phrase keeps it, develops one bar
+    # of it, or (less often) starts fresh — a new section starts fresh
+    phrase = absbar // 4
+    pat = state.get('pat')
+    if pat is None or pat['phrase'] != phrase:
+        pd = _Dice(sound_id, 'piano pattern', phrase)
         if ballad:
             pool = ['ballad_spread', 'ballad_roll', 'ballad_answer']
         else:
-            pool = ['stab', 'stab', 'hold_answer', 'lay_out', 'stab',
+            pool = ['stab', 'stab', 'hold_answer', 'stab',
                     'hold_answer'] if heat < 0.5 else \
                 ['stab', 'hold_answer', 'stab', 'push_stab', 'hold_answer']
             if modal_ok:
                 pool += ['modal', 'modal']
-        if busy is not None and busy > 0.6 and not ballad:
-            pool = ['lay_out', 'hold_answer', 'lay_out', 'stab']
-        elif busy is not None and busy < 0.15 and not ballad:
-            pool = ['hold_answer', 'push_stab', 'hold_answer']
-        pick = pool[int(d() * len(pool)) % len(pool)]
-        if pick == state.get('tex'):
-            pick = pool[(pool.index(pick) + 1) % len(pool)]
-        state['tex'] = pick
-    # laying out is a bar of air, not two — the band never just stops
-    if state['tex'] == 'lay_out' and state.get('laid') == absbar - 1:
-        state['tex'] = 'hold_answer'
-    if state['tex'] == 'lay_out':
+        if busy is not None and busy < 0.15 and not ballad:
+            pool = ['hold_answer', 'push_stab', 'hold_answer', 'stab']
+        fresh = pat is None or pat.get('sec') != state.get('sec_name') \
+            or pd() < 0.25
+        keep = not fresh and pd() < 0.6
+        if fresh or pat['tex'] not in pool:
+            tex_ = pool[int(pd() * len(pool)) % len(pool)]
+            pat = {'tex': tex_, 'cells': [int(pd() * 64), int(pd() * 64)],
+                   'rr': int(pd() * 2)}
+        elif not keep:
+            # develop: the second bar of the figure changes
+            pat = dict(pat, cells=[pat['cells'][0], int(pd() * 64)])
+        pat = dict(pat, phrase=phrase, turn=pd() < 0.5,
+                   sec=state.get('sec_name'))
+        state['pat'] = pat
+    tex = pat['tex']
+    k_ph = absbar % 4
+    # a busy line in front: the pattern thins to its first hit, or a bar
+    # of air now and then (never two in a row) — the same pattern, so it
+    # comes right back when the line breathes
+    thin = busy is not None and busy > 0.6 and not ballad
+    if thin and d() < 0.35 and state.get('laid') != absbar - 1:
+        tex = 'lay_out'
         state['laid'] = absbar
-    tex = state['tex']
     # now and then the right hand goes up for sparkle — rarely, and
     # only once the tune has built
     top = 1 if heat > 0.6 and d() < 0.15 else 0
@@ -4674,7 +4706,12 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
                 continue
             end = chords[i + 1][0] if i + 1 < len(chords) else bar.num + 1
             lh(c, at_(b), int((end - b) * beat * 0.9), w0)
-        for b in ([2.5, 4.0] if d() < 0.5 else [2.0, 3.5, 4.5]):
+        rr = pat['rr'] if not (k_ph == 3 and pat['turn']) else \
+            1 - pat['rr']
+        hits = [2.5, 4.0] if rr == 0 else [2.0, 3.5, 4.5]
+        if thin:
+            hits = hits[:1]
+        for b in hits:
             if b <= bar.num + 0.99:
                 rh(chord_for(b), at_(b), half, w0 - 4)
         return
@@ -4683,10 +4720,12 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
              [(2.5, .5), (4.5, .5)], [(1.0, 1.5), (3.5, .5)]]
     if tex == 'push_stab':
         cells = [[(2.5, .5), (4.5, .5)], [(1.5, .5), (4.5, .5)]]
-    cell = cells[int(d() * len(cells)) % len(cells)]
-    if cell == state.get('cell'):
-        cell = cells[(cells.index(cell) + 1) % len(cells)]
-    state['cell'] = cell
+    ci = pat['cells'][k_ph % 2]
+    if k_ph == 3 and pat['turn']:
+        ci = pat['cells'][0] + 1 + pat['cells'][1]   # the turnaround bar
+    cell = cells[ci % len(cells)]
+    if thin:
+        cell = cell[:1]
     for b, ln in cell:
         if b > bar.num + 0.99:
             continue

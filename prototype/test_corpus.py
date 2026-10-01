@@ -6397,14 +6397,17 @@ def check_plays_like_pros():
         b = G.Bar(24, (4, 4), 0, 1)
         G.piano_comp(b, st, ab, [(1.0, ("F", 0, "7", None))],
                      ("B", -1, "7", None), 0.8, "keyboard.piano", "swing")
-        if ab % 2 == 0:
-            picks.append(st["tex"])
+        picks.append((ab // 4, st["pat"]["tex"]))
         ns = [n[1] for _t, (_l, nn) in b.onsets.items() for n in nn]
         if ns and min(ns) < 57 and max(ns) > 62:
             both += 1
-    check("the pianist changes texture, never the same one twice running",
-          all(a != b for a, b in zip(picks, picks[1:]))
-          and len(set(picks)) >= 3, picks)
+    by_phrase = {}
+    for ph, tx in picks:
+        by_phrase.setdefault(ph, set()).add(tx)
+    check("the pianist locks into a pattern for the phrase (one texture "
+          "through four bars) and moves on as the tune goes, in the moment",
+          all(len(v) == 1 for v in by_phrase.values())
+          and len({tx for _p, tx in picks}) >= 2, picks)
     check("two hands: a low left hand under a higher right", both >= 6,
           both)
     sec = {"bars": 12, "_turn": (0, 24, 0)}

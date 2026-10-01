@@ -902,6 +902,20 @@ All of these ride on a `from demo` line, after commas:
 - **Two hands, two feet.** A drummer never hits three drums or cymbals
   at once. When the parts pile up, the drummer keeps what matters most
   (a crash, the snare, the kick, the hat foot) and drops the rest.
+- **Everyone locks in, then builds.** Players start from a foundation
+  and build from it, the way a band settles into a tune. The pianist
+  picks a comping pattern for a four-bar phrase (a texture and a two-bar
+  figure, a Charleston and a push, say), sits on it, lets the last bar
+  turn it around, then keeps it, develops one bar of it, or now and then
+  starts fresh; a new section starts fresh. A guitar comping in spots
+  does the same. The swing drummer has a home ride pattern, a hi-hat
+  foot habit and a feathered kick (or not) for the phrase, with a varied
+  bar in the moment, and a snare comping idea it often carries through
+  the phrase. Grooves (funk, Latin, second line) were already patterns.
+  Listening still comes first: a busy soloist or melody thins the
+  pattern to its first hit rather than replacing it, so it comes right
+  back when the line breathes. Every choice is the player's in the
+  moment, different every take.
 - **A drummer finishes the thought.** In a drum solo, in time or out,
   each idea ends on a closing stroke (the kick, snare and kick, floor
   tom and kick) and breathes before the next one starts: the end of a
