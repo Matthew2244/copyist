@@ -816,6 +816,10 @@ All of these ride on a `from demo` line, after commas:
   comping sit behind the time, the bass a little less; `loose` gives it
   room; `on top` (or `pushing it`) leans ahead; `tight` locks it back
   in. A section that doesn't say goes back to tight.
+- **A shout sounds like a shout.** On a held note at the end of a
+  phrase in a shout, the brass and saxes make the section's call
+  together: fall off it, or the trumpets shake it while the others
+  hold, or just hold it; a mark the chart writes always wins.
 - **The pianist strolls,** now and then: under a horn's solo the piano
   (or guitar) may lay out for the first half of the turn, the soloist
   with bass and drums alone, then come back in. Their call, about one

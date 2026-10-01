@@ -5224,6 +5224,13 @@ def check_band_hears_the_lead():
     check("the pianist strolls under a horn solo now and then, not always",
           any(strolled_) and sum(strolled_) <= len(strolled_) // 2,
           sum(strolled_))
+    import chartband
+    _d, _v, _b, bend, _a = chartband._shape({'shake': True}, 1.0, 90,
+                                            'brass')
+    ups = [p for _t, p in bend if p > 2]
+    check("a lead trumpet's shake: the note wobbling up about a minor "
+          "third and back, quickly, after the attack",
+          len(ups) >= 4 and bend[1][0] >= 0.1, str(bend[:6]))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

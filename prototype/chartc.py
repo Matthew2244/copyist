@@ -4935,6 +4935,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             f'<words print-object="no">{word}</words>'
                             '</direction-type></direction>\n')
                         was_feelk = fk
+                if listen and with_directions and off == 0:
+                    # the brass's shout idioms live in shout sections
+                    pieces.append(
+                        '      <direction><direction-type><words '
+                        'print-object="no">copyist shout '
+                        + ('on' if sec.get('_energy', 0) >= 0.8 else 'off')
+                        + '</words></direction-type></direction>\n')
                 if listen and with_directions and absbar == 1 and \
                         cur_pass == 0 and count_off:
                     # how the tune starts: the renderer plays it in front

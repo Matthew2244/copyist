@@ -665,6 +665,15 @@ def _shape(art, d, vel, fam):
         fl = min(0.45, d * 0.5)
         bend = [(0.0, 0.0), (d - fl, 0.0), (d, -7.0)]
         amps = [(0.0, 1.0), (d - fl, 1.0), (d, 0.15)]
+    if 'shake' in art:
+        # the lead trumpet's shake: the note wobbling up to about a minor
+        # third and back, quick, starting just after the attack
+        bend, t, up = [(0.0, 0.0), (0.12, 0.0)], 0.12, False
+        while t < d - 0.05:
+            up = not up
+            t2 = min(t + 0.07, d)
+            bend += [(t2, 3.0 if up else 0.0)]
+            t = t2
     if 'doit' in art:
         ext = min(0.22, max(d * 0.4, 0.12))
         bend = [(0.0, 0.0), (d, 0.0), (d + ext, 6.0)]
@@ -886,6 +895,16 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         return got
 
     feels = plan.get('feels', ())
+    shouts = plan.get('shouts', ())
+
+    def shout_at(q):
+        on = False
+        for at, v in shouts:
+            if at <= q + 1e-9:
+                on = v
+            else:
+                break
+        return on
 
     def feel_at(q):
         """The feel word standing at q ('tight' by default: nothing
@@ -1035,6 +1054,22 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
                 (_hash01(idx, midi, i) - 0.5) + 0.04
             if phr is not None:
                 vel *= phr[i]
+            if fam in ('brass', 'reed') and not soloing and not (
+                    art and any(k in art for k in ('fall', 'doit', 'scoop',
+                                                   'plop', 'stac', 'trill',
+                                                   'shake'))) \
+                    and q_dur >= 1.5 and shout_at(q_on):
+                nq_ = nxt_of.get(q_on)
+                if nq_ is None or nq_ - (q_on + q_dur) >= 1.0:
+                    # a shout's held phrase end: the section's call, the
+                    # same for everyone (they fall together), the lead
+                    # trumpet sometimes shaking it instead
+                    r_ = _hash01(7, int(round(q_on * 100)), 3)
+                    trumpet = part['program'] in (57, 60)
+                    if r_ < 0.32:
+                        art = dict(art or {}, fall=True)
+                    elif r_ < 0.5 and trumpet:
+                        art = dict(art or {}, shake=True)
             if part['percussion']:
                 nat = chokes.get(i)
                 if nat is not None:

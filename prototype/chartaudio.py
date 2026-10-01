@@ -456,6 +456,7 @@ def parse_score(path, only=None):
 
     parts, tempos, swings, holds = [], {}, {}, {}
     feels = {}                          # q -> 'back' / 'loose' / 'push' / 'tight'
+    shouts = {}                         # q -> True / False: a shout section
     perf = {}                           # q -> performance word (rit...)
     # the road map is the band's, not one part's: a D.S. printed only on
     # the first part (our listening document carries words there alone)
@@ -574,6 +575,10 @@ def parse_score(path, only=None):
                         fw = feel_word(w)
                         if fw:
                             feels.setdefault(round(q0 + pos / div, 4), fw)
+                        sm = re.match(r'copyist shout (on|off)$', w)
+                        if sm:
+                            shouts.setdefault(round(q0 + pos / div, 4),
+                                              sm.group(1) == 'on')
                         if re.match(r'\s*(?:take the )?solo\b', w, re.I):
                             lead = True
                         elif re.match(r'\s*(?:back to )?comp(?:ing)?\b', w,
@@ -807,6 +812,7 @@ def parse_score(path, only=None):
             'tempos': sorted(tempos.items()),
             'swings': sorted(swings.items()),
             'feels': sorted(feels.items()),
+            'shouts': sorted(shouts.items()),
             'holds': sorted(holds.items())}
 
 
