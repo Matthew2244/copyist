@@ -5563,6 +5563,21 @@ def check_band_hears_the_lead():
             check("Afro 12/8: the bembé bell on the ride bell, the bass "
                   "anticipating the fifth", 53 in drm and 2.0 in bon,
                   str((sorted(bon), sorted(drm))))
+    import chart as chart_cli
+    broken_cm = []
+    for mt in ("6/8", "12/8"):
+        c_ = os.path.join(tmp_gy, "cm.chart")
+        open(c_, "w", encoding="utf-8").write(
+            f"title: CM\nkey: C\nmeter: {mt}\ntempo: 100\n\nband:\n"
+            "  trumpet\n  piano\n  bass\n  drums\n\nsection A, 4 bars\n"
+            "  chords: Cm7, Fm7, G7, Cm7\n  ending: hold, last hit\n")
+        od_ = os.path.join(tmp_gy, "cm" + mt.replace("/", ""))
+        with redirect_stdout(io.StringIO()):
+            files_ = chartc.compile_chart(c_, od_)
+        broken_cm += chart_cli.verify_measures(
+            [f for f in files_ if f.endswith('.musicxml')])
+    check("an ending in 6/8 or 12/8 adds up (its bars came out half their "
+          "length)", not broken_cm, str(broken_cm[:3]))
     import chartending as E_sp
     sp = []
     for k in range(12):

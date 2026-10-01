@@ -814,7 +814,11 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
     hitting = pitches is not None or drums or role == 'perc'
 
     def n16(ticks):
-        return max(1, int(round(ticks * 4 / beat)))
+        # a sixteenth is a quarter of a quarter note whatever the meter
+        # (counted from the song's beat, a 6/8 or 12/8 ending's
+        # "sixteenths" were thirty-seconds and its bars came out half
+        # their declared length)
+        return max(1, int(round(ticks * 4 / DIV)))
 
     def attrs(ticks):
         return (f'      <attributes><divisions>{DIV}</divisions>'
@@ -832,7 +836,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                      staves)
 
     def rest(ticks):
-        ticks = n16(ticks) * beat // 4
+        ticks = n16(ticks) * DIV // 4
         return ('      <note>\n        <rest measure="yes"/>\n'
                 f'        <duration>{ticks}</duration>\n'
                 '        <voice>1</voice>\n      </note>\n')
