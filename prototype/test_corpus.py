@@ -5198,6 +5198,32 @@ def check_band_hears_the_lead():
           "D.S., printed on the drum part",
           "fill before each road-map jump (bar 3, 8)" in buf.getvalue()
           and dp.count(">Fill<") >= 2, buf.getvalue()[-300:])
+    strolled_ = []
+    tmp_st = tempfile.mkdtemp()
+    cs_ = os.path.join(tmp_st, "s.chart")
+    open(cs_, "w").write(
+        "title: Stroll\nkey: F\nmeter: 4/4\ntempo: 150\nfeel: swing\n\n"
+        "band:\n  tenor = tenor sax\n  piano\n  bass\n  drums\n\n"
+        "section solos, 12 bars, repeat 2x\n  chords: F7 x12\n"
+        "  tenor: solo\n")
+    was_take = chartc.TAKE
+    try:
+        for tk in range(1, 16):
+            chartc.TAKE = tk
+            o_ = os.path.join(tmp_st, str(tk))
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(cs_, o_)
+            x_ = open(os.path.join(o_, "Stroll — for listening.musicxml")).read()
+            pp = re.search(r'<part id="P2">(.*?)</part>', x_, re.S).group(1)
+            first = [m for n, m in re.findall(
+                r'<measure number="([^"]*)"[^>]*>(.*?)</measure>', pp, re.S)
+                if n.isdigit() and 2 <= int(n) <= 10]
+            strolled_.append(all('<pitch>' not in m for m in first))
+    finally:
+        chartc.TAKE = was_take
+    check("the pianist strolls under a horn solo now and then, not always",
+          any(strolled_) and sum(strolled_) <= len(strolled_) // 2,
+          sum(strolled_))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

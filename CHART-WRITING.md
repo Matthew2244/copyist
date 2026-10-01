@@ -816,6 +816,13 @@ All of these ride on a `from demo` line, after commas:
   comping sit behind the time, the bass a little less; `loose` gives it
   room; `on top` (or `pushing it`) leans ahead; `tight` locks it back
   in. A section that doesn't say goes back to tight.
+- **The pianist strolls,** now and then: under a horn's solo the piano
+  (or guitar) may lay out for the first half of the turn, the soloist
+  with bass and drums alone, then come back in. Their call, about one
+  turn in six; never in a trade, never under another chord player.
+- **The drummer knows the form.** The bar before every road-map jump
+  (a D.S., a D.C., the To Coda, a cut) gets a fill setting the band up,
+  and the drum part says "Fill" there.
 - **The piano leaves the bottom to the bass.** While the bass is
   playing, nothing the piano makes up goes below C3; with the bass out,
   the whole keyboard is the pianist's. The organ, which may be playing

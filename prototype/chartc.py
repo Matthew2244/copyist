@@ -4524,6 +4524,31 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         by[k][2]))
         return out
 
+    def strolling_now(sec, plan, label):
+        """The pianist (or guitarist) strolls: lays out under a horn's
+        solo for the first half of the turn, bass and drums alone with
+        the soloist, then comes back in. Their call, about one turn in
+        six, never under another chord player's solo."""
+        turn = sec.get('_turn')
+        if not turn or sec.get('trade'):
+            return False
+        who = soloists(plan)
+        if not who or who[turn[2]] == label:
+            return False
+        if my_role_of(who[turn[2]]) != 'horn':
+            return False
+        d_ = chartgroove._Dice('stroll', label, sec['name'], turn[2],
+                               turn[3] if len(turn) > 3 else 0)
+        return d_() < 0.17 and turn[0] < max(turn[1] // 2, 1)
+
+    def my_role_of(l):
+        inst = canonical_instrument(next(
+            x['instrument'] for x in band if x['label'] == l))
+        snd = SOUNDS.get(inst)
+        r = chartgroove.role_of(snd[1] if snd else '',
+                                (HORNS.get(inst) or {}).get('clef', 'G'))
+        return 'horn' if r is None else r
+
     def drums_trade_turn(sec, plan, off, cur_pass, passes, label):
         """In a trading section, the drummer's turn: everyone else out."""
         if not sec.get('trade'):
@@ -5171,6 +5196,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                 'comp', 'bass', 'drums', 'perc') or \
                                 soloing and strolls(label, plan):
                             made = None   # a horn between its turns
+                        elif my_role == 'comp' and strolling_now(
+                                sec, plan, label):
+                            made = None   # strolling under the horn
                         else:
                             made = chartgroove.realize(
                                 'groove', arg, sound_id, clef, staves,
