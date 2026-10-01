@@ -875,6 +875,10 @@ All of these ride on a `from demo` line, after commas:
   breathes, the piano or the drummer may pick up the phrase they just
   played and answer it. A drum solo is a story too: a theme developed,
   a groove, the kick leading, three against four.
+  A singer's scat line is a singer's: it lives in eighths and triplets
+  (sixteenth turns are rare in a voice), and a leap wider than a fifth
+  folds back an octave toward the line, across a short breath too,
+  unless that would leave the singer's range.
 - **Every build is a fresh take.** Nothing the band makes up plays the
   same way twice: a new build is a new take, and the findings name it.
   Like one? `chart set listen_take=<its number>` keeps it;

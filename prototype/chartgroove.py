@@ -4041,9 +4041,13 @@ def _sing(notes, voice, d, lo=0, hi=127):
         return notes
     bends = voice in ('horn', 'voice')
     phrases, cur = [], [0]
+    # a singer pitches the next note from the last one across a short
+    # breath too: for a voice a phrase runs over rests under a beat and a
+    # half
+    split = 1.5 if voice == 'voice' else 0.75
     for i in range(1, len(notes)):
         gap = notes[i][0] - (notes[i - 1][0] + notes[i - 1][1])
-        if gap >= 0.75:
+        if gap >= split:
             phrases.append(cur)
             cur = []
         cur.append(i)
@@ -4053,17 +4057,21 @@ def _sing(notes, voice, d, lo=0, hi=127):
     # feel it (Matthew, 2026-09-30, on a tenor solo): a leap wider than a
     # sixth comes back an octave toward the line — once in a long while
     # one is kept, at the top of a phrase, on purpose
+    # a voice pitches a fifth cleanly and a sixth less so: past a fifth
+    # it folds back too (a scat line leapt a ninth now and then)
+    widest = 7 if voice == 'voice' else 9
     for ph in phrases:
         for k in range(1, len(ph)):
             i, j = ph[k - 1], ph[k]
             iv = out[j][2] - out[i][2]
-            if abs(iv) <= 9:
+            if abs(iv) <= widest:
                 continue
-            keep = iv > 0 and k == len(ph) // 2 and d() < 0.08
+            keep = iv > 0 and k == len(ph) // 2 and d() < (
+                0.04 if voice == 'voice' else 0.08)
             if keep:
                 continue
             m = out[j][2] - 12 * (1 if iv > 0 else -1)
-            while abs(m - out[i][2]) > 9 and lo <= m - 12 * (
+            while abs(m - out[i][2]) > widest and lo <= m - 12 * (
                     1 if m > out[i][2] else -1) <= hi:
                 m -= 12 * (1 if m > out[i][2] else -1)
             if lo <= m <= hi:
@@ -4463,7 +4471,8 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
         p_trip = _SOLO['grid'].get('triplet', 0.18) * (1.2 if a == 'state'
                                                        else 2.7)
         p16 = {'state': 0.12, 'develop': 0.3, 'peak': 0.4,
-               'home': 0.1}[a] * (1.0 if BPM <= 200 else 0.35)
+               'home': 0.1}[a] * (1.0 if BPM <= 200 else 0.35) * \
+            (0.3 if voice == 'voice' else 1.0)   # scat lives in 8ths
         p_tarp = {'state': 0.06, 'develop': 0.12, 'peak': 0.14,
                   'home': 0.06}[a]
         half = _SOLO.get('half_step_into_beat_tone', 0.29) + 0.06
