@@ -2564,7 +2564,7 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
             at = float(wf[off + 1]) if wf[off + 1] else \
                 max(1.0, bar.num - 1.0)
             d = _Dice('written fill', absbar)
-            _fill(bar, _FILLS[int(d() * len(_FILLS)) % len(_FILLS)],
+            _fill(bar, pick_fill(d, FILL_SWING),
                   int(round((at - 1) * beat)), max(heat, 0.6), d)
         if role == 'drums' and off + 2 not in brk:
             state['crash_next'] = 'break'      # the band is back: commit
@@ -2830,15 +2830,19 @@ _SWING_FILLS = (('triplets_around', 24), ('snare_floor', 16),
                 ('buzz_roll', 6))
 
 
+# a straight-eighth drummer (funk, rock, Latin, pop): sixteenth runs
+# around the toms and snare-kick talk first, a triplet figure only now
+# and then
+_STRAIGHT_FILLS = (('toms_down', 22), ('snare_kick_talk', 20),
+                   ('toms_up', 14), ('space_hits', 14), ('flam_setup', 12),
+                   ('triplets_around', 6), ('buzz_roll', 6))
+
+
 def pick_fill(d, swing, last=None):
     """The drummer's fill, in the moment, never the one just played."""
-    if swing:
-        pool = [(k, w) for k, w in _SWING_FILLS if k != last]
-        return _roll(pool, d)
-    k = _FILLS[int(d() * len(_FILLS)) % len(_FILLS)]
-    if k == last:
-        k = _FILLS[(_FILLS.index(k) + 1 + int(d() * 3)) % len(_FILLS)]
-    return k
+    table = _SWING_FILLS if swing else _STRAIGHT_FILLS
+    pool = [(k, w) for k, w in table if k != last]
+    return _roll(pool, d)
 
 
 def tempo_band():
