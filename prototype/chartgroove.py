@@ -2204,8 +2204,13 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
                     if key not in ht:
                         d3 = _Dice('hat time', *key)
                         # a shout stays on the ride
+                        # behind somebody else's solo the drummer sticks
+                        # to the ride, the hat a rare choice (Matthew,
+                        # 2026-10-01: "when others are soloing, drummer
+                        # should stay on the ride ... stick to the ride")
                         p = 0.0 if sec.get('_energy', 0) >= 0.8 else \
-                            0.1 if sec.get('_turn') else \
+                            0.04 if sec.get('_turn') or \
+                            sec.get('_busy') is not None else \
                             0.45 if sec.get('_arc', 0) == 0 else 0.25
                         ht[key] = (d3() < p, d3() < 0.7,
                                    ('copy', 'copy', 'quarters', 'chick',

@@ -5303,6 +5303,37 @@ def check_band_hears_the_lead():
           "nobody crossing the chair above, the bottom chair on the root",
           all(a_ > b_ for a_, b_ in zip(vs, vs[1:])) and vs[-1] % 12 == 7,
           str(vs))
+    tmp_rd = tempfile.mkdtemp()
+    c_rd = os.path.join(tmp_rd, "r.chart")
+    open(c_rd, "w").write(
+        "title: Ride Test\nkey: F\nmeter: 4/4\ntempo: 160\nfeel: swing\n"
+        "\nband:\n  tenor = tenor sax\n  piano\n  bass\n  drums\n\n"
+        "section solos, 8 bars, repeat 4x\n  chords: F7 x4, Bb7 x2, F7 x2\n"
+        "  tenor: solo\n")
+    rst, roc, _h = chartgroove._RIDE
+    ride_tag = (f'<display-step>{rst}</display-step><display-octave>{roc}'
+                '</display-octave>')
+    no_ride = tot_rd = 0
+    was_take = chartc.TAKE
+    try:
+        for tk in range(1, 13):
+            chartc.TAKE = tk
+            od = os.path.join(tmp_rd, str(tk))
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(c_rd, od)
+            lx = [f for f in os.listdir(od) if 'listening' in f][0]
+            xx = open(os.path.join(od, lx), encoding='utf-8').read()
+            dr = [p_ for p_ in re.findall(r'<part id="[^"]+">(.*?)</part>',
+                                          xx, re.S) if '<unpitched>' in p_][0]
+            for m_ in re.findall(r'<measure[^>]*>(.*?)</measure>', dr, re.S):
+                if '<unpitched>' in m_:
+                    tot_rd += 1
+                    no_ride += ride_tag not in m_
+    finally:
+        chartc.TAKE = was_take
+    check("behind somebody else's solo the drummer sticks to the ride "
+          "(the hi-hat a rare choice), take after take",
+          tot_rd and no_ride < 0.12 * tot_rd, str((no_ride, tot_rd)))
     import chartband
     co = [(0.0, 42, 80), (1.0, 38, 100), (2.0, 49, 108), (2.0, 36, 106)]
     soft = chartband.opening_dynamic(co, [0.4, 0.35])

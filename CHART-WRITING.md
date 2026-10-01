@@ -901,8 +901,10 @@ All of these ride on a `from demo` line, after commas:
   the high tom on 4 and its 'and'; chopping, the left hand stays on the
   rim, so the cross-stick pattern stays exactly the same every bar at
   one weight (the foundation), and anything else the bar would put on
-  the snare goes to the kick (a fast run on the high tom). `on the hat` (or `closed hi-hat`),
-  `ride` and `ride only` settle it.
+  the snare goes to the kick (a fast run on the high tom). Behind
+  somebody else's solo the drummer stays on the ride; riding the hat
+  there is a rare choice. `on the hat` (or `closed hi-hat`), `ride` and
+  `ride only` settle it.
 - **The guitar in a small group** comps in spots like a pianist's left
   hand or plays four to the bar, choosing per section; with four horns
   or more it's a big band and the guitar plays four, Freddie Green.
