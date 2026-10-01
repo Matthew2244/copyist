@@ -5175,8 +5175,8 @@ def check_band_hears_the_lead():
         airs.append(air)
         assert (c, cl, air) == chartending._seg_cue('song', si, 24)
     check("a drummer's ending cue: many kinds, the same for everyone, and "
-          "always half a beat or more of air before what comes next",
-          len(cues_) >= 7 and min(airs) >= 12, str((cues_, min(airs))))
+          "always a beat or more of air before what comes next",
+          len(cues_) >= 7 and min(airs) >= 24, str((cues_, min(airs))))
     kinds_ = set()
     for k in range(60):
         b = chartgroove.Bar(24, (4, 4), 0, 1)
@@ -5252,6 +5252,15 @@ def check_band_hears_the_lead():
         "ending\n")
     crashed = []
     was_take = chartc.TAKE
+    loose_lens = []
+    was_timing = chartending.timing
+
+    def _spy(sh, meter, song):
+        c = was_timing(sh, meter, song)
+        loose_lens.extend(l for k, _x, l in c.get('dictate') or ()
+                          if k in ('alone', 'crazy', 'held'))
+        return c
+    chartending.timing = _spy
     try:
         for tk in range(1, 9):
             chartc.TAKE = tk
@@ -5262,13 +5271,53 @@ def check_band_hears_the_lead():
                 crashed.append((tk, repr(e)))
     finally:
         chartc.TAKE = was_take
+        chartending.timing = was_timing
     check("eight takes of a tune with trades, a shout and a big ending all "
           "compile (a choice one take makes must never crash it)",
           not crashed, crashed)
+    import chartband
+    r_ = chartband.top_swing([(0.0, (0.70, 1.0))])
+    check("the count-off swings like the tune it counts in: in a swing "
+          "tune its 'and' sits late, in a straight tune right in the middle",
+          r_ == 0.70 and chartband.swing_eighth(2.5, r_) == 2.70
+          and chartband.swing_eighth(2.0, r_) == 2.0
+          and chartband.top_swing([]) is None
+          and chartband.swing_eighth(1.5, None) == 1.5, str(r_))
+    q8 = 96
+    check("out of time is out of time: the drum solo and the held chord "
+          "never come out a counted number of beats, and their lengths "
+          "wander take to take",
+          loose_lens and all(l % q8 for l in loose_lens)
+          and max(loose_lens) - min(loose_lens) >= 6 * q8,
+          str(loose_lens))
     sec_b = {'_energy': 0.5, '_next_energy': 0.92, 'bars': 8}
     hs = [chartgroove._heat(sec_b, o) for o in range(8)]
     check("the band builds into a bigger section over its last two bars",
           hs[7] > hs[6] > hs[5] + 0.1 and hs[5] < 0.6, str(hs))
+    b = chartgroove.Bar(24, (4, 4), 0, 1)
+    for dr in (chartgroove._RIDE, chartgroove._SNARE, chartgroove._HI_TOM,
+               chartgroove._CRASH, chartgroove._KICK, chartgroove._HATF):
+        b.add(0, 12, ('u', dr, 90))
+    b.xml()
+    got = [n[1] for n in b.onsets[0][1]]
+    hands = [x for x in got if x not in (chartgroove._KICK,
+                                         chartgroove._HATF)]
+    check("two hands and two feet: never three drums or cymbals at once "
+          "(the crash and the snare stay, the kick and the hat foot too)",
+          sorted(hands) == sorted([chartgroove._CRASH, chartgroove._SNARE])
+          and chartgroove._KICK in got and chartgroove._HATF in got,
+          str(got))
+    b = chartgroove.Bar(24, (16, 16), 0, 1)
+    chartgroove.unison_strokes(
+        b, [(0.0, 1.5, 0), (2.0, 0.5, 4), (3.0, 0.5, 7), (3.5, 0.5, 5)],
+        24, chartgroove._Dice('u'), 4)
+    got = {t: [n[1] for n in ns] for t, (_l, ns) in b.onsets.items()}
+    check("the drummer reads a unison line: big out of the gate, a hi-hat "
+          "bark on a short note with air, the foot shutting it",
+          any(x in got[0] for x in (chartgroove._CRASH,
+                                    chartgroove._OPEN_HAT))
+          and chartgroove._OPEN_HAT in got.get(48, [])
+          and chartgroove._HATF in got.get(60, []), str(got))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

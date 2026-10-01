@@ -259,6 +259,34 @@ class Bar:
                 return name, dot
         return '16th', False
 
+    def _two_hands(self):
+        """A drummer has two hands and two feet: at one instant at most
+        two things struck by hand (drums, cymbals, the hat with a
+        stick), plus the kick and the hi-hat foot. Never three drums or
+        cymbals at once (Matthew, 2026-10-01: "no matter what ... think
+        realistically"). The two that matter most stay: a crash or an
+        open hat, then the snare, the toms, the cross-stick, the ride,
+        the closed hat. And the hat can't be open and shut by the foot
+        at the same instant."""
+        rank = {_CRASH: 0, _OPEN_HAT: 1, _SNARE: 2, _HI_TOM: 3,
+                _MID_TOM: 3, _FLOOR_TOM: 3, _XSTICK: 4, _BELL: 5,
+                _RIDE: 6, _HAT: 7}
+        for t in list(self.onsets):
+            ln, ns = self.onsets[t]
+            hands = [n for n in ns if n[0] == 'u' and n[1] not in
+                     (_KICK, _HATF)]
+            feet = [n for n in ns if not (n[0] == 'u' and n[1] not in
+                                          (_KICK, _HATF))]
+            if any(n[1] == _OPEN_HAT for n in hands):
+                feet = [n for n in feet if not (n[0] == 'u'
+                                                and n[1] == _HATF)]
+            seen, uniq = set(), []
+            for n in sorted(hands, key=lambda n: rank.get(n[1], 3)):
+                if n[1] not in seen:
+                    seen.add(n[1])
+                    uniq.append(n)
+            self.onsets[t] = (ln, uniq[:2] + feet)
+
     def _above_the_bass(self, floor):
         """Up an octave for anything under the floor; a note the chord
         already has there is not doubled."""
@@ -375,6 +403,7 @@ class Bar:
 
     def xml(self):
         had = bool(self.onsets)
+        self._two_hands()
         if FLOOR_NOW:
             self._above_the_bass(FLOOR_NOW)
         if LEAD_NOW:
@@ -784,6 +813,62 @@ def _chopping_hand(bar, how='24'):
     for b in beats:
         if b < bar.num:
             bar.add(b * beat, beat // 2, ('u', _XSTICK, 100))
+
+
+def unison_strokes(bar, fig, beat, d, end_beats):
+    """The drummer playing a line with the whole band, musically
+    (Matthew, 2026-10-01: "hihat barks with the snare or kick or both
+    depending on the line and what's being played before and after ...
+    open hat or crash with kick or snare"): fig is [(beat, length,
+    semitones)]. Big out of a rest; a held note rings (a crash or open
+    hat, the snare up high in the line, the kick down low); a short note
+    with air after it barks (the hat opened with the kick, the snare or
+    both, the foot shutting it); a run is the snare, the kick on the
+    beats; the last note pushes into the hit."""
+    if not fig:
+        return
+    half = beat // 2
+    semis = [x for _a, _l, x in fig]
+    lo_s, hi_s = min(semis), max(semis)
+    prev_end = -9.0
+    for i, (a, ln, x) in enumerate(fig):
+        t = int(round(a * beat))
+        nxt = fig[i + 1][0] if i + 1 < len(fig) else end_beats
+        before, after = a - prev_end, nxt - (a + ln)
+        high = (x - lo_s) / max(hi_s - lo_s, 1) > 0.5
+        last = i == len(fig) - 1
+        if last:
+            bar.add(t, half, ('u', _SNARE, 112))
+            bar.add(t, half, ('u', _KICK, 106))
+        elif i == 0 or before >= 1.0:
+            r = d()
+            if r < 0.5:
+                bar.add(t, beat, ('u', _CRASH, 110))
+                bar.add(t, half, ('u', _KICK, 104))
+            elif r < 0.75:
+                bar.add(t, beat, ('u', _OPEN_HAT, 106))
+                bar.add(t, half, ('u', _KICK, 104))
+            else:
+                bar.add(t, beat, ('u', _CRASH, 110))
+                bar.add(t, half, ('u', _SNARE, 106))
+        elif ln >= 1.0:
+            bar.add(t, beat, ('u', _CRASH if d() < 0.55 else _OPEN_HAT,
+                              106))
+            bar.add(t, half, ('u', _SNARE if high else _KICK, 104))
+        elif after >= 0.5:
+            r = d()
+            bar.add(t, half, ('u', _OPEN_HAT, 104))
+            if r < 0.4 or r >= 0.75:
+                bar.add(t, half, ('u', _KICK, 100))
+            if r >= 0.4:
+                bar.add(t, half, ('u', _SNARE, 104))
+            if t + half < bar.barlen:
+                bar.add(t + half, half, ('u', _HATF, 74))   # the bark
+        else:
+            bar.add(t, half, ('u', _SNARE, 100 + int(8 * d())))
+            if abs(a - round(a)) < 0.01:
+                bar.add(t, half, ('u', _KICK, 94))
+        prev_end = a + ln
 
 
 def _with_the_kicks(bar, state, chords, hits, who):

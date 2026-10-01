@@ -854,7 +854,12 @@ All of these ride on a `from demo` line, after commas:
   kick or snare; and sometimes nobody counts
   and the band just starts, more often on a ballad or a tune that opens
   on a vamp. `countoff: no` in the header starts it cold, `countoff:
-  yes` always counts; `--count-in` puts the click there instead.
+  yes` always counts; `--count-in` puts the click there instead. The
+  count-off is part of the song: in a swing tune its pickup swings
+  like the band.
+- **Two hands, two feet.** A drummer never hits three drums or cymbals
+  at once. When the parts pile up, the drummer keeps what matters most
+  (a crash, the snare, the kick, the hat foot) and drops the rest.
 - **A drum solo has colour.** Crashes and open hats land on top of the
   drummer's own strokes (an open hat with a tom or the snare, a crash
   with the kick or the snare, never a crash with a tom), mostly where a phrase starts or a
@@ -969,9 +974,16 @@ All of these ride on a `from demo` line, after commas:
   one twice running: three rising hits, a count, snare and kick
   hammering four, the toms walking down, a run up the
   toms, flams, a flam triplet, a choked crash and silence, a swell. Every
-  player hears the same cue, and there's half a beat to a beat and a
-  quarter of air after it so everyone gets ready; a band blowing
-  through the cue keeps blowing through the air.
+  player hears the same cue, at the drummer's own pace, and there's a
+  beat to two of air after it so everyone gets ready; a band blowing
+  through the cue keeps blowing through the air. Nobody counts the
+  stretches out of time: the drum solo, the held chord and the going
+  crazy run as long as they feel, never a tidy number of bars, and
+  different every take.
+  When the band plays a unison line, the drummer reads it with them:
+  a big crash or open hat out of the gate, a hi-hat bark with the snare
+  or kick on a short note with air after it, the hat foot closing it,
+  the snare or kick catching the rest, space where the line breathes.
   An ending is out of time unless the chart puts it in time: the
   drummer's stretches alone, a fill in a fermata, a line over the held
   chord all push and pull in the player's own time; a count-off and the

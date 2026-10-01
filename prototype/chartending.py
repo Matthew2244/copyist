@@ -557,6 +557,15 @@ def timing(sh, meter, song):
         segs = []
         def q16(x):
             return int(round(x * 4 / beat)) * beat // 4
+
+        def loose(x):
+            # out of time is out of time: nobody counts it, so it never
+            # comes out a tidy number of bars (Matthew, 2026-09-30: "no
+            # specific bar length in time ... live in the moment")
+            got = q16(x)
+            if got % (num * beat) == 0 or got % beat == 0:
+                got += (1 + int(3 * dd())) * beat // 4
+            return got
         n_ch = len(sh['dictate_chords'])
         for k in range(n_ch):
             # the drummer takes their time and tells a story: patient
@@ -565,8 +574,8 @@ def timing(sh, meter, song):
             arc = k / max(n_ch, 1)
             segs.append(('alone', None,
                          q16(beat * (3 + 4 * arc + 5 * dd() ** 1.3))))
-            segs.append(('band', k, q16(beat * (2.5 + 2.5 * dd()))))
-        segs.append(('alone', None, q16(beat * (8 + 7 * dd()))))
+            segs.append(('band', k, q16(beat * (2 + 5 * dd() ** 1.4))))
+        segs.append(('alone', None, q16(beat * (7 + 14 * dd() ** 1.2))))
         if sh.get('count'):
             segs.append(('count', None, clock0['count_beats'] * beat))
             if sh.get('unison'):
@@ -574,7 +583,7 @@ def timing(sh, meter, song):
         else:
             # no count: the drummer cues the band onto the last chord,
             # held, everyone going for it, until the drummer cues the hit
-            segs.append(('crazy', None, q16(beat * (7 + 4 * dd()))))
+            segs.append(('crazy', None, loose(beat * (7 + 13 * dd()))))
         clock['dictate'] = segs
     elif sh.get('sequence'):
         # the band's line together, then (if named) the drummer alone out
@@ -584,16 +593,25 @@ def timing(sh, meter, song):
 
         def q16(x):
             return int(round(x * 4 / beat)) * beat // 4
+
+        def loose(x):
+            # out of time is out of time: nobody counts it, so it never
+            # comes out a tidy number of bars (Matthew, 2026-09-30: "no
+            # specific bar length in time ... live in the moment")
+            got = q16(x)
+            if got % (num * beat) == 0 or got % beat == 0:
+                got += (1 + int(3 * dd())) * beat // 4
+            return got
         segs = []
         if sh.get('unison_first'):
             segs.append(('unison', None, 2 * num * beat))
         if sh.get('drumsolo'):
-            segs.append(('alone', None, q16(beat * (10 + 8 * dd()))))
+            segs.append(('alone', None, loose(beat * (9 + 19 * dd() ** 1.3))))
         crazy = sh.get('crazy') or (sh.get('held') and dd() < 0.6)
         if crazy:
-            segs.append(('crazy', None, q16(beat * (7 + 4 * dd()))))
+            segs.append(('crazy', None, loose(beat * (7 + 13 * dd()))))
         elif sh.get('held'):
-            segs.append(('held', None, q16(beat * (5 + 3 * dd()))))
+            segs.append(('held', None, loose(beat * (5 + 11 * dd()))))
         clock['dictate'] = segs
     return clock
 
@@ -752,16 +770,13 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         if drums:
             dfig = G._Dice(song, label, 'figure')
             ons = [a_ for a_, _l, _s in fig]
+            G.unison_strokes(b, fig, beat, dfig, 2 * num)
             for i, (a_, ln, _s) in enumerate(fig):
                 t = int(a_ * beat)
-                b.add(t, beat // 2, ('u', G._SNARE, 108 + int(dfig() * 10)))
-                b.add(t, beat // 2, ('u', G._KICK, 100))
-                if i == 0 or ln >= 1.0:
-                    b.add(t, beat, ('u', G._CRASH, 106))
                 nxt = ons[i + 1] if i + 1 < len(ons) else 2 * num
-                if nxt - a_ >= 1.0 and dfig() < 0.8:
+                if nxt - (a_ + ln) >= 1.0 and dfig() < 0.6:
                     # the drummer's own way through the hole
-                    _drum_idea(b, beat, t + beat // 2,
+                    _drum_idea(b, beat, int((a_ + ln) * beat) + beat // 4,
                                int(nxt * beat) - beat // 8,
                                _SOLO_IDEAS[int(dfig() * 5) % 5], dfig)
         elif role == 'perc':
@@ -1226,8 +1241,14 @@ def _seg_cue(song, si, beat):
     if si > 0 and pick(si - 1)[0] == cue:
         cue = _CUES[(_CUES.index(cue) + 1) % len(_CUES)]
     q = max(beat // 4, 1)
-    air = int(beat * (0.5 + 0.75 * d()) / q) * q
-    return cue, _CUE_LEN[cue] * beat + air, air
+    # a beat to two of air: everyone hears the cue, breathes, and comes
+    # in together (Matthew, 2026-10-01: "give more space ... after a
+    # open drum solo at the end or while the band is holding")
+    air = int(beat * (1.0 + 1.25 * d()) / q) * q
+    # and the cue goes at the drummer's own pace, not the tune's clock:
+    # a hair slower and bigger, or pushing, their call each time
+    span = int(_CUE_LEN[cue] * beat * (0.85 + 0.35 * d()) / q) * q
+    return cue, span + air, air
 
 
 def _pick(d, pool, last):

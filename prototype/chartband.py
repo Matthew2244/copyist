@@ -845,6 +845,27 @@ def _variant(voice, art):
     return voice.get('sus')
 
 
+
+def top_swing(swings):
+    """The swing ratio standing at the top of the tune, or None when it
+    starts straight (a count-off swings like the band it counts in)."""
+    sw0 = None
+    for at_q, r_ in swings:
+        if at_q <= 1e-6:
+            sw0 = r_
+    if isinstance(sw0, tuple):
+        return sw0[0] if sw0[0] and (len(sw0) < 2 or sw0[1] in (1, 1.0)) \
+            else None
+    return sw0 if isinstance(sw0, float) else None
+
+
+def swing_eighth(x, ratio):
+    """A time in beats with its off-beat eighth moved to the swing."""
+    w_ = int(x // 1)
+    if ratio and abs(x - w_ - 0.5) < 1e-6:
+        return w_ + ratio
+    return x
+
 def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
                 on_progress=None, window=None):
     """The parsed plan -> a stereo WAV through the sample shelf.
@@ -931,6 +952,13 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         beats, key, how = plan['count_off']
         at = [0, 2] + list(range(n0, beats)) if how == 'two' and \
             beats > n0 else list(range(beats))
+        # the count-off is part of the song: in a swing tune its eighths
+        # swing like the band's (Matthew, 2026-10-01: "the count off ...
+        # is playing straight")
+        ratio = top_swing(swings)
+
+        def swung(x):
+            return swing_eighth(x, ratio)
         if how in ('fill', 'countfill'):
             # a simple pickup into bar one, the drummer's pick in the
             # moment (Matthew, 2026-10-01: "think more simpler"): the
@@ -959,7 +987,7 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
             n_count = 0 if how == 'fill' else int(first)
             count_off = [(b * pulse, key, 74 + 6 * b)
                          for b in range(min(n_count, int(first)))]
-            count_off += [(t * pulse, k, v) for t, k, v in fill]
+            count_off += [(swung(t) * pulse, k, v) for t, k, v in fill]
             # the landing on bar one, the drummer's way: crash and kick,
             # crash and snare, open hat and kick, open hat and snare, or
             # just the kick (Matthew: "it can also land on an open hat
