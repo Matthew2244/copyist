@@ -5541,7 +5541,7 @@ def check_band_hears_the_lead():
             ("Baiao", "4/4", "baião", "Dm7, G7, Dm7, G7"),
             ("Afro", "12/8", "afro 12/8", "Cm7, Cm7, F7, F7")):
         c_ = os.path.join(tmp_gy, nm_ + ".chart")
-        open(c_, "w").write(
+        open(c_, "w", encoding="utf-8").write(
             f"title: {nm_}\nkey: C\nmeter: {meter_}\ntempo: 110\n"
             f"feel: {feel_}\n\nband:\n  flute\n  piano\n  bass\n"
             f"  drums\n\nsection A, 4 bars\n  chords: {ch_}\n")
