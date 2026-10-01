@@ -975,6 +975,9 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         # one player, one note at a time: where the next note starts
         # (chord tones share an onset, so they are not "next")
         onsets = sorted({q for q, *_ in events})
+        top_at = {}
+        for q_, _d, m_, *_r in events:
+            top_at[q_] = max(top_at.get(q_, m_), m_)
         nxt_of = {q: (onsets[k + 1] if k + 1 < len(onsets) else None)
                   for k, q in enumerate(onsets)}
         # a horn or a singer reads a written line: phrasing, not a flat
@@ -985,6 +988,14 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         for i, (q_on, q_dur, midi, gain, art) in enumerate(events):
             soloing = bool(art and art.get('lead')) and \
                 not part['percussion'] and fam != 'bass'
+            if soloing and fam in ('piano', 'organ', 'guitar', 'mallet') \
+                    and midi < top_at.get(q_on, midi):
+                # a pianist soloing: the line on top swings like a
+                # soloist, but the left hand under it is still the
+                # rhythm section and swings with the band (Matthew,
+                # 2026-10-01: "comping from the piano sometimes plays
+                # straight even though it's swung")
+                soloing = False
             so = sec_solo if soloing else sec_of
             a = so(q_on) + lead
             b = so(q_on + q_dur) + lead

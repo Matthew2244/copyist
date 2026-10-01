@@ -1169,12 +1169,15 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
 
 
 def _roll(bar, beat, t0, t1, drum, v0, v1):
-    """A roll: thirty-second strokes swelling from v0 to v1."""
-    step = max(beat // 8, 1)
+    """A roll swelling from v0 to v1, as fast as real hands go at this
+    tempo: on the snare a buzz roll, the fastest; on the toms or a
+    cymbal an open roll. The two hands alternate a little in weight."""
+    step = G.roll_step(beat, buzz=drum == G._SNARE)
     span = max(t1 - t0, 1)
-    for t in range(max(t0, 0), t1, step):
-        v = int(v0 + (v1 - v0) * ((t - t0) / span) ** 1.5)
-        bar.add(t, step, ('u', drum, v))
+    for i, t in enumerate(range(max(t0, 0), t1, step)):
+        v = int(v0 + (v1 - v0) * ((t - t0) / span) ** 1.5) + \
+            (3 if i % 2 else -3)
+        bar.add(t, step, ('u', drum, max(v, 1)))
 
 
 def _fill(bar, beat, t0, t1, seed):

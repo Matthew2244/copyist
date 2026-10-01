@@ -3845,6 +3845,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     chartgroove.SALT = hdr.get('title', '') + (f"#take{TAKE}" if TAKE
                                                else '')
     road_cues(plans, band, labels, findings)
+    try:
+        chartgroove.BPM = float(re.match(r'[\d.]+', str(hdr.get(
+            'tempo', '120'))).group())
+    except (AttributeError, ValueError):
+        chartgroove.BPM = 120.0
     count_off = decide_count_off(hdr, band, plans, chart, findings)
     for pl in plans:
         tr = pl['sec'].get('trade')
@@ -5100,6 +5105,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                           '</attributes>\n')
                             resume_div = cur_div
                             cur_div = gdiv
+                        solo_made = False
                         sec['_turn'] = solo_turn(sec, off, cur_pass,
                                                  passes, plan)
                         sec['_busy'] = solo_busy(sec, plan, passes,
@@ -5129,6 +5135,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                 groove_state, active_chord[0], plan,
                                 cur_pass, passes)) is not None:
                             made = made_s
+                            solo_made = True
                         elif soloing and my_role not in (
                                 'comp', 'bass', 'drums', 'perc') or \
                                 soloing and strolls(label, plan):
@@ -5154,6 +5161,19 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                     sound_id, clef) in ('comp', 'bass'):
                                 pieces.append(direction('solo'))
                                 groove_state['leading'] = True
+                        if soloing and my_role in ('comp', 'bass'):
+                            # out front only while actually soloing: in
+                            # the other soloist's bars the same player is
+                            # the rhythm section again, swinging with the
+                            # band (a pianist's comping went near-straight
+                            # under the horn's half of a shared section)
+                            if solo_made and not groove_state.get('leading'):
+                                pieces.append(direction('solo'))
+                                groove_state['leading'] = True
+                            elif not solo_made and \
+                                    groove_state.get('leading'):
+                                pieces.append(direction('comp'))
+                                groove_state['leading'] = False
                         impl = groove_state.get('impl')
                         if impl and impl != groove_state.get('impl_said'):
                             # the listen hears what's in the drummer's

@@ -1478,6 +1478,7 @@ def walk_bar(beats, prev, d, arrive, next_arrive, home=None):
     "walking bass overall sounds meh ... think professional ... lowest
     range on a bass should be an e")."""
     n = len(beats)
+    walk_bar.goal = None
     steps = {int(k): v for k, v in _WALK['step'].items() if k != '0'}
     mid = _WALK['middle']
     appr = [(int(k), v) for k, v in _WALK['approach_interval'].items()
@@ -1501,7 +1502,11 @@ def walk_bar(beats, prev, d, arrive, next_arrive, home=None):
         sc = {(root + i) % 12 for i in _scale(c)}
         anchor = out[-1] if out else prev
         first = arrive if b == 0 else arrival_pc(c, d)
-        m0 = _fold_bass(_near(first, anchor), lo_h, hi_h)
+        # the downbeat lands where last bar's lead-in pointed: folding it
+        # into the home range here made the lead-in leap an octave and a
+        # step into it; the line walks back home over the bar instead
+        m0 = _fold_bass(_near(first, anchor), 28, 55) if b == 0 and out == [] \
+            else _fold_bass(_near(first, anchor), lo_h, hi_h)
         if out and m0 == out[-1]:
             m0 = _fold_bass(m0 + (12 if m0 < centre else -12), lo_h, hi_h)
         seg = [m0]
@@ -1538,6 +1543,7 @@ def walk_bar(beats, prev, d, arrive, next_arrive, home=None):
             seg.append(cur)
         if len(seg) < want:
             goal = _fold_bass(_near(goal_pc, cur), lo_h, hi_h)
+            walk_bar.goal = goal
             opts = []
             for iv, w in appr:
                 ap = goal + iv
@@ -1556,10 +1562,15 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
     beat = bar.div * 4 // bar.den
     lo, hi = 28, 55
     prev = state.get('bass', 38)
+    land_at = state.pop('land_at', None)
     # a bassist lives in the middle of the neck: nearest-note walking
     # drifts, so each bar starts from an anchor pulled back toward it
     # (Autumn Leaves climbed to G3 and stayed there, Matthew 2026-09-29)
-    if prev > 52:
+    # — unless last bar's lead-in or run aimed at a note: then the
+    # downbeat lands right there, and the line comes home from it
+    if land_at is not None:
+        prev = land_at
+    elif prev > 52:
         prev -= 12
     elif prev < 31:
         prev += 12
@@ -1639,8 +1650,9 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
                         prev, d, arrive, next_arrive,
                         home=(33, 43, 53) if 'electric' in
                         state.get('sound', '') else None)
-        target = _fold_bass(_near(_next_root(sec, off, chords), line[-1]),
-                            28, 55)
+        target = _fold_bass(_near(next_arrive if next_arrive is not None
+                                  else _next_root(sec, off, chords),
+                                  line[-1]), 28, 55)
         run = busy is not None and busy < 0.2 and d() < 0.5
         skip = d() < (0.12 + 0.3 * heat) * \
             (_WALK.get('bars_with_offbeats', 0.34) / 0.34)
@@ -1659,6 +1671,9 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
                 nxt = line[2] if len(line) > 2 else target
                 put(b * beat + 2 * beat // 3, beat // 3 - 1, nxt - 1, 50)
         state['bass'] = line[-1] if not run else target
+        # where the next downbeat lands: the run's target, or the note
+        # the lead-in approached
+        state['land_at'] = target if run else walk_bar.goal
         return
     if bar.den == 8 and bar.num % 3 == 0:
         pulse = 3 * (bar.div // 2)
@@ -1686,9 +1701,14 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
                                   33 if 'electric' in state.get('sound', '')
                                   else 28, 55))
         elif bar.num >= 4 and b == bar.num - 1 and absbar % 2 == 0:
-            m = _near((_root_pc(c) + 7) % 12, prev)
-            if m == prev:              # a pickup moves: into the next root
-                m = _fold_bass(_near(nxt_pc, prev), 28, 55) - 1
+            # the pickup approaches the next downbeat the way a bassist
+            # does: a half step under or over, a step above, or a fifth;
+            # chosen near the last note it could leap a ninth into it
+            tgt = _fold_bass(_near(nxt_pc, prev), 28, 55)
+            dp = _Dice('two pickup', absbar)
+            m = tgt + (-1, -1, 1, 2, -5, 7)[int(dp() * 6) % 6]
+            if m == prev or not 28 <= m <= 55:
+                m = tgt - 1
             prev = put(b * beat + beat // 2, beat // 2, m, 60)
 
 
@@ -2180,6 +2200,26 @@ _FILLS = ('toms_down', 'triplets_around', 'snare_kick_talk', 'space_hits',
           'buzz_roll', 'flam_setup', 'toms_up')
 
 
+# the tune's tempo, for anything with a speed limit in real hands
+BPM = 120.0
+
+
+def roll_step(beat, buzz=False):
+    """The fastest a drummer's hands really go, in ticks per stroke, at
+    this tempo: an open roll about 13 strokes a second, a buzz roll (the
+    stick pressed into the head) the fastest, about 20. Thirty-seconds at
+    176 is 23 a second, faster than hands, and the samples retrigger into
+    each other (Matthew heard it, 2026-10-01: "double triggering ... a
+    buzz roll should be fastest")."""
+    rate = 20.0 if buzz else 13.0
+    need = beat * BPM / 60.0 / rate
+    for div in (8, 6, 4, 3, 2):
+        st = beat // div
+        if st >= need:
+            return max(st, 1)
+    return max(beat // 2, 1)
+
+
 def _clear_for_fill(bar, start):
     """A drummer stops keeping time to play a fill: the ride, hats and
     snare comping from here to the barline go; the hi-hat foot stays
@@ -2236,10 +2276,11 @@ def _fill(bar, kind, start, heat, d):
                 bar.add(t, beat // 2, ('u', _SNARE, base + 12))
                 bar.add(t, beat // 2, ('u', _KICK, base + 8))
     elif kind == 'buzz_roll':
-        step = max(beat // 8, 1)
-        for t in range(start, end, step):
+        step = roll_step(beat, buzz=True)
+        for i, t in enumerate(range(start, end, step)):
             bar.add(t, step, ('u', _SNARE,
-                              int(56 + (base - 50) * ((t - start) / span))))
+                              int(56 + (base - 50) * ((t - start) / span))
+                              + (3 if i % 2 else -3)))
         bar.add(end - beat // 2, beat // 2, ('u', _SNARE, base + 12))
         bar.add(end - beat // 2, beat // 2, ('u', _KICK, base + 8))
     else:                                         # flam_setup
@@ -2655,8 +2696,14 @@ class _Dice:
     and a different tune rolls differently (every tune's bar 5 used to
     get the same comping)."""
     def __init__(self, *seed):
-        import zlib
-        self.s = zlib.crc32(repr((SALT,) + seed).encode()) or 1
+        # a real hash: crc32 of seeds differing in one character (take 1,
+        # take 2 ...) landed the first roll in nearly the same place, so
+        # a "fresh take" kept making the same first choice (the shout
+        # chopped wood in one take of eight, 2026-10-01)
+        import hashlib
+        self.s = int.from_bytes(hashlib.blake2s(
+            repr((SALT,) + seed).encode(), digest_size=4).digest(),
+            'big') & 0x7fffffff or 1
 
     def __call__(self):
         self.s = (self.s * 1103515245 + 12345) & 0x7fffffff
@@ -3555,8 +3602,9 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             ks = kinds['state']
             kind = ks[told % len(ks)]
             told += 1
-            length = min(phrase_len(2, 9), max_len)
-            rest = breath() * space * 1.2
+            # the opening leaves room: short ideas, real air after them
+            length = min(phrase_len(2, 7), max_len)
+            rest = breath() * space * 1.6
         elif a == 'develop':
             ks = kinds['develop']
             kind = ks[int(d() * len(ks)) % len(ks)]
@@ -3572,7 +3620,7 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             if kind == 'run' and not runs_ok:
                 kind = 'line'
             length = min(phrase_len(6, 21), max_len)
-            rest = breath() * 0.8
+            rest = breath() * 0.55
         else:
             kind = 'home'
             length = total - t
@@ -3628,7 +3676,7 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             # the idea keeps talking: it grows into a line through the
             # rest of the phrase (early on, sometimes it just breathes)
             said = max(n[0] for n in notes)
-            if t + length - said >= 1.5 and (a != 'state' or d() < 0.6):
+            if t + length - said >= 1.5 and (a != 'state' or d() < 0.3):
                 at = math.ceil((said + 0.5) * 2 - 1e-6) / 2
                 cur = eighth_line(at, t + length - at, a, cur, v,
                                   chord_fn(at) or c0)

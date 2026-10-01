@@ -836,6 +836,10 @@ All of these ride on a `from demo` line, after commas:
   and the band just starts, more often on a ballad or a tune that opens
   on a vamp. `countoff: no` in the header starts it cold, `countoff:
   yes` always counts; `--count-in` puts the click there instead.
+- **Rolls at the speed of real hands.** A snare buzz roll is the
+  fastest, about twenty strokes a second; an open roll on the toms or a
+  cymbal about thirteen; at a fast tempo they drop to sextuplets or
+  sixteenths instead of machine-gunning, the hands a touch uneven.
 - **The drummer welcomes people in,** like an audience clapping: when
   a soloist starts (the first one too) and when the band arrives in a
   new section, more likely the bigger the arrival (a shout chorus):
