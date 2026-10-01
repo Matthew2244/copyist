@@ -212,6 +212,44 @@ def _heard(s, e):
     return e - s >= 0.75 or abs(s - round(s)) < 0.01
 
 
+def hands_can_play(bar, fastest=0.055):
+    """No drum struck again before a hand could really strike it: a
+    second stroke on the same drum within `fastest` seconds of the last
+    (a buzz roll's speed) goes, unless it's a flam (a soft grace right
+    against a loud stroke). Samples retrigger into each other there and
+    it sounds like a double trigger, not a drummer."""
+    gap = max(1, -int(-(bar.div * BPM / 60.0 * fastest) // 1))
+    last = {}                     # drum -> (tick, velocity)
+    for t in sorted(bar.onsets):
+        ln, ns = bar.onsets[t]
+        keep = []
+        for n in ns:
+            if n[0] == 'u':
+                k, v = n[1], (n[2] if len(n) > 2 and n[2] else 80)
+                # the bell is the ride cymbal too: one cymbal, one stroke
+                same = [j for j, o in enumerate(keep)
+                        if o[0] == 'u' and (o[1] == k or {o[1], k} == {
+                            _RIDE, _BELL})]
+                if same:
+                    # one foot, one kick: the same drum twice at once is
+                    # one stroke, the louder
+                    j = same[0]
+                    if v > (keep[j][2] or 0):
+                        keep[j] = n
+                        last[k] = (t, v)
+                    continue
+                if k in last and t - last[k][0] < gap:
+                    pv = last[k][1]
+                    if not (min(v, pv) <= 0.65 * max(v, pv)):
+                        continue          # too fast, and not a flam
+                last[k] = (t, v)
+            keep.append(n)
+        if keep:
+            bar.onsets[t] = (ln, keep)
+        else:
+            del bar.onsets[t]
+
+
 class Bar:
     def __init__(self, div, bmeter, fifths, staves, shift=0):
         self.div = div
@@ -431,6 +469,7 @@ class Bar:
     def xml(self):
         had = bool(self.onsets)
         self._two_hands()
+        hands_can_play(self)
         if FLOOR_NOW:
             self._above_the_bass(FLOOR_NOW)
         if LEAD_NOW:
@@ -1818,7 +1857,15 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
         busy = state.get('busy')
         turn = state.get('turn')
         target = _near(_next_root(sec, off, chords), prev)
-        if turn and turn[0] < 2 and d() < 0.6 and bar.num == 4:
+        # behind a soloist the bass walks (Matthew, 2026-10-01: "bass
+        # should be walking all the time for solos unless being told to
+        # play two feel, or decides in the moment"): two at the top of a
+        # turn is a rare call of the moment, made once for the whole
+        # turn, and never in a trade
+        top_two = bool(turn) and turn[0] < 2 and turn[1] >= 8 and \
+            _Dice('two at the top', sec.get('name'),
+                  absbar - turn[0])() < 0.12
+        if top_two and bar.num == 4:
             c1, c3 = _chord_at(chords, 1.0), _chord_at(chords, 3.0)
             prev = put(0, 2 * beat - beat // 8,
                        _fold_bass(_near(_bass_pc(c1), prev)))
@@ -2421,12 +2468,13 @@ BPM = 120.0
 
 def roll_step(beat, buzz=False):
     """The fastest a drummer's hands really go, in ticks per stroke, at
-    this tempo: an open roll about 13 strokes a second, a buzz roll (the
-    stick pressed into the head) the fastest, about 20. Thirty-seconds at
+    this tempo: an open roll about 12 strokes a second, a buzz roll (the
+    stick pressed into the head) the fastest, about 18 (faster than
+    that the samples retrigger into each other). Thirty-seconds at
     176 is 23 a second, faster than hands, and the samples retrigger into
     each other (Matthew heard it, 2026-10-01: "double triggering ... a
     buzz roll should be fastest")."""
-    rate = 20.0 if buzz else 13.0
+    rate = 18.0 if buzz else 12.0
     need = beat * BPM / 60.0 / rate
     for div in (8, 6, 4, 3, 2):
         st = beat // div
@@ -3231,8 +3279,20 @@ def drum_solo(bar, absbar, pos, total, seed, echo=None):
         start = min(bar.barlen - beat, last_t + beat)
     last = pos == total - 1 and _Dice(seed, 'hand back', absbar)() < 0.55
     end = bar.barlen - (beat if last else 0)
+    # the thought finishes and breathes: the end of each four-bar phrase
+    # leaves a beat or so of air after a closing stroke, the middle of it
+    # a little, so ideas never run into each other (Matthew, 2026-10-01)
+    breath = 0
+    if not last and pos != total - 1:
+        bd = _Dice(seed, 'breath', absbar)()
+        if pos % 4 == 3:
+            breath = beat * (1 if bd < 0.6 else 2) if n >= 4 else beat
+        elif pos % 2 == 1 and bd < 0.5:
+            breath = beat // 2
     if start < end:
-        E._drum_idea(bar, beat, start, end, idea, d)
+        E._drum_idea(bar, beat, start, end - breath, idea, d)
+        if breath:
+            E.finish_thought(bar, beat, end - breath, end, d)
     # the second half of a phrase develops the first: stronger, busier
     E._scale_vel(bar, 0, end, 0.85 + 0.3 * arc + (0.08 if pos % 4 >= 2
                                                    else 0))

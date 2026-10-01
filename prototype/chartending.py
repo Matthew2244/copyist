@@ -920,6 +920,8 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                         idea = _pick(dd, pool, last_idea)
                         _drum_idea(b, beat, 0, max(beat, f0 - beat // 3),
                                    idea, dd)
+                        finish_thought(b, beat, max(beat, f0 - beat // 3),
+                                       f0, dd)
                         _rubato(b, 0, f0, dd)
                         _drum_cue(b, beat, f0, f0 + fl, fcue, dd)
                         # the hang: nothing, a beat and a bit
@@ -933,7 +935,15 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                     for c0, c1 in zip(cuts, cuts[1:]):
                         idea = _pick(dd, pool, last_idea)
                         last_idea = idea
-                        _drum_idea(b, beat, c0, c1, idea, dd)
+                        if c1 < end:
+                            # the idea finishes, a breath, then the next
+                            br = int(beat * (1.0 + 0.75 * dd()) / (
+                                beat // 4)) * (beat // 4)
+                            stop = max(c0 + beat, c1 - br)
+                            _drum_idea(b, beat, c0, stop, idea, dd)
+                            finish_thought(b, beat, stop, c1, dd)
+                        else:
+                            _drum_idea(b, beat, c0, c1, idea, dd)
                     if cuts:
                         _rubato(b, 0, end, dd)
                     # soft and patient early, the big one last
@@ -1260,6 +1270,33 @@ def _pick(d, pool, last):
     return got
 
 
+def finish_thought(bar, beat, t_end, t_next, d):
+    """A drummer finishes the thought (Matthew, 2026-10-01: "ideas have
+    a chance to breathe ... drummer finishes the thought ... be careful
+    of ideas overlapping"): whatever the idea had going from t_end on is
+    cleared (the hat foot keeps the time), a closing stroke ends it, and
+    the space up to t_next stays open, so the next idea starts fresh."""
+    def time_keeping(n):
+        # the hat foot and a feathered kick are the time, not the idea
+        return n[0] == 'u' and (n[1] == G._HATF or (
+            n[1] == G._KICK and (n[2] or 80) <= 40))
+    for t in [t for t in bar.onsets if t_end <= t < t_next]:
+        ln, ns = bar.onsets[t]
+        keep = [n for n in ns if time_keeping(n)]
+        if keep:
+            bar.onsets[t] = (ln, keep)
+        else:
+            del bar.onsets[t]
+    r = d()
+    close = ((G._KICK,), (G._SNARE, G._KICK), (G._FLOOR_TOM, G._KICK),
+             (G._SNARE,))[int(r * 4) % 4]
+    ln, ns = bar.onsets.get(t_end, (beat // 2, []))
+    ns = [n for n in ns if n[0] != 'u' or time_keeping(n)]
+    for k in close:
+        ns.append(('u', k, 100 if k == G._KICK else 96))
+    bar.onsets[t_end] = (max(ln, beat // 2), ns)
+
+
 def _drum_idea(bar, beat, t0, t1, idea, d):
     """A drummer alone, one idea at a time (Matthew, 2026-09-30: "the
     drummer is not gonna play the same thing ... would do whatever and
@@ -1424,21 +1461,29 @@ def _rubato(bar, t0, t1, d):
     """Out of time, the way an ending is played unless the chart says
     otherwise (Matthew, 2026-09-30: "an ending is not in time"): the
     notes in the stretch keep their order and their shape, but the
-    player pushes and pulls — a curve through the whole stretch and a
-    little give on every note."""
+    player pushes and pulls — a gentle curve through the whole stretch
+    and a little give on every note, never enough to bunch two strokes
+    together (Matthew, 2026-10-01: the big solo at the end "was moving
+    fast and I heard double triggering")."""
     span = t1 - t0
     if span <= 0:
         return
-    push = (d() - 0.5) * 0.5                 # ahead early, or held back
-    moved = {}
-    for t in sorted(bar.onsets):
-        if not t0 <= t < t1:
-            moved.setdefault(t, bar.onsets[t])
-            continue
+    push = (d() - 0.5) * 0.3                 # ahead early, or held back
+    ts = sorted(bar.onsets)
+    inside = [t for t in ts if t0 <= t < t1]
+    moved = {t: bar.onsets[t] for t in ts if not t0 <= t < t1}
+    last = None
+    for k, t in enumerate(inside):
         x = (t - t0) / span
         y = x + push * x * (1 - x) * 2
-        y += (d() - 0.5) * 0.02
         nt = t0 + int(max(0.0, min(0.999, y)) * span)
+        # a little give, a share of the room to the next stroke at most
+        room = min([abs(t - o) for o in inside[max(0, k - 1):k + 2]
+                    if o != t] or [span])
+        nt += int((d() - 0.5) * min(0.5 * room, 0.01 * span))
+        if last is not None and nt <= last:
+            nt = last + 1
+        last = nt
         ln, ns = bar.onsets[t]
         if nt in moved:
             moved[nt] = (max(moved[nt][0], ln), moved[nt][1] + ns)
@@ -1446,6 +1491,7 @@ def _rubato(bar, t0, t1, d):
             moved[nt] = (ln, ns)
     bar.onsets.clear()
     bar.onsets.update(moved)
+    G.hands_can_play(bar)
 
 
 def _count_off(bar, beat, n, d, num=4):

@@ -875,6 +875,14 @@ All of these ride on a `from demo` line, after commas:
 - **Two hands, two feet.** A drummer never hits three drums or cymbals
   at once. When the parts pile up, the drummer keeps what matters most
   (a crash, the snare, the kick, the hat foot) and drops the rest.
+- **A drummer finishes the thought.** In a drum solo, in time or out,
+  each idea ends on a closing stroke (the kick, snare and kick, floor
+  tom and kick) and breathes before the next one starts: the end of a
+  four-bar phrase leaves a beat or two of air, with only the hat foot or
+  a feathered kick keeping time, and out of time there's a beat or more
+  between ideas. Ideas never run into each other. And no drum is struck
+  faster than hands can really play it: a buzz roll is the fastest, about
+  eighteen strokes a second; the same drum twice at once is one stroke.
 - **A drum solo has colour.** Crashes and open hats land on top of the
   drummer's own strokes (an open hat with a tom or the snare, a crash
   with the kick or the snare, never a crash with a tom), mostly where a phrase starts or a
@@ -910,7 +918,9 @@ All of these ride on a `from demo` line, after commas:
   or more it's a big band and the guitar plays four, Freddie Green.
 - **Two or four, the bassist's call.** On a head the bass decides in
   the moment: often in two the first time through, less later, sometimes
-  two for the first half and walking into the second; solos walk. Say it
+  two for the first half and walking into the second. Behind a soloist
+  the bass walks; dropping into two at the top of a solo is a rare call
+  of the moment, never in a trade. Say it
   and it's settled: `two feel` or `in 2` for two, `walking`, `in 4` or
   `four feel` for four.
 - **Bass range.** A four-string bass floors at its low E, and a made-up

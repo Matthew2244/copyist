@@ -5163,9 +5163,10 @@ def check_band_hears_the_lead():
     finally:
         chartgroove.BPM = was_bpm
     check("rolls stay inside real hands: at 176 an open roll no faster "
-          "than ~13 strokes a second, a buzz roll the fastest, ~20; at a "
-          "ballad the buzz is thirty-seconds",
-          so >= 1 / 13.5 and 1 / 20.5 <= sb < so and slow == 3,
+          "than ~12 strokes a second, a buzz roll the fastest, ~18 (faster "
+          "and the samples retrigger); at a ballad the buzz is "
+          "thirty-seconds",
+          so >= 1 / 12.5 and 1 / 18.5 <= sb < so and slow == 3,
           str((so, sb, slow)))
     import chartending
     cues_, airs = set(), []
@@ -5313,7 +5314,7 @@ def check_band_hears_the_lead():
     rst, roc, _h = chartgroove._RIDE
     ride_tag = (f'<display-step>{rst}</display-step><display-octave>{roc}'
                 '</display-octave>')
-    no_ride = tot_rd = 0
+    no_ride = tot_rd = bass_bars = bass_two = 0
     was_take = chartc.TAKE
     try:
         for tk in range(1, 13):
@@ -5329,11 +5330,43 @@ def check_band_hears_the_lead():
                 if '<unpitched>' in m_:
                     tot_rd += 1
                     no_ride += ride_tag not in m_
+            bs = [p_ for p_ in re.findall(r'<part id="[^"]+">(.*?)</part>',
+                                          xx, re.S) if '<clef><sign>F' in p_
+                  and '<unpitched>' not in p_][-1]
+            for m_ in re.findall(r'<measure[^>]*>(.*?)</measure>', bs,
+                                 re.S)[:-1]:      # the last bar is the hit
+                k_ = len(re.findall(r'<pitch>', m_))
+                if k_:
+                    bass_bars += 1
+                    bass_two += k_ <= 2
     finally:
         chartc.TAKE = was_take
     check("behind somebody else's solo the drummer sticks to the ride "
           "(the hi-hat a rare choice), take after take",
           tot_rd and no_ride < 0.12 * tot_rd, str((no_ride, tot_rd)))
+    check("behind a soloist the bass walks: two-feel bars are a rare call "
+          "of the moment", bass_bars and bass_two < 0.05 * bass_bars,
+          str((bass_two, bass_bars)))
+    import chartending as E_
+    quiet = 0
+    for k in range(20):
+        bb = chartgroove.Bar(24, (4, 4), 0, 1)
+        chartgroove.drum_solo(bb, 100 + k * 8 + 3, 3, 8, 'breathe%d' % k)
+        late = [n for t_, (l_, ns) in bb.onsets.items() if t_ > 72
+                for n in ns if n[0] == 'u' and n[1] != chartgroove._HATF
+                and (n[2] or 80) > 40]
+        quiet += not late
+    check("a drummer's solo phrase finishes its thought and breathes: the "
+          "end of a four-bar phrase leaves the last beat open (the hat "
+          "foot and a feathered kick keep time)", quiet >= 16, str(quiet))
+    bb = chartgroove.Bar(24, (16, 4), 0, 1)
+    E_._drum_idea(bb, 24, 0, 6 * 24, 'toms', chartgroove._Dice('x'))
+    E_.finish_thought(bb, 24, 6 * 24, 8 * 24, chartgroove._Dice('y'))
+    E_._drum_idea(bb, 24, 8 * 24, 14 * 24, 'kick', chartgroove._Dice('z'))
+    gap = [t_ for t_ in bb.onsets if 6 * 24 < t_ < 8 * 24]
+    check("out of time, one idea ends on a closing stroke and the next "
+          "starts after a breath, never overlapping",
+          not gap and 6 * 24 in bb.onsets, str(gap))
     import chartband
     co = [(0.0, 42, 80), (1.0, 38, 100), (2.0, 49, 108), (2.0, 36, 106)]
     soft = chartband.opening_dynamic(co, [0.4, 0.35])
