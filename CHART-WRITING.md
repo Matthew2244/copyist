@@ -725,6 +725,15 @@ All of these ride on a `from demo` line, after commas:
   over into the next player's first bar, and the next opens by
   answering the phrase it just heard, in its own register, and builds
   from there.
+  Soloists speak the shared language too: inside their lines they reach
+  for figures real players use (learned from the Weimar Jazz Database,
+  each one kept only when several different players used it), over the
+  chord they're on or across the change coming up, a ii-V or a V-I
+  landing on the new chord. A bebop player reaches for them most, a
+  lyrical one least; a figure only goes in where it joins the line
+  smoothly on both sides, and every note is checked against the
+  chart's own chords, so a figure learned over C7 is never played over
+  C7b9.
 - **The drummer changes implements.** `brushes`, `sticks`, `mallets`
   or `cross stick` in a drum line's words (`drums: groove "brushes"`)
   put them in the drummer's hands; a ballad gets brushes unless you say
@@ -916,6 +925,11 @@ All of these ride on a `from demo` line, after commas:
   pattern to its first hit rather than replacing it, so it comes right
   back when the line breathes. Every choice is the player's in the
   moment, different every take.
+- **Chokes where they belong.** A choked cymbal is a drum-solo sound
+  and a last-hit sound, with the whole band landing together. Keeping
+  time behind the band, in a landing after a fill, a section mark or a
+  catch of the horns' backgrounds behind a soloist, it's rare: the
+  drummer has to really feel it.
 - **A drummer finishes the thought.** In a drum solo, in time or out,
   each idea ends on a closing stroke (the kick, snare and kick, floor
   tom and kick) and breathes before the next one starts: the end of a

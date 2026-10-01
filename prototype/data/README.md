@@ -24,3 +24,11 @@ drum_stats.json — learn_drums.py over the jazz swing grooves and fills
 of the Groove MIDI Dataset (Jon Gillick, Adam Roberts, Jesse Engel et
 al., Google Magenta), CC BY 4.0,
 https://magenta.tensorflow.org/datasets/groove
+
+lick_stats.json — learn_licks.py over the Weimar Jazz Database 2.1
+(Jazzomat Research Project, Hochschule für Musik Weimar), ODbL 1.0: the
+short figures soloists share over each kind of chord and across the
+common changes (ii to V, V to I), written relative to the chord, each
+kept only when at least three different players used it at least four
+times. "Contains information from the Weimar Jazz Database, which is
+made available under the ODbL."

@@ -5484,6 +5484,55 @@ def check_band_hears_the_lead():
     check("comping plays in the melody's holes: a stab inside a moving run "
           "is usually left out, one with the melody's attack or on the one "
           "stays", kept_h == 0, str(kept_h))
+    ch_off = ch_on = 0
+    for k in range(200):
+        for ok in (False, True):
+            bb = chartgroove.Bar(24, (4, 4), 0, 1)
+            got_k = chartgroove.kit_hit(bb, 0, 24, chartgroove._Dice(
+                'choke test', k), big=True, choke_ok=ok)
+            if got_k == 'choke':
+                if ok:
+                    ch_on += 1
+                else:
+                    ch_off += 1
+    check("keeping time behind the band a choked cymbal is rare (the "
+          "drummer has to feel it); in a drum solo or on the band's last "
+          "hit it's one of the drummer's choices", ch_on >= 8 and
+          ch_off <= max(2, ch_on // 6), str((ch_off, ch_on)))
+    import json as _json
+    lk = _json.load(open(os.path.join(os.path.dirname(chartgroove.__file__),
+                                      'data', 'lick_stats.json')))
+    prog = [('D', 0, 'm7', None), ('G', 0, '7', None),
+            ('C', 0, 'maj7', None), ('C', 0, 'maj7', None)]
+
+    def _cf(tt):
+        return prog[int(tt // 4) % 4]
+    was_lp = chartgroove.LICKS_PLAYED
+    chartgroove.LICKS_PLAYED = 0
+    off_ = 0
+    try:
+        for sd in range(6):
+            sol = chartgroove.plan_solo(_cf, 16, 4, 55, 79, 'swing',
+                                        'lick test %d' % sd,
+                                        persona='bebop')
+            for at, _ln, m, *_r in sol:
+                if abs(at - round(at)) < 1e-6 and at < 64:
+                    c = _cf(at)
+                    rel = (m - chartgroove._root_pc(c)) % 12
+                    ok = {x % 12 for x in chartgroove._tones(c)} | \
+                        {x % 12 for x in chartgroove._colors(c)} | \
+                        {x % 12 for x in chartgroove._scale(c)}
+                    off_ += rel not in ok
+        played = chartgroove.LICKS_PLAYED
+    finally:
+        chartgroove.LICKS_PLAYED = was_lp
+    check("the soloists speak the shared language: figures real players "
+          "use (each from several players in the Weimar solos, ii-Vs and "
+          "V-Is among them) woven into a bebop player's lines",
+          lk['two_chords'].get('min>dom+5') and lk['two_chords'].get(
+              'dom>maj+5') and played >= 3, str(played))
+    check("and every note a soloist plays on the beat still belongs to "
+          "the chord sounding there", off_ == 0, str(off_))
     was_m = chartgroove.MELODY_NOW
     try:
         bb = chartgroove.Bar(24, (4, 4), 0, 1)
@@ -6918,21 +6967,28 @@ def check_band_plays_like_pros():
         "section A, 16 bars, repeat 2x\n  chords: F7, Bb7, F7, F7, Bb7, "
         "Bb7, F7, D7, Gm7, C7, F7, C7, F7, Bb7, F7, C7\n  tenor: solo\n"
         "  ending: as written\n")
-    with redirect_stdout(io.StringIO()):
-        chartc.compile_chart(os.path.join(tmp, "c.chart"),
-                             os.path.join(tmp, "cb"))
-    cp_ = chartaudio.parse_score(os.path.join(
-        tmp, "cb", "Talk — for listening.musicxml"))
-    ce = {p["name"]: p["events"] for p in cp_["parts"]}
     answered = 0
-    for b in range(1, 32):
-        said = {round(e[0] - 4 * (b - 1), 2) for e in ce["tenor"]
-                if 4 * (b - 1) <= e[0] < 4 * b}
-        now_t = [e for e in ce["tenor"] if 4 * b <= e[0] < 4 * b + 4]
-        rh = {round(e[0] - 4 * b, 2) for e in ce["piano"]
-              if 4 * b <= e[0] < 4 * b + 4 and e[2] >= 60}
-        if len(now_t) <= 2 and len(said & rh) >= 2:
-            answered += 1
+    was_take = chartc.TAKE
+    try:
+        for tk in (2, 1, 0):      # judged across takes: it's a choice
+            chartc.TAKE = tk
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(os.path.join(tmp, "c.chart"),
+                                     os.path.join(tmp, "cb"))
+            cp_ = chartaudio.parse_score(os.path.join(
+                tmp, "cb", "Talk — for listening.musicxml"))
+            ce = {p["name"]: p["events"] for p in cp_["parts"]}
+            for b in range(1, 32):
+                said = {round(e[0] - 4 * (b - 1), 2) for e in ce["tenor"]
+                        if 4 * (b - 1) <= e[0] < 4 * b}
+                now_t = [e for e in ce["tenor"]
+                         if 4 * b <= e[0] < 4 * b + 4]
+                rh = {round(e[0] - 4 * b, 2) for e in ce["piano"]
+                      if 4 * b <= e[0] < 4 * b + 4 and e[2] >= 60}
+                if len(now_t) <= 2 and len(said & rh) >= 2:
+                    answered += 1
+    finally:
+        chartc.TAKE = was_take
     check("the piano picks up the soloist's phrase when they breathe",
           answered >= 1, answered)
     # a singer's leaps: real tenor and trumpet solos leap past a sixth
@@ -6949,8 +7005,10 @@ def check_band_plays_like_pros():
         if e[2] == 38:
             b = int(e[0] // 4)
             sn.setdefault(b, set()).add(round(e[0] - 4 * b, 2))
+    # bars count from one: the drummer's two-bar idea runs from an even
+    # bar to the odd one after it (the 0-based index here is one behind)
     pairs = [(sn.get(b, set()), sn.get(b + 1, set()))
-             for b in range(4, 30, 2)]
+             for b in range(5, 30, 2)]
     kept = sum(1 for x, y in pairs if x and y and x & y)
     check("the drummer's comping idea carries across its phrase",
           kept >= len([1 for x, y in pairs if x and y]) // 2, pairs[:4])

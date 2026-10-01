@@ -176,7 +176,7 @@ def melody_room(start, bar, beat):
     return t if bar.barlen - t >= half else None
 
 
-def _catch(bar, hits, heat, d):
+def _catch(bar, hits, heat, d, choke_ok=True):
     """The drummer catches the band's figures: a short hit with air after
     it gets kick and snare, a held one or one after space gets crash and
     kick, and a hit coming out of a rest often gets its set-up, the snare
@@ -226,7 +226,8 @@ def _catch(bar, hits, heat, d):
         elif big and not crashed:
             # the big one, the drummer's own way: often a crash, but a
             # choke, a bark or snare and kick as often
-            if kit_hit(bar, t, beat, d, big=True) == 'crash':
+            if kit_hit(bar, t, beat, d, big=True,
+                       choke_ok=choke_ok) == 'crash':
                 crashed = True
         else:
             bar.add(t, half, ('u', _SNARE, vel if not big else vel + 6))
@@ -1785,6 +1786,35 @@ def _load_solo():
 _SOLO = _load_solo()
 
 
+def _load_licks():
+    """The shared vocabulary of real soloists (learn_licks.py over the
+    Weimar Jazz Database, ODbL): figures over one chord and across the
+    common changes, each kept only when several players used it."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               'data', 'lick_stats.json')) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {'one_chord': {}, 'two_chords': {}}
+
+
+_LICKS = _load_licks()
+LICKS_PLAYED = 0             # figures from the shared language, played
+_LICK_P = {'bebop': 0.6, 'modern': 0.35, 'bluesy': 0.4, 'lyrical': 0.3}
+
+
+def _lick_q(c):
+    """A chord's family as the vocabulary knows it."""
+    iv = {i % 12 for i in _tones(c)}
+    if 4 in iv and 10 in iv:
+        return 'dom'
+    if 3 in iv and 6 in iv:
+        return 'half' if 10 in iv else 'dim'
+    if 3 in iv:
+        return 'min'
+    return 'maj'
+
+
 def swing_ratio(bpm):
     """How long the swung eighth is against the short one at this
     tempo, the way real trios play it (learn_timing.py over the Jazz
@@ -2458,7 +2488,10 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         if state['hits'] is None and impl != 'mallets':
             _drummer_marks(bar, sec, off, absbar, heat, state)
         if ENSEMBLE_NOW and impl not in ('brushes', 'mallets'):
-            _catch(bar, ENSEMBLE_NOW, heat, _Dice('catch', absbar))
+            # behind a soloist the hits are backgrounds, not the whole
+            # band landing together: a choke there is rare
+            _catch(bar, ENSEMBLE_NOW, heat, _Dice('catch', absbar),
+                   choke_ok=sec.get('_turn') is None)
         chopping = state.pop('chopping', None)
         if chopping:
             _chopping_hand(bar, chopping)
@@ -2735,7 +2768,17 @@ def _lick(bar, t, beat, strokes, vel):
     return min(start + (len(strokes) - 1) * u, bar.barlen - 1)
 
 
-def land_hit(bar, t, beat, d, crash_only=False):
+def _no_choke(k, d, swap):
+    """Keeping time behind the band, a choked cymbal is rare (Matthew,
+    2026-10-01: "cymbal chokes should not happen while walking during
+    solos unless the drummer feels it ... that's good for drum solos
+    though or for the last hit of a chord with the full band")."""
+    if 'choke' in k and d() >= 0.06:
+        return swap
+    return k
+
+
+def land_hit(bar, t, beat, d, crash_only=False, choke_ok=True):
     """Where a fill lands, the drummer's way (Matthew, 2026-09-30: "not
     need to end with crash cymbal and kick... crash cymbal and snare,
     open hat and snare, open hat and kick, etc")."""
@@ -2746,6 +2789,8 @@ def land_hit(bar, t, beat, d, crash_only=False):
         kinds = ['crash_kick', 'crash_snare', 'crash_snare_kick',
                  'hat_crash_kick']
     k = kinds[int(d() * len(kinds)) % len(kinds)]
+    if not choke_ok:
+        k = _no_choke(k, d, 'crash_snare')
     h = beat // 2
     if 'crash' in k and 'choke' not in k:
         bar.add(t, beat, ('u', _CRASH, 108))
@@ -2810,7 +2855,7 @@ def final_hit(bar, t, beat, d, ring):
     return k
 
 
-def kit_hit(bar, t, beat, d, big=True):
+def kit_hit(bar, t, beat, d, big=True, choke_ok=True):
     """One hit the drummer's own way, in the moment (Matthew,
     2026-09-30: "a choke with the cymbal and kick, a snare hit, a hihat
     bark with the kick, snare or both, anything"): a crash and kick that
@@ -2824,6 +2869,8 @@ def kit_hit(bar, t, beat, d, big=True):
         ('choke', 'snare', 'bark_k', 'bark_s', 'bark_ks', 'snare_kick',
          'crash', 'floor', 'hi_tom', 'toms', 'bell', 'ssk', 'shfk')
     k = kinds[int(d() * len(kinds)) % len(kinds)]
+    if not choke_ok:
+        k = _no_choke(k, d, 'crash' if big else 'snare_kick')
     if k in ('ssk', 'shfk') and t < 3 * max(beat // 4, 1):
         k = 'snare_kick'                # no room for a lick into it
     h = beat // 2
@@ -2936,10 +2983,10 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
             for t in [t for t in bar.onsets if t >= late]:
                 del bar.onsets[t]
             bar.onsets.update(time_after)     # and the time picks up
-            land_hit(bar, late, beat, md)
+            land_hit(bar, late, beat, md, choke_ok=False)
             landing, r = False, 1.0
         elif landing and landing != 'break' and r < 0.8:
-            land_hit(bar, 0, beat, md)
+            land_hit(bar, 0, beat, md, choke_ok=False)
             landing, r = False, 1.0
         elif landing == 'break':
             land_hit(bar, 0, beat, md, crash_only=True)
@@ -2949,7 +2996,7 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
             bar.add(0, beat, ('u', _CRASH, int(88 + 20 * heat)))
             bar.add(0, beat, ('u', _KICK, int(84 + 18 * heat)))
         elif r < crash + 0.25:
-            kit_hit(bar, 0, beat, md, big=heat > 0.5)
+            kit_hit(bar, 0, beat, md, big=heat > 0.5, choke_ok=False)
         elif r < crash + 0.4:
             bar.add(0, beat, ('u', _KICK, int(82 + 20 * heat)))
     # welcoming a new soloist, like the audience clapping them in —
@@ -3039,7 +3086,7 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
                 t_ = bar.barlen - half
                 for t in [t for t in bar.onsets if t >= t_]:
                     del bar.onsets[t]
-                land_hit(bar, t_, beat, d)
+                land_hit(bar, t_, beat, d, choke_ok=False)
                 state['quiet_comp'] = beat     # the next bar breathes too
             else:
                 state['crash_next'] = True     # and land it
@@ -3985,6 +4032,126 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
     def vel(a):
         return {'state': 78, 'develop': 86, 'peak': 96, 'home': 78}[a]
 
+    used_licks = set()
+
+    def lick(t, length, a, cur, v, need_change=False):
+        """A figure real players share (Weimar, several players each):
+        over the chord sounding, or across the change coming up (ii to
+        V, V to I, landing on the new chord), started from where the
+        line is. Every note is checked against the chart's own chords:
+        on the beat a chord tone or a colour, off it a scale note or a
+        half step into the next — a lick learned over C7 is no use over
+        C7b9. Returns (where it ended, its last note), or None."""
+        if t % 1:
+            return None              # a figure starts on the beat
+        c = chord_fn(t)
+        if c is None:
+            return None
+        q = _lick_q(c)
+        r0 = _root_pc(c)
+        nxt = next((x / 2.0 for x in range(2, 9)
+                    if chord_fn(t + x / 2.0) not in (None, c)), None)
+        pool = []
+        if nxt is not None and nxt % 1 == 0:
+            c2 = chord_fn(t + nxt)
+            prog = f'{q}>{_lick_q(c2)}+{(_root_pc(c2) - r0) % 12}'
+            pool += [('two', r) for r in _LICKS['two_chords'].get(prog, ())
+                     if abs(r['change'] - nxt) < 1e-6 and r['on'][-1] <
+                     min(length, total - t)]
+        room = min(nxt if nxt is not None else 99, length, total - t)
+        if not need_change or not pool:
+            # over the chord sounding, finishing before the change: the
+            # line carries on into the new chord from it
+            pool += [('one', r) for r in _LICKS['one_chord'].get(q, ())
+                     if r['on'][-1] + 0.5 <= room + 1e-6]
+        pool = [x for x in pool if id(x[1]) not in used_licks]
+        if not pool:
+            return None
+        bot, top = bounds(a)
+        for _try in range(4):
+            kind_, r = _roll([(x, x[1]['players'] + (8 if x[0] == 'two'
+                                                     else 0))
+                              for x in pool], d)
+            p = _near((r0 + r['deg']) % 12, cur)
+            ps = [p]
+            for st in r['steps']:
+                ps.append(ps[-1] + st)
+            while max(ps) > top and min(ps) - 12 >= bot:
+                ps = [x - 12 for x in ps]
+            while min(ps) < bot and max(ps) + 12 <= top:
+                ps = [x + 12 for x in ps]
+            if max(ps) > top + 2 or min(ps) < bot - 2:
+                continue
+
+            def fits(i):
+                at = t + r['on'][i]
+                cc = chord_fn(at) or c
+                rel = (ps[i] - _root_pc(cc)) % 12
+                ok = {x % 12 for x in _tones(cc)} | \
+                    {x % 12 for x in _colors(cc)}
+                if abs(r['on'][i] - round(r['on'][i])) < 1e-6:
+                    return rel in ok
+                sc = {x % 12 for x in _scale(cc)}
+                nxt_p = ps[i + 1] if i + 1 < len(ps) else None
+                return rel in sc or rel in ok or (
+                    nxt_p is not None and abs(nxt_p - ps[i]) == 1)
+            if not all(fits(i) for i in range(len(ps))):
+                continue
+            used_licks.add(id(r))
+            global LICKS_PLAYED
+            LICKS_PLAYED += 1
+            for i, m in enumerate(ps):
+                ln = max(min(r['len'][i], 1.5), 0.2)
+                if i + 1 < len(ps):
+                    ln = min(ln, r['on'][i + 1] - r['on'][i])
+                notes.append((t + r['on'][i], ln * 0.92, m,
+                              v + (3 if i == 0 else 0)))
+            return t + r['on'][-1] + r['len'][-1], ps[-1]
+        return None
+
+    def weave(t0, t1, a, v):
+        """Inside a line, where a change comes (ii to V, V to I), the
+        player may reach for a figure that crosses it, the way real
+        players do: the line's own notes there give way to it, but only
+        when it joins the line smoothly on both sides."""
+        p_ = _LICK_P.get(persona, 0.4) * (0.5 if a == 'state' else 1.0)
+        b = math.ceil(t0)
+        while b < t1 - 1.5:
+            c = chord_fn(b)
+            nb = next((x for x in (1, 2) if chord_fn(b + x) not in
+                       (None, c)), None)
+            if d() >= (p_ if nb is not None else 0.4 * p_):
+                b += 1
+                continue
+            inside = [n for n in notes if b - 1e-6 <= n[0] < b + 2.6]
+            before = [n for n in notes if b - 1.0 <= n[0] < b - 1e-6]
+            after = [n for n in notes if b + 2.6 <= n[0] < b + 3.6]
+            if not inside or not before:
+                b += 1
+                continue
+            mark = len(notes)
+            got = lick(b, min(t1 - b, 4.0), a, before[-1][2], v,
+                       need_change=True)
+            if not got:
+                b += 1
+                continue
+            end_t, last = got
+            new = notes[mark:]
+            del notes[mark:]
+            # the line's notes the figure replaces
+            span_end = max(n[0] for n in new) + 0.4
+            joins = abs(new[0][2] - before[-1][2]) <= 6 and (
+                not after or abs(after[0][2] - last) <= 7)
+            if not joins:
+                global LICKS_PLAYED
+                LICKS_PLAYED -= 1
+                b += 1
+                continue
+            notes[:] = [n for n in notes
+                        if not (b - 1e-6 <= n[0] < span_end)] + new
+            notes.sort()
+            b = math.ceil(span_end) + 2
+
     def eighth_line(t, length, a, cur, v, c0):
         # the bebop way: every downbeat a chord tone of the chord
         # sounding there (at a change, its 3rd or 7th: the guide
@@ -4228,8 +4395,22 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                 at = math.ceil((said + 0.5) * 2 - 1e-6) / 2
                 cur = eighth_line(at, t + length - at, a, cur, v,
                                   chord_fn(at) or c0)
+                weave(at, t + length, a, v)
         elif kind == 'line':
-            cur = eighth_line(t, length, a, cur, v, c0)
+            got = None
+            if a != 'state' and d() < _LICK_P.get(persona, 0.4):
+                got = lick(t, length, a, cur, v)
+            if got:
+                # a figure from the shared language, then the line goes
+                # on from where it left off
+                end_t, cur = got
+                if t + length - end_t >= 1.5:
+                    at = math.ceil(end_t * 2 - 1e-6) / 2
+                    cur = eighth_line(at, t + length - at, a, cur, v,
+                                      chord_fn(at) or c0)
+            else:
+                cur = eighth_line(t, length, a, cur, v, c0)
+            weave(t, t + length, a, v)
         elif kind == 'riff':
             top = fit(snap(cur + 5, c0, _tones(c0)), a)
             for r in range(3):
@@ -4282,6 +4463,7 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                 # in the last couple of bars, not five bars early
                 cur = eighth_line(t, total - 2 * bar_beats - t - 1.0,
                                   'develop', cur, v, c0)
+                weave(t, total - 2 * bar_beats - 1.0, 'develop', v)
                 t = total - 2 * bar_beats
                 c0 = chord_fn(t) or c0
             p = fit(snap(cur, c0, _tones(c0)), 'home')
