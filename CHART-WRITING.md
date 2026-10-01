@@ -951,6 +951,11 @@ All of these ride on a `from demo` line, after commas:
   time behind the band, in a landing after a fill, a section mark or a
   catch of the horns' backgrounds behind a soloist, it's rare: the
   drummer has to really feel it.
+- **An open drum solo tells a story.** A long one is played idea by
+  idea, about one every seven beats, each finishing with a breath: it
+  starts patient, a motif, real space (big statements and the room
+  ringing), snare and kick talking; develops; and builds to the big one,
+  toms, triplets, a polyrhythm or a roll, before the cue.
 - **A drummer finishes the thought.** In a drum solo, in time or out,
   each idea ends on a closing stroke (the kick, snare and kick, floor
   tom and kick) and breathes before the next one starts: the end of a

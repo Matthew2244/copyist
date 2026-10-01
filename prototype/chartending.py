@@ -910,11 +910,16 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                     cue, cl, air = _seg_cue(song, si, beat)
                     last_cue = cue
                     end = max(beat, L - cl - beat // 3)
-                    # a long stretch moves from one idea to the next
-                    cuts = [0, end]
-                    if end > 6 * beat:
-                        cuts = [0, int(end * (0.4 + 0.2 * dd())) // (
-                            beat // 4) * (beat // 4), end]
+                    # a long stretch tells a story idea by idea, about one
+                    # every seven beats: patient first, building to the
+                    # big one before the cue (measured: the open solo
+                    # started at its busiest and thinned out — backwards)
+                    n_id = max(1, min(4, int(round(end / (7.0 * beat)))))
+                    q4 = beat // 4
+                    cuts = [0] + [int(end * (k + 0.85 + 0.3 * dd()) / n_id)
+                                  // q4 * q4 for k in range(n_id - 1)] + \
+                        [end]
+                    cuts = sorted(set(cuts))
                     fake = end > 7 * beat and arc > 0.3 and dd() < 0.35
                     if fake:
                         # the fake-out: a cue, a slow-down like the chord
@@ -938,8 +943,16 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
                         _drum_idea(b, beat, g0, end, idea, dd)
                         _rubato(b, g0, end, dd)
                         cuts = []
-                    for c0, c1 in zip(cuts, cuts[1:]):
-                        idea = _pick(dd, pool, last_idea)
+                    for ci, (c0, c1) in enumerate(zip(cuts, cuts[1:])):
+                        # where this idea sits in the whole show
+                        story = (alone_i + (ci + 0.5) / max(
+                            len(cuts) - 1, 1)) / max(n_alone, 1)
+                        pool_i = ('motif', 'space', 'talk', 'motif') \
+                            if story < 0.34 else \
+                            ('talk', 'groove', 'motif', 'toms', 'kick') \
+                            if story < 0.67 else \
+                            ('toms', 'triplets', 'poly', 'roll', 'kick')
+                        idea = _pick(dd, pool_i, last_idea)
                         last_idea = idea
                         if c1 < end:
                             # the idea finishes, a breath, then the next
@@ -1446,13 +1459,19 @@ def _drum_idea(bar, beat, t0, t1, idea, d):
                 bar.add(t, step, ('u', G._KICK, 92 + int(d() * 16)))
     elif idea == 'space':
         # a few big statements, room between, a cymbal breathing
+        # — real space: after a statement the cymbal sometimes breathes a
+        # short swell that dies away, then nothing until the next one (a
+        # soft roll under the whole stretch was never space at all)
         t = t0
         while t < t1 - beat // 2:
             hit = [G._KICK, _TOMS[2]] if d() < 0.5 else [G._KICK, G._CRASH]
             for dr in hit:
                 bar.add(t, beat, ('u', dr, 108))
-            t += int(beat * (1.25 + 1.5 * d()))
-        _roll(bar, beat, t0 + beat // 2, t1, G._RIDE, 26, 64)
+            gap = int(beat * (1.75 + 1.75 * d()))
+            if d() < 0.45 and gap > 2 * beat:
+                _roll(bar, beat, t + beat // 2, min(t + beat + beat // 2,
+                                                     t1), G._RIDE, 50, 26)
+            t += gap
     else:                                     # triplets around the kit
         step = beat // 3
         kit = [G._SNARE, _TOMS[0], _TOMS[1], _TOMS[2]]

@@ -5499,6 +5499,16 @@ def check_band_hears_the_lead():
           "drummer has to feel it); in a drum solo or on the band's last "
           "hit it's one of the drummer's choices", ch_on >= 8 and
           ch_off <= max(2, ch_on // 6), str((ch_off, ch_on)))
+    import chartending as E_sp
+    sp = []
+    for k in range(12):
+        bb = chartgroove.Bar(24, (32, 4), 0, 1)
+        E_sp._drum_idea(bb, 24, 0, 8 * 24, 'space', chartgroove._Dice(
+            'space test', k))
+        sp.append(sum(1 for _t, (_l, ns) in bb.onsets.items() for x in ns
+                      if x[0] == 'u' and x[1] != chartgroove._HATF) / 8)
+    check("a drummer leaving space leaves space: big statements and room, "
+          "not a cymbal roll under everything", max(sp) < 2.6, str(sp))
     import json as _json
     lk = _json.load(open(os.path.join(os.path.dirname(chartgroove.__file__),
                                       'data', 'lick_stats.json')))
