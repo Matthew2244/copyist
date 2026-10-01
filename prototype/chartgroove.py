@@ -154,6 +154,9 @@ BAND_NOW = None
 # The melody and the soloist in this bar, for the drummer: (start, end,
 # midi) in beats. A fill waits for the phrase to finish.
 MELODY_NOW = None
+# whether the lead in this bar is an improvising soloist (a pianist comps
+# under a soloist's lines sparingly, but does comp)
+LEAD_IS_SOLO = False
 
 
 def melody_room(start, bar, beat):
@@ -396,7 +399,8 @@ class Bar:
             before = any(t - 0.5 - 1e-6 <= s < t - 0.05 for s in ons)
             after = any(t + 0.05 < s <= t + 0.5 + 1e-6 for s in ons)
             if before and after and _Dice('holes', tick, len(ons),
-                                          ons[0])() < 0.8:
+                                          ons[0])() < (
+                    0.45 if LEAD_IS_SOLO else 0.8):
                 keep = [n for n in notes if n[0] != 'p']
                 if keep:
                     self.onsets[tick] = (ln, keep)
@@ -4991,7 +4995,7 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
     # comes right back when the line breathes
     thin = (busy is not None and busy > 0.6 and not ballad) or (
         tempo_band() == 'up' and d() < 0.5)      # burning: fewer hits
-    if thin and d() < 0.35 and state.get('laid') != absbar - 1:
+    if thin and d() < 0.25 and state.get('laid') != absbar - 1:
         tex = 'lay_out'
         state['laid'] = absbar
     # now and then the right hand goes up for sparkle — rarely, and

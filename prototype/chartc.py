@@ -4931,6 +4931,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     if l_ not in LEAD['compers'] and l_ not in
                     groups['rhythm']] if listen and LEAD['map'] and \
                     my_role == 'drums' else None
+                chartgroove.LEAD_IS_SOLO = sec.get('_turn') is not None
                 chartgroove.BAND_NOW = band_now(
                     label, my_role, str(absbar if not cur_pass
                                         else f'{absbar}x{cur_pass}')) \
