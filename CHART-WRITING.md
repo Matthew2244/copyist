@@ -895,7 +895,9 @@ All of these ride on a `from demo` line, after commas:
   through the heads, builds with each soloist (dropping back as the
   next one starts), peaks at a shout, and brings the out-head back down
   from it; a last vamp or tag usually goes out strong, sometimes brought
-  down. Each take shades it a little differently. A section's own words
+  down. Before a bigger section the whole band leans into it over the
+  last two bars instead of jumping at the barline. Each take shades it a
+  little differently. A section's own words
   win: `soft`, `quiet`, `bring it down`, or `big`, `loud`, `shout` in
   its name, label or feel.
 - **The band builds through the tune.** Comping starts with two-note

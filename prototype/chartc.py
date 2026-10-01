@@ -3741,6 +3741,10 @@ def tune_shape(plans, labels):
         elif re.search(r'\b(?:loud|big|ff+|hot|burn)', words):
             e = 0.92
         sec['_energy'] = max(0.25, min(1.0, e + (d() - 0.5) * 0.08))
+    for i, pl in enumerate(plans):
+        # the band leans into a bigger section together
+        pl['sec']['_next_energy'] = plans[i + 1]['sec']['_energy'] \
+            if i + 1 < len(plans) else None
 
 
 def vamp_passes(sec):

@@ -5265,6 +5265,10 @@ def check_band_hears_the_lead():
     check("eight takes of a tune with trades, a shout and a big ending all "
           "compile (a choice one take makes must never crash it)",
           not crashed, crashed)
+    sec_b = {'_energy': 0.5, '_next_energy': 0.92, 'bars': 8}
+    hs = [chartgroove._heat(sec_b, o) for o in range(8)]
+    check("the band builds into a bigger section over its last two bars",
+          hs[7] > hs[6] > hs[5] + 0.1 and hs[5] < 0.6, str(hs))
     seen = set()
     for k in range(40):
         b = chartgroove.Bar(24, (4, 4), 0, 1)

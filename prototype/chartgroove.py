@@ -2271,7 +2271,14 @@ def _heat(sec, off):
         at, length = turn[0], turn[1]
         return min(1.0, 0.32 + 0.6 * at / max(length - 1, 1))
     if '_energy' in sec:
-        return min(1.0, sec['_energy'] + 0.1 * off / max(sec['bars'], 1))
+        e = sec['_energy'] + 0.1 * off / max(sec['bars'], 1)
+        nxt = sec.get('_next_energy')
+        left = sec['bars'] - off
+        if nxt is not None and nxt - e > 0.2 and left <= 2:
+            # the last two bars build into a bigger section, the whole
+            # band leaning in together instead of jumping at the barline
+            e += (nxt - e) * (0.35 if left == 2 else 0.7)
+        return min(1.0, e)
     arc = sec.get('_arc', 0.5)
     return min(1.0, 0.3 + 0.55 * arc + 0.12 * off / max(sec['bars'], 1))
 
