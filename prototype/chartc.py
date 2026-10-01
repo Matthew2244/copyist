@@ -4186,8 +4186,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                               shift=horn['transpose'] if horn else 0)
         chords = chartgroove._chords_in(sec, off, governing)
         lo, hi = horn['comf'] if horn else (55, 79)
+        ranges = [tuple((horn_of.get(l) or {}).get('comf', (55, 79)))
+                  for l in who]
         chartgroove.backgrounds(bar, state, chords, k, len(who), lo, hi,
-                                style.split()[0], off, sec['name'])
+                                style.split()[0], off, sec['name'],
+                                ranges=ranges)
         return bar.xml()
 
     # ---- where the band is inside a soloist's turn, for dynamics

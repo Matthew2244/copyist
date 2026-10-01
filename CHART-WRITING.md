@@ -745,7 +745,19 @@ All of these ride on a `from demo` line, after commas:
   on Bb. They stay under it too: with the melody up high (E4 and above),
   a voicing that would sit on top of it drops an octave, so nothing
   masks the lead. A low melody (a tenor down around Bb3) is voiced
-  over, as usual. The drummer hears the section's written hits (two or
+  over, as usual. And nobody sits in the singer's spot: a comping note
+  on the melody note or a step off it, in the same octave, moves an
+  octave (up over a baritone, down under a soprano) or drops out, so
+  the voice has its own room and nothing to fight for pitch. The bass
+  keeps its line.
+  Backgrounds made up behind a soloist or a singer are voiced as one
+  section, the way an arranger writes them: the top horn leads by step,
+  each chair takes the next chord tone down without crossing the chair
+  above, and with five or more horns the bari (or the bass trombone)
+  holds the root at the bottom.
+  A walking bass lands a chord tone on beats 1 and 3 and passes on 2
+  and 4; it doesn't lean on the 4th over a dominant, which would sound
+  like a sus nobody wrote. The drummer hears the section's written hits (two or
   more horns or voices striking together) and catches the real hits: a
   short one with air after it, or a held one coming out of space (a
   long note that ends a moving phrase is a phrase end, and gets filled,

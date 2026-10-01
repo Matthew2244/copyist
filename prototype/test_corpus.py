@@ -5275,6 +5275,34 @@ def check_band_hears_the_lead():
     check("eight takes of a tune with trades, a shout and a big ending all "
           "compile (a choice one take makes must never crash it)",
           not crashed, crashed)
+    was_lead = chartgroove.LEAD_NOW
+    try:
+        chartgroove.LEAD_NOW = [(0.0, 4.0, 55)]        # a baritone on G3
+        b = chartgroove.Bar(24, (4, 4), 0, 1)
+        for m in (53, 57, 60, 64):
+            b.add(0, 96, ('p', m, 60))
+        b.xml()
+        got = sorted(n[1] for n in b.onsets[0][1])
+    finally:
+        chartgroove.LEAD_NOW = was_lead
+    check("the comping gets out of the singer's spot: a note a step off a "
+          "baritone's G3 goes up an octave, the rest of the voicing stays",
+          got == [60, 64, 65, 69], str(got))
+    g7 = ('G', 0, '7', None)
+    b3 = [chartgroove.walk_bar([g7] * 4, 43, chartgroove._Dice('w3', str(k)),
+                               7, 0)[2] % 12 for k in range(300)]
+    check("a walking bass lands a chord tone on beat 3 and hardly ever "
+          "leans on the 4th over a dominant (it sounds like a sus)",
+          sum(x in (7, 11, 2, 5) for x in b3) > 0.6 * len(b3)
+          and b3.count(0) < 0.04 * len(b3),
+          str((sum(x in (7, 11, 2, 5) for x in b3), b3.count(0))))
+    vs = chartgroove.section_voicing(
+        [11, 5, 2, 9, 7], 7, [(60, 81), (55, 76), (49, 70), (40, 65),
+                              (36, 60)])
+    check("backgrounds are voiced as one section: top chair on top, "
+          "nobody crossing the chair above, the bottom chair on the root",
+          all(a_ > b_ for a_, b_ in zip(vs, vs[1:])) and vs[-1] % 12 == 7,
+          str(vs))
     import chartband
     r_ = chartband.top_swing([(0.0, (0.70, 1.0))])
     check("the count-off swings like the tune it counts in: in a swing "

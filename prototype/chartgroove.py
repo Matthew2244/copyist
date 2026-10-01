@@ -333,6 +333,33 @@ class Bar:
                         continue
                     n = (n[0], m_) + tuple(n[2:])
                 moved.append(n)
+            # out of the lead's own spot: a comping note on the melody
+            # note or a step off it, in the same octave, crowds the
+            # voice (a singer hears it as pitch to fight) — it moves an
+            # octave, up over a low voice (comping above a baritone is
+            # home), down under a high one, out if that would be mud
+            # (2026-10-01, measured on a baritone tune: the guitar sat on
+            # the sung note or a step off it 13% of the time). The bass
+            # is the floor and keeps its notes.
+            near = [m for s, e, m in heard
+                    if min(b, e) - max(a, s) >= 0.5 - 1e-6]
+
+            def crowds(x):
+                return any(abs(x - m) <= 2 for m in near)
+            spaced = []
+            for n in moved:
+                if n[0] == 'p' and near and n[1] >= 50 and crowds(n[1]):
+                    up = min(near) < 60
+                    for x in ((n[1] + 12, n[1] - 12) if up else
+                              (n[1] - 12, n[1] + 12)):
+                        if 50 <= x <= 84 and not crowds(x) and (
+                                x < max(near) or min(near) < 64):
+                            n = (n[0], x) + tuple(n[2:])
+                            break
+                    else:
+                        continue
+                spaced.append(n)
+            moved = spaced
             keep = [n for n in moved if n[0] != 'p' or not any(
                 min(b, e) - max(a, s) >= 0.5 - 1e-6
                 and (n[1] - m) % 12 in (1, 11) for s, e, m in heard)]
@@ -1654,6 +1681,11 @@ def walk_bar(beats, prev, d, arrive, next_arrive, home=None):
         root = _root_pc(c)
         tones = {(root + i) % 12 for i in _tones(c)}
         sc = {(root + i) % 12 for i in _scale(c)}
+        # the avoid notes: a scale tone a half step over a chord tone
+        # (the 4th over a dominant or a major chord) sounds like a sus
+        # nobody wrote when it's leaned on (chord-scale theory, checked
+        # against PyTheory's avoid_notes, 2026-10-01)
+        avoid = {pc for pc in sc - tones if (pc - 1) % 12 in tones}
         anchor = out[-1] if out else prev
         first = arrive if b == 0 else arrival_pc(c, d)
         # the downbeat lands where last bar's lead-in pointed: folding it
@@ -1676,6 +1708,9 @@ def walk_bar(beats, prev, d, arrive, next_arrive, home=None):
         while len(seg) < want - 1:
             left = want - len(seg)      # beats still to play, lead-in too
             goal = _fold_bass(_near(goal_pc, cur), lo_h, hi_h)
+            # beat 3 of four is the other strong beat: a bassist lands a
+            # chord tone there and passes on 2 and 4
+            strong = n == 4 and b + len(seg) == 2
             opts = []
             for m in range(max(28, cur - 9), min(55, cur + 9) + 1):
                 if m == cur or (len(seg) > 1 and m == seg[-2]
@@ -1685,6 +1720,9 @@ def walk_bar(beats, prev, d, arrive, next_arrive, home=None):
                 cat = 'tone' if pc in tones else 'scale' if pc in sc \
                     else 'chromatic'
                 w = steps.get(m - cur, 0.004) * mid.get(cat, 0.1)
+                if strong:
+                    w *= 2.0 if cat == 'tone' else 0.08 if pc in avoid \
+                        else 0.6
                 if cat == 'chromatic':
                     # chromatic notes pass: they move by a half step on
                     # to something, so keep them a step off the goal path
@@ -3200,8 +3238,60 @@ def drum_solo(bar, absbar, pos, total, seed, echo=None):
                     ('setup', 'three', 'flam')[int(d() * 3) % 3], d)
 
 
+def section_voicing(pcs, root, ranges, last=None):
+    """One chord voiced for a whole horn section, top down, the way an
+    arranger writes backgrounds: the lead takes the colour nearest
+    where it just was (so the top line moves by step), each chair below
+    takes the next chord tone down, never crossing the chair above, and
+    with five or more the bottom chair (the bari, the bass bone) holds
+    the root underneath. ranges is each chair's comfortable (low, high),
+    top chair first. Returns one MIDI note per chair, top first."""
+    n = len(ranges)
+    lo0, hi0 = ranges[0]
+    anchor = last[0] if last else int(lo0 + (hi0 - lo0) * 0.65)
+    # the lead: a guide tone or colour nearest the last lead note
+    cands = []
+    for pc in pcs[:-1] or pcs:
+        m = _near(pc, anchor)
+        while m > hi0:
+            m -= 12
+        while m < lo0:
+            m += 12
+        cands.append((abs(m - anchor), m, pc))
+    cands.sort()
+    top, top_pc = cands[0][1], cands[0][2]
+    out = [top]
+    stack = [pc for pc in pcs[:-1] if pc != top_pc] or [root]
+    for i in range(1, n):
+        lo_i, hi_i = ranges[i]
+        if n >= 5 and i == n - 1:
+            want = [root]                  # the bottom chair on the root
+        else:
+            want = stack[(i - 1) % len(stack):] + stack[:(i - 1) % len(
+                stack)]
+        got = None
+        for pc in want:
+            # the highest note of this tone at least a step below the
+            # chair above, inside this chair's range
+            m = out[-1] - 2 - ((out[-1] - 2 - pc) % 12)
+            while m > hi_i:
+                m -= 12
+            if m >= lo_i - 2:
+                got = m
+                break
+        if got is None:
+            # nothing fits under the chair above: double the chair above
+            # an octave down if it can, else the lowest fit
+            got = out[-1] - 12
+            while got < lo_i - 2:
+                got += 12
+            got = min(got, out[-1] - 1)
+        out.append(got)
+    return out
+
+
 def backgrounds(bar, state, chords, voice, voices, lo, hi, style, off,
-                seed):
+                seed, ranges=None):
     """One horn's share of made-up backgrounds: each chord voiced across
     the section top-down (voice 0 highest), every horn near its last
     note so the lines move smoothly. Pads hold through each change,
@@ -3243,16 +3333,23 @@ def backgrounds(bar, state, chords, voice, voices, lo, hi, style, off,
             if pc not in pcs and pc != root:
                 pcs.append(pc)
         pcs = pcs + [root]
-        # top voice takes the first colour, each next voice the next
-        # tone down the stack
-        pc = pcs[voice % len(pcs)]
-        anchor = state.get('bg_last') or int(lo + (hi - lo) * (
-            0.7 - 0.5 * voice / max(voices, 1)))
-        m = _near(pc, anchor)
-        while m > hi:
-            m -= 12
-        while m < lo:
-            m += 12
+        if ranges:
+            # the section voiced as one: every chair computes the same
+            # voicing from the same last one, and reads its own note
+            vs = section_voicing(pcs, root, ranges, state.get('bg_voicing'))
+            state['bg_voicing'] = vs
+            m = vs[voice]
+        else:
+            # top voice takes the first colour, each next voice the next
+            # tone down the stack
+            pc = pcs[voice % len(pcs)]
+            anchor = state.get('bg_last') or int(lo + (hi - lo) * (
+                0.7 - 0.5 * voice / max(voices, 1)))
+            m = _near(pc, anchor)
+            while m > hi:
+                m -= 12
+            while m < lo:
+                m += 12
         bar.add(int(round((b - 1) * beat)),
                 max(1, int(round(ln * beat)) - (beat // 8 if style ==
                                                 'riff' else 0)),
