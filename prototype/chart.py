@@ -835,9 +835,11 @@ def render_listen(listen_src, mp3, say, only=None, count_in=None,
             say("The sample library balked mid-render "
                 f"({os.path.basename(samples)}: {e}) — the plain synth "
                 "is covering this one.")
-            return render_listen(listen_src, mp3, say, only=only,
-                                 count_in=count_in, lead=lead,
-                                 on_progress=on_progress)
+            ok = render_listen(listen_src, mp3, say, only=only,
+                               count_in=count_in, lead=lead,
+                               on_progress=on_progress)
+            # tell the caller: the closing words must not say samples
+            return 'synth' if ok else ok
         say(f"Copyist hit a wall rendering its own audio: {e}")
         return False
     if chartaudio.to_mp3(wav, mp3):
@@ -1657,10 +1659,15 @@ def main():
         mp3 = played if band else robot
         stale = robot if band else played
         lead = [0.0]
-        if render_listen(listen_src, mp3, say, count_in=args.count_in,
-                         lead=lead, samples=band,
-                         on_progress=lambda f, w:
-                         progress(25 + 70 * f, w)):
+        got = render_listen(listen_src, mp3, say, count_in=args.count_in,
+                            lead=lead, samples=band,
+                            on_progress=lambda f, w:
+                            progress(25 + 70 * f, w))
+        if got == 'synth':
+            # the shelf failed mid-render: say so plainly at the end too,
+            # never "real recorded instruments" over the synth
+            band = None
+        if got:
             if os.path.exists(stale) and os.path.exists(mp3):
                 os.remove(stale)       # the other band's old take
             countin_words = (f", after {args.count_in} bar(s) of "
@@ -1674,6 +1681,10 @@ def main():
                     "exactly what the pages say"
                     + countin_words
                     + ". Anywhere it sounds wrong, the page is wrong.")
+            elif got == 'synth':
+                say("The listen file is ready, but on the plain synth: "
+                    "the sample shelf failed partway (the reason is "
+                    "above). That's a Copyist bug; report it.")
             else:
                 say("The listen file is ready — Copyist's own robot "
                     "horns playing exactly what the pages say"

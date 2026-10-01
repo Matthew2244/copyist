@@ -5099,6 +5099,28 @@ def check_band_hears_the_lead():
           "rhythm on the drums, its rising shape up the toms",
           first[:3] == [chartgroove._FLOOR_TOM, chartgroove._MID_TOM,
                         chartgroove._HI_TOM], str(first))
+    import chartaudio
+    import chartband
+    tmp_k = tempfile.mkdtemp()
+    ck = os.path.join(tmp_k, "k.chart")
+    open(ck, "w").write(
+        "title: K\nkey: F\nmeter: 4/4\ntempo: 140\nfeel: swing\n"
+        "countoff: yes\n\nband:\n  trumpet\n  piano\n  bass\n  drums\n"
+        "\nsection A, 2 bars\n  chords: F7, C7\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(ck, os.path.join(tmp_k, "b"))
+    plan_k = chartaudio.parse_score(os.path.join(
+        tmp_k, "b", "K — for listening.musicxml"))
+    try:
+        res_k = chartband.render_plan(plan_k, os.path.join(tmp_k, "k.wav"),
+                                      tempfile.mkdtemp())
+        err_k = None
+    except Exception as e:          # the build would fall to the synth
+        res_k, err_k = None, repr(e)
+    check("the sample renderer plays a counted-off tune without falling "
+          "back to the synth, the count in front of bar one",
+          err_k is None and plan_k['count_off'] and res_k[3] > 0.5,
+          str((err_k, plan_k['count_off'])))
     import chartending
     cues_, airs = set(), []
     for si in range(30):

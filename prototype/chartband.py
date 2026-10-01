@@ -1058,7 +1058,7 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
                 part.get('sound', '').startswith('drum.group'):
             for t_, key_, v_ in count_off:
                 jobs.append((t_, 0.3, idx, key_, v_, 1.0, None, None,
-                             fam, None, None))
+                             fam, {}, None))
             count_off = None
 
     if window:
@@ -1089,6 +1089,7 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
                 in enumerate(jlist):
             if report and ji % step == 0:
                 report(ji / max(len(jlist), 1))
+            art = art or {}       # no marks is no marks, never a crash
             part = plan['parts'][idx]
             v = int(round(min(max(vel, 1.0), 127.0)))
             pieces = []
