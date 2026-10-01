@@ -955,6 +955,14 @@ All of these ride on a `from demo` line, after commas:
   the guitar plays la pompe, a chord on every beat with a ghosted
   upstroke just before 2 and 4; the bass is in two on the head and
   walks under solos; a drummer, if there is one, is on brushes.
+- **Baião and Afro 12/8.** `feel: baião` (or `forró`): the bass plays
+  the 3+3+2, root, fifth, root, twice a bar; the triangle's sixteenths on
+  the hi-hat, opening on each 'and'; the zabumba's low note on the kick
+  on 1 and the 'a' of 1, its stick on the 'ands' of 2 and 4; the comping
+  on the same 3+3+2. `feel: afro 12/8` in 6/8 or 12/8: the bembé bell on
+  the ride bell, the kick on the dotted quarters, the hat foot on 2 and 4
+  of the twelve, the toms answering now and then; the bass on the root,
+  anticipating the fifth, and leading into the next chord.
 - **Chokes where they belong.** A choked cymbal is a drum-solo sound
   and a last-hit sound, with the whole band landing together. Keeping
   time behind the band, in a landing after a fill, a section mark or a

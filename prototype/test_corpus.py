@@ -5537,6 +5537,32 @@ def check_band_hears_the_lead():
           "a ghosted upstroke just before 2 and 4, and the drummer is on "
           "brushes", {0.0, 1.0, 2.0, 3.0, 0.67, 2.67} <= gon and
           chartgroove.implement('', 'gypsy jazz') == 'brushes', str(gon))
+    for nm_, meter_, feel_, ch_ in (
+            ("Baiao", "4/4", "baião", "Dm7, G7, Dm7, G7"),
+            ("Afro", "12/8", "afro 12/8", "Cm7, Cm7, F7, F7")):
+        c_ = os.path.join(tmp_gy, nm_ + ".chart")
+        open(c_, "w").write(
+            f"title: {nm_}\nkey: C\nmeter: {meter_}\ntempo: 110\n"
+            f"feel: {feel_}\n\nband:\n  flute\n  piano\n  bass\n"
+            f"  drums\n\nsection A, 4 bars\n  chords: {ch_}\n")
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(c_, os.path.join(tmp_gy, nm_))
+        sc_ = chartaudio.parse_score([os.path.join(tmp_gy, nm_, f) for f in
+                                      os.listdir(os.path.join(tmp_gy, nm_))
+                                      if 'listening' in f][0])
+        ev_ = {p_["name"]: p_["events"] for p_ in sc_["parts"]}
+        per_ = 4 if meter_ == "4/4" else 6
+        bon = {round(q % per_, 2) for q, *_r in ev_["bass"] if q < 12}
+        drm = {m for _q, _d, m, *_r in ev_["drums"] if _q < 12}
+        if nm_ == "Baiao":
+            check("baião: the bass plays 3+3+2 (root, fifth, root, twice a "
+                  "bar), the triangle's sixteenths on the hat",
+                  {0.0, 0.75, 1.5, 2.0, 2.75, 3.5} <= bon and 42 in drm and
+                  46 in drm, str((sorted(bon), sorted(drm))))
+        else:
+            check("Afro 12/8: the bembé bell on the ride bell, the bass "
+                  "anticipating the fifth", 53 in drm and 2.0 in bon,
+                  str((sorted(bon), sorted(drm))))
     import chartending as E_sp
     sp = []
     for k in range(12):

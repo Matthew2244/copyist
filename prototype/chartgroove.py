@@ -735,6 +735,8 @@ def style_of(feel):
             traits.add('swung')
     elif 'bossa' in f:
         style = 'bossa'
+    elif re.search(r'bai[aã]o|forr[oó]', f):
+        style = 'baiao'
     elif 'samba' in f:
         style = 'samba'
     elif re.search(r'latin|afro|mambo|songo|salsa|cha[ -]?cha|montuno|'
@@ -766,7 +768,7 @@ def _new_style(feel, bar):
     if bar.den != 4 or bar.num not in (2, 4):
         return None
     if style in ('bossa', 'samba', 'latin', 'funk', 'shuffle',
-                 'secondline', 'reggae', 'motown', 'hiphop'):
+                 'secondline', 'reggae', 'motown', 'hiphop', 'baiao'):
         return style, traits
     if traits - {'gypsy'}:
         return style, traits
@@ -1219,6 +1221,30 @@ def _drums(bar, absbar, feel, hits, heat=None, busy=None):
     if _new_style(feel, bar):
         _styled_drums(bar, absbar, *_new_style(feel, bar))
         return
+    if bar.den == 8 and bar.num % 3 == 0 and \
+            style_of(feel or '')[0] == 'latin':
+        # Afro 12/8 (bembé): the bell pattern on the ride bell, the kick
+        # on the dotted quarters (strong on 1), the hat foot on 2 and 4
+        # of the twelve, the toms answering now and then
+        eighth = bar.div // 2
+        per = bar.num
+        hits12 = (0, 2, 4, 5, 7, 9, 11)
+        bell = [h - (per if absbar % 2 and per < 12 else 0) for h in hits12]
+        for h in bell:
+            if 0 <= h < per:
+                bar.add(h * eighth, eighth, ('u', _BELL,
+                                             84 if h % 3 == 0 else 66))
+        for p in range(0, per, 3):
+            bar.add(p * eighth, eighth * 2, ('u', _KICK,
+                                             86 if p % 6 == 0 else 58))
+            if p % 6 == 3:
+                bar.add(p * eighth, eighth, ('u', _HATF, 62))
+        dd = _Dice('afro toms', absbar)
+        if dd() < 0.4 and per >= 6:
+            t0 = (per - 2) * eighth
+            bar.add(t0, eighth, ('u', _MID_TOM, 70))
+            bar.add(t0 + eighth, eighth, ('u', _FLOOR_TOM, 78))
+        return
     if bar.den == 8 and bar.num % 3 == 0:
         pulse = 3 * (bar.div // 2)
         for p in range(bar.num // 3):
@@ -1288,6 +1314,20 @@ def _styled_drums(bar, absbar, style, traits):
         clave = ([(1, .5, 72), (2.5, .5, 72), (4, .5, 72)]
                  if absbar % 2 else [(2, .5, 72), (3.5, .5, 72)])
         _pattern(bar, beat, clave, _XSTICK)
+        return
+    if style == 'baiao':
+        # the triangle's sixteenths on the hat, open on each 'and'; the
+        # zabumba's low note on 1 and the 'a' of 1 (3+3+2), its stick on
+        # the 'ands' of 2 and 4
+        for b in sixteenths:
+            if (b * 4) % 4 == 3:            # the 'and'
+                _pattern(bar, beat, [(b, .25, 62)], _OPEN_HAT)
+            else:
+                _pattern(bar, beat, [(b, .25, 48 if (b * 4) % 4 else 56)],
+                         _HAT)
+        _pattern(bar, beat, [(1, .75, 88), (1.75, .75, 72), (3, .75, 88),
+                             (3.75, .75, 72)], _KICK)
+        _pattern(bar, beat, [(2.5, .25, 60), (4.5, .25, 60)], _XSTICK)
         return
     if style == 'samba':
         _pattern(bar, beat, [(b, .25, 58 if (b * 4) % 4 == 1 else 42)
@@ -1714,6 +1754,9 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
                   (4.5, .5, 'f')],
         'samba': [(1, 1, 'r', 70), (2, 1, 'f', 92), (3, 1, 'r', 70),
                   (4, 1, 'f', 92)],
+        # baião: 3+3+2 in sixteenths, root, fifth, root, twice a bar
+        'baiao': [(1, .75, 'r', 84), (1.75, .75, 'f'), (2.5, .5, 'r'),
+                  (3, .75, 'r', 84), (3.75, .75, 'f'), (4.5, .5, 'r')],
         'latin': [(2.5, 1.5, 'f'), (4, 1, 'next')],
         'funk': [(1, .5, 'r'), (1.75, .25, 'r'), (2.5, .5, 'o'),
                  (3.5, .25, 'r'), (3.75, .25, 'r'), (4.5, .5, '7')],
@@ -2144,6 +2187,25 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
         # the lead-in approached
         state['land_at'] = target if run else walk_bar.goal
         return
+    if bar.den == 8 and bar.num % 3 == 0 and \
+            style_of(feel or '')[0] == 'latin':
+        # Afro 12/8: the root on one, the fifth anticipating the second
+        # big beat, the root again, and a lead-in to what comes next —
+        # the six-against-four the bell pattern sits on
+        eighth = bar.div // 2
+        for g in range(0, bar.num, 6):
+            c = _chord_at(chords, g + 1.0)
+            nxt = _chord_at(chords, g + 7.0) if g + 6 < bar.num else \
+                _next_chord(sec, off, chords)
+            prev = put(g * eighth, 3 * eighth, _near(_bass_pc(c), prev))
+            if g + 4 < bar.num:
+                prev = put((g + 4) * eighth, 2 * eighth,
+                           _near((_root_pc(c) + 7) % 12, prev))
+            tgt = _bass_pc(nxt) if nxt else _bass_pc(c)
+            if g + 5 < bar.num:
+                prev = put((g + 5) * eighth, eighth,
+                           _near((tgt - 1) % 12, prev))
+        return
     if bar.den == 8 and bar.num % 3 == 0:
         pulse = 3 * (bar.div // 2)
         for p in range(bar.num // 3):
@@ -2294,6 +2356,9 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
                       [(1.5, .5), (3, .5), (4.5, .5)]),
             'samba': [(1, .25), (1.75, .25), (2.5, .25), (3, .25),
                       (3.75, .25), (4.5, .25)],
+            'baiao': ([(1.75, .5), (2.5, .5), (3.75, .5), (4.5, .5)]
+                      if absbar % 2 else
+                      [(1, .5), (1.75, .5), (3, .5), (3.75, .5)]),
             'latin': ([(1, .5), (2.5, .5), (4, .5)] if absbar % 2 else
                       [(1.5, .5), (3, .5), (4.5, .5)]),
             'funk': [(1, .25), (1.75, .25), (2.5, .25), (3.75, .25),
