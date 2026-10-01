@@ -732,7 +732,8 @@ All of these ride on a `from demo` line, after commas:
   lines that sometimes sit a whole eighth late so their passing notes
   land on the beat and their chord tones on the 'and', skips that
   outline the chord, and phrases that end on the 'and' about as often
-  as on the beat. A solo always comes home: no phrase runs over its
+  as on the beat, triplet arpeggios up the chord and triplet pickups
+  into a line included. A solo always comes home: no phrase runs over its
   closing stretch. And whoever made up their part, a soloist who
   finished early included, comes back in for the band's last chord.
   Soloists speak the shared language too: inside their lines they reach

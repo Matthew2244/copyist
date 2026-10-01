@@ -4436,6 +4436,8 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                                                        else 2.7)
         p16 = {'state': 0.12, 'develop': 0.3, 'peak': 0.4,
                'home': 0.1}[a] * (1.0 if BPM <= 200 else 0.35)
+        p_tarp = {'state': 0.06, 'develop': 0.12, 'peak': 0.14,
+                  'home': 0.06}[a]
         half = _SOLO.get('half_step_into_beat_tone', 0.29) + 0.06
         step = 0.5
         n = max(2, int(length / step * dens))
@@ -4517,6 +4519,19 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                                       vv + 2 * j))
                 targets[k + 1] = ups[-1] if ups else nxt_tg
                 continue
+            if not displaced and d() < p_tarp and \
+                    at + 1.0 <= min(t + length, total):
+                # a triplet arpeggio: up the chord from the target in one
+                # beat, the way bebop lines climb (real players: 18% of
+                # their notes in triplets; ours 9%)
+                root_ = _root_pc(c)
+                ct = {iv % 12 for iv in _tones(c)}
+                ups = [m for m in range(tg + 1, tg + 10)
+                       if (m - root_) % 12 in ct][:2]
+                if len(ups) == 2 and ups[-1] <= top:
+                    for j, m in enumerate((tg,) + tuple(ups)):
+                        notes.append((at + j / 3, 0.3, m, vv - 2 * (j == 1)))
+                    continue
             if d() < p16 and at + 1.0 <= min(t + length, total):
                 # a sixteenth turn: the target, the note above, the
                 # target again, the note below, then on to the next
@@ -4572,9 +4587,26 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             if at + step < min(t + length, total):
                 notes.append((at + step, step * 0.92, app,
                               vv + (4 if swingy else 0)))
-        if pickup is not None and targets:
+        if pickup is not None and targets and d() < 0.4 and t >= 1.0:
+            # the pickup as a triplet pair stepping into the first target
+            c_ = chord_fn(t) or c0
+            p1 = targets[0] - 1
+            notes.append((t - 2 / 3, 0.3, scale_move(p1, -1, c_), v - 6))
+            notes.append((t - 1 / 3, 0.3, p1, v - 4))
+        elif pickup is not None and targets:
             notes.append((pickup, 0.45, targets[0] - 1
                           if d() < 0.6 else targets[0] + 2, v - 4))
+        elif not displaced and targets and t >= 1.0 and d() < 0.3 and \
+                not any(abs(n_[0] - (t - 1 / 3)) < 0.2 for n_ in notes):
+            # a triplet pickup into the line: two quick notes on the last
+            # triplets of the beat before, stepping into the first target
+            # (real players start a phrase off the beat-and-'and' grid
+            # 16% of the time; ours never did)
+            c_ = chord_fn(t) or c0
+            p1 = targets[0] - 1
+            p0 = scale_move(p1, -1, c_)
+            notes.append((t - 2 / 3, 0.3, p0, v - 6))
+            notes.append((t - 1 / 3, 0.3, p1, v - 4))
         # the end of the phrase: never a lead-in left hanging. Half the
         # time a short chord note on the and ("doo-BAH"); otherwise the
         # line resolves onto its next target and holds it a little
