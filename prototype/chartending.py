@@ -643,6 +643,12 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         pitches = [p + shift for p in _voicing(role, sound_id, chord)]
     elif not plays(measure) and named:
         pitches = []
+    elif not plays(measure) and not is_written and chord and role in (
+            'comp', 'bass'):
+        # a chair making its own part comes back for the band's last
+        # chord, a soloist who finished early or a comper who laid out
+        # included: everyone on the stand hits it
+        pitches = [p + shift for p in _voicing(role, sound_id, chord)]
     elif not plays(measure):
         pitches = None
     elif role in ('drums', 'perc'):

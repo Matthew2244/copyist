@@ -5515,13 +5515,19 @@ def check_band_hears_the_lead():
             sol = chartgroove.plan_solo(_cf, 16, 4, 55, 79, 'swing',
                                         'lick test %d' % sd,
                                         persona='bebop')
-            for at, _ln, m, *_r in sol:
+            sol = sorted(sol)
+            for i_, (at, _ln, m, *_r) in enumerate(sol):
+                nxt_m = sol[i_ + 1][2] if i_ + 1 < len(sol) else None
+                if nxt_m is not None and abs(nxt_m - m) == 1:
+                    continue        # chromatic on the beat, resolving
                 if abs(at - round(at)) < 1e-6 and at < 64:
                     c = _cf(at)
                     rel = (m - chartgroove._root_pc(c)) % 12
                     ok = {x % 12 for x in chartgroove._tones(c)} | \
                         {x % 12 for x in chartgroove._colors(c)} | \
-                        {x % 12 for x in chartgroove._scale(c)}
+                        {x % 12 for x in chartgroove._scale(c)} | \
+                        set({'dom': [11], 'maj': [8], 'min': [8, 11]}.get(
+                            chartgroove._lick_q(c), []))
                     off_ += rel not in ok
         played = chartgroove.LICKS_PLAYED
     finally:
@@ -5531,8 +5537,11 @@ def check_band_hears_the_lead():
           "V-Is among them) woven into a bebop player's lines",
           lk['two_chords'].get('min>dom+5') and lk['two_chords'].get(
               'dom>maj+5') and played >= 3, str(played))
-    check("and every note a soloist plays on the beat still belongs to "
-          "the chord sounding there", off_ == 0, str(off_))
+    check("and every note a soloist plays on the beat belongs to the chord "
+          "sounding there, its scale, or a bebop passing tone (the major 7th "
+          "over a dominant, the #5 over a major chord), or a chromatic "
+          "note resolving by a half step", off_ == 0,
+          str(off_))
     was_m = chartgroove.MELODY_NOW
     try:
         bb = chartgroove.Bar(24, (4, 4), 0, 1)
@@ -6045,7 +6054,7 @@ def check_solos_and_endings():
           # the first may spill into the next player's first bar
           and max(e[0] for e in ev["tenor"]) < 20
           and min(e[0] for e in ev["trumpet"]) >= 16
-          and all(min(abs(e[0] * 2 - round(e[0] * 2)),
+          and all(min(abs(e[0] * 4 - round(e[0] * 4)),
                       abs(e[0] * 3 - round(e[0] * 3))) < 0.03
                   for n in ("tenor", "trumpet") for e in ev[n]
                   if e[0] < 28),     # the ending's hit lands a hair apart
@@ -6872,10 +6881,10 @@ def check_band_plays_like_pros():
     pn = ev["piano"]
     rh = [e for e in pn if e[2] >= 64]
     lh = [e for e in pn if e[2] < 64]
-    grid = sum(1 for e in rh if min(abs(e[0] * 2 - round(e[0] * 2)),
+    grid = sum(1 for e in rh if min(abs(e[0] * 4 - round(e[0] * 4)),
                                     abs(e[0] * 3 - round(e[0] * 3)))
                < 0.03)
-    check("the piano solo sits on the eighth (or triplet) grid",
+    check("the piano solo sits on the grid (eighths, sixteenths, triplets)",
           grid >= 0.95 * len(rh), (grid, len(rh)))
     empty = sum(1 for b in range(32)
                 if not any(4 * b <= e[0] < 4 * b + 4 for e in rh))

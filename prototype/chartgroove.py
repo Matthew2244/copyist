@@ -3689,7 +3689,7 @@ def _colors(chord):
 
 _VOICES = {
     # most beats a phrase may run, runs allowed, eighth-line density
-    'horn': (12, True, 1.0), 'voice': (7, False, 0.7),
+    'horn': (16, True, 1.0), 'voice': (8, False, 0.7),
     'keys': (16, True, 1.0), 'guitar': (14, True, 1.0),
     'mallets': (14, True, 1.0),
     'bass': (8, False, 0.7),
@@ -4159,15 +4159,25 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
         # half step under or over it, or the scale step between;
         # now and then an arpeggio up the chord
         pickup = None
-        if t % 1:
+        # a displaced line: begun on an 'and', it stays there, its chord
+        # tones on the upbeats and its passing notes on the beats — the
+        # push a bebop line has (Weimar: 16% of real players' notes on
+        # the beat are passing notes; ours were 4%)
+        displaced = bool(t % 1) and d() < (0.25 if a == 'state' else 0.45)
+        if t % 1 and not displaced:
             # an upbeat start is a pickup into the line, whose chord
             # tones stay on the beats
             pickup, t, length = t, math.ceil(t), length - (math.ceil(t) - t)
             if length < 1.0:
                 return cur
         start_i = len(notes)
-        p_trip = _SOLO['grid'].get('triplet', 0.18) * (0.5 if a == 'state'
-                                                       else 0.8)
+        # triplet turns and sixteenth turns as often as real players
+        # use them (Weimar: 18% of notes in triplets, 20% in sixteenths;
+        # ours were 7% and 0.2% — lines ran like a metronome of eighths)
+        p_trip = _SOLO['grid'].get('triplet', 0.18) * (1.2 if a == 'state'
+                                                       else 2.7)
+        p16 = {'state': 0.12, 'develop': 0.3, 'peak': 0.4,
+               'home': 0.1}[a] * (1.0 if BPM <= 200 else 0.35)
         half = _SOLO.get('half_step_into_beat_tone', 0.29) + 0.06
         step = 0.5
         n = max(2, int(length / step * dens))
@@ -4186,15 +4196,26 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             # what a real player puts on the beat (Weimar: about half
             # chord tones, a third colours, the rest passing notes) —
             # the guide tones still mark most changes
-            cat = _roll([(k, w) for k, w in
-                         _SOLO['on_beat'].items()], d)
-            if changed and d() < 0.65:
+            # calibrated so the whole solo lands near the real players'
+            # mix on the beat (Weimar: tone 54%, colour 30%, other 16%)
+            # once the guide tones at the changes are counted in
+            cat = _roll([('tone', 0.38), ('color', 0.36), ('other', 0.26)],
+                        d)
+            # the guide tones still mark most changes (the line knows the
+            # changes), but not every one: real players land a 3rd or a
+            # 7th on a change often, not always
+            if changed and d() < 0.35:
                 pool = [iv for iv in tones if iv % 12 in (3, 4, 10, 11)]
             elif cat == 'color':
                 pool = list(_colors(c)) or tones
-            elif cat == 'other' and a != 'state':
-                pool = [iv for iv in _scale(c) if iv % 12 not in
-                        {x % 12 for x in tones}] or tones
+            elif cat == 'other' and (a != 'state' or d() < 0.5):
+                # a passing note right on the beat: a scale note off the
+                # chord, or the bebop passing tone (the major 7th over a
+                # dominant, the #5 over a major chord)
+                pool = {'dom': [5, 11], 'maj': [5, 8],
+                        'min': [8, 11]}.get(_lick_q(c)) or [
+                    iv for iv in _scale(c) if iv % 12 not in
+                    {x % 12 for x in tones}] or tones
             else:
                 pool = tones
             # the line moves on, pulled toward the act's register:
@@ -4217,7 +4238,7 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                 dirn = -dirn
             targets.append(nq)
             q, prev_c = nq, c
-        arp_at = int(d() * (n // 2)) if d() < 0.35 + 0.2 * heatx(a) \
+        arp_at = int(d() * (n // 2)) if d() < 0.5 + 0.2 * heatx(a) \
             else -1
         for k in range(n // 2):
             at = t + k * 1.0
@@ -4238,7 +4259,26 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                                       vv + 2 * j))
                 targets[k + 1] = ups[-1] if ups else nxt_tg
                 continue
-            if d() < p_trip and at + 1.0 <= min(t + length, total):
+            if d() < p16 and at + 1.0 <= min(t + length, total):
+                # a sixteenth turn: the target, the note above, the
+                # target again, the note below, then on to the next
+                up = scale_move(tg, 1, c)
+                dn = scale_move(tg, -1, c)
+                fig = (tg, up, tg, dn)
+                if d() < 0.45:
+                    # or up the chord from the target in sixteenths
+                    root_ = _root_pc(c)
+                    ct = {iv % 12 for iv in _tones(c)}
+                    ups = [m for m in range(tg + 1, tg + 13)
+                           if (m - root_) % 12 in ct][:3]
+                    if len(ups) == 3 and ups[-1] <= top:
+                        fig = (tg,) + tuple(ups)
+                for j, m in enumerate(fig):
+                    notes.append((at + j * 0.25, 0.22, m,
+                                  vv - (3 if j % 2 else 0)))
+                continue
+            if not displaced and d() < p_trip and \
+                    at + 1.0 <= min(t + length, total):
                 # a triplet turn: the target, its upper neighbour, and a
                 # half step into the next one
                 up = scale_move(tg, 1, c)
@@ -4248,7 +4288,22 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                 continue
             notes.append((at, step * 0.92, tg, vv))
             r = d()
-            if r < half * 0.6:
+            skip = None
+            if r < 0.38:
+                # a skip: another chord tone a third or so away, the line
+                # outlining the chord on its way (real lines leap a third
+                # 18% of the time; ours stepped by half steps instead)
+                root_ = _root_pc(c)
+                ct = {iv % 12 for iv in _tones(c)}
+                ways = [m for m in range(tg - 5, tg + 6)
+                        if 3 <= abs(m - tg) <= 5 and (m - root_) % 12 in ct
+                        and m != nxt_tg and abs(m - nxt_tg) <= 5]
+                if ways:
+                    skip = min(ways, key=lambda m: (abs(m - nxt_tg), m))
+            r = d() if skip is None else 1.0
+            if skip is not None:
+                app = skip
+            elif r < half * 0.6:
                 app = nxt_tg - 1                  # from below
             elif r < half:
                 app = nxt_tg + 1                  # from above
@@ -4276,6 +4331,15 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                 pool = list(_tones(c)) + list(_colors(c))[:2]
                 notes[li] = (la, 0.4, snap(lm, c, pool), lv + 4)
                 return notes[li][2]
+            if not la % 1 and la + 0.5 < total and d() < 0.45:
+                # on the beat, then let go on the 'and': "doo-BAH" (real
+                # players end on an 'and' half the time; ours 32%)
+                ca = chord_fn(la + 0.5) or c
+                pool = list(_tones(ca))
+                q_ = snap(lm + (2 if d() < 0.5 else -2), ca, pool)
+                notes[li] = (la, 0.45, lm, lv)
+                notes.append((la + 0.5, 0.4, q_, lv + 4))
+                return q_
             k = min(len(targets) - 1, n // 2)
             land = math.floor(la) + 1.0
             if land < total:
@@ -4318,14 +4382,14 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             kind = ks[told % len(ks)]
             told += 1
             # the opening leaves room: short ideas, real air after them
-            length = min(phrase_len(2, 7), max_len)
-            rest = breath() * space * 1.6
+            length = min(phrase_len(2, 8), max_len)
+            rest = breath() * space * 1.5
         elif a == 'develop':
             ks = kinds['develop']
             kind = ks[int(d() * len(ks)) % len(ks)]
             if kind == last_kind:
                 kind = ks[(ks.index(kind) + 1) % len(ks)]
-            length = min(phrase_len(4, 14), max_len)
+            length = min(phrase_len(5, 16), max_len)
             rest = breath() * space
         elif a == 'peak':
             ks = kinds['peak']
@@ -4334,12 +4398,18 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                 kind = ks[(ks.index(kind) + 1) % len(ks)]
             if kind == 'run' and not runs_ok:
                 kind = 'line'
-            length = min(phrase_len(6, 21), max_len)
+            length = min(phrase_len(7, 24), max_len)
             rest = breath() * 0.55
         else:
             kind = 'home'
             length = total - t
             rest = 0
+        if kind != 'home':
+            # the solo always comes home: no phrase runs over the closing
+            # stretch (a long peak used to swallow the ending)
+            home_at = total * 0.9
+            if t < home_at:
+                length = min(length, max(home_at - t, 1.0))
         length = max(1.0, min(round(length * 2) / 2, total - t))
         # each act has its register, chosen, not drifted into
         aim = lo + (hi - lo) * {'state': 0.45, 'develop': 0.55,
@@ -4391,7 +4461,7 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
             # the idea keeps talking: it grows into a line through the
             # rest of the phrase (early on, sometimes it just breathes)
             said = max(n[0] for n in notes)
-            if t + length - said >= 1.5 and (a != 'state' or d() < 0.3):
+            if t + length - said >= 1.5 and (a != 'state' or d() < 0.55):
                 at = math.ceil((said + 0.5) * 2 - 1e-6) / 2
                 cur = eighth_line(at, t + length - at, a, cur, v,
                                   chord_fn(at) or c0)
@@ -4436,7 +4506,10 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                         notes.append((at, 0.45, q, v + 4))
             cur = top
         elif kind == 'run':
-            step = 1 / 3 if swingy else 0.25
+            # in swing a run is triplets, or double time — sixteenths —
+            # when the tempo lets the hands (real medium-tempo solos put a
+            # third of their notes on sixteenths)
+            step = 1 / 3 if swingy and (BPM > 200 or d() < 0.5) else 0.25
             if t % 1 and swingy:
                 # triplets live on the beat: a run begun on an 'and'
                 # waits for the next beat (an offset triplet is nobody's)
@@ -4520,7 +4593,13 @@ def plan_solo(chord_fn, total_bars, bar_beats, lo, hi, feel, seed,
                 notes.append((at, total - at, fit(goal, 'home'), 68))
             break
         last_kind = kind
-        t += length + rest
+        # the breath counts from where the phrase really ended: an idea
+        # stated in two beats isn't followed by the silence of the
+        # phrase it never played (2026-10-01, measured against Weimar:
+        # our breaths ran a beat longer than real players')
+        said_to = max((n_[0] + n_[1] for n_ in notes if t <= n_[0] <
+                       t + length + 1e-6), default=t + length)
+        t = min(t + length, said_to) + rest
         # phrases start on the grid — a downbeat or an upbeat, never a
         # fraction between (lines landed ~a third of a beat late against
         # every change, Matthew 2026-09-29 on Autumn Leaves)

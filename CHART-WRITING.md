@@ -725,6 +725,16 @@ All of these ride on a `from demo` line, after commas:
   over into the next player's first bar, and the next opens by
   answering the phrase it just heard, in its own register, and builds
   from there.
+  The soloists are measured against the real players they learned
+  from (prototype/bench_solos.py), and play like them: phrases as long
+  as theirs with breaths as long as theirs, about two notes a beat at a
+  medium tempo, sixteenth turns and double-time runs, triplet turns,
+  lines that sometimes sit a whole eighth late so their passing notes
+  land on the beat and their chord tones on the 'and', skips that
+  outline the chord, and phrases that end on the 'and' about as often
+  as on the beat. A solo always comes home: no phrase runs over its
+  closing stretch. And whoever made up their part, a soloist who
+  finished early included, comes back in for the band's last chord.
   Soloists speak the shared language too: inside their lines they reach
   for figures real players use (learned from the Weimar Jazz Database,
   each one kept only when several different players used it), over the
