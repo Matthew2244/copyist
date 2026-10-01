@@ -946,6 +946,15 @@ All of these ride on a `from demo` line, after commas:
   a big new section; the buzz roll is a rare, shout-chorus sound. The
   walking bass lands on the root of a new chord about four times in
   five, the fifth or third the rest, the root always at a new section.
+- **Swing at every tempo.** The rhythm section plays the tempo the way
+  players feel it: slow (under 100) with room for every skip on the ride,
+  ghosted snare and a feathered kick; medium and medium-up as you'd
+  expect; up tempo (220 and over) simpler, a plainer ride, lighter snare,
+  the hat foot on 2 and 4, fewer skips in the bass, sparser comping.
+- **Gypsy jazz.** Write `feel: gypsy jazz` (or `manouche`, or `django`):
+  the guitar plays la pompe, a chord on every beat with a ghosted
+  upstroke just before 2 and 4; the bass is in two on the head and
+  walks under solos; a drummer, if there is one, is on brushes.
 - **Chokes where they belong.** A choked cymbal is a drum-solo sound
   and a last-hit sound, with the whole band landing together. Keeping
   time behind the band, in a landing after a fill, a section mark or a

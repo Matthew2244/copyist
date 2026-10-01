@@ -684,7 +684,8 @@ def role_of(sound_id, clef):
 
 
 def _is_swing(feel):
-    return any(w in (feel or '').lower() for w in ('swing', 'shuffle'))
+    return any(w in (feel or '').lower() for w in (
+        'swing', 'shuffle', 'gypsy', 'manouche', 'django'))
 
 
 def style_of(feel):
@@ -705,6 +706,10 @@ def style_of(feel):
         traits.add('double')
     if 'ballad' in f:
         traits.add('ballad')
+    if re.search(r'gypsy|manouche|django', f):
+        # gypsy jazz: swing, with la pompe on the guitar, the bass in two
+        # on the head, and usually no drummer (or light brushes)
+        traits.add('gypsy')
     # swung funk is its own feel, not swing: the funk band with its
     # subdivision swung — Purdie's half-time shuffle, Matt's Blues'
     # head (Matthew, 2026-09-28: "straight funk, swung funk ... Matt's
@@ -763,9 +768,9 @@ def _new_style(feel, bar):
     if style in ('bossa', 'samba', 'latin', 'funk', 'shuffle',
                  'secondline', 'reggae', 'motown', 'hiphop'):
         return style, traits
-    if traits:
+    if traits - {'gypsy'}:
         return style, traits
-    return None
+    return None          # gypsy jazz plays on the swing machinery
 
 
 def _pattern(bar, beat, pat, sound):
@@ -873,10 +878,16 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
     if not pats:
         pats = [((0, 3, 5, 6, 9, 11), 0.5), ((0, 3, 6, 9), 0.1)]
     weights = []
+    band_ = tempo_band()
     for sl, w in pats:
         n = len(sl)
-        if heat > 0.6 and n >= 7:
+        if heat > 0.6 and n >= 7 and band_ != 'up':
             w *= 2.5                     # it burns: skips everywhere
+        if band_ == 'up':
+            # up tempo the ride simplifies: quarters and the odd skip
+            w *= 2.5 if n <= 5 else 0.3
+        elif band_ == 'slow' and n >= 6:
+            w *= 1.6                     # slow: room for every skip
         if (heat < 0.4 or (busy is not None and busy > 0.7)) and n <= 5:
             w *= 1.8                     # it lays back
         weights.append((sl, w))
@@ -908,9 +919,9 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
         feet = [4]
     elif r < 0.16 and heat > 0.5:
         feet = [1, 2, 3, 4]
-    elif r < 0.36:
+    elif r < 0.36 and tempo_band() != 'up':
         feet = [2, 4, 1.5, 3.5]          # the chick on the 'ands' too
-    elif r < 0.5:
+    elif r < 0.5 and tempo_band() != 'up':
         feet = [2, 4, 3.5]
     else:
         feet = [2, 4]
@@ -927,7 +938,8 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
         bar.add(3 * beat + half, half, ('u', ('G', 5, 'circle-x'),
                                         int(56 + 14 * heat)))
     # the kick: feathered quarters, or a few placed kicks
-    if feather and ph() < 0.25:      # feathered for the whole phrase, or not
+    if feather and ph() < {'up': 0.1, 'slow': 0.4}.get(tempo_band(), 0.25):
+        # feathered for the whole phrase, or not (rarely up tempo)
         for b in range(bar.num):
             bar.add(b * beat, half, ('u', _KICK, 26 + int(d() * 12)))
     else:
@@ -951,7 +963,8 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
     sn = _roll([(int(k), w) for k, w in stats.get(
         'snare_per_bar', {'0': .25, '1': .11, '2': .17, '3': .12,
                           '4': .1}).items() if int(k) <= 5], d)
-    sn = int(round(sn * (0.7 + 0.6 * heat)))
+    sn = int(round(sn * (0.7 + 0.6 * heat) * {
+        'up': 0.55, 'slow': 1.15}.get(tempo_band(), 1.0)))
     if busy is not None and busy > 0.6:
         sn //= 2                         # the soloist is talking
     ss = [(_SLOT_NAMES.index(k), w) for k, w in
@@ -2054,7 +2067,8 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
         if key not in got:
             d2 = _Dice('two feel', sec.get('name'), lap)
             first = sec.get('_arc', 0) == 0
-            if d2() < (0.55 if first else 0.25):
+            gyp = 'gypsy' in style_of(feel or '')[1]
+            if d2() < (0.85 if gyp else 0.55 if first else 0.25):
                 got[key] = sec['bars'] if d2() < 0.65 else \
                     max(sec['bars'] // 2, 1)
             else:
@@ -2109,7 +2123,8 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
                                   line[-1]), 28, 55)
         run = busy is not None and busy < 0.2 and d() < 0.5
         skip = d() < (0.12 + 0.3 * heat) * \
-            (_WALK.get('bars_with_offbeats', 0.34) / 0.34)
+            (_WALK.get('bars_with_offbeats', 0.34) / 0.34) * \
+            {'up': 0.35, 'slow': 1.3}.get(tempo_band(), 1.0)
         for b, midi in enumerate(line):
             last = b == len(line) - 1
             if last and run:
@@ -2313,6 +2328,10 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
             put(at, end - at, voicing(_chord_at(chords, b)), vel=58,
                 may_rest=False)
         return
+    if 'guitar' in s and 'gypsy' in style_of(feel or '')[1] and \
+            bar.den == 4:
+        la_pompe(bar, chords, heat, state.get('busy'), put, voicing)
+        return
     if 'guitar' in s and _is_swing(feel) and bar.den == 4 and \
             not state.get('big_band'):
         # a small group's guitarist decides per section in the moment:
@@ -2352,6 +2371,27 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
         at = int(round((b - 1) * beat))
         put(at, int(ticks_beats * beat),
             voicing(_chord_at(chords, b)), vel=72)
+
+
+def la_pompe(bar, chords, heat, busy, put, voicing):
+    """Gypsy jazz rhythm guitar, la pompe: a chord on every beat, a
+    fuller one on 1 and 3, a short punchy one on 2 and 4, each of those
+    with a ghosted upstroke just before it — the engine of a Django
+    band. A busy soloist gets it a touch lighter, never stopped."""
+    beat = bar.div * 4 // bar.den
+    trip = beat // 3
+    lift = (0.9 + 0.2 * heat) * (1.0 - 0.15 * (busy or 0.0))
+    for b in range(bar.num):
+        c = _chord_at(chords, b + 1.0)
+        v = voicing(c, guides_only=False)
+        if b % 2 == 1:
+            # the ghosted upstroke a triplet before the backbeat
+            put(b * beat - trip, trip // 2 or 1, v[-2:], vel=int(30 * lift),
+                may_rest=False)
+            put(b * beat, beat // 4, v, vel=int(88 * lift), may_rest=False)
+        else:
+            put(b * beat, int(beat * 0.45), v, vel=int(66 * lift),
+                may_rest=False)
 
 
 def _horn_hits(bar, state, chords, hits, bmeter):
@@ -2588,7 +2628,7 @@ def implement(words, feel):
     if re.search(r'\bmallets?\b', w):
         return 'mallets'
     style, traits = style_of(feel or '')
-    if OPTS['brushes'] and ('ballad' in traits
+    if OPTS['brushes'] and ('ballad' in traits or 'gypsy' in traits
                             or 'ballad' in (feel or '').lower()):
         return 'brushes'
     return 'sticks'
@@ -2697,6 +2737,15 @@ def pick_fill(d, swing, last=None):
     if k == last:
         k = _FILLS[(_FILLS.index(k) + 1 + int(d() * 3)) % len(_FILLS)]
     return k
+
+
+def tempo_band():
+    """Where the tune sits, the way players feel it (and the way iReal
+    Pro splits its swing patterns): 'slow' under 100, 'medium' to 139,
+    'medium up' to 219, 'up' from 220. A rhythm section plays a burning
+    tune simpler and a slow one with more inside it."""
+    return 'slow' if BPM < 100 else 'medium' if BPM < 140 else \
+        'medium up' if BPM < 220 else 'up'
 
 
 # whether the tune swings, for the fills' own rhythm (set per bar)
@@ -3962,7 +4011,10 @@ def _knows_the_changes(notes, chord_fn):
             ok |= {6} if minor else {3, 6}
         rel = (p - root) % 12
         nxt = notes[i + 1] if i + 1 < len(notes) else None
-        if rel in ok or (nxt is not None and 0 < abs(nxt[2] - p) <= 2
+        # a chromatic approach is a half step into where the line goes
+        # (a whole step from outside the scale was a wrong note followed
+        # by a right one: a Bb over Cmaj7 walking up to C)
+        if rel in ok or (nxt is not None and abs(nxt[2] - p) == 1
                          and nxt[0] - at <= 1.0):
             out.append(n)
             continue
@@ -4872,7 +4924,8 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
     # a busy line in front: the pattern thins to its first hit, or a bar
     # of air now and then (never two in a row) — the same pattern, so it
     # comes right back when the line breathes
-    thin = busy is not None and busy > 0.6 and not ballad
+    thin = (busy is not None and busy > 0.6 and not ballad) or (
+        tempo_band() == 'up' and d() < 0.5)      # burning: fewer hits
     if thin and d() < 0.35 and state.get('laid') != absbar - 1:
         tex = 'lay_out'
         state['laid'] = absbar

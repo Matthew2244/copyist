@@ -5499,6 +5499,44 @@ def check_band_hears_the_lead():
           "drummer has to feel it); in a drum solo or on the band's last "
           "hit it's one of the drummer's choices", ch_on >= 8 and
           ch_off <= max(2, ch_on // 6), str((ch_off, ch_on)))
+    was_bpm2 = chartgroove.BPM
+    counts = {}
+    try:
+        for bpm in (130.0, 240.0):
+            chartgroove.BPM = bpm
+            ride = snr = 0
+            for ab in range(64):
+                bb = chartgroove.Bar(24, (4, 4), 0, 1)
+                chartgroove._swing_time(bb, ab, 0.6, None)
+                for _t, (_l, ns) in bb.onsets.items():
+                    for x in ns:
+                        ride += x[1] == chartgroove._RIDE
+                        snr += x[1] == chartgroove._SNARE
+            counts[bpm] = (ride, snr)
+    finally:
+        chartgroove.BPM = was_bpm2
+    check("up tempo the drummer plays simpler (a plainer ride, lighter "
+          "snare comping) than at a medium tempo",
+          counts[240.0][0] < counts[130.0][0]
+          and counts[240.0][1] < counts[130.0][1], str(counts))
+    tmp_gy = tempfile.mkdtemp()
+    c_gy = os.path.join(tmp_gy, "g.chart")
+    open(c_gy, "w").write(
+        "title: Gypsy\nkey: Am\nmeter: 4/4\ntempo: 200\nfeel: gypsy jazz\n"
+        "\nband:\n  violin\n  guitar\n  bass = double bass\n  drums\n\n"
+        "section head, 8 bars\n  chords: Am6, Am6, Dm6, Dm6, E7, E7, Am6, "
+        "Am6\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(c_gy, os.path.join(tmp_gy, "o"))
+    gy = chartaudio.parse_score([os.path.join(tmp_gy, "o", f) for f in
+                                 os.listdir(os.path.join(tmp_gy, "o"))
+                                 if 'listening' in f][0])
+    gev = {p_["name"]: p_["events"] for p_ in gy["parts"]}
+    gon = {round(q % 4, 2) for q, *_r in gev["guitar"] if q < 28}
+    check("gypsy jazz: the guitar plays la pompe, a chord on every beat with "
+          "a ghosted upstroke just before 2 and 4, and the drummer is on "
+          "brushes", {0.0, 1.0, 2.0, 3.0, 0.67, 2.67} <= gon and
+          chartgroove.implement('', 'gypsy jazz') == 'brushes', str(gon))
     import chartending as E_sp
     sp = []
     for k in range(12):
