@@ -1118,6 +1118,11 @@ All of these ride on a `from demo` line, after commas:
   a big crash or open hat out of the gate, a hi-hat bark with the snare
   or kick on a short note with air after it, the hat foot closing it,
   the snare or kick catching the rest, space where the line breathes.
+  A form that ends on its turnaround (the key's V7, the way a blues or
+  a standard heads back to the top) resolves the last time through:
+  the band holds the tonic, in the tune's own I chord (a blues ends on
+  its I7), unless a written note still sounding at the end wouldn't fit
+  it, and then the band holds the chord as written.
   An ending is out of time unless the chart puts it in time: the
   drummer's stretches alone, a fill in a fermata, a line over the held
   chord all push and pull in the player's own time; a count-off and the

@@ -5596,6 +5596,23 @@ def check_band_hears_the_lead():
           all(not ((b_ - a_) in chartgroove._LIL
                    and a_ < chartgroove._LIL[b_ - a_])
               for a_, b_ in zip(cl_, cl_[1:])) and len(cl_) == 3, str(cl_))
+    c_rs = os.path.join(tmp_gy, "rs.chart")
+    open(c_rs, "w", encoding="utf-8").write(
+        "title: Home\nkey: Bb\nmeter: 4/4\ntempo: 160\nfeel: swing\n\n"
+        "band:\n  tenor = tenor sax\n  piano\n  bass\n  drums\n\n"
+        "section A, 12 bars\n  chords: Bb7, Eb7, Bb7, Bb7, Eb7, Edim7, Bb7, "
+        "G7, Cm7, F7, Bb7 G7, Cm7 F7\n  tenor: solo\n"
+        "  ending: hold, last hit\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(c_rs, os.path.join(tmp_gy, "rs"))
+    rs = chartaudio.parse_score([os.path.join(tmp_gy, "rs", f) for f in
+                                 os.listdir(os.path.join(tmp_gy, "rs"))
+                                 if 'listening' in f][0])
+    bs_ = sorted(e for p_ in rs["parts"] if p_["name"] == "bass"
+                 for e in p_["events"])
+    check("a form that ends on its turnaround resolves home the last time: "
+          "a Bb blues ending on F7 holds and hits Bb7",
+          bs_ and bs_[-1][2] % 12 == 10, str(bs_[-3:]))
     import chart as chart_cli
     broken_cm = []
     for mt in ("6/8", "12/8"):

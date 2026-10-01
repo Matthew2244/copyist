@@ -4669,6 +4669,55 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         LEAD['compers'] = {_keys[0]}
         LEAD['hears_comp'] = set(_chordy) - {_keys[0]}
 
+    def ending_chord(c):
+        """The chord the band ends on. A form that ends on its turnaround
+        (the key's V7, as a blues or a standard does going back to the
+        top) resolves the last time through: the band holds the tonic,
+        in the quality the tune uses for its own I chord (a blues ends on
+        its I7), else a 6 chord, or minor 6 in a minor key. Any other
+        last chord is held as written."""
+        if c is None:
+            return c
+        f5, mode_ = parse_key(hdr['key']) if hdr.get('key') else \
+            (0, 'major')
+        tonic = (f5 * 7 + (9 if mode_ == 'minor' else 0)) % 12
+        if chartgroove._root_pc(c) != (tonic + 7) % 12 or not re.match(
+                r'(?:7|9|11|13|alt)', c[2] or ''):
+            return c
+        # a written line still sounding at the end of the last bar must
+        # fit the tonic, or the band holds the chord as written
+        last_abs_ = plans[-1]['start'] + plans[-1]['sec']['bars'] - 1
+        held = [m_ for k_, ns in (LEAD['map'] or {}).items()
+                if k_.split('x')[0] == str(last_abs_)
+                for l_, s_, e_, m_ in ns
+                if l_ not in groups['rhythm'] and e_ >= 3.4]
+        mine = None
+        for pl in plans:
+            for row in pl['sec']['content']:
+                for _b, cc in row:
+                    if cc is not None and chartgroove._root_pc(cc) == tonic:
+                        mine = cc
+                        break
+                if mine:
+                    break
+            if mine:
+                break
+        flat = f5 < 0
+        names = (['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A',
+                  'Bb', 'B'] if flat else
+                 ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A',
+                  'A#', 'B'])
+        nm_ = names[tonic]
+        home = mine if mine is not None else (
+            nm_[0], {'b': -1, '#': 1}.get(nm_[1:], 0),
+            'm6' if mode_ == 'minor' else '6', None)
+        fits = {x % 12 for x in chartgroove._tones(home)} | \
+            {x % 12 for x in chartgroove._colors(home)} | \
+            {x % 12 for x in chartgroove._scale(home)}
+        if any((m_ - tonic) % 12 not in fits for m_ in held):
+            return c
+        return home
+
     def listen_order(part_labels):
         """The order the band listens in, the bandleader's: the lead
         and the written lines (horns, singers, strings) first, then the
@@ -5593,7 +5642,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             got = None if (endsh.get('auto') and not realized) else \
                 chartending.listen_bars(
                     xml0, chartgroove.role_of(sound_id, clef), sound_id,
-                    active_chord[0], meter_at(meters, last_abs),
+                    ending_chord(active_chord[0]),
+                    meter_at(meters, last_abs),
                     horn['transpose'] if horn else 0, fifths, staves,
                     endsh, label, not realized, label,
                     song=endsh.get('song', ''))
