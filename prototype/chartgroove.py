@@ -2676,7 +2676,11 @@ def _drummer_marks(bar, sec, off, absbar, heat, state=None):
             state['last_fill'] = kind
             beats = 2 if (heat > 0.65 or last_of_turn) and d() < 0.55 \
                 else 1
-            _fill(bar, kind, (bar.num - beats) * beat, heat, d)
+            # it starts where it starts: on a beat, or on the 'and'
+            # (Matthew, 2026-10-01: "not everything has to start on the
+            # down beat")
+            f0 = (bar.num - beats) * beat + (half if d() < 0.35 else 0)
+            _fill(bar, kind, f0, heat, d)
             # where it lands is the drummer's call: on the one, early on
             # the 'and' of four, or late into the next bar (Matthew,
             # 2026-09-30: "not every fill needs to end on the downbeat")

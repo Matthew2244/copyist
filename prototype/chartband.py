@@ -932,20 +932,43 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         at = [0, 2] + list(range(n0, beats)) if how == 'two' and \
             beats > n0 else list(range(beats))
         if how in ('fill', 'countfill'):
-            # the count's first half (or nothing), then a fill down the
-            # kit into bar one, the kick under each beat, landing on it
-            half = 0 if how == 'fill' else max(beats // 2, 1)
-            count_off = [(b * pulse, key, 74 + 6 * b) for b in range(half)]
-            toms = (38, 38, 50, 50, 47, 47, 43, 41)
-            n16 = (beats - half) * 4
-            for i in range(n16):
-                t_ = (half + i / 4.0) * pulse
-                count_off.append((t_, toms[int(i * len(toms) / n16)],
-                                  86 + int(24 * i / max(n16 - 1, 1))))
-                if i % 4 == 0:
-                    count_off.append((t_, 36, 96))
-            count_off.append((beats * pulse, 49, 112))   # and in they come
-            count_off.append((beats * pulse, 36, 106))
+            # a simple pickup into bar one, the drummer's pick in the
+            # moment (Matthew, 2026-10-01: "think more simpler"): the
+            # count (if any) up to it, then the pickup in the last beat
+            # or two, landing with the kick (and the crash, or not)
+            pick = int(_hash01(plan.get('end_q', 0), beats, key) * 5)
+            two = beats - 2
+            shapes = (
+                [(two, 38, 96), (two + 1, 38, 100), (two + 1.5, 38, 104)],
+                [(beats - 1, 38, 92), (beats - 2 / 3., 38, 98),
+                 (beats - 1 / 3., 38, 106)],
+                [(two, 50, 98), (two + 0.5, 50, 100), (two + 1, 41, 104),
+                 (two + 1.5, 41, 108)],
+                [(beats - 1 - 1 / 16., 38, 60), (beats - 1, 38, 110)],
+                [(beats - 0.5, 38, 110), (beats - 0.5, 36, 100)],
+                # not everything starts on the downbeat (Matthew)
+                [(two + 0.5, 38, 94), (two + 1, 38, 100),
+                 (two + 1.5, 50, 104)],
+                [(two - 0.5, 38, 92), (two + 0.5, 47, 98),
+                 (two + 1.5, 41, 106)],
+                [(beats - 1.5, 50, 96), (beats - 1, 47, 100),
+                 (beats - 0.5, 41, 106)])
+            pick = int(_hash01(plan.get('end_q', 0), beats, key) * 8)
+            fill = shapes[pick % len(shapes)]
+            first = min(t for t, _k, _v in fill)
+            n_count = 0 if how == 'fill' else int(first)
+            count_off = [(b * pulse, key, 74 + 6 * b)
+                         for b in range(min(n_count, int(first)))]
+            count_off += [(t * pulse, k, v) for t, k, v in fill]
+            # the landing on bar one, the drummer's way: crash and kick,
+            # crash and snare, open hat and kick, open hat and snare, or
+            # just the kick (Matthew: "it can also land on an open hat
+            # with kick or snare")
+            land = (((49, 108), (36, 106)), ((49, 108), (38, 104)),
+                    ((46, 104), (36, 106)), ((46, 104), (38, 104)),
+                    ((36, 108),))[int(_hash01(beats, key, 9) * 5) % 5]
+            for k_, v_ in land:
+                count_off.append((beats * pulse, k_, v_))
         else:
             count_off = [(b * pulse, key, 70 + int(28 * i / max(
                 len(at) - 1, 1))) for i, b in enumerate(at)]

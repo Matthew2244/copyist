@@ -836,8 +836,8 @@ All of these ride on a `from demo` line, after commas:
   playing, nothing the piano makes up goes below C3; with the bass out,
   the whole keyboard is the pianist's. The organ, which may be playing
   the bass itself, keeps its pedals.
-- **Fills land anywhere.** A phrase-end fill lands where the drummer
-  feels it: on the one, early on the 'and' of four, or late, carried
+- **Fills start and land anywhere.** A phrase-end fill starts on a
+  beat or on the 'and', and lands where the drummer feels it: on the one, early on the 'and' of four, or late, carried
   over the barline onto the 'and' of one or beat two, the time picking
   up after. The landing is the drummer's call too: crash and kick,
   crash and snare, open hat and snare, open hat and kick, open hat with
@@ -847,8 +847,11 @@ All of these ride on a `from demo` line, after commas:
 - **The count-off.** A tune starts the way a band starts one, in the
   moment: the drummer counts it in (a bar, two bars with the first in
   half time, or two beats up-tempo) on the hi-hat foot, the closed hat,
-  the rim, the ride bell or the snare; or plays a fill into bar one; or
-  counts the first half and fills the rest; and sometimes nobody counts
+  the rim, the ride bell or the snare; or plays a simple pickup into
+  bar one with no count; or counts up to a simple pickup (a few snare or tom strokes in the last
+  beat or two, on the beat or starting off it) landing on bar one with
+  the kick, crash and kick, crash and snare, or an open hat with the
+  kick or snare; and sometimes nobody counts
   and the band just starts, more often on a ballad or a tune that opens
   on a vamp. `countoff: no` in the header starts it cold, `countoff:
   yes` always counts; `--count-in` puts the click there instead.
