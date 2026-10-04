@@ -64,6 +64,11 @@ _SFZ_VOICES = (
               '09-darkblack_stac.sfz',
       'ghost': 'Bass-black-and-blue-basses/Programs/'
                '07-darkblack_ghost.sfz'}),
+    # Jeff Learman's own 1977 Stage 73, by his permission (2026-10-04);
+    # the Wurlitzer plays when jRhodes is not on the shelf
+    (('keyboard.piano.electric',),
+     {'sus': 'jRhodes3c/jRhodes3c-looped-flac-sfz/'
+             '_jRhodes-stereo-looped.sfz'}),
     (('keyboard.piano.electric',),
      {'sus': 'EPianos/Wurlitzer EP200/Wurlitzer EP200.sfz'}),
     (('keyboard.piano', 'keyboard.harpsichord', 'keyboard.celesta'),

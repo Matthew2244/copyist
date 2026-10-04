@@ -90,6 +90,9 @@ HORNS = {
     'five-string bass':  _inst(12, (23, 60),  'F', 0, (26, 55)),
     'piano':             _inst(0,  (21, 108), 'G', 0, (21, 108), poly=True,
                                grand=True),
+    # a Stage 73's keyboard, E1 to E7
+    'electric piano':    _inst(0,  (28, 100), 'G', 0, (28, 100), poly=True,
+                               grand=True),
     'vibraphone':        _inst(0,  (53, 89),  'G', 0, (53, 89), poly=True),
     'organ':             _inst(0,  (24, 96),  'G', 0, (24, 96), poly=True,
                                grand=True),
@@ -196,6 +199,7 @@ SOUNDS = {
     'electric bass':  ('Electric Bass', 'pluck.bass.electric', 34),
     'five-string bass': ('5-String Bass', 'pluck.bass.electric', 34),
     'piano':          ('Piano', 'keyboard.piano', 1),
+    'electric piano': ('Electric Piano', 'keyboard.piano.electric', 5),
     'vibraphone':     ('Vibraphone', 'pitched-percussion.vibraphone', 12),
     'organ':          ('Organ', 'keyboard.organ', 17),
     'english horn':   ('English Horn', 'wind.reed.english-horn', 70),
@@ -353,7 +357,9 @@ INSTRUMENT_ALIASES = {
     '5-string bass': 'five-string bass', '5 string bass': 'five-string bass',
     'five string bass': 'five-string bass', '5-string': 'five-string bass',
     '5 string': 'five-string bass', 'five-string': 'five-string bass',
-    'keys': 'piano', 'keyboard': 'piano', 'rhodes': 'piano',
+    'keys': 'piano', 'keyboard': 'piano', 'rhodes': 'electric piano',
+    'fender rhodes': 'electric piano', 'e piano': 'electric piano',
+    'e. piano': 'electric piano', 'epiano': 'electric piano',
     'hammond': 'organ', 'b3': 'organ',
     'vibes': 'vibraphone', 'fiddle': 'violin',
     'violoncello': 'cello',
@@ -2071,7 +2077,8 @@ def resolve_groups(band, custom=None):
                      if inst[l] in ('violin', 'viola', 'cello',
                                     'double bass', 'harp')],
          'rhythm': [l for l in labels if inst[l] in
-                    ('guitar', 'piano', 'electric bass', 'double bass',
+                    ('guitar', 'piano', 'electric piano', 'electric bass',
+                     'double bass',
                      'five-string bass',
                      'drums', 'organ', 'vibraphone', 'banjo',
                      'accordion')]}
@@ -3980,7 +3987,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         return shape
 
     keys_l = next((b['label'] for b in band if canonical_instrument(
-        b['instrument']) in ('piano', 'organ', 'keyboard', 'rhodes')),
+        b['instrument']) in ('piano', 'electric piano', 'organ', 'keyboard',
+                             'rhodes')),
         None)
     drums_l = next((b['label'] for b in band if canonical_instrument(
         b['instrument']) == 'drums'), None)

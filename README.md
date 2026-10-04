@@ -381,3 +381,13 @@ al., University of Cambridge), MIT licence.
 jazz swing grooves and fills of the Groove MIDI Dataset (Gillick, Roberts,
 Engel et al., Google Magenta), CC BY 4.0. Only the derived numbers
 ship here, not the transcriptions.
+
+The sample shelf is never shipped in this repo. `chart sounds install`
+fetches each library from its maker, and `prototype/chartsounds.py`
+names each one's licence and credit. One of them is used by
+permission rather than by its public licence: the Rhodes is jRhodes3c,
+Jeff Learman's sampling of his own 1977 Rhodes Mark I Stage 73. Its
+samples are CC BY-NC-SA 4.0 for redistribution, and Jeff gave Copyist
+permission to use them on 2026-10-04, after being told the tool is
+free and MIT-licensed and that people may use what it renders
+commercially. Thanks, Jeff.

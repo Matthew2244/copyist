@@ -90,6 +90,23 @@ CATALOG = [
      'folder': 'EPianos',
      'url': 'https://github.com/' + 'sfzinstruments/GregSullivan.E-Pianos/archive/refs/'
                  'heads/master.zip', 'band': True},
+    # Jeff Learman's own Rhodes. The samples are CC BY-NC-SA 4.0 for
+    # redistribution; Jeff gave Copyist permission to use jRhodes3c or
+    # 3d in a reply to Matthew on 2026-10-04 ("You have my permission
+    # to use jRhodes3c or jRhodes3d in your project"), recommending 3c
+    # for its looped, smaller samples. The ask said plainly that the
+    # tool is free and MIT and that people may use rendered audio
+    # commercially. Copyist fetches from Jeff's repo; it never ships
+    # the samples itself.
+    {'key': 'rhodes', 'name': 'jRhodes3c',
+     'plays': 'the Rhodes (a 1977 Mark I Stage 73)', 'mb': 40,
+     'license': 'CC BY-NC-SA 4.0, used by permission of Jeff Learman',
+     'credit': 'jRhodes3c by Jeff Learman, used in Copyist by his '
+               'permission (2026-10-04); samples otherwise CC BY-NC-SA '
+               '4.0, control files CC0',
+     'folder': 'jRhodes3c',
+     'url': 'https://github.com/' + 'sfzinstruments/jlearman.jRhodes3c/archive/refs/'
+                 'heads/master.zip', 'band': True},
     # optional since 2026-09-30: every singer plays the SoundFont's
     # synth voice now (Matthew didn't like the sampled choir), so the
     # band download no longer spends 2 GB on it
@@ -308,8 +325,63 @@ def flac_twins(folder, ffmpeg):
                                 '-sample_fmt', 's16', twin],
                                capture_output=True)
             if r.returncode == 0:
+                carry_loops(src, twin)
                 made += 1
     return made
+
+
+def flac_riff_chunks(src):
+    """The WAV chunks a FLAC carries as foreign metadata (APPLICATION
+    blocks with id 'riff', what `flac --keep-foreign-metadata` writes).
+    Only the smpl chunk is kept: it holds the loop points, and jRhodes
+    keeps every loop there — its samples run about a second, so a twin
+    without them dies on the first long note (2026-10-04)."""
+    out = []
+    try:
+        with open(src, 'rb') as f:
+            if f.read(4) != b'fLaC':
+                return out
+            last = False
+            while not last:
+                head = f.read(4)
+                if len(head) < 4:
+                    break
+                last = bool(head[0] & 0x80)
+                kind = head[0] & 0x7F
+                size = int.from_bytes(head[1:4], 'big')
+                body = f.read(size)
+                if kind == 2 and body[:4] == b'riff' \
+                        and body[4:8] == b'smpl':
+                    out.append(body[4:])
+    except OSError:
+        pass
+    return out
+
+
+def carry_loops(src, twin):
+    """Append the FLAC's smpl chunk to its WAV twin; ffmpeg drops it."""
+    chunks = flac_riff_chunks(src)
+    if not chunks:
+        return False
+    with open(twin, 'r+b') as f:
+        buf = f.read()
+        if buf[:4] != b'RIFF':
+            return False
+        pos = 12
+        while pos + 8 <= len(buf):
+            if buf[pos:pos + 4] == b'smpl':
+                return False
+            size = int.from_bytes(buf[pos + 4:pos + 8], 'little')
+            pos += 8 + size + (size & 1)
+        if len(buf) & 1:
+            buf += b'\0'
+        buf += b''.join(c + (b'\0' if len(c) & 1 else b'')
+                        for c in chunks)
+        buf = buf[:4] + (len(buf) - 8).to_bytes(4, 'little') + buf[8:]
+        f.seek(0)
+        f.write(buf)
+        f.truncate()
+    return True
 
 
 def settle(folder):

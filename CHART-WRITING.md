@@ -117,8 +117,10 @@ every band room says it.
 
 The band list speaks nicknames: `kit`, `vibes`, `upright bass`,
 `keys`, `rhodes`, `bone`, `bari`, `fiddle`. The same courtesy the
-bandstand words get. Polyphonic instruments (piano, guitar, vibes,
-organ) keep their chords. `octave -1` corrects a track that was
+bandstand words get. `rhodes` (or `electric piano`) is its own chair,
+on a grand staff, and the listen plays it on jRhodes when that's on
+the shelf. Polyphonic instruments (piano, electric piano, guitar,
+vibes, organ) keep their chords. `octave -1` corrects a track that was
 recorded an octave above where it sounds. That's common, and easy to
 spot: if your trombone sits above your trumpets on paper, that's a
 recording convention, not a voicing.

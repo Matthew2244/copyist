@@ -6769,7 +6769,34 @@ def check_sound_shelf_installer():
         cs.CATALOG.pop()
     check("the credits name who made what's installed",
           "Test by Someone" in cr)
+    # jRhodes keeps its loops in the FLAC (2026-10-04): the WAV twin
+    # must carry them, or every note dies after a second
+    import sfz
+    smpl = (b"smpl" + struct.pack("<I", 60) + bytes(28)
+            + struct.pack("<I", 1) + bytes(4)
+            + struct.pack("<IIIIII", 0, 0, 100, 900, 0, 0))
+    app = b"riff" + smpl
+    flac = os.path.join(tmp, "n.flac")
+    with open(flac, "wb") as f:
+        f.write(b"fLaC" + bytes([0x80 | 2]) + len(app).to_bytes(3, "big")
+                + app)
+    twin = os.path.join(tmp, "n.wav")
+    with wv.open(twin, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(44100)
+        w.writeframes(bytes(2000))
+    first = cs.carry_loops(flac, twin)
+    again = cs.carry_loops(flac, twin)
+    got = sfz._read_wav(twin)
+    check("a FLAC's loop points carry into its WAV twin, once",
+          first and not again and got and got[3] == (100, 900),
+          got and got[3])
     shutil.rmtree(tmp, ignore_errors=True)
+    import chartc
+    check("rhodes is the electric piano, on a grand staff",
+          chartc.canonical_instrument("rhodes") == "electric piano"
+          and chartc.HORNS["electric piano"]["grand"])
 
 
 def check_shelf_drive_missing():
