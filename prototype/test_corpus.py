@@ -1895,6 +1895,17 @@ def check_road_maps():
     check("the read-aloud says the road map in words",
           "back to the sign, then take the coda" in said.lower()
           and "('road'" not in said, said)
+    form = subprocess.run([sys.executable, os.path.join(HERE,
+                                                        "chartread.py"),
+                           cp], capture_output=True, text=True).stdout
+    check("the form read-aloud carries the road map too, in printed bars",
+          "At bar 5: The sign" in form and "At bar 10: To Coda" in form
+          and "At bar 20: D.S. al Coda" in form
+          and "At bar 21: The coda starts here" in form, form)
+    import chartread
+    check("keys are spoken, never spelled: Bb is 'B flat'",
+          [chartread.say_key(k) for k in ('Bb', 'F#m', 'Eb minor', 'G')]
+          == ['B flat', 'F sharp minor', 'E flat minor', 'G'])
     for drop, want in (("  at bar 1: segno\n", "no sign to go back to"),
                        ("  at bar 6: to coda\n", "needs 'to coda'")):
         bp = os.path.join(tmp, "bad.chart")

@@ -62,6 +62,22 @@ ROAD_SPOKEN = {
 }
 
 
+def say_key(k):
+    """'Bb', 'F#m', 'Eb minor' -> 'B flat', 'F sharp minor', 'E flat
+    minor': a screen reader says 'Bb' as two letters."""
+    k = str(k).strip()
+    if not k:
+        return k
+    spoken = k[0].upper() + (' flat' if k[1:2] == 'b' else
+                             ' sharp' if k[1:2] == '#' else '')
+    rest = k[2:] if k[1:2] in ('b', '#') else k[1:]
+    if rest.strip().lower() in ('m', 'min', 'minor', '-'):
+        spoken += ' minor'
+    elif rest.strip().lower() in ('maj', 'major'):
+        spoken += ' major'
+    return spoken
+
+
 def say_quality(qual):
     """Any quality the compiler accepts, spoken: the table's own words
     first, else spelled out piece by piece ('13#11' -> 'thirteen sharp
@@ -163,8 +179,10 @@ def section_heading(sec):
             bits.append(f"in {val}" if bar == 1 else
                         f"the meter changes to {val} at bar {bar}")
         elif kind == 'key':
-            bits.append(f"the key changes to {val} here" if bar == 1
-                        else f"the key changes to {val} at its bar {bar}")
+            bits.append(f"the key changes to {say_key(val)} here"
+                        if bar == 1 else
+                        f"the key changes to {say_key(val)} at its bar "
+                        f"{bar}")
     return ", ".join(bits) + "."
 
 
@@ -421,7 +439,15 @@ def main():
             if a.section and plan['sec']['name'].lower() != a.section.lower():
                 continue
             sec = plan['sec']
-            out.append(section_heading(sec) + " " + say_changes(sec))
+            # the road map belongs in the form: where the sign, the To
+            # Coda and the D.S. sit, in printed bars
+            road = sorted({(b_, t_[1]) for lab in plan['texts']
+                           for b_, t_ in plan['texts'][lab]
+                           if isinstance(t_, tuple) and t_[0] == 'road'})
+            out.append(section_heading(sec) + " " + say_changes(sec) +
+                       "".join(f" At bar {b_ + plan['start'] - 1}: "
+                               f"{ROAD_SPOKEN[k_][0].upper()}"
+                               f"{ROAD_SPOKEN[k_][1:]}" for b_, k_ in road))
 
     # One write. A screen reader restarts on every write, so the whole
     # answer lands at once.
