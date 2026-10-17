@@ -1313,7 +1313,11 @@ def parse_chart(path):
             if len(sec['content']) != body:
                 fail(f"section {sec['name']} declares {sec['bars']} bars "
                      f"(a {body}-bar body plus one {es[0]['bars']}-bar "
-                     f"ending) but its chords cover {len(sec['content'])}")
+                     f"ending) but its chords cover {len(sec['content'])}"
+                     + (f" — the declared length counts one ending, so "
+                        f"if the body is {len(sec['content'])} bars, say "
+                        f"{len(sec['content']) + es[0]['bars']} bars"
+                        if len(sec['content']) else ""))
             sec['body'] = body
             sec['endings'] = es
             for e in es:
@@ -4350,7 +4354,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         feel = (sec['feel'] or hdr.get('feel') or '').lower()
         style, traits = chartgroove.style_of(feel)
         if style in ('funk', 'latin', 'samba', 'straight', 'motown',
-                     'hiphop', 'reggae', 'secondline'):
+                     'hiphop', 'reggae', 'secondline', 'gospel'):
             return None
         soft = 'ballad' in traits or 'ballad' in feel
         bluesy = style == 'shuffle' or 'blues' in feel
@@ -4802,9 +4806,20 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         if label not in _chordy or sid_of.get(label, '').startswith(
                 'pitched-percussion'):
             return False
+        # in church the organ is the bed under everything, never in the
+        # fight: it stays, and the keys and guitar settle who comps
+        church = chartgroove.style_of(plan['sec']['feel'] or hdr.get(
+            'feel') or '')[0] == 'gospel'
+
+        def organ(l_):
+            return 'organ' in canonical_instrument(next(
+                x['instrument'] for x in band if x['label'] == l_))
+        if church and organ(label):
+            return False
         mates = [o for o in _chordy if o != label and not sid_of.get(
             o, '').startswith('pitched-percussion') and
-            plan['content'][o][0] in ('default', 'groove')]
+            plan['content'][o][0] in ('default', 'groove')
+            and not (church and organ(o))]
         if not mates:
             return False
         sec = plan['sec']

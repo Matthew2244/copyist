@@ -1741,6 +1741,15 @@ def band_choice(feel, song, has_keys, has_horns, written=None,
         if has_horns and r > 0.8:
             # the lead horn takes a cadenza, the band comes back to end
             steps += [('cadenza', 'lead'), ('hit', 'cue')]
+    elif style == 'gospel':
+        # church: the band slows into the big last chord and holds it,
+        # the organ swelling, until the cutoff; or everybody goes for it
+        # over the held chord before the hit
+        steps = ([('rit', None), ('hold', None), ('hit', 'cue')]
+                 if r < 0.45 else
+                 [('trash', None), ('hit', 'cue')] if r < 0.72 else
+                 [('rit', None), ('hold', None)] if r < 0.88 else
+                 [('hold', None), ('hit', 'cue')])
     elif not (feel or '').strip():
         # no feel written: the ending any band would reach for — land
         # and hold, maybe a hit — never a funk band's stop

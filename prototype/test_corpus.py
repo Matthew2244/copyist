@@ -3858,6 +3858,126 @@ def check_new_feels():
           not any(x[1] == g._KICK for x in reg.onsets.get(0, (0, []))[1]))
 
 
+def check_gospel():
+    """The church band (2026-10-17): 'gospel' plays its own feel — the
+    triplet ballad, the sixteenth groove or the shout, by the chart's
+    words or the tempo — the bass locks with the kick, the drummer
+    reaches for chops, the organ never lays out, and the band slows
+    into the last chord."""
+    import chartgroove as g
+    import chartc, chartending
+    so = g.style_of
+    check("gospel words: gospel, gospel shout, praise break, 12/8 gospel",
+          so("gospel")[0] == "gospel"
+          and "shout" in so("gospel shout")[1]
+          and so("praise break")[0] == "gospel"
+          and "triplet" in so("12/8 gospel ballad")[1]
+          and so("gospel shuffle")[0] == "shuffle",
+          str([so(w) for w in ("gospel", "gospel shout", "praise break")]))
+    was = g.BPM
+    try:
+        ways = []
+        for bpm in (60, 90, 140):
+            g.BPM = bpm
+            ways.append(g.gospel_way(set()))
+        check("gospel by tempo: slow is the triplet ballad, medium the "
+              "groove, fast the shout", ways == ['triplet', 'groove',
+                                                 'shout'], str(ways))
+        g.BPM = 90
+
+        def kit(bar, absbar, way):
+            g._gospel_drums(bar, absbar, way)
+            hits = {}
+            for t, (_ln, ns) in bar.onsets.items():
+                for n in ns:
+                    hits.setdefault(n[1], []).append(t)
+            return hits
+        ok_back = ok_lock = True
+        for ab in range(16):
+            bar = g.Bar(24, (4, 4), 0, 1)
+            h = kit(bar, ab, 'groove')
+            loud = sorted(t for t, (_l, ns) in bar.onsets.items()
+                          for n in ns if n[1] == g._SNARE and n[2] >= 90)
+            ok_back &= loud == [24, 72]
+            kicks = sorted(h.get(g._KICK, []))
+            notes = []
+
+            def put(at, ticks, midi, vel=None):
+                notes.append(at)
+                return midi
+            c = ('C', 0, '7', None)
+            sec = {'bars': 2, 'content': [[(1, c)], [(1, c)]]}
+            g._gospel_bass(g.Bar(24, (4, 4), 0, 1), {}, sec, 0, ab,
+                           [(1, c)], 'groove', lambda b, w: 48, put)
+            ok_lock &= set(kicks) <= set(notes)
+        check("gospel groove: the backbeat hard on 2 and 4, every bar",
+              ok_back)
+        check("gospel groove: the bass plays on every kick (they lock)",
+              ok_lock)
+        cells = {tuple(g.gospel_kicks(g.Bar(24, (4, 4), 0, 1), ab, 'groove'))
+                 for ab in range(0, 64, 4)}
+        check("gospel groove: the kick cell changes phrase to phrase",
+              len(cells) >= 3, str(len(cells)))
+        sh = g.Bar(24, (4, 4), 0, 1)
+        h = kit(sh, 0, 'shout')
+        check("gospel shout: the kick on every beat, the snare on every "
+              "'and'", sorted(h[g._KICK]) == [0, 24, 48, 72]
+              and sorted(h[g._SNARE])[:4] == [12, 36, 60, 84],
+              str(h.get(g._SNARE)))
+        tb = g.Bar(24, (12, 8), 0, 1)
+        h = kit(tb, 0, 'triplet')
+        cym = h.get(g._HAT, []) + h.get(g._RIDE, [])
+        check("12/8 gospel: a cymbal on every eighth, the backbeat on the "
+              "second and fourth big beats",
+              len(cym) == 12 and sorted(t for t, (_l, ns) in
+                                        tb.onsets.items() for n in ns
+                                        if n[1] == g._SNARE
+                                        and n[2] >= 90) == [36, 108])
+        g.FILL_GOSPEL = 'groove'
+        try:
+            picks = {g.pick_fill(g._Dice('gf', i), False) for i in range(40)}
+        finally:
+            g.FILL_GOSPEL = None
+        fb = g.Bar(24, (4, 4), 0, 1)
+        g._fill(fb, 'chops', 48, 0.8, g._Dice('x'))
+        kicks = sum(1 for _t, (_l, ns) in fb.onsets.items() for n in ns
+                    if n[1] == g._KICK)
+        check("gospel fills: chops in the drummer's hands, hand-hand-foot",
+              'chops' in picks and kicks >= 3, str((picks, kicks)))
+    finally:
+        g.BPM = was
+    check("a gospel ballad is played on sticks",
+          g.implement('', 'gospel ballad') == 'sticks')
+    steps = [tuple(k for k, _ in chartending.band_choice(
+        'gospel', ('G', str(i)), True, False)) for i in range(30)]
+    check("a gospel band usually slows into the last chord",
+          sum(1 for s_ in steps if 'rit' in s_) >= 10, str(steps[:5]))
+    tmp = tempfile.mkdtemp()
+    cp = os.path.join(tmp, "church.chart")
+    open(cp, "w").write(
+        "title: Church\nkey: Ab\nmeter: 4/4\ntempo: 84\nfeel: gospel\n\n"
+        "band:\n  singer = voice\n  organ\n  piano\n  guitar\n  bass\n"
+        "  drums\n\nfigure line, 4 bars:\n  notes: C5 h, Ab4 h, Bb4 w, "
+        "C5 h, Eb5 h, Ab4 w\n\nsection verse, 4 bars, repeat 2x\n"
+        "  chords: Ab, Db, Fm7, Eb7\n  singer: figure line\n\n"
+        "section chorus, 4 bars\n  chords: Db, Eb, Cm7 Fm7, Bbm7 Eb7\n")
+    outs = []
+    for tk in range(1, 7):
+        was_take = chartc.TAKE
+        try:
+            chartc.TAKE = tk
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                chartc.compile_chart(cp, os.path.join(tmp, 'c%d' % tk))
+        finally:
+            chartc.TAKE = was_take
+        outs.append(buf.getvalue())
+    check("in church the organ never lays out; the keys and guitar still "
+          "settle who comps",
+          not any('organ lays out' in o_ for o_ in outs)
+          and any('lays out' in o_ for o_ in outs))
+
+
 def check_slashes_play_whats_written():
     """Slashes on the page, the source's notes in the listen: a part
     that prints `groove` plays what the source writes for it there,
@@ -4622,7 +4742,7 @@ def check_feels_and_technique_for_every_part():
           and so("bossa nova")[0] == "bossa" and so("samba")[0] == "samba"
           and so("afro-cuban")[0] == "latin"
           and so("rock") == ("straight", set())
-          and so("easy gospel") == ("straight", set()))
+          and so("easy gospel") == ("gospel", {"easy"}))
     tmp = tempfile.mkdtemp()
     feels = ["swing walking", "two feel", "ballad", "bossa nova",
              "afro-cuban", "funk"]
@@ -7717,6 +7837,7 @@ if __name__ == "__main__":
     check_half_time_funk()
     check_slashes_play_whats_written()
     check_new_feels()
+    check_gospel()
     check_fall_keyswitch_any_timing()
     check_swung_and_straight_funk()
     check_bandleader_round()

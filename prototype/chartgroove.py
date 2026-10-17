@@ -703,9 +703,10 @@ def _is_swing(feel):
 def style_of(feel):
     """The bandstand's words for a feel -> (style, traits). The style is
     what the rhythm section plays (swing, straight, funk, bossa, samba,
-    latin); traits bend it (two, half, double, ballad). Words the
-    section doesn't know leave the old straight-or-swing reading alone,
-    so 'easy gospel' and every chart built before this keeps its band.
+    latin, gospel ...); traits bend it (two, half, double, ballad).
+    Words the section doesn't know leave the old straight-or-swing
+    reading alone. (Gospel was one of those until 2026-10-17, when the
+    church band got its own feel.)
     Matthew, 2026-09-28: two feel, swing, straight eighths, 'all the
     lingo'."""
     f = (feel or '').lower()
@@ -756,6 +757,18 @@ def style_of(feel):
         style = 'latin'
     elif 'funk' in f:
         style = 'funk'
+    elif re.search(r'gospel|praise[ -]?break|\bchurch\b', f) and \
+            not re.search(r'\bshuffle\b', f):
+        # the church band: a triplet ballad, the sixteenth groove, or the
+        # shout, by the chart's words or else the tempo (gospel_way)
+        style = 'gospel'
+        if re.search(r'\bshout\b|praise[ -]?break|quick ?step', f):
+            traits.add('shout')
+        elif re.search(r'12/8|twelve[ -]?eight|6/8|six[ -]?eight|'
+                       r'triplet|ballad|\bslow\b', f):
+            traits.add('triplet')
+        if re.search(r'\beasy\b|laid[ -]?back|\blight\b|\bsoft\b', f):
+            traits.add('easy')
     elif re.search(r'straight|even (?:8ths|eighths)|\brock\b|\bpop\b', f):
         style = 'straight'
     elif re.search(r'\bshuffle\b', f) and not traits & {'two', 'ballad',
@@ -777,10 +790,13 @@ def _new_style(feel, bar):
     style, traits = style_of(feel)
     if style == 'waltz' and bar.den == 4 and bar.num == 3:
         return style, traits
+    if style == 'gospel' and bar.den == 8 and bar.num in (6, 12):
+        return style, traits | {'triplet'}
     if bar.den != 4 or bar.num not in (2, 4):
         return None
     if style in ('bossa', 'samba', 'latin', 'funk', 'shuffle',
-                 'secondline', 'reggae', 'motown', 'hiphop', 'baiao'):
+                 'secondline', 'reggae', 'motown', 'hiphop', 'baiao',
+                 'gospel'):
         return style, traits
     if traits - {'gypsy'}:
         return style, traits
@@ -1296,6 +1312,10 @@ def _drums(bar, absbar, feel, hits, heat=None, busy=None):
 
 
 def _styled_drums(bar, absbar, style, traits):
+    if style == 'gospel':
+        _gospel_drums(bar, absbar, gospel_way(traits, bar),
+                      'easy' in traits)
+        return
     beat = bar.div * 4 // bar.den
     n = bar.num
     eighths = [1 + i / 2 for i in range(2 * n)]
@@ -1681,6 +1701,250 @@ def _perc(bar, absbar, feel, sound_id, hits):
                 ('u', sounds.get(snd, first), vel))
 
 
+# ------------------------------------------------------------ the church
+#
+# A gospel band plays one of three ways: the triplet ballad (12/8, or a
+# slow four felt in twelve), the sixteenth groove, or the shout (the
+# praise break: the kick on every beat, the snare and the organ on every
+# 'and'). The chart's words pick it, else the tempo does. Each player
+# locks into a cell for a phrase and may turn it at the next, and the
+# bass locks with the kick drum: they are one instrument in a church
+# band.
+
+def gospel_way(traits, bar=None):
+    """'triplet', 'groove' or 'shout' for a gospel section."""
+    if bar is not None and bar.den == 8:
+        return 'triplet'
+    if 'shout' in traits:
+        return 'shout'
+    if 'triplet' in traits:
+        return 'triplet'
+    return 'triplet' if BPM < 72 else 'shout' if BPM >= 132 else 'groove'
+
+
+def _gpulse(bar):
+    """The felt beat: (its ticks, how many in the bar, beat -> tick,
+    beat -> the bar's own beat units for the chords)."""
+    if bar.den == 8:
+        big = 3 * (bar.div // 2)
+        nb = max(bar.num // 3, 1)
+
+        def own(pos):
+            return (pos - 1) * 3 + 1
+    else:
+        big = bar.div * 4 // bar.den
+        nb = bar.num
+
+        def own(pos):
+            return pos
+    return big, nb, (lambda pos: int(round((pos - 1) * big))), own
+
+
+_GOSPEL_KICKS = {
+    'groove': ((1, 1.75, 3, 3.5), (1, 2.75, 3.5), (1, 1.5, 3, 4.75),
+               (1, 3, 3.75), (1, 2.5, 3, 4.5)),
+    'triplet': ((1, 3), (1, 2 + 2 / 3., 3), (1, 1 + 2 / 3., 3, 4 + 2 / 3.),
+                (1, 3, 3 + 2 / 3.)),
+}
+
+
+def gospel_kicks(bar, absbar, way):
+    """Where the kick drum (and so the bass) lands this bar: a cell
+    held for the phrase, its second bar sometimes turned."""
+    _big, nb, _at, _own = _gpulse(bar)
+    if way == 'shout':
+        return [float(b) for b in range(1, nb + 1)]
+    cells = _GOSPEL_KICKS[way]
+    ph = _Dice('gospel kick', absbar // 4)
+    i = int(ph() * len(cells)) % len(cells)
+    if absbar % 2 and ph() < 0.45:
+        i = (i + 1) % len(cells)
+    return [k for k in cells[i] if k < nb + 1]
+
+
+_GOSPEL_GHOSTS = {
+    'groove': ((1.75, 2.75, 4.25), (2.75, 3.25, 4.75), (1.5, 3.75), (),
+               (2.25, 2.75, 4.75)),
+    'triplet': ((), (1 + 2 / 3.,), (3 + 2 / 3., 4 + 1 / 3.),
+                (2 + 2 / 3.,)),
+}
+
+
+def _gospel_drums(bar, absbar, way, easy=False):
+    big, nb, at, _own = _gpulse(bar)
+    ph = _Dice('gospel phrase', absbar // 4)
+    d = _Dice('gospel bar', absbar)
+    back = [b for b in (2, 4) if b <= nb]
+
+    def hit(pos, drum, ln, vel):
+        if pos < nb + 1:
+            bar.add(at(pos), max(1, ln), ('u', drum, max(1, min(vel, 124))))
+
+    if way == 'shout':
+        # the praise break: four on the floor, the snare on every 'and'
+        # with the hat (open, the drummer's call per phrase)
+        hat = _OPEN_HAT if ph() < 0.4 else _HAT
+        doubled = ph() < 0.35
+        for b in range(1, nb + 1):
+            hit(b, _KICK, big // 2, 98)
+            hit(b + .5, _SNARE, big // 2, 102 + int((d() - .5) * 6))
+            hit(b + .5, hat, big // 2, 80)
+            if doubled and b % 2 == 0:
+                hit(b + .25, _SNARE, big // 4, 40)
+        return
+    if way == 'triplet':
+        sub = big // 3
+        ride = ph() < 0.3
+        for b in range(1, nb + 1):
+            for k in range(3):
+                hit(b + k / 3., _RIDE if ride else _HAT, sub,
+                    (72, 46, 56)[k] + int((d() - .5) * 6))
+        for b in back:
+            hit(b, _SNARE, sub, 102)
+        for k in gospel_kicks(bar, absbar, way):
+            hit(k, _KICK, sub, 94 if k % 1 == 0 else 72)
+        cells = _GOSPEL_GHOSTS['triplet']
+        for g in cells[int(ph() * len(cells)) % len(cells)]:
+            hit(g, _SNARE, sub, 28)
+        return
+    # the sixteenth groove: the hat in eighths or sixteenths, an open
+    # hat on the 'and' of the last beat now and then, the backbeat hard,
+    # ghosts in a cell, the kick in its cell
+    step = big // 4 if ph() < 0.6 and not easy else big // 2
+    open_last = ph() < 0.35
+    for t in range(0, bar.barlen, step):
+        if open_last and t == at(nb + .5):
+            bar.add(t, step, ('u', _OPEN_HAT, 64))
+            continue
+        vel = 74 if t % big == 0 else 54 if t % (big // 2) == 0 else 40
+        bar.add(t, step, ('u', _HAT, vel + int((d() - .5) * 8)))
+    for b in back:
+        hit(b, _SNARE, big // 2, 90 if easy else 104)
+    for k in gospel_kicks(bar, absbar, way):
+        hit(k, _KICK, big // 4, 92 if k % 1 == 0 else 74)
+    cells = _GOSPEL_GHOSTS['groove']
+    for g in cells[int(ph() * len(cells)) % len(cells)]:
+        if g not in back and not (easy and d() < 0.5):
+            hit(g, _SNARE, big // 4, 26 + int(d() * 8))
+
+
+def _gospel_bass(bar, state, sec, off, absbar, chords, way, tone, put):
+    """The bass locks with the kick: a note on every kick, the root
+    first, the octave and the fifth after, held to the next one; a note
+    wherever the chord changes; a half step into the next chord when
+    the bar ends on a change. The shout is driving octaves."""
+    big, nb, at, own = _gpulse(bar)
+    if way == 'shout':
+        for b in range(1, nb + 1):
+            # low on the neck, so the octave above is there to pop to
+            r = tone(own(b), 'r')
+            while r > 45:
+                r -= 12
+            put(at(b), big // 2 - big // 8, r, 96)
+            last = b == nb and _next_root(sec, off, chords) != _bass_pc(
+                _chord_at(chords, own(b)))
+            if last:
+                # a half step into the next root, down where it lands
+                tgt = _near(_next_root(sec, off, chords), r)
+                while tgt > 45:
+                    tgt -= 12
+                pop = tgt + (1 if absbar % 2 else -1)
+            else:
+                pop = r + 12
+            put(at(b + .5), big // 2 - big // 8, pop, 84)
+            if not last:
+                state['bass'] = r        # the pop is a pop: home is low
+        return
+    pos = {round(k, 3) for k in gospel_kicks(bar, absbar, way)}
+    for b_, c_ in chords:
+        if c_ is not None:
+            p_ = 1 + (b_ - 1) / 3. if bar.den == 8 else b_
+            if 1 <= p_ < nb + 1:
+                pos.add(round(p_, 3))
+    pos = sorted(pos)
+    sub = big // 3 if way == 'triplet' else big // 4
+    turn = round(nb + (2 / 3. if way == 'triplet' else .5), 3)
+    nxt = _next_root(sec, off, chords)
+    changing = nxt is not None and nxt != _bass_pc(_chord_at(chords,
+                                                             own(nb)))
+    if changing and turn not in pos:
+        pos.append(turn)
+    pos = sorted(pos)
+    seq = ('r', 'o', 'f', 'r')
+    last = None
+    for i, p_ in enumerate(pos):
+        end = pos[i + 1] if i + 1 < len(pos) else nb + 1
+        what = 'appr' if changing and p_ == turn else \
+            'r' if i == 0 or p_ % 1 == 0 else seq[i % 4]
+        ln = max(sub, min(at(end) - at(p_), int(1.5 * big)) - big // 8)
+        m = tone(own(p_), what)
+        if what == 'appr' and last is not None and m % 12 == last % 12:
+            # the half step above is the note already sounding: come
+            # from below instead
+            m = _near(nxt, last) - 1
+        last = put(at(p_), ln, m,
+                   96 if p_ == 1 else 86 if p_ % 1 == 0 else 74)
+
+
+_GOSPEL_KEYS = (((1, .75), (1.75, .25), (2.5, 1), (4, .5), (4.5, .5)),
+                ((1, 1.5), (2.75, .25), (3, 1), (4.5, .5)),
+                ((1, .5), (2, .25), (2.5, .5), (3.5, .5), (4, .25),
+                 (4.5, .5)))
+_GOSPEL_GUITAR = (((2, .25), (4, .25)),
+                  ((1.75, .25), (2.5, .25), (4, .25)),
+                  ((2, .25), (2.75, .25), (4, .25), (4.75, .25)))
+
+
+def gospel_comp(bar, absbar, state, way, guitar):
+    """A gospel comper's rhythm this bar, in the bar's own beats: a
+    cell for the phrase. The keys push and answer, the guitar scratches
+    the backbeat, everyone stabs the 'ands' in a shout."""
+    _big, nb, _at, own = _gpulse(bar)
+    scale = 3 if bar.den == 8 else 1
+    if way == 'shout':
+        return [(b + .5, .25) for b in range(1, nb + 1)]
+    ph = _Dice('gospel comp', absbar // 4, guitar)
+    if way == 'triplet':
+        if guitar:
+            cell = [(b, 1 / 3.) for b in (2, 4) if b <= nb]
+        elif ph() < 0.5:
+            cell = [(b, 1.0) for b in range(1, nb + 1)]
+        else:
+            cell = [x for b in range(1, nb + 1)
+                    for x in ((b, 2 / 3.), (b + 2 / 3., 1 / 3.))]
+        return [(own(b), ln * scale) for b, ln in cell]
+    cells = _GOSPEL_GUITAR if guitar else _GOSPEL_KEYS
+    return list(cells[int(ph() * len(cells)) % len(cells)])
+
+
+# a gospel drummer reaches for chops first: hand-hand-foot runs around
+# the kit
+_GOSPEL_FILLS = (('chops', 34), ('toms_down', 18), ('snare_kick_talk', 14),
+                 ('triplets_around', 10), ('space_hits', 10),
+                 ('flam_setup', 8), ('buzz_roll', 6))
+
+
+def _chops(bar, start, end, beat, base, toms, d):
+    """Gospel chops: sextuplets of hand, hand, foot moving from the
+    snare down the toms (sixteenths of hand, hand, hand, foot when
+    sextuplets would outrun real hands at this tempo)."""
+    six = beat // 6
+    step = six if six and BPM * 6 / 60.0 <= 15 else max(beat // 4, 1)
+    group = 3 if step == six else 4
+    span = max(end - start, 1)
+    i, t = 0, start
+    while t < end:
+        g = i % group
+        drum = toms[min((t - start) * 4 // span, 3)]
+        if g == group - 1:
+            bar.add(t, step, ('u', _KICK, min(base + 2, 118)))
+        else:
+            bar.add(t, step, ('u', drum, min(base - 10 + (14 if g == 0
+                                                          else 0), 122)))
+        t += step
+        i += 1
+
+
 def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
                  put):
     beat = bar.div * 4 // bar.den
@@ -1707,6 +1971,10 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
             return nxt + (1 if nxt <= prev else -1)
         return _near(root, prev)
 
+    if style == 'gospel':
+        _gospel_bass(bar, state, sec, off, absbar, chords,
+                     gospel_way(traits, bar), tone, put)
+        return
     if style == 'shuffle':
         # the boogie: root, 3, 5, 6 up one bar, b7, 6, 5, 3 down the next
         c = _chord_at(chords, 1)
@@ -2376,6 +2644,14 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
                                  else 4)
             state['pv'] = v
             return v
+    if ns and ns[0] == 'gospel' and 'organ' in s and \
+            gospel_way(ns[1], bar) == 'shout':
+        # the organ in a shout: the chord stabbed on every 'and' with
+        # the band, the Leslie up
+        for b in range(1, bar.num + 1):
+            put(int(round((b - .5) * beat)), beat // 4,
+                voicing(_chord_at(chords, b + .5)), vel=88, may_rest=False)
+        return
     if ns and 'organ' not in s:
         style, traits = ns
         rhythm = {
@@ -2396,6 +2672,8 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
             'motown': [(2, .5), (4, .5)],
             'waltz': ([(1, .5), (2.5, .5)] if 'swung' in traits else
                       [(2, .5), (3, .5)]),
+            'gospel': (gospel_comp(bar, absbar, state, gospel_way(
+                traits, bar), 'guitar' in s) if style == 'gospel' else None),
         }.get(style)
         if rhythm is None and ('ballad' in traits or 'half' in traits):
             rhythm = []                  # held chords, below
@@ -2405,6 +2683,7 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
         nxt_c = state.get('next_chord')
         push = False
         if rhythm and style != 'swing' and bar.num >= 4 and \
+                bar.den == 4 and \
                 absbar % 4 == 0 and nxt_c is not None and \
                 _Dice('comp push', absbar, style)() < 0.5:
             # the end of a phrase: the next chord anticipated on the 'and'
@@ -2419,7 +2698,7 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
                     max(1, int(round(ln * beat))),
                     voicing(nxt_c if push and b >= 4.5 else
                             _chord_at(chords, b)),
-                    vel=80 if style == 'funk' else 70,
+                    vel=80 if style in ('funk', 'gospel') else 70,
                     may_rest=style == 'swing')   # an ostinato IS the groove
             return
         marks = sorted({max(1.0, b) for b, c in chords})
@@ -2584,6 +2863,9 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         # time itself, never cleared for a bigger idea)
         state['swing_time'] = _is_swing(feel) and not _new_style(feel, bar)
         globals()['FILL_SWING'] = bool(_is_swing(feel))
+        ns_ = _new_style(feel, bar)
+        globals()['FILL_GOSPEL'] = gospel_way(ns_[1], bar) \
+            if ns_ and ns_[0] == 'gospel' else None
         words = ((arg if isinstance(arg, str) else '') + ' ' + (feel or '')
                  ).lower()
         impl = implement(words, feel)
@@ -2730,6 +3012,8 @@ def implement(words, feel):
     if re.search(r'\bmallets?\b', w):
         return 'mallets'
     style, traits = style_of(feel or '')
+    if style == 'gospel':
+        return 'sticks'          # a church drummer plays a ballad on sticks
     if OPTS['brushes'] and ('ballad' in traits or 'gypsy' in traits
                             or 'ballad' in (feel or '').lower()):
         return 'brushes'
@@ -2841,6 +3125,8 @@ _STRAIGHT_FILLS = (('toms_down', 22), ('snare_kick_talk', 20),
 def pick_fill(d, swing, last=None):
     """The drummer's fill, in the moment, never the one just played."""
     table = _SWING_FILLS if swing else _STRAIGHT_FILLS
+    if FILL_GOSPEL:
+        table = _GOSPEL_FILLS
     pool = [(k, w) for k, w in table if k != last]
     return _roll(pool, d)
 
@@ -2856,6 +3142,8 @@ def tempo_band():
 
 # whether the tune swings, for the fills' own rhythm (set per bar)
 FILL_SWING = False
+# the gospel feel in play ('triplet', 'groove', 'shout'), else None
+FILL_GOSPEL = None
 
 # the tune's tempo, for anything with a speed limit in real hands
 BPM = 120.0
@@ -2911,7 +3199,10 @@ def _fill(bar, kind, start, heat, d):
         # not doubling every beat (real fills: kick 12% of the strokes)
         if kick or (on_beat and ((t - start) // beat) % 2 == 0):
             bar.add(t, ln, ('u', _KICK, min(base + 6, 118)))
-    trip = FILL_SWING
+    trip = FILL_SWING or FILL_GOSPEL == 'triplet'
+    if kind == 'chops':
+        _chops(bar, start, end, beat, base, toms, d)
+        return
     if kind in ('toms_down', 'toms_up'):
         # in swing the toms move in triplets, not straight sixteenths
         step = beat // 3 if trip else beat // 4

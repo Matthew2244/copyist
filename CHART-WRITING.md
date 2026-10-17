@@ -985,6 +985,22 @@ All of these ride on a `from demo` line, after commas:
   the ride bell, the kick on the dotted quarters, the hat foot on 2 and 4
   of the twelve, the toms answering now and then; the bass on the root,
   anticipating the fifth, and leading into the next chord.
+- **Gospel.** `feel: gospel` plays like a church band, three ways.
+  Slow (under 72), or in 6/8 or 12/8, or with `ballad`, `12/8` or
+  `triplet` in the feel, it's the triplet ballad: a cymbal on every
+  triplet, the backbeat hard, the kick in triplet spots. Medium is the
+  sixteenth groove: the hat in eighths or sixteenths, ghost notes in
+  a pattern, the backbeat hard. Fast (132 and up), or `gospel shout` or
+  `praise break`, is the shout: the kick on every beat, the snare and
+  the organ on every 'and', the bass in octaves. The drummer and the
+  bass pick a pattern for the phrase and may change it at the next.
+  The bass plays on the drummer's kick, because in church they're one
+  instrument. Fills lean on chops: hand, hand, foot around the kit.
+  The organ never lays out. It holds the chords under everyone, and the
+  keys and guitar work out who comps. Drums stay on sticks even in a
+  ballad. Left to the band, the ending usually slows into the big last
+  chord. `easy gospel` lightens it: eighth hats, fewer ghosts, a
+  softer backbeat.
 - **Chokes where they belong.** A choked cymbal is a drum-solo sound
   and a last-hit sound, with the whole band landing together. Keeping
   time behind the band, in a landing after a fill, a section mark or a

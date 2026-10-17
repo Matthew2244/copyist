@@ -313,7 +313,8 @@ the pocket. Swing plays differently at a ballad tempo and at a burning one.
 
 It knows the feels a working band gets called for: swing, ballad, waltz,
 shuffle, bossa, samba, baião, Latin and Afro 12/8, funk, second line, reggae,
-Motown, hip-hop and gypsy jazz.
+Motown, hip-hop, gypsy jazz and gospel (the triplet ballad, the groove and the
+shout).
 
 The players learned from real ones. The walking bass comes from 48 transcribed
 professional lines, the soloists from 347 swing solos in the Weimar Jazz
