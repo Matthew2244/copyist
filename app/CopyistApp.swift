@@ -431,27 +431,84 @@ final class AppModel: ObservableObject {
     /// the conversation; words or a chord sheet with a chart open asks
     /// whether they belong to it; everything else is imported as a new
     /// tune and opened when it lands.
+    /// Several files at once: MIDI demos together are one tune (a DAW
+    /// often exports one file per instrument); anything else comes in
+    /// one at a time, the first now.
+    func bringIn(_ paths: [String]) {
+        let midis = paths.filter { Self.isMIDI($0) }
+        if midis.count > 1 {
+            bringInDemos(midis)
+        } else if let first = paths.first {
+            bringIn(first)
+        }
+    }
+
+    static func isMIDI(_ path: String) -> Bool {
+        ["mid", "midi", "kar", "smf"].contains(
+            URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
+
+    /// The words every demo's name starts with: "it takes faith drums"
+    /// and "it takes faith piano" are "it takes faith".
+    static func sharedName(_ paths: [String]) -> String {
+        let stems = paths.map { URL(fileURLWithPath: $0)
+            .deletingPathExtension().lastPathComponent }
+        guard stems.count > 1 else { return stems.first ?? "New Tune" }
+        let words = stems.map { $0.split(whereSeparator: {
+            $0 == " " || $0 == "_" || $0 == "-" }).map(String.init) }
+        var out: [String] = []
+        for i in 0..<(words.map(\.count).min() ?? 0) {
+            let w = Set(words.map { $0[i].lowercased() })
+            if w.count != 1 { break }
+            out.append(words[0][i])
+        }
+        return out.isEmpty ? stems[0] : out.joined(separator: " ")
+    }
+
+    /// One or more played demos become one chart: the interview asks
+    /// about each track, then the chart builds at once.
+    func bringInDemos(_ paths: [String]) {
+        var base = Self.sharedName(paths)
+        var folder = chartsFolder().appendingPathComponent(base)
+        var chartURL = folder.appendingPathComponent(base + ".chart")
+        if FileManager.default.fileExists(atPath: chartURL.path) {
+            let a = NSAlert()
+            a.messageText = "There is already a chart called \(base)."
+            a.informativeText = "Replace it with a new chart from "
+                + (paths.count > 1 ? "these \(paths.count) demos"
+                   : "this demo")
+                + " (the old chart goes to the Trash, so nothing is "
+                + "lost), or keep both and name this one \(base) 2."
+            a.addButton(withTitle: "Replace it")
+            a.addButton(withTitle: "Keep both")
+            a.addButton(withTitle: "Cancel")
+            switch a.runModal() {
+            case .alertFirstButtonReturn:
+                try? FileManager.default.trashItem(at: chartURL,
+                                                   resultingItemURL: nil)
+            case .alertSecondButtonReturn:
+                var n = 2
+                while FileManager.default.fileExists(atPath:
+                    chartsFolder().appendingPathComponent("\(base) \(n)")
+                        .path) { n += 1 }
+                base = "\(base) \(n)"
+                folder = chartsFolder().appendingPathComponent(base)
+                chartURL = folder.appendingPathComponent(base + ".chart")
+            default:
+                return
+            }
+        }
+        try? FileManager.default.createDirectory(
+            at: folder, withIntermediateDirectories: true)
+        choose(chartURL.path)
+        startTalk(["new"] + paths.flatMap { ["--demo", $0] })
+    }
+
     func bringIn(_ path: String) {
         let url = URL(fileURLWithPath: path)
         let ext = url.pathExtension.lowercased()
-        let base = url.deletingPathExtension().lastPathComponent
-        if ["mid", "midi", "kar", "smf"].contains(ext) {
-            let folder = chartsFolder().appendingPathComponent(base)
-            let chartURL = folder.appendingPathComponent(base + ".chart")
-            if FileManager.default.fileExists(atPath: chartURL.path) {
-                announce("There is already a chart called \(base). "
-                         + "Open it, or rename the demo first.")
-                runTitle = "Bring in a file"
-                runOutput = "There is already a chart called \(base) in "
-                    + "Copyist Charts. Open it from Recent charts, or "
-                    + "rename the demo and bring it in again.\n"
-                tab = .chart
-                return
-            }
-            try? FileManager.default.createDirectory(
-                at: folder, withIntermediateDirectories: true)
-            choose(chartURL.path)
-            startTalk(["new", "--demo", path])
+        if Self.isMIDI(path) {
+            bringInDemos([path])
             return
         }
         let wordsLike = ["txt", "text", "md", "markdown", "rtf", "rtfd",
@@ -616,6 +673,21 @@ final class AppModel: ObservableObject {
         }.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
+    /// The MusicXML the last build wrote (score and parts), for
+    /// MuseScore, Sibelius, Dorico or Finale. The listening copy is the
+    /// engine's own and stays out of the list.
+    func musicXMLFiles() -> [URL] {
+        guard let c = chart else { return [] }
+        let dir = URL(fileURLWithPath: c).deletingLastPathComponent()
+            .appendingPathComponent("build")
+        let items = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: nil)) ?? []
+        return items.filter {
+            $0.pathExtension == "musicxml"
+                && !$0.lastPathComponent.contains("for listening")
+        }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
     /// The conductor score this chart's last build drew, if any.
     func scorePDF() -> URL? {
         guard let dir = pagesFolder(), let c = chart else { return nil }
@@ -667,6 +739,7 @@ final class AppModel: ObservableObject {
 
     func startTalk(_ args: [String]) {
         guard let tool = Tool.find(), let c = chart else { return }
+        let fromDemo = args.first == "new"
         talk = []
         question = ""
         questionDefault = ""
@@ -717,6 +790,18 @@ final class AppModel: ObservableObject {
                 }
                 let last = self.talk.last(where: { !$0.mine })?.text
                     ?? "That's the conversation."
+                // a chart from a demo is ready to build as written: build
+                // it now, so the pages and MusicXML are there without
+                // another step
+                if fromDemo, last.contains("ready to build"),
+                   FileManager.default.fileExists(atPath: c) {
+                    self.speechFlush?.cancel()
+                    self.speechQueue = []
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self.run("Build", args: ["build"])
+                    }
+                    return
+                }
                 // the answer box just went away and VoiceOver moves to
                 // the window; speak once it has settled, or it is lost
                 self.speechFlush?.cancel()
@@ -845,15 +930,17 @@ func pickAnything(_ model: AppModel) {
     let p = NSOpenPanel()
     p.title = "Bring in a file"
     p.message = "A score (MusicXML), a MIDI demo, or words and chords "
-        + "in any format."
+        + "in any format. Several MIDI files at once make one chart."
     p.prompt = "Bring In"
     p.canChooseFiles = true
     p.canChooseDirectories = false
     p.allowsOtherFileTypes = true
+    // a DAW's one-file-per-instrument export: pick them all, one chart
+    p.allowsMultipleSelection = true
     p.directoryURL = FileManager.default.urls(
         for: .downloadsDirectory, in: .userDomainMask).first
-    if p.runModal() == .OK, let u = p.url {
-        model.bringIn(u.path)
+    if p.runModal() == .OK, !p.urls.isEmpty {
+        model.bringIn(p.urls.map(\.path))
     }
 }
 
@@ -962,6 +1049,15 @@ struct DeskCommands: Commands {
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(model?.chart == nil)
+            Button("Show the MusicXML") {
+                if let xml = model?.musicXMLFiles(), !xml.isEmpty {
+                    NSWorkspace.shared.activateFileViewerSelecting(xml)
+                } else {
+                    announce("No MusicXML yet. Build it first, Command B.")
+                }
+            }
+            .keyboardShortcut("x", modifiers: [.command, .shift])
+            .disabled(model?.chart == nil)
             Divider()
             Button("Tell Me the Tune") {
                 if let m = model {
@@ -1063,14 +1159,28 @@ struct ContentView: View {
             }
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { items in
-            // any file dropped on the window comes in the same door
-            guard let item = items.first else { return false }
-            _ = item.loadObject(ofClass: URL.self) { url, _ in
-                guard let url else { return }
-                DispatchQueue.main.async {
-                    announce("Bringing in \(url.lastPathComponent).")
-                    model.bringIn(url.path)
+            // any file dropped on the window comes in the same door;
+            // several MIDI demos dropped together are one chart
+            guard !items.isEmpty else { return false }
+            let group = DispatchGroup()
+            var urls: [Int: URL] = [:]
+            let lock = NSLock()
+            for (i, item) in items.enumerated() {
+                group.enter()
+                _ = item.loadObject(ofClass: URL.self) { url, _ in
+                    if let url {
+                        lock.lock(); urls[i] = url; lock.unlock()
+                    }
+                    group.leave()
                 }
+            }
+            group.notify(queue: .main) {
+                let got = urls.keys.sorted().compactMap { urls[$0] }
+                guard !got.isEmpty else { return }
+                announce(got.count == 1
+                         ? "Bringing in \(got[0].lastPathComponent)."
+                         : "Bringing in \(got.count) files.")
+                model.bringIn(got.map(\.path))
             }
             return true
         }
@@ -1972,6 +2082,23 @@ struct ResultButtons: View {
                     }
                     .buttonStyle(.bordered)
                     .accessibilityHint("Command Shift E")
+                }
+                if model.runTitle == "Build" {
+                    let xml = model.musicXMLFiles()
+                    if !xml.isEmpty {
+                        Button {
+                            NSWorkspace.shared
+                                .activateFileViewerSelecting(xml)
+                        } label: {
+                            Label("Show the MusicXML",
+                                  systemImage: "doc.text")
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityHint("\(xml.count) files, selected "
+                                           + "in the Finder, for "
+                                           + "MuseScore, Sibelius, Dorico "
+                                           + "or Finale")
+                    }
                 }
                 if model.runTitle == "Build",
                    let dir = model.pagesFolder(),

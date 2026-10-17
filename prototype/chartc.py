@@ -548,6 +548,49 @@ def section_header(name, tail, loc):
     return sec
 
 
+def _bar_runs(bars):
+    """[3, 4, 5, 9] -> '3-5, 9'."""
+    runs = []
+    for b in sorted(set(bars)):
+        if runs and b == runs[-1][1] + 1:
+            runs[-1][1] = b
+        else:
+            runs.append([b, b])
+    return ", ".join(f"{a}-{b}" if a != b else str(a) for a, b in runs)
+
+
+def grouped_findings(lines, at_least=4):
+    """The same finding at four or more bars becomes one line naming the
+    bars, in the place the first of them stood."""
+    def shape(line):
+        m = re.search(r'\s*\((?:at )?bars? (\d+)[^)]*\)', line)
+        if not m:
+            return None, None
+        text = line[:m.start()] + line[m.end():]
+        return re.sub(r'\d+(?:\.\d+)?', '#', text), int(m.group(1))
+    groups = {}
+    for line in lines:
+        key, bar = shape(line)
+        if key is not None:
+            groups.setdefault(key, []).append((line, bar))
+    out, done = [], set()
+    for line in lines:
+        key, _ = shape(line)
+        if key is None or len(groups[key]) < at_least:
+            out.append(line)
+            continue
+        if key in done:
+            continue
+        done.add(key)
+        first = groups[key][0][0]
+        text = re.sub(r'\s*\((?:at )?bars? \d+[^)]*\)', '', first)
+        text = re.sub(r'(:\s)\d+ (?=\w)', r'\1', text)
+        bars = [b for _, b in groups[key]]
+        out.append(f"{text} — {len(bars)} times, bars {_bar_runs(bars)} "
+                   "(each one is in the findings file)")
+    return out
+
+
 def canonical_instrument(name):
     n = name.strip().lower()
     return INSTRUMENT_ALIASES.get(n, n)
@@ -5861,8 +5904,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         seen = []
         for line in findings.lines:
             if line not in seen:
-                print("finding:", line)
                 seen.append(line)
+        # said aloud, forty "could be either hand" lines are one thing:
+        # the same finding at many bars prints once with its bars; the
+        # findings file below keeps every line
+        for line in grouped_findings(seen):
+            print("finding:", line)
         # findings also land in a file: console scroll is not a record
         with open(os.path.join(outdir, f'{title} — findings.txt'), 'w',
                   encoding='utf-8') as f:

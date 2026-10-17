@@ -57,6 +57,62 @@ def track_instrument(name):
     return bare if bare in chartc.HORNS else ""
 
 
+# a DAW names a track after the plugin on it as often as after the
+# player: "Pianoteq 9", "Superior Drummer 3", "VB3". These say who it is.
+PLUGIN_HINTS = [
+    (r"pianoteq|keyscape|ivory|grandeur|noire|una corda|steinway|"
+     r"bosendorfer|b.sendorfer|cfx|modern d|piano", "piano"),
+    (r"superior drummer|ezdrummer|\bezd\b|\bssd\b|\bbfd\b|"
+     r"addictive drums|\bad2\b|getgood|drum|\bkit\b", "drums"),
+    (r"\bb-?3\b|hammond|\bvb-?3|leslie|setbfree|organ", "organ"),
+    (r"rhodes|scarbee mark|mark ?i\b|lounge lizard|suitcase|"
+     r"electric piano|\bep\b", "electric piano"),
+    (r"trilian|modo ?bass|\bbass\b", "bass"),
+    (r"guitar|\bgtr\b", "guitar"),
+    (r"vocal|\bvox\b|voice|singer", "voice"),
+]
+
+
+def guess_instrument(track_name, file_name="", notes=()):
+    """The best first answer for a track: its own name, a plugin it is
+    named after, channel 10 (General MIDI's drums), then the demo file's
+    own name ("it takes faith piano.MID"). Empty when nothing says."""
+    got = track_instrument(track_name)
+    if got:
+        return got
+    for text in (track_name or "", file_name or ""):
+        low = text.lower()
+        for pat, inst in PLUGIN_HINTS:
+            if re.search(pat, low):
+                return inst
+        if text is track_name and notes and \
+                all(getattr(n, "chan", None) == 9 for n in notes):
+            return "drums"
+        # the file's last word: "my tune trumpet.mid"
+        words = re.sub(r"[_\-.]+", " ", low).split()
+        for k in (2, 1):
+            if len(words) >= k:
+                got = track_instrument(" ".join(words[-k:]))
+                if got:
+                    return got
+    return ""
+
+
+def common_title(paths):
+    """'it takes faith drums.MID' + 'it takes faith piano.MID' -> 'it
+    takes faith': the words every demo's name starts with."""
+    stems = [os.path.splitext(os.path.basename(p))[0] for p in paths]
+    if len(stems) == 1:
+        return stems[0]
+    split = [re.split(r"(\s+|_|-)", s) for s in stems]
+    out = []
+    for parts in zip(*split):
+        if len({w.lower() for w in parts}) != 1:
+            break
+        out.append(parts[0])
+    return "".join(out).strip(" _-") or stems[0]
+
+
 def pname(p):
     return f"{NAMES[p % 12]}{p // 12 - 1}"
 
@@ -215,7 +271,12 @@ def interview_no_demo(out_path, composer='', cfg=None):
 
 
 def interview(out_path, demo_path, composer='', cfg=None):
+    """demo_path is one MIDI file or several — a DAW often exports one
+    file per instrument, and they all belong to one chart."""
     cfg = cfg or {}
+    extra = []
+    if isinstance(demo_path, (list, tuple)):
+        demo_path, extra = (list(demo_path) + [None])[0], list(demo_path[1:])
     if os.path.exists(out_path):
         sys.exit(f"chart: {out_path} already exists — I will not write "
                  "over a chart. Pick a new name.")
@@ -246,11 +307,37 @@ def interview(out_path, demo_path, composer='', cfg=None):
         sys.exit("chart: the interview starts from a demo MIDI and that "
                  "one is not there. Export it, then come back.")
 
-    dm = chartdemo.load_demo(demo_path)
-    tracks = [(ti, dm.names.get(ti, f"track {ti}"), dm.tracks[ti])
-              for ti in sorted(dm.tracks)]
-    say(f"Read it: {len(tracks)} playing track(s) in "
-        f"{os.path.basename(demo_path)}.")
+    def found_or_midi_folder(p):
+        if os.path.exists(p) or not cfg.get('midi'):
+            return p
+        cand = os.path.join(os.path.expanduser(cfg['midi']), p)
+        return cand if os.path.exists(cand) else p
+    extra = [found_or_midi_folder(p) for p in extra]
+    for p in extra:
+        if not os.path.exists(p):
+            sys.exit(f"chart: no MIDI file at '{p}' — nothing written.")
+    files = [demo_path] + extra
+    # the header's demo is the file with the most tracks; every other
+    # file is named on its own band line, so it gives one part
+    demos = {f: chartdemo.load_demo(f) for f in files}
+    files.sort(key=lambda f: -len(demos[f].tracks))
+    demo_path = files[0]
+    dm = demos[demo_path]
+    # (file, track index, name, notes); a single-track file from the
+    # second file on is one part, whatever its tracks are called
+    tracks = []
+    for f in files:
+        d = demos[f]
+        for ti in sorted(d.tracks):
+            tracks.append((f, ti, d.names.get(ti, f"track {ti}"),
+                           d.tracks[ti]))
+    if len(files) == 1:
+        say(f"Read it: {len(tracks)} playing track(s) in "
+            f"{os.path.basename(demo_path)}.")
+    else:
+        say(f"Read {len(files)} demo files, {len(tracks)} playing "
+            "track(s) in all: " + ", ".join(
+                os.path.basename(f) for f in files) + ".")
 
     # tempo and count-in read from the file, offered as defaults
     import analyze
@@ -260,9 +347,25 @@ def interview(out_path, demo_path, composer='', cfg=None):
     if ex["tempos"]:
         quarter_bpm = 60_000_000 / ex["tempos"][0][1]
     key_default = "C"
+    key_said = "Key, like Eb minor or F"
     if ex["keysigs"]:
         _, sf, mi = ex["keysigs"][0]
         key_default = key_name(sf, mi)
+    else:
+        # no key in the file: guess from what the pitched parts play
+        # (drums say nothing about a key), spelled the way a horn
+        # section reads it — Gb, not F#
+        pitched = [n for f, _, nm, ns in tracks
+                   if guess_instrument(nm, os.path.basename(f), ns)
+                   not in ("drums", "percussion")
+                   for n in ns]
+        if pitched:
+            guess = analyze.estimate_key(pitched)[0][0]
+            guess = {"F# major": "Gb major", "C# major": "Db major",
+                     "B major": "B major"}.get(guess, guess)
+            key_default = guess.replace(" major", "")
+            key_said = ("Key, like Eb minor or F. The file doesn't say; "
+                        "this is my guess from the notes")
     ts_default = "4/4"
     if ex["timesigs"]:
         _, tn, td = ex["timesigs"][0]
@@ -270,7 +373,7 @@ def interview(out_path, demo_path, composer='', cfg=None):
 
     title = ask("Title", os.path.splitext(os.path.basename(out_path))[0])
     composer = ask("Composer", composer)
-    key = ask("Key, like Eb minor or F", key_default)
+    key = ask(key_said, key_default)
     meter_txt = ask("Meter, like 4/4 or 3/4 or 6/8", ts_default)
     meter = chartc.parse_meter(meter_txt)
     # a demo whose own map changes meter counts its bars by that map;
@@ -298,8 +401,17 @@ def interview(out_path, demo_path, composer='', cfg=None):
     # aims at — the same eighth-of-a-beat slack the extractor allows
     slack = dm.division // 8
     barof = lambda tick: rawbar(tick + slack)
-    first_bar = min(barof(n.on)
-                    for ns in dm.tracks.values() for n in ns)
+    def barof_for(f):
+        """Each file's own ticks to the shared bar grid (files from one
+        session share the grid, not always the ticks per beat)."""
+        if f == demo_path:
+            return barof
+        d = demos[f]
+        bt = d.division * 4 * meter[0] // meter[1]
+        sl = d.division // 8
+        return lambda tick: int((tick + sl) // bt) + 1
+    first_bar = min(barof_for(f)(n.on)
+                    for f, _, _, ns in tracks for n in ns)
     # the file's own evidence first; his standing countin setting
     # speaks only when the file says nothing
     countin_default = "1" if first_bar > 1 else \
@@ -324,12 +436,14 @@ def interview(out_path, demo_path, composer='', cfg=None):
         "to bass voice to congas, and nicknames work (kit, vibes, "
         "upright bass, bone). Name each track's instrument, or leave "
         "one blank to skip that track.")
-    for ti, name, notes in tracks:
+    for f, ti, name, notes in tracks:
         pitches = [n.pitch for n in notes]
-        info = (f'Track "{name}": {len(notes)} notes, '
+        where = (f' in {os.path.basename(f)}' if len(files) > 1 else '')
+        info = (f'Track "{name}"{where}: {len(notes)} notes, '
                 f'{pname(min(pitches))} to {pname(max(pitches))}. '
                 'Instrument')
-        inst = ask(info, track_instrument(name))
+        inst = ask(info, guess_instrument(
+            name, os.path.splitext(os.path.basename(f))[0], notes))
         if not inst:
             continue
         inst = chartc.canonical_instrument(inst)
@@ -348,24 +462,41 @@ def interview(out_path, demo_path, composer='', cfg=None):
         label = ask("  Part label", inst)
         # the resolver matches real track names; a display name invented
         # for an unnamed track must not land in the chart
-        band.append((label, inst, dm.names.get(ti), shift))
-        notes_by_label[label] = (notes, name)
+        if label in notes_by_label:
+            n = 2
+            while f"{label} {n}" in notes_by_label:
+                n += 1
+            say(f"  There is already a {label}; this one is {label} {n}.")
+            label = f"{label} {n}"
+        if f == demo_path:
+            src = dm.names.get(ti)
+        else:
+            # its own file: the band line names the file, not a track
+            src = os.path.relpath(f, os.path.dirname(
+                os.path.abspath(out_path)))
+            if len(demos[f].tracks) > 1:
+                say(f"  {os.path.basename(f)} has more than one track; "
+                    f"{label} plays all of them.")
+        band.append((label, inst, src, shift))
+        notes_by_label[label] = (notes, name, barof_for(f))
 
     if not band:
         sys.exit("chart: no parts named, no chart written.")
 
-    total = max(barof(n.on)
-                for ns in dm.tracks.values() for n in ns) - int(countin or 0)
+    total = max(barof_for(f)(n.on)
+                for f, _, _, ns in tracks for n in ns) - int(countin or 0)
 
-    lines = [f"# {title} — started by the chart interview. The activity",
-             "# map below says who plays which bars (demo numbering);",
-             "# carve your sections from it, then replace this one big",
-             "# section. CHART-WRITING.md is the guide.",
+    lines = [f"# {title} — started by the chart interview. It builds as",
+             "# it is: every part plays its demo, one long section. To",
+             "# shape it, split the section where the tune changes (verse,",
+             "# chorus, solos) and add chords; the map below says who",
+             "# plays which bars (demo numbering). CHART-WRITING.md is",
+             "# the guide.",
              ""]
     for label, inst, tname, shift in band:
-        notes, _ = notes_by_label[label]
+        notes, _, bo = notes_by_label[label]
         lines.append(f"# {label} plays demo bars "
-                     f"{spans(notes, barof)}")
+                     f"{spans(notes, bo)}")
     lines += ["",
               f"title: {title}"]
     if composer:
@@ -395,14 +526,17 @@ def interview(out_path, demo_path, composer='', cfg=None):
         else:
             lines.append(f"# the demo goes to {n}/{d} at its bar {b}, "
                          "outside this section's bars")
-    lines += [f"  chords: nc x{total}",
-              "# give each part its lines, e.g.:"]
-    for label, inst, tname, shift in band[:1]:
-        notes, _ = notes_by_label[label]
-        lines.append(f"#   {label}: from demo bars "
-                     f"{spans(notes, barof).split(',')[0].strip()}")
+    lines.append(f"  chords: nc x{total}")
+    # every part plays its whole demo, so the first build already has
+    # pages, MusicXML and a listen — nothing to fill in by hand first
+    ci = int(countin or 0)
+    for label, inst, tname, shift in band:
+        notes, _, bo = notes_by_label[label]
+        lo = max(min(bo(n.on) for n in notes), ci + 1)
+        hi = max(bo(n.on) for n in notes)
+        if hi >= lo:
+            lines.append(f"  {label}: from demo bars {lo}-{hi}")
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write("\n".join(lines) + "\n")
-    say(f"Wrote {os.path.basename(out_path)}: {len(band)} part(s), one "
-        f"{total}-bar section "
-        "to carve up. Next: edit it, then run the build.")
+    say(f"Wrote {os.path.basename(out_path)}: {len(band)} part(s), every "
+        f"one playing its demo, {total} bars. It is ready to build.")

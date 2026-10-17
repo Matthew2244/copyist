@@ -108,6 +108,8 @@ class Reader:
                 self.carry[k] = acc
         elif self.held.get(k):
             alter = self.held[k].pop(0)
+            if not self.held[k]:
+                del self.held[k]
         else:
             alter = self.carry.get(k, self.base.get(step, 0))
         self.notes.append((f'{step}{"#" * alter if alter > 0 else "b" * -alter}'
@@ -142,7 +144,13 @@ class Reader:
                     octave = best[0]
                 else:
                     octave = po            # an unmarked 4th or 5th
-        self.held, self.pending = self.pending, {}
+        # a tie lands on the next note of ITS line, which in an in-accord
+        # bar may come after the other part's notes: what was tied stays
+        # held until its note arrives, rather than being dropped by the
+        # first note of the other part (it lost a tied D natural, 2026-10-17)
+        for k, alters in self.pending.items():
+            self.held.setdefault(k, []).extend(alters)
+        self.pending = {}
         self.event_notes = []
         self.joins.append(self.link)
         self.link = self.double

@@ -1323,9 +1323,19 @@ announced with its name, note count and range. A track already named
 for its instrument ("trumpet", "congas", "Tenor Sax 2") offers that
 instrument, so Enter is the whole answer; if the track sits an octave
 off that instrument's real register it says so and proposes the
-correction. The chart it writes opens with an
-activity map, who plays which bars, so carving sections is reading,
-not detective work.
+correction. A track named after the plugin on it ("Pianoteq 9",
+"Superior Drummer 3") offers the instrument that plugin plays, and an
+unnamed track goes by the file's name ("my tune piano.mid"). When the
+file carries no key, the key offered is the one the notes are in.
+
+A DAW often exports one file per instrument. Say `--demo` once for
+each (`new --demo "tune drums.mid" --demo "tune piano.mid"`), or pick
+or drop them all at once in the app, and they become one chart.
+
+The chart it writes builds as it stands: every part plays its demo in
+one long section, so the first build already gives you pages, MusicXML
+and a listen. It opens with an activity map, who plays which bars, so
+carving it into sections later is reading, not detective work.
 
 **No demo yet? Start anyway.** Press Enter at the demo question (in
 the app, New chart, Command Shift N) and Copyist asks the header, then

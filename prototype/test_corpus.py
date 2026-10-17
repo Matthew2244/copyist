@@ -7783,6 +7783,105 @@ def check_percussion_section_grooves():
                                   75, 80, 81, 82)))
 
 
+def check_streamline():
+    """2026-10-17, his ask: 'way more streamlined'. A DAW's one file
+    per instrument comes in as ONE chart that builds as written; the
+    key is guessed from the notes when the file says none; repeated
+    findings speak once; the braille reader keeps a tie's accidental
+    across an in-accord; the parallel room joins exactly."""
+    import io
+    import tempfile
+    from contextlib import redirect_stdout
+    import chartnew
+    import chartc
+    import smf
+    print("\n== streamlined: demos in, chart out ==")
+    check("a plugin-named track is the instrument it plays",
+          chartnew.guess_instrument("Pianoteq 9") == "piano"
+          and chartnew.guess_instrument("Superior Drummer 3") == "drums"
+          and chartnew.guess_instrument("VB3-II") == "organ")
+    check("an unnamed track goes by its file's name",
+          chartnew.guess_instrument("track 1", "it takes faith drums")
+          == "drums")
+    check("the demos' shared words are the title",
+          chartnew.common_title(["a/it takes faith drums.MID",
+                                 "a/it takes faith piano.MID"])
+          == "it takes faith")
+    with tempfile.TemporaryDirectory() as tmp:
+        div, bar = 480, 1920
+        kit, keys = [], []
+        for b in range(4):
+            for i in range(4):
+                t = b * bar + i * div
+                kit.append((t, t + 100, 42, 90))
+                kit.append((t, t + 100, 36 if i % 2 == 0 else 38, 100))
+            # G flat major: Gb Bb Db, and the Cb a G flat tune leans on
+            for p_ in (54, 58, 61, 66):
+                keys.append((b * bar, b * bar + bar - 20, p_, 80))
+            keys.append((b * bar + 2 * div, b * bar + 3 * div, 59, 70))
+        smf.write(os.path.join(tmp, "tune drums.mid"), kit, div, 90)
+        smf.write(os.path.join(tmp, "tune piano.mid"), keys, div, 90)
+        out = os.path.join(tmp, "tune", "tune.chart")
+        os.makedirs(os.path.dirname(out))
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("\n" * 40)
+        try:
+            with redirect_stdout(io.StringIO()) as talk:
+                chartnew.interview(out, [
+                    os.path.join(tmp, "tune drums.mid"),
+                    os.path.join(tmp, "tune piano.mid")])
+        finally:
+            sys.stdin = old_stdin
+        text = open(out).read() if os.path.exists(out) else ""
+        check("two demo files make one chart with both parts",
+              "drums" in text and "piano" in text
+              and 'demo "../tune piano.mid"' in text, talk.getvalue()[-300:])
+        check("every part already plays its demo",
+              "  drums: from demo bars 1-4" in text
+              and "  piano: from demo bars 1-4" in text, text[-300:])
+        check("no key in the file: the notes' key is offered",
+              "key: Gb" in text, talk.getvalue()[:400])
+        with redirect_stdout(io.StringIO()):
+            written = chartc.compile_chart(out, os.path.join(tmp, "b"))
+        check("the chart builds as the interview wrote it",
+              any(w.endswith("piano.musicxml") for w in written)
+              and any(w.endswith("drums.musicxml") for w in written))
+    lines = [f"uncertain: {n} note(s) could be either hand (bar {b}; "
+             f"two hand splits score within 0.{n})"
+             for n, b in ((6, 3), (4, 4), (5, 5), (3, 9))] + ["other"]
+    g = chartc.grouped_findings(lines)
+    check("the same finding at many bars speaks once, naming the bars",
+          len(g) == 2 and "4 times, bars 3-5, 9" in g[0], str(g))
+
+    # the room, run in stretches with warm-up, matches the whole song's
+    from array import array
+    import math
+    import random
+    import chartband as cb
+    sr, N = 44100, 44100 * 7
+    rnd = random.Random(3)
+    w = array('f', [rnd.uniform(-1, 1) if i % 7000 < 300 else 0.0
+                    for i in range(N)])
+    L, R = array('f', bytes(4 * N)), array('f', bytes(4 * N))
+    cb._room(L, R, array('f', w), array('f', w), sr)
+    warm = int(cb._WARM * sr) + int(cb._WARM * sr) % 2
+    size = -(-N // 5)
+    size += size % 2
+    S = array('f', bytes(4 * N))
+    for a in range(0, N, size):
+        b0 = min(N, a + size)
+        b = min(N, b0 + 4)
+        w0 = max(0, a - warm)
+        l, r = array('f', bytes(4 * (b - w0))), array('f', bytes(4 * (b - w0)))
+        cb._room(l, r, w[w0:b], w[w0:b], sr)
+        S[a:b0] = l[a - w0:a - w0 + b0 - a]
+    pk = max(map(abs, L)) or 1
+    err = max(abs(x - y) for x, y in zip(L[:N - 4], S[:N - 4]))
+    check("the room in parallel stretches joins exactly (under -120 dB)",
+          err == 0 or 20 * math.log10(err / pk) < -120,
+          f"{20 * math.log10(err / pk) if err else 'exact'} dB")
+
+
 if __name__ == "__main__":
     print("\ninvariants")
     check_duration_algebra()
@@ -7854,6 +7953,7 @@ if __name__ == "__main__":
     check_bandleader_round()
     check_band_hears_the_lead()
     check_cues_and_cuts()
+    check_streamline()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

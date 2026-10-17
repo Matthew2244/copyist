@@ -22,6 +22,7 @@ business above 11 kHz) which keeps pure Python honest about time.
 """
 import math
 import os
+import sys
 import wave
 from array import array
 
@@ -1355,7 +1356,11 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
                                      1568.0 if c % n0 == 0 else 1047.0,
                                      0.5)
 
-    groups = _groups(jobs, [p['percussion'] for p in plan['parts']])
+    # finer than one piece per core: the cores take pieces from a queue,
+    # so the fast ones pick up the slack of the slow ones (an M1 Ultra
+    # is 16 performance cores and 4 efficiency cores)
+    groups = _groups(jobs, [p['percussion'] for p in plan['parts']],
+                     fine=3)
     if len(groups) > 1 and _can_fork():
         pcm = _play_parallel(groups, play, fresh, ticks, frames, SR,
                              on_progress)
@@ -1450,22 +1455,17 @@ def _room(L, R, wetL, wetR, sr, span=None):
 
 # ------------------------------------------------------------ in parallel
 
-_K = 256.0               # float -> int32 headroom scale for the reduction
-
 
 def _can_fork():
     """Parallel rendering forks the process (the parts' state comes
-    along for free) and sums with audioop, both C-speed; either missing
-    — Windows, or a Python without audioop — renders in one process."""
+    along for free); where fork is missing — Windows — it renders in one
+    process. Everything else is the standard library, so a Python
+    without audioop (3.13 and later) is just as fast."""
     import multiprocessing
     try:
         multiprocessing.get_context('fork')
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            import audioop   # noqa: F401
         return True
-    except (ValueError, ImportError):
+    except ValueError:
         return False
 
 
@@ -1583,7 +1583,7 @@ def _trim_quiet(res, floor=1.0):
 _SLICE_MIN = 40      # notes: a stretch smaller than this isn't worth a fork
 
 
-def _groups(jobs, percussion):
+def _groups(jobs, percussion, fine=1):
     """The notes split into as many groups as the computer has cores to
     spare, balanced by note count. A pitched part stays whole while
     there are enough parts to go round, so its round robins behave as in
@@ -1595,7 +1595,7 @@ def _groups(jobs, percussion):
     for j in jobs:
         unit = (j[2], j[3]) if percussion[j[2]] else (j[2], None)
         per.setdefault(unit, []).append(j)
-    cores = max(1, min((_os.cpu_count() or 2) - 1, 16))
+    cores = max(1, min((_os.cpu_count() or 2) - 1, 32))
 
     def cost(js):
         # seconds of sound to render and mix: a drum hit rings on its
@@ -1604,7 +1604,10 @@ def _groups(jobs, percussion):
         t = 0.0
         for j in js:
             if percussion[j[2]]:
-                t += 3.0
+                # measured 2026-10-17: a kit hit costs a bit over half of
+                # what this once guessed; at 3.0 the piano sat in a few
+                # big groups and every other core waited on it
+                t += 1.8
             elif j[10] is not None:
                 t += max(j[10] - j[0], 0.05)
             else:
@@ -1618,14 +1621,14 @@ def _groups(jobs, percussion):
     while True:
         unit, js = max(per.items(), key=lambda kv: cost(kv[1]))
         if len(js) < 2 * _SLICE_MIN or \
-                (cost(js) <= share and len(per) >= cores):
+                (cost(js) <= share / fine and len(per) >= cores):
             break
         js = sorted(js, key=lambda j: j[0])
         mid = len(js) // 2
         del per[unit]
         per[unit + ('a%d' % len(per),)] = js[:mid]
         per[unit + ('b%d' % len(per),)] = js[mid:]
-    want = max(1, min(cores, len(per)))
+    want = max(1, min(cores * fine, len(per)))
     bins = [[] for _ in range(want)]
     sizes = [0] * want
     for idx, js in sorted(per.items(), key=lambda kv: -cost(kv[1])):
@@ -1635,77 +1638,208 @@ def _groups(jobs, percussion):
     return [sorted(b, key=lambda j: j[0]) for b in bins if b]
 
 
-def _play_parallel(groups, play, fresh, ticks, frames, sr, on_progress):
-    """Each group rendered in its own forked process — its notes, its
-    share of the room (the room is linear, so the rooms of the parts sum
-    to the room of the whole) — and handed back as 32-bit PCM through
-    shared memory; the sum, the level and the 16-bit file are audioop's.
-    Returns the 16-bit stereo PCM, or None to fall back."""
-    import multiprocessing
-    import warnings
-    from multiprocessing import shared_memory
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        import audioop
-    ctx = multiprocessing.get_context('fork')
-    size = frames * 2 * 4
-    shms, procs = [], []
+def _fast_cores():
+    """How many cores to render on: the performance cores where the
+    computer says (Apple silicon's efficiency cores run this at about
+    half speed, and the whole listen waits on the slowest), else all
+    but one."""
+    import os as _os
+    import subprocess as _sp
+    if sys.platform == 'darwin':
+        try:
+            n = int(_sp.run(['sysctl', '-n', 'hw.perflevel0.logicalcpu'],
+                            capture_output=True, text=True,
+                            timeout=2).stdout.strip())
+            if n > 0:
+                return n
+        except (OSError, ValueError, _sp.SubprocessError):
+            pass
+    return max(1, (_os.cpu_count() or 2) - 1)
 
-    def work(k, g, name):
-        import os as _os
+
+_WARM = 3.2          # seconds of room warm-up before each mixing stretch
+
+
+def _play_parallel(groups, play, fresh, ticks, frames, sr, on_progress):
+    """Two rounds, every core busy in each. First, each group of notes
+    is played in its own forked process and handed back as four float
+    planes (dry left/right, the room's send left/right) through shared
+    memory — no per-sample loop, just bytes. Then the song is cut into
+    stretches of time, one per core: each sums every group over its
+    stretch, runs the room over it (from _WARM seconds earlier, so the
+    room is already ringing; it is linear and 100 dB down after
+    _ROOM_TAIL, so the stretches join exactly), and finds its peak. A
+    last round scales and writes the 16-bit file, stretch by stretch.
+    The room used to run once per group, over the whole song for every
+    piece of the kit. Returns the 16-bit stereo PCM, or None to fall
+    back."""
+    import multiprocessing
+    import operator
+    import os as _os
+    from multiprocessing import shared_memory
+    ctx = multiprocessing.get_context('fork')
+    plane = frames * 4
+    shms, procs, spans = [], [], []
+    report = (on_progress or (lambda *_: None))
+
+    order = sorted(range(len(groups)), key=lambda i: -len(groups[i]))
+    nxt = ctx.Value('i', 0)
+    workers = max(1, min(len(groups), _fast_cores(), 32))
+
+    def work(k, _unused, name, span_name):
         import time as _t
         t0 = _t.time()
         shm = shared_memory.SharedMemory(name=name)
         L, R, wetL, wetR = fresh()
-        span = play(g, L, R, wetL, wetR)
-        t1 = _t.time()
-        _room(L, R, wetL, wetR, sr, span)
-        t2 = _t.time()
-        lo, hi = span[0], min(frames, span[1] + int(_ROOM_TAIL * sr))
+        span = [frames, 0]
+        g = []
+        while True:
+            with nxt.get_lock():
+                i = nxt.value
+                nxt.value += 1
+            if i >= len(order):
+                break
+            piece = groups[order[i]]
+            g += piece
+            sp = play(piece, L, R, wetL, wetR)
+            span = [min(span[0], sp[0]), max(span[1], sp[1])]
         if k == 0:
-            ticks(L, R)             # dry, at the top: convert from 0
-            lo = 0
-        out = array('i', bytes(size))
-        top = 2147483000.0
-        for i in range(lo, max(hi, lo)):
-            a = L[i] * _K
-            b = R[i] * _K
-            out[2 * i] = int(top if a > top else -top if a < -top else a)
-            out[2 * i + 1] = int(top if b > top else -top if b < -top
-                                 else b)
-        shm.buf[:size] = out.tobytes()
+            ticks(L, R)             # dry, at the top
+            span = (0, max(span[1], 1))
+        for i, buf in enumerate((L, R, wetL, wetR)):
+            shm.buf[i * plane:(i + 1) * plane] = buf.tobytes()
         shm.close()
+        sp = shared_memory.SharedMemory(name=span_name)
+        sp.buf[:16] = array('q', [max(span[0], 0), max(span[1], 0)]
+                            ).tobytes()
+        sp.close()
         if _os.environ.get('COPYIST_RENDER_TIMES'):
             import sys as _sys
             _sys.stderr.write(f"group {k}: {len(g)} notes, parts "
                               f"{sorted({j[2] for j in g})}, play "
-                              f"{t1 - t0:.1f}s room {t2 - t1:.1f}s pcm "
-                              f"{_t.time() - t2:.1f}s\n")
+                              f"{_t.time() - t0:.1f}s\n")
+
+    def run(target, args_list):
+        ps = [ctx.Process(target=target, args=a) for a in args_list]
+        for p in ps:
+            p.start()
+        return ps
 
     try:
-        for k, g in enumerate(groups):
-            shm = shared_memory.SharedMemory(create=True, size=size)
+        args, group_shms = [], []
+        for k in range(workers):
+            g = None
+            shm = shared_memory.SharedMemory(create=True, size=4 * plane)
             shms.append(shm)
-            p = ctx.Process(target=work, args=(k, g, shm.name))
-            p.start()
-            procs.append(p)
+            group_shms.append(shm)
+            one = shared_memory.SharedMemory(create=True, size=16)
+            shms.append(one)
+            spans.append(one)
+            args.append((k, g, shm.name, one.name))
+        procs = run(work, args)
         done = 0
         for p in procs:
             p.join()
             done += 1
-            if on_progress:
-                on_progress(done / len(procs), "the band is playing it in")
+            report(0.8 * done / len(procs), "the band is playing it in")
         if any(p.exitcode != 0 for p in procs):
             return None
-        total = bytes(shms[0].buf[:size])
-        for shm in shms[1:]:
-            total = audioop.add(total, bytes(shm.buf[:size]), 4)
-        peak = audioop.max(total, 4) or 1
-        factor = 0.85 * 32767.0 / (peak / _K) / _K * 65536.0
+        group_spans = [tuple(array('q', bytes(sp.buf[:16])))
+                       for sp in spans]
+
+        # ---- round two: sum, room and peak, a stretch per core
+        cores = max(1, min(_fast_cores(), 32))
+        size = -(-frames // cores)
+        size += size % 2                     # the room runs at half rate
+        cuts = [(a, min(frames, a + size)) for a in range(0, frames, size)]
+        warm = int(_WARM * sr)
+        warm += warm % 2
+        mixed = shared_memory.SharedMemory(create=True, size=2 * plane)
+        shms.append(mixed)
+        peaks = shared_memory.SharedMemory(create=True, size=8 * len(cuts))
+        shms.append(peaks)
+        names = [m.name for m in group_shms]
+        tail = int(_ROOM_TAIL * sr)
+
+        def mix(ci, a, b0):
+            w0 = max(0, a - warm)
+            # the room leaves a stretch's last two samples unwritten:
+            # run a few past the end and keep only [a, b0)
+            b = min(frames, b0 + 4)
+            n = b - w0
+            planes = [array('f', bytes(4 * n)) for _ in range(4)]
+            for gi, nm in enumerate(names):
+                lo, hi = group_spans[gi]
+                # a group that sent nothing that could ring here is skipped
+                if hi + tail < w0 or lo >= b:
+                    continue
+                m = shared_memory.SharedMemory(name=nm)
+                for pi in range(4):
+                    if pi < 2 and (hi < a or lo >= b):
+                        continue          # its dry sound is elsewhere
+                    src = array('f', bytes(
+                        m.buf[pi * plane + 4 * w0:pi * plane + 4 * b]))
+                    planes[pi] = array('f', map(operator.add,
+                                                planes[pi], src))
+                m.close()
+            L, R, wetL, wetR = planes
+            _room(L, R, wetL, wetR, sr)
+            keep = a - w0
+            L, R = L[keep:keep + b0 - a], R[keep:keep + b0 - a]
+            b = b0
+            pk = max(max(L, default=0.0), -min(L, default=0.0),
+                     max(R, default=0.0), -min(R, default=0.0))
+            out = shared_memory.SharedMemory(name=mixed.name)
+            out.buf[4 * a:4 * b] = L.tobytes()
+            out.buf[plane + 4 * a:plane + 4 * b] = R.tobytes()
+            out.close()
+            pv = shared_memory.SharedMemory(name=peaks.name)
+            pv.buf[8 * ci:8 * ci + 8] = array('d', [pk]).tobytes()
+            pv.close()
+
+        import time as _tm
+        t_mix = _tm.time()
+        procs = run(mix, [(ci, a, b) for ci, (a, b) in enumerate(cuts)])
+        for p in procs:
+            p.join()
+        if any(p.exitcode != 0 for p in procs):
+            return None
+        report(0.92, "the band is playing it in")
+        peak = max(array('d', bytes(peaks.buf[:8 * len(cuts)]))) or 1.0
+        scale = 0.85 * 32767.0 / peak
         if os.environ.get('COPYIST_FIXED_GAIN'):
-            factor = float(os.environ['COPYIST_FIXED_GAIN']) / _K \
-                * 65536.0
-        return audioop.lin2lin(audioop.mul(total, 4, factor), 4, 2)
+            # measuring one chair against another: no leveling
+            scale = float(os.environ['COPYIST_FIXED_GAIN'])
+
+        # ---- round three: the 16-bit file, a stretch per core
+        pcm = shared_memory.SharedMemory(create=True, size=frames * 4)
+        shms.append(pcm)
+
+        def write(a, b):
+            src = shared_memory.SharedMemory(name=mixed.name)
+            out16 = array('h', bytes(4 * (b - a)))
+            for ch in range(2):
+                f = array('f', bytes(src.buf[ch * plane + 4 * a:
+                                             ch * plane + 4 * b]))
+                out16[ch::2] = array('h', (
+                    32767 if x > 32767.0 else -32767 if x < -32767.0
+                    else int(x) for x in map(scale.__mul__, f)))
+            src.close()
+            dst = shared_memory.SharedMemory(name=pcm.name)
+            dst.buf[4 * a:4 * b] = out16.tobytes()
+            dst.close()
+
+        procs = run(write, cuts)
+        for p in procs:
+            p.join()
+        if any(p.exitcode != 0 for p in procs):
+            return None
+        report(1.0, "the band is playing it in")
+        if _os.environ.get('COPYIST_RENDER_TIMES'):
+            import sys as _sys
+            _sys.stderr.write(f"mix, room and file: {_tm.time() - t_mix:.1f}s "
+                              f"over {len(cuts)} stretches\n")
+        return bytes(pcm.buf[:frames * 4])
     finally:
         for shm in shms:
             try:
@@ -1713,3 +1847,5 @@ def _play_parallel(groups, play, fresh, ticks, frames, sr, on_progress):
                 shm.unlink()
             except FileNotFoundError:
                 pass
+
+

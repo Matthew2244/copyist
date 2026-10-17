@@ -201,8 +201,11 @@ python3 prototype/chart.py yourtune.chart new --demo demo.mid
 ```
 
 `new` interviews a starter chart into existence. It reads your demo first, offers
-the tempo and count-in it found, announces each track with its name, note count
-and range, and proposes octave corrections from register evidence.
+the key, tempo and count-in it found, announces each track with its name, note count
+and range, and proposes octave corrections from register evidence. Exported one
+file per instrument? Say `--demo` once per file (or pick them all at once in the
+app) and they become one chart. The chart it writes builds right away: every part
+plays its demo, so the first build already has pages, MusicXML and a listen.
 
 ```bash
 python3 prototype/chart.py yourtune.chart edit

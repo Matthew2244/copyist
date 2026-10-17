@@ -278,37 +278,74 @@ _EXPORT_WORDS = {
     'chordsheet': 'chords', 'lead sheet': 'chords'}
 
 
+def par_map(fn, items):
+    """fn over items on every core there is (forked, so the engine's
+    state comes along), in order; one at a time where fork is missing
+    (Windows) or there is only one item. A worker that dies is redone
+    here, so a parallel hiccup never costs a part."""
+    items = list(items)
+    if len(items) < 2:
+        return [fn(x) for x in items]
+    try:
+        import multiprocessing
+        ctx = multiprocessing.get_context('fork')
+    except ValueError:
+        return [fn(x) for x in items]
+    n = min(len(items), max(1, (os.cpu_count() or 2) - 1))
+    try:
+        with ctx.Pool(n) as pool:
+            return pool.map(fn, items, chunksize=1)
+    except Exception:
+        return [fn(x) for x in items]
+
+
+def _braille_one(job):
+    """One part's braille, worked out and written: (part name, lines to
+    say, a proofreading doubt, why there is none yet, the .brf path)."""
+    import chartbraille
+    src, title, where, ex, page = job
+    base = os.path.basename(src)[:-len('.musicxml')]
+    xml = open(src, encoding='utf-8').read()
+    for pid, pname in chartbraille.document_parts(xml)[:1]:
+        text, why = chartbraille.part_to_brf(xml, pid, title, pname,
+                                             page=page)
+        if text is None:
+            return pname, [], None, '; '.join(why), None
+        said = [f"Braille for {pname}: {w}." for w in why]
+        problems = chartbraille.proofread(xml, pid, text)
+        doubt = f"{pname}: {problems[0]}" if problems else None
+        if 'braille' in ex:
+            with open(os.path.join(where, base + '.brf'), 'wb') as f:
+                f.write(text.encode('ascii', 'ignore'))
+        if 'braille pages' in ex:
+            chartbraille.brf_pages_pdf(
+                text, os.path.join(where, base + ' (braille view).pdf'),
+                f"{title} - {pname}", page=page)
+        return pname, said, doubt, None, os.path.join(where, base + '.brf')
+    return None
+
+
 def make_braille(sources, title, where, ex, page=None):
     """A braille file (BRF, BANA music code) for every part that can be
     brailled, and/or the braille drawn as dots; each one read back by
     the proofreader and compared with the score before it is kept."""
-    import chartbraille
     made, notyet, doubts, made_files = [], [], [], []
-    for src in sources:
-        base = os.path.basename(src)[:-len('.musicxml')]
-        if is_score(src):
+    # every part on its own core; said in the band's order afterwards
+    jobs = [(src, title, where, ex, page) for src in sources
+            if not is_score(src)]
+    for got in par_map(_braille_one, jobs):
+        if got is None:
             continue
-        xml = open(src, encoding='utf-8').read()
-        for pid, pname in chartbraille.document_parts(xml)[:1]:
-            text, why = chartbraille.part_to_brf(xml, pid, title, pname,
-                                                 page=page)
-            if text is None:
-                notyet.append((pname, '; '.join(why)))
-                continue
-            for w in why:
-                say(f"Braille for {pname}: {w}.")
-            problems = chartbraille.proofread(xml, pid, text)
-            if problems:
-                doubts.append(f"{pname}: {problems[0]}")
-            if 'braille' in ex:
-                with open(os.path.join(where, base + '.brf'), 'wb') as f:
-                    f.write(text.encode('ascii', 'ignore'))
-            if 'braille pages' in ex:
-                chartbraille.brf_pages_pdf(
-                    text, os.path.join(where, base + ' (braille view).pdf'),
-                    f"{title} - {pname}", page=page)
-            made.append(pname)
-            made_files.append(os.path.join(where, base + '.brf'))
+        pname, said, doubt, why_not, brf = got
+        if why_not is not None:
+            notyet.append((pname, why_not))
+            continue
+        for line in said:
+            say(line)
+        if doubt:
+            doubts.append(doubt)
+        made.append(pname)
+        made_files.append(brf)
     if made:
         what = {frozenset({'braille'}): "Braille files",
                 frozenset({'braille pages'}): "Braille views (the dots "
@@ -491,6 +528,50 @@ def listen_excerpt(listen_src, title, listen_dir, rng, sel, cfg, count_in,
         say(f"Listen ready: {who}, bars {rng[0]} to {rng[1]}.")
     else:
         say("ffmpeg refused the cut; no listen for that range.")
+
+
+def where_it_all_is(title_dir, pages_dir, listen_dir, spoken_dir, title,
+                    ex, base_dir=None):
+    """One sentence a writer can act on: where the files landed. The
+    MusicXML is always made (it is what the pages are drawn from), and
+    it is what MuseScore, Sibelius, Dorico and Finale open."""
+    def count(d, end):
+        try:
+            return len([f for f in os.listdir(d)
+                        if f.startswith(title) and f.endswith(end)
+                        and '— for listening' not in f])
+        except OSError:
+            return 0
+    home = os.path.expanduser('~')
+
+    def nice(d):
+        # said by ear, so the short way: where it sits beside the chart
+        if base_dir and os.path.abspath(d) == os.path.abspath(base_dir):
+            return "the chart's folder"
+        if base_dir and os.path.abspath(d).startswith(
+                os.path.abspath(base_dir) + os.sep):
+            return ("the " + os.path.relpath(d, base_dir)
+                    + " folder beside the chart")
+        return d.replace(home, '~', 1) if d.startswith(home) else d
+    bits = []
+    xml = count(title_dir, '.musicxml')
+    if xml:
+        bits.append(f"{xml} MusicXML file(s), for MuseScore, Sibelius, "
+                    f"Dorico or Finale, in {nice(title_dir)}")
+    pdf = (count(pages_dir, '.pdf') - count(pages_dir, '(braille view).pdf')
+           if 'pages' in ex else 0)
+    if pdf:
+        bits.append(f"{pdf} PDF(s)" + ("" if pages_dir == title_dir else
+                                       f" in {nice(pages_dir)}"))
+    mp3 = count(listen_dir, '.mp3') if 'listen' in ex else 0
+    if mp3:
+        bits.append("the listen MP3" + ("" if listen_dir == title_dir
+                                        else f" in {nice(listen_dir)}"))
+    if 'read-alouds' in ex:
+        bits.append(f"read-alouds in {nice(spoken_dir)}")
+    if not bits:
+        return "Nothing was written this time."
+    return "Your files: " + "; ".join(bits) + "."
 
 
 def parse_exports(text):
@@ -1281,8 +1362,10 @@ def main():
                     help="also cut a listen MP3 starting at this bar "
                          "(your DAW's numbering) — no waiting through "
                          "the whole tune to proof the ending")
-    ap.add_argument('--demo', help="with new: the demo MIDI to scaffold "
-                                   "the chart around")
+    ap.add_argument('--demo', action='append',
+                    help="with new: the demo MIDI to scaffold the chart "
+                         "around; say it again for each file when your "
+                         "DAW exported one file per instrument")
     ap.add_argument('--labels', action='store_true',
                     help="with parts: one part label per line, for the "
                          "apps' pick lists")
@@ -1320,7 +1403,8 @@ def main():
 
     if args.command == 'edit':
         import chartedit
-        chartedit.edit(args.chart, demo=args.demo,
+        chartedit.edit(args.chart,
+                       demo=args.demo[0] if args.demo else None,
                        composer=cfg['composer'], cfg=cfg)
         return
 
@@ -1552,20 +1636,29 @@ def main():
     if rng:
         to_draw = [excerpt_file(w, rng, excerpt_dir) for w in to_draw]
         to_draw = [w for w in to_draw if w]
+    def page_of(src):
+        return os.path.join(pages_dir,
+                            os.path.basename(src)[:-len('.musicxml')]
+                            + '.pdf')
+
+    def draw(src):
+        try:
+            return chartengrave.engrave(src, page_of(src), look=look)
+        except Exception as e:
+            return False, f"engraver error: {e} (report that)"
+    # every part drawn on its own core at once
+    drawn = {}
+    if 'pages' in ex and to_draw:
+        progress(12, f"drawing {len(to_draw)} page file(s)")
+        drawn = dict(zip(to_draw, par_map(draw, to_draw)))
     for src in to_draw:
         if 'pages' not in ex:
             continue
         progress(12 + 13 * pages / max(len(to_draw), 1),
                  "drawing " + os.path.basename(src)
                  .replace('.musicxml', ''))
-        dst = os.path.join(pages_dir,
-                           os.path.basename(src)[:-len('.musicxml')]
-                           + '.pdf')
-        why = None
-        try:
-            ok, why = chartengrave.engrave(src, dst, look=look)
-        except Exception as e:
-            ok, why = False, f"engraver error: {e} (report that)"
+        dst = page_of(src)
+        ok, why = drawn.get(src) or draw(src)
         if ok:
             pages += 1
             continue
@@ -1742,6 +1835,9 @@ def main():
             say(f'No parts matched --solo "{args.solo}" — '
                 "try the parts command for the exact names.")
 
+    if args.command == 'build':
+        say(where_it_all_is(title_dir, pages_dir, listen_dir, spoken_dir,
+                            title, ex, base_dir))
     say("Done. Proof it by ear before a single player sees it.")
     tname = os.path.splitext(os.path.basename(path))[0]
     if cfg['notify'] == 'yes':
