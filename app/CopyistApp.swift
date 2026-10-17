@@ -92,6 +92,69 @@ struct FlowLayout: Layout {
     }
 }
 
+/// The Mac's bordered buttons keep the system's own small label
+/// whatever the text size, so past 100 percent the desk draws its own:
+/// the same shape, the label at the writer's size. At 100 percent
+/// everything is the system's, focus ring and all.
+struct DeskButtonStyle: ButtonStyle {
+    var fill: Color? = nil
+    var ink: Color? = nil
+
+    func makeBody(configuration: Configuration) -> some View {
+        DeskButtonBody(configuration: configuration, fill: fill, ink: ink)
+    }
+}
+
+private struct DeskButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let fill: Color?
+    let ink: Color?
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        configuration.label
+            .font(.system(size: ts(13), weight: fill == nil ? .regular
+                                                             : .semibold))
+            .foregroundStyle(ink ?? Color.primary)
+            .padding(.horizontal, ts(10))
+            .padding(.vertical, ts(4))
+            .background(RoundedRectangle(cornerRadius: ts(6))
+                .fill(fill ?? Color.secondary.opacity(0.18)))
+            .overlay(RoundedRectangle(cornerRadius: ts(6))
+                .stroke(Color.secondary.opacity(fill == nil ? 0.45 : 0),
+                        lineWidth: 1))
+            .opacity(configuration.isPressed ? 0.7 : (enabled ? 1 : 0.55))
+            .contentShape(RoundedRectangle(cornerRadius: ts(6)))
+    }
+}
+
+extension View {
+    /// .bordered (or, given a fill, .borderedProminent) at 100 percent;
+    /// the desk's own scaled button above it.
+    @ViewBuilder
+    func deskButton(fill: Color? = nil, ink: Color? = nil) -> some View {
+        let k = UserDefaults.standard.double(forKey: "textScale")
+        if k > 1.01 {
+            self.buttonStyle(DeskButtonStyle(fill: fill, ink: ink))
+        } else if fill != nil {
+            self.buttonStyle(.borderedProminent)
+        } else {
+            self.buttonStyle(.bordered)
+        }
+    }
+
+    /// Every button that names no style of its own, at the text size.
+    @ViewBuilder
+    func deskButtons() -> some View {
+        let k = UserDefaults.standard.double(forKey: "textScale")
+        if k > 1.01 {
+            self.buttonStyle(DeskButtonStyle())
+        } else {
+            self
+        }
+    }
+}
+
 struct Palette {
     let bg: Color, card: Color, edge: Color
     let text: Color, sub: Color
@@ -108,6 +171,34 @@ struct Palette {
         edge: Color(hex: 0x877C67),
         text: Color(hex: 0x232018), sub: Color(hex: 0x6B655B),
         accent: Color(hex: 0xA22C29), accentText: Color(hex: 0xFFF8F0))
+}
+
+// MARK: - Running the engine without freezing the window
+
+/// Run a program in the background and hand its output (stdout, and
+/// stderr too when asked) and exit status back on the main thread. A
+/// toggle in Settings used to wait for Python to start and finish
+/// before the window would answer again.
+func runInBackground(_ exe: String, _ args: [String], stderr: Bool = false,
+                     done: @escaping (String, Int32) -> Void) {
+    DispatchQueue.global(qos: .userInitiated).async {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: exe)
+        p.arguments = args
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = stderr ? pipe : Pipe()
+        guard (try? p.run()) != nil else {
+            DispatchQueue.main.async { done("", -1) }
+            return
+        }
+        // read before waiting: a full pipe never deadlocks this way
+        let d = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        let out = String(decoding: d, as: UTF8.self)
+        let st = p.terminationStatus
+        DispatchQueue.main.async { done(out, st) }
+    }
 }
 
 // MARK: - Talking to VoiceOver
@@ -381,20 +472,14 @@ final class AppModel: ObservableObject {
             parts = []
             return
         }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: tool.python)
-        p.arguments = [tool.script, c, "parts", "--labels"]
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = Pipe()
-        do { try p.run() } catch { parts = []; return }
-        p.waitUntilExit()
-        let d = pipe.fileHandleForReading.readDataToEndOfFile()
-        parts = p.terminationStatus == 0
-            ? String(decoding: d, as: UTF8.self)
-                .split(separator: "\n").map(String.init)
-                .filter { !$0.isEmpty }
-            : []
+        runInBackground(tool.python, [tool.script, c, "parts", "--labels"])
+        { [weak self] out, st in
+            guard let self, self.chart == c else { return }
+            self.parts = st == 0
+                ? out.split(separator: "\n").map(String.init)
+                    .filter { !$0.isEmpty }
+                : []
+        }
     }
 
     /// The transcript, one line per thing said.
@@ -1281,6 +1366,10 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity,
                        alignment: .topLeading)
             }
+            // every control's own words (buttons, toggles, pickers) take
+            // the text size too, not just the text the app styles itself
+            .font(.system(size: ts(13)))
+            .deskButtons()
             // a new text size redraws everything at it; controls grow too
             .id(model.textScale)
             .controlSize(model.textScale >= 1.4 ? .large : .regular)
@@ -1297,6 +1386,10 @@ struct ContentView: View {
         // later, the moment the Build tab appeared
         .sheet(isPresented: $model.showExport) {
             ExportSheet(pal: pal).environmentObject(model)
+                // a sheet is its own window: it takes the text size too
+                .font(.system(size: ts(13)))
+                .deskButtons()
+                .controlSize(model.textScale >= 1.4 ? .large : .regular)
         }
         .confirmationDialog("Emboss every part's braille on "
                             + model.embosser() + "?",
@@ -1408,7 +1501,7 @@ struct HeaderBar: View {
                             .font(.system(size: ts(12), weight: .semibold))
                     }
                 }
-                .buttonStyle(.bordered)
+                .deskButton()
                 .accessibilityLabel("\(model.runTitle) is still going"
                     + (model.progressPct.map { ", \(Int($0)) percent" }
                        ?? "") + ". Go to it.")
@@ -1418,7 +1511,7 @@ struct HeaderBar: View {
             } label: {
                 Label("Open a chart", systemImage: "folder")
             }
-            .buttonStyle(.bordered)
+            .deskButton()
             .help("Open a chart (Command O)")
             .accessibilityHint("Command O")
         }
@@ -1434,7 +1527,9 @@ struct TabStrip: View {
     let pal: Palette
 
     var body: some View {
-        HStack(spacing: 6) {
+        // wraps to a second row at a big text size; a tab's name never
+        // breaks mid-word ("Cha / rt" at 200 percent, 2026-10-17)
+        FlowLayout(spacing: 6) {
             ForEach(Tab.allCases) { t in
                 let on = model.tab == t
                 Button {
@@ -1446,6 +1541,8 @@ struct TabStrip: View {
                         Text(t.title)
                             .font(.system(size: ts(13), weight: on ? .bold
                                                               : .medium))
+                            .lineLimit(1)
+                            .fixedSize()
                         Text("⌘\(t.rawValue)")
                             .font(.system(size: ts(10), weight: .medium,
                                           design: .rounded))
@@ -1468,8 +1565,8 @@ struct TabStrip: View {
                 .accessibilityHint("Command \(t.rawValue)")
                 .accessibilityAddTraits(on ? [.isSelected] : [])
             }
-            Spacer()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
         .padding(.bottom, 10)
         .accessibilityElement(children: .contain)
@@ -1552,13 +1649,16 @@ struct ActionButton: View {
                 Image(systemName: icon)
                     .font(.system(size: ts(20), weight: .semibold))
                     .foregroundStyle(pal.accent)
-                    .frame(width: 28)
+                    .frame(width: ts(28))       // grows with its icon
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.system(size: ts(15), weight: .semibold))
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(line)
                         .font(.system(size: ts(12)))
                         .foregroundStyle(pal.sub)
+                        // wraps, never "fr…": the rest of it is the point
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
                 if !keys.isEmpty {
@@ -1696,75 +1796,88 @@ struct ChartTab: View {
 
 // MARK: - Build tab
 
+struct DeskAction: Identifiable {
+    var id: String { title }
+    let icon: String, title: String, line: String, keys: String
+    let act: () -> Void
+}
+
 struct BuildTab: View {
     @EnvironmentObject var model: AppModel
     let pal: Palette
 
-    var body: some View {
+    var columns: Int {
+        model.textScale >= 1.75 ? 1 : model.textScale >= 1.3 ? 2 : 3
+    }
+
+    var actions: [DeskAction] {
+        let m = model
+        return [
+            DeskAction(icon: "hammer", title: "Build it",
+                       line: "Pages, read-alouds, findings, and the band "
+                           + "plays it.", keys: "⌘B") {
+                m.run("Build", args: ["build"]) },
+            DeskAction(icon: "checkmark.seal", title: "Check it",
+                       line: "Prove every bar adds up. Nothing rendered.",
+                       keys: "⌘K") { m.run("Check", args: ["check"]) },
+            DeskAction(icon: "arrow.triangle.2.circlepath",
+                       title: "What changed",
+                       line: "Since the last build, by part and bar.",
+                       keys: "⌘D") { m.run("What changed", args: ["diff"]) },
+            DeskAction(icon: "square.and.arrow.up", title: "Export…",
+                       line: "Choose the bars, the parts, the look and "
+                           + "what to make.", keys: "⌘E") {
+                m.showExport = true },
+            DeskAction(icon: "hand.point.up.braille", title: "Braille",
+                       line: "Just the braille: a file for each part, read "
+                           + "back against the score.", keys: "⇧⌘B") {
+                m.run("Braille", args: ["braille"]) },
+            DeskAction(icon: "printer", title: "Emboss",
+                       line: "Send the braille to your embosser, after you "
+                           + "say yes.", keys: "") { m.emboss() },
+        ]
+    }
+
+    var desk: some View {
         VStack(alignment: .leading, spacing: 14) {
             TabHeading(tab: .build, pal: pal)
-            // two rows of three: six in one row left each button a
-            // sliver, its title a tower of broken words
+            // three across, two at a bigger text size, one at the
+            // biggest: six in one row left each a sliver, and at 200
+            // percent even three were towers of broken words
             VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-
-                ActionButton(icon: "hammer", title: "Build it",
-                             line: "Pages, read-alouds, findings, and the "
-                                 + "band plays it.",
-                             keys: "⌘B", pal: pal,
-                             enabled: model.chart != nil) {
-                    model.run("Build", args: ["build"])
-                }
-                ActionButton(icon: "checkmark.seal", title: "Check it",
-                             line: "Prove every bar adds up. Nothing "
-                                 + "rendered.",
-                             keys: "⌘K", pal: pal,
-                             enabled: model.chart != nil) {
-                    model.run("Check", args: ["check"])
-                }
-                ActionButton(icon: "arrow.triangle.2.circlepath",
-                             title: "What changed",
-                             line: "Since the last build, by part and bar.",
-                             keys: "⌘D", pal: pal,
-                             enabled: model.chart != nil) {
-                    model.run("What changed", args: ["diff"])
+                ForEach(Array(stride(from: 0, to: actions.count,
+                                     by: columns)), id: \.self) { i in
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(actions[i..<min(i + columns,
+                                                actions.count)]) { d in
+                            ActionButton(icon: d.icon, title: d.title,
+                                         line: d.line, keys: d.keys,
+                                         pal: pal,
+                                         enabled: model.chart != nil,
+                                         act: d.act)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 10) {
-                ActionButton(icon: "square.and.arrow.up",
-                             title: "Export…",
-                             line: "Choose the bars, the parts, the look "
-                                 + "and what to make.",
-                             keys: "⌘E", pal: pal,
-                             enabled: model.chart != nil) {
-                    model.showExport = true
-                }
-                ActionButton(icon: "hand.point.up.braille",
-                             title: "Braille",
-                             line: "Just the braille: a file for each "
-                                 + "part, read back against the score.",
-                             keys: "⇧⌘B", pal: pal,
-                             enabled: model.chart != nil) {
-                    model.run("Braille", args: ["braille"])
-                }
-                ActionButton(icon: "printer",
-                             title: "Emboss",
-                             line: "Send the braille to your embosser, "
-                                 + "after you say yes.",
-                             keys: "", pal: pal,
-                             enabled: model.chart != nil) {
-                    model.emboss()
-                }
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            RunPanel(pal: pal, tab: .build)
+            RunPanel(pal: pal, tab: .build,
+                     transcriptHeight: scrolls ? ts(300) : nil)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 20)
+    }
+
+    /// past a little bigger the tab is taller than the window (a 1080
+    /// screen at 200 percent): it scrolls, so the results stay reachable
+    var scrolls: Bool { model.textScale > 1.15 }
+
+    var body: some View {
+        if scrolls {
+            ScrollView { desk }
+        } else {
+            desk
+        }
     }
 }
 
@@ -1862,6 +1975,7 @@ struct ExportSheet: View {
                             Text(label).tag(key)
                         }
                     }
+                        .accessibilityLabel("Look")
                     .pickerStyle(.segmented)
                     .onChange(of: look) { _ in sample = nil }
                     HStack {
@@ -1896,7 +2010,7 @@ struct ExportSheet: View {
                         .keyboardShortcut(.cancelAction)
                     Button("Export") { export() }
                         .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
+                        .deskButton(fill: pal.accent, ink: pal.accentText)
                         .tint(pal.accent)
                         // the label in the accent's own ink: white on amber read at 1.6:1
                         .foregroundStyle(pal.accentText)
@@ -2054,6 +2168,9 @@ struct RunPanel: View {
     @EnvironmentObject var model: AppModel
     let pal: Palette
     let tab: Tab
+    /// inside a scrolling tab the transcript needs a height of its own
+    /// (a scroll view in a scroll view otherwise folds to nothing)
+    var transcriptHeight: CGFloat? = nil
     /// a run the app started (not a tab the writer chose) takes
     /// VoiceOver to its title, so the cursor is never left on a button
     /// that just went away with the old tab
@@ -2113,7 +2230,7 @@ struct RunPanel: View {
                         }
                         Spacer()
                         Button("Stop") { model.stopRun() }
-                            .buttonStyle(.bordered)
+                            .deskButton()
                             .accessibilityHint("Command period")
                     } else {
                         Spacer()
@@ -2171,6 +2288,8 @@ struct RunPanel: View {
                                        anchor: .bottom)
                     }
                 }
+                .frame(minHeight: transcriptHeight,
+                       maxHeight: transcriptHeight)
             }
         }
     }
@@ -2223,7 +2342,7 @@ struct ResultButtons: View {
                 } label: {
                     Label("Play the listen", systemImage: "play.fill")
                 }
-                .buttonStyle(.borderedProminent)
+                .deskButton(fill: pal.accent, ink: pal.accentText)
                 .tint(pal.accent)
                 // the label in the accent's own ink: white on amber read at 1.6:1
                 .foregroundStyle(pal.accentText)
@@ -2242,7 +2361,7 @@ struct ResultButtons: View {
                             Label("Show the braille files",
                                   systemImage: "hand.point.up.braille")
                         }
-                        .buttonStyle(.bordered)
+                        .deskButton()
                         .accessibilityHint("\(brf.count) files, selected "
                                            + "in the Finder")
                     }
@@ -2253,7 +2372,7 @@ struct ResultButtons: View {
                             Label("See the braille as dots",
                                   systemImage: "circle.grid.3x3")
                         }
-                        .buttonStyle(.bordered)
+                        .deskButton()
                         .accessibilityHint("Opens \(views.count) page "
                                            + "file(s), drawn for sighted "
                                            + "eyes")
@@ -2266,7 +2385,7 @@ struct ResultButtons: View {
                             Label("Draw the braille as dots",
                                   systemImage: "circle.grid.3x3")
                         }
-                        .buttonStyle(.bordered)
+                        .deskButton()
                         .accessibilityHint("For a sighted teacher or "
                                            + "bandmate: every braille page "
                                            + "drawn as dots")
@@ -2279,7 +2398,7 @@ struct ResultButtons: View {
                         Label("Name the drum notes",
                               systemImage: "circle.grid.cross")
                     }
-                    .buttonStyle(.bordered)
+                    .deskButton()
                 }
                 if model.runOutput.contains("has no name yet") {
                     Button {
@@ -2288,7 +2407,7 @@ struct ResultButtons: View {
                         Label("Name the keyswitches",
                               systemImage: "pianokeys.inverse")
                     }
-                    .buttonStyle(.bordered)
+                    .deskButton()
                 }
                 if model.runTitle == "Bring in a file"
                     && model.runOutput.contains("tell me the tune.") {
@@ -2298,14 +2417,14 @@ struct ResultButtons: View {
                         Label("Tell me the tune",
                               systemImage: "bubble.left.and.bubble.right")
                     }
-                    .buttonStyle(.bordered)
+                    .deskButton()
                 } else if model.runTitle == "Bring in a file" {
                     Button {
                         model.run("Build", args: ["build"])
                     } label: {
                         Label("Build it now", systemImage: "hammer")
                     }
-                    .buttonStyle(.bordered)
+                    .deskButton()
                 }
                 if model.playURL != nil || model.madeFiles,
                    let score = model.scorePDF() {
@@ -2314,7 +2433,7 @@ struct ResultButtons: View {
                     } label: {
                         Label("Open the score", systemImage: "doc.richtext")
                     }
-                    .buttonStyle(.bordered)
+                    .deskButton()
                     .accessibilityHint("Command Shift E")
                 }
                 if model.madeFiles {
@@ -2327,7 +2446,7 @@ struct ResultButtons: View {
                             Label("Show the MusicXML",
                                   systemImage: "doc.text")
                         }
-                        .buttonStyle(.bordered)
+                        .deskButton()
                         .accessibilityHint("\(xml.count) files, selected "
                                            + "in the Finder, for "
                                            + "MuseScore, Sibelius, Dorico "
@@ -2342,7 +2461,7 @@ struct ResultButtons: View {
                     } label: {
                         Label("Show the pages", systemImage: "folder")
                     }
-                    .buttonStyle(.bordered)
+                    .deskButton()
                     .accessibilityHint("Opens the folder with every "
                                        + "part's PDF in Finder")
                 }
@@ -2423,14 +2542,14 @@ struct ListenTab: View {
                                       : "Listen to just these",
                                       systemImage: "headphones")
                             }
-                            .buttonStyle(.borderedProminent)
+                            .deskButton(fill: pal.accent, ink: pal.accentText)
                             .tint(pal.accent)
                             // the label in the accent's own ink: white on amber read at 1.6:1
                             .foregroundStyle(pal.accentText)
                             .disabled(model.chart == nil)
                             if !solo.isEmpty {
                                 Button("Everyone") { solo = [] }
-                                    .buttonStyle(.bordered)
+                                    .deskButton()
                                     .accessibilityLabel("Clear the solo, "
                                         + "back to everyone")
                             }
@@ -2446,7 +2565,7 @@ struct ListenTab: View {
                                 Label("Play the last listen",
                                       systemImage: "play.fill")
                             }
-                            .buttonStyle(.bordered)
+                            .deskButton()
                             .disabled(model.chart == nil)
                             .accessibilityHint("Command P")
                         }
@@ -2458,6 +2577,7 @@ struct ListenTab: View {
                                 Text(p).tag(p)
                             }
                         }
+                            .accessibilityLabel("Which part")
                         Text("Spoken the way a player would read it.")
                             .font(.system(size: ts(12)))
                             .foregroundStyle(pal.sub)
@@ -2470,7 +2590,7 @@ struct ListenTab: View {
                         } label: {
                             Label("Read it", systemImage: "text.book.closed")
                         }
-                        .buttonStyle(.bordered)
+                        .deskButton()
                         .disabled(model.chart == nil)
                         Divider()
                         Button {
@@ -2479,11 +2599,11 @@ struct ListenTab: View {
                         } label: {
                             Label("The sound shelf", systemImage: "pianokeys")
                         }
-                        .buttonStyle(.bordered)
+                        .deskButton()
                         .accessibilityHint("What the band plays on")
                     }
                 }
-                RunPanel(pal: pal, tab: .listen)
+                RunPanel(pal: pal, tab: .listen, transcriptHeight: ts(300))
                     .frame(minHeight: model.runTab == .listen ? 260 : 0)
             }
             .padding(.horizontal, 20)
@@ -2619,7 +2739,7 @@ struct TalkView: View {
                         .accessibilityLabel("Attach a file into the answer")
                         Button("Send") { send() }
                             .keyboardShortcut(.defaultAction)
-                            .buttonStyle(.borderedProminent)
+                            .deskButton(fill: pal.accent, ink: pal.accentText)
                             .tint(pal.accent)
                             // the label in the accent's own ink: white on amber read at 1.6:1
                             .foregroundStyle(pal.accentText)
@@ -2647,13 +2767,13 @@ struct TalkView: View {
                         Label("Build it and hear it",
                               systemImage: "hammer")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .deskButton(fill: pal.accent, ink: pal.accentText)
                     .tint(pal.accent)
                     // the label in the accent's own ink: white on amber read at 1.6:1
                     .foregroundStyle(pal.accentText)
                     .accessibilityHint("Command B")
                     Button("New conversation") { model.talk = [] }
-                        .buttonStyle(.bordered)
+                        .deskButton()
                 }
             }
         }
@@ -2700,6 +2820,7 @@ struct SettingsView: View {
                             Text(v.label).tag(v)
                         }
                     }
+                        .accessibilityLabel("Appearance")
                     .pickerStyle(.segmented)
                     .tint(pal.accent)
                     Picker("Text size", selection: $model.textScale) {
@@ -2708,6 +2829,7 @@ struct SettingsView: View {
                                 .tag(k)
                         }
                     }
+                        .accessibilityLabel("Text size")
                     .accessibilityHint("Command equals is bigger, "
                                        + "Command minus smaller, Command "
                                        + "zero back to 100 percent")
@@ -2744,6 +2866,7 @@ struct SettingsView: View {
                             Text($0.isEmpty ? "each chart decides" : $0)
                         }
                     }
+                        .accessibilityLabel("Look")
                 }
                 group("What a build makes") {
                     Text("Any mix. Listen and Braille on the Build tab "
@@ -2761,6 +2884,7 @@ struct SettingsView: View {
                         Text("Letter, 34 by 25").tag("letter")
                         Text("A4, 35 by 28").tag("a4")
                     }
+                        .accessibilityLabel("Braille paper")
                     // the label drawn beside the popup, not inside it:
                     // VoiceOver focus on a labelled Picker lands on the
                     // word, one step short of the control
@@ -2780,6 +2904,7 @@ struct SettingsView: View {
                          + "System Settings, Printers and Scanners.")
                         .font(.system(size: ts(11)))
                         .foregroundStyle(pal.sub)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 group("When a build lands") {
                     Toggle("Ping my phone",
@@ -2809,6 +2934,7 @@ struct SettingsView: View {
                             Text($0.isEmpty ? "the chart decides" : $0)
                         }
                     }
+                        .accessibilityLabel("How Copyist reads your played rhythms")
                     HStack {
                         // placeholder as a prompt only: the label below
                         // says the name once, with what it's set to
@@ -2863,15 +2989,22 @@ struct SettingsView: View {
                             model.run("Installing sounds",
                                       args: ["sounds", "install",
                                              keys.joined(separator: ", ")],
-                                      needsChart: false)
+                                      needsChart: false, on: .settings)
                         }
                         .disabled(pickedSounds.isEmpty)
                         Button("Install everything the band plays") {
                             model.run("Installing sounds",
                                       args: ["sounds", "install", "band"],
-                                      needsChart: false)
+                                      needsChart: false, on: .settings)
                         }
                         .disabled(soundRows.allSatisfy { $0.2 })
+                    }
+                    // the install's progress and transcript, here where
+                    // it was started (it used to jump to the Build tab)
+                    if model.runTab == .settings
+                        && (model.running || !model.runTitle.isEmpty) {
+                        RunPanel(pal: pal, tab: .settings,
+                                 transcriptHeight: ts(220))
                     }
                 }
                 group("What the listen makes up") {
@@ -2928,30 +3061,39 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Text(status)
-                    .font(.system(size: ts(13)))
-                    .foregroundStyle(pal.sub)
-                    .padding(.bottom, 20)
-                    .accessibilityAddTraits(.updatesFrequently)
+                Spacer(minLength: 40)
             }
             .padding(.horizontal, 20)
+        }
+        // what the last change did, pinned where a sighted eye finds it
+        // whatever is scrolled into view (it sat at the very bottom)
+        .safeAreaInset(edge: .bottom) {
+            if !status.isEmpty {
+                Text(status)
+                    .font(.system(size: ts(13), weight: .semibold))
+                    .foregroundStyle(pal.text)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(pal.card)
+                    .overlay(Rectangle().frame(height: 1)
+                        .foregroundStyle(pal.edge), alignment: .top)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
+        .onChange(of: model.running) { going in
+            // a sound install finished here: the list says what is in
+            if !going && model.runTitle == "Installing sounds" {
+                loadSounds()
+            }
         }
         .onAppear {
             cfg = loadConfig()
             composer = cfg["composer"] ?? ""
             countin = cfg["countin"] ?? ""
             if cfg["braille_page"] == nil { cfg["braille_page"] = "standard" }
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/usr/bin/lpstat")
-            p.arguments = ["-e"]
-            let pipe = Pipe()
-            p.standardOutput = pipe
-            p.standardError = Pipe()
-            if (try? p.run()) != nil {
-                p.waitUntilExit()
-                printers = String(decoding: pipe.fileHandleForReading
-                    .readDataToEndOfFile(), as: UTF8.self)
-                    .split(separator: "\n").map(String.init)
+            runInBackground("/usr/bin/lpstat", ["-e"]) { out, _ in
+                printers = out.split(separator: "\n").map(String.init)
             }
             showEmbosser(proxy)
             loadSounds()
@@ -2964,16 +3106,8 @@ struct SettingsView: View {
     /// line, "  key: name — plays; size, license; installed".
     func loadSounds() {
         guard let tool = Tool.find() else { return }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: tool.python)
-        p.arguments = [tool.script, "sounds", "list"]
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = Pipe()
-        guard (try? p.run()) != nil else { return }
-        p.waitUntilExit()
-        let out = String(decoding: pipe.fileHandleForReading
-            .readDataToEndOfFile(), as: UTF8.self)
+        runInBackground(tool.python, [tool.script, "sounds", "list"]) {
+            out, _ in
         soundRows = out.split(separator: "\n").compactMap { line in
             let t = line.trimmingCharacters(in: .whitespaces)
             guard let colon = t.firstIndex(of: ":"),
@@ -2986,6 +3120,7 @@ struct SettingsView: View {
                 body = String(body[..<semi.lowerBound])
             }
             return (key, body, isIn)
+        }
         }
     }
 
@@ -3102,19 +3237,17 @@ struct SettingsView: View {
             status = "I can't find the Copyist engine."
             return
         }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: tool.python)
-        p.arguments = [tool.script, "set", "\(key)=\(value)"]
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = pipe
-        try? p.run()
-        p.waitUntilExit()
-        let d = pipe.fileHandleForReading.readDataToEndOfFile()
-        let line = String(decoding: d, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        status = line.isEmpty ? "Saved." : line
-        cfg = loadConfig()
-        announce(status)
+        // the control shows its new value at once; the engine checks
+        // and saves it in the background, and what it says is shown
+        // and spoken (a refusal puts the old value back)
+        cfg[key] = value
+        status = "Saving…"
+        runInBackground(tool.python, [tool.script, "set", "\(key)=\(value)"],
+                        stderr: true) { out, _ in
+            let line = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            status = line.isEmpty ? "Saved." : line
+            cfg = loadConfig()
+            announce(status)
+        }
     }
 }

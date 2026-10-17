@@ -70,11 +70,23 @@ class Reader:
         self.event = None          # (step, octave, cls, dots) written
         self.cprev = None          # (step, octave) last note of chord
         self.held = {}             # (step, octave) -> alter tied in
+        self.held_bars = {}        # (step, octave) -> barlines since tied
         self.pending = {}          # ties this event sends on
         self.last_key = None
 
-    def bar(self):
+    def bar(self, accord=False):
+        """A barline (or, with accord, an in-accord sign): accidentals
+        stop carrying. A tie reaches at most into the next bar, so what
+        it held is dropped once a second real barline goes by — held
+        past that, it leaked onto a later, untied note."""
         self.carry = {}
+        if accord:
+            return
+        for k in list(self.held):
+            self.held_bars[k] = self.held_bars.get(k, 0) + 1
+            if self.held_bars[k] >= 2:
+                del self.held[k]
+                del self.held_bars[k]
 
     def fresh(self):
         self.prev = None
@@ -106,10 +118,18 @@ class Reader:
             alter = acc
             if not self.perc:
                 self.carry[k] = acc
+            # the tied-to note restated with its own sign: the hold is
+            # used up, not left for a later note
+            if self.held.get(k):
+                self.held[k].pop(0)
+                if not self.held[k]:
+                    del self.held[k]
+                    self.held_bars.pop(k, None)
         elif self.held.get(k):
             alter = self.held[k].pop(0)
             if not self.held[k]:
                 del self.held[k]
+                self.held_bars.pop(k, None)
         else:
             alter = self.carry.get(k, self.base.get(step, 0))
         self.notes.append((f'{step}{"#" * alter if alter > 0 else "b" * -alter}'
@@ -150,6 +170,7 @@ class Reader:
         # first note of the other part (it lost a tied D natural, 2026-10-17)
         for k, alters in self.pending.items():
             self.held.setdefault(k, []).extend(alters)
+            self.held_bars[k] = 0
         self.pending = {}
         self.event_notes = []
         self.joins.append(self.link)
@@ -265,7 +286,9 @@ def read_line(r, s):
         k = i + 1
         while k < n and (s[k].isalpha() or s[k] in "'7-"):
             if s[k] == "'":
-                return k + 1                        # dot 3 ends the word
+                # dot 3 ends the word; "rit." writes its period as dot 3
+                # first, so an abbreviation ends in two
+                return k + 2 if s[k + 1:k + 2] == "'" else k + 1
             k += 1
         return k
     while i < n:
@@ -293,7 +316,7 @@ def read_line(r, s):
             i += 1
             continue
         if two == '<>':                            # 11.1.1 in-accord
-            r.bar()
+            r.bar(accord=True)
             r.fresh()
             in_event, in_accord = False, True
             i += 2

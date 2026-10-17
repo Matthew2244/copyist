@@ -335,15 +335,27 @@ def octave_sign(octave):
 def _loose_ties(measures, staff=1):
     """Ties whose next note is not the same pitch: a braille tie joins
     two notes of one pitch, so a dangling print tie is left out rather
-    than read as joining two different notes."""
-    seq = [n for m in measures
-           for _p, ns, _s, _v in sorted((e for e in m['events']
-                                         if e[2] == staff),
-                                        key=lambda e: e[0])
-           for n in ns[:1] if not n.rest and not n.slash]
-    return {id(a) for a, b in zip(seq, seq[1:] + [None])
-            if a.tie_start and (b is None or (b.step, b.octave, b.alter or 0)
-                                != (a.step, a.octave, a.alter or 0))}
+    than read as joining two different notes. Followed line by line
+    (each voice on its own) and note by note in a chord: walking both
+    of a hand's lines as one stream, a tied D in one line met the other
+    line's next note and the tie was dropped, losing its natural in the
+    bar it was tied into (2026-10-17)."""
+    lines = {}
+    for m in measures:
+        for _p, ns, _s, v in sorted((e for e in m['events']
+                                     if e[2] == staff), key=lambda e: e[0]):
+            pitched = [n for n in ns if not n.rest and not n.slash]
+            if pitched:
+                lines.setdefault(v, []).append(pitched)
+    loose = set()
+    for evs in lines.values():
+        for now, nxt in zip(evs, evs[1:] + [[]]):
+            there = {(n.step, n.octave, n.alter or 0) for n in nxt}
+            for a in now:
+                if a.tie_start and (a.step, a.octave,
+                                    a.alter or 0) not in there:
+                    loose.add(id(a))
+    return loose
 
 
 def _mark_tied_accidentals(m, tied):
