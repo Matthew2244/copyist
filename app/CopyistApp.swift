@@ -40,6 +40,58 @@ enum Vibe: String, CaseIterable, Identifiable {
     }
 }
 
+/// Every size in the app, times the writer's text size (Settings, or
+/// View > Bigger Text, Command =): 100 to 200 percent. Nothing in the
+/// app is drawn at a fixed size any more (2026-10-17, low vision).
+func ts(_ size: CGFloat) -> CGFloat {
+    let k = UserDefaults.standard.double(forKey: "textScale")
+    return size * CGFloat(min(max(k == 0 ? 1.0 : k, 1.0), 2.0))
+}
+
+let textSizes: [Double] = [1.0, 1.15, 1.3, 1.5, 1.75, 2.0]
+
+/// Lays its children out left to right and wraps to a new row when the
+/// window is too narrow: result buttons, at any text size, never clip.
+/// Reading order stays the order they are written in.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews,
+                      cache: inout ()) -> CGSize {
+        rows(subviews, width: proposal.width ?? .infinity).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+                       subviews: Subviews, cache: inout ()) {
+        for (i, p) in rows(subviews, width: bounds.width).places
+            .enumerated() {
+            subviews[i].place(at: CGPoint(x: bounds.minX + p.x,
+                                          y: bounds.minY + p.y),
+                              proposal: .unspecified)
+        }
+    }
+
+    private func rows(_ subviews: Subviews, width: CGFloat)
+        -> (size: CGSize, places: [CGPoint]) {
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        var widest: CGFloat = 0
+        var places: [CGPoint] = []
+        for v in subviews {
+            let sz = v.sizeThatFits(.unspecified)
+            if x > 0 && x + sz.width > width {
+                x = 0
+                y += rowH + spacing
+                rowH = 0
+            }
+            places.append(CGPoint(x: x, y: y))
+            x += sz.width + spacing
+            rowH = max(rowH, sz.height)
+            widest = max(widest, x - spacing)
+        }
+        return (CGSize(width: widest, height: y + rowH), places)
+    }
+}
+
 struct Palette {
     let bg: Color, card: Color, edge: Color
     let text: Color, sub: Color
@@ -47,13 +99,13 @@ struct Palette {
 
     static let stage = Palette(
         bg: Color(hex: 0x0E1117), card: Color(hex: 0x1A2130),
-        edge: Color(hex: 0x2A3350),
+        edge: Color(hex: 0x626E8C),
         text: Color(hex: 0xEDF1F7), sub: Color(hex: 0x9AA7BD),
         accent: Color(hex: 0xFFB454), accentText: Color(hex: 0x1A1205))
 
     static let manuscript = Palette(
         bg: Color(hex: 0xF7F2E7), card: Color(hex: 0xFFFDF7),
-        edge: Color(hex: 0xE2D9C6),
+        edge: Color(hex: 0x877C67),
         text: Color(hex: 0x232018), sub: Color(hex: 0x6B655B),
         accent: Color(hex: 0xA22C29), accentText: Color(hex: 0xFFF8F0))
 }
@@ -214,6 +266,17 @@ final class AppModel: ObservableObject {
     }
     @AppStorage("speakSteps") var speakSteps: Bool = true
     @AppStorage("speakTabs") var speakTabs: Bool = true
+    @AppStorage("textScale") var textScale: Double = 1.0
+
+    /// One step bigger or smaller (or back to 100), said aloud.
+    func textSize(_ step: Int) {
+        let now = textSizes.firstIndex(where: { $0 >= textScale - 0.001 })
+            ?? 0
+        let next = step == 0 ? 0
+            : min(max(now + step, 0), textSizes.count - 1)
+        textScale = textSizes[next]
+        announce("Text size \(Int((textScale * 100).rounded())) percent.")
+    }
     private var lastSpokenStep = ""
     private var lastSpokenPct = 0.0
     private var lastSpokenAt = Date.distantPast
@@ -230,6 +293,22 @@ final class AppModel: ObservableObject {
     @Published var progressPct: Double?
     @Published var progressWhat = ""
     private var runBuffer = ""
+    /// how the last run ended when it did not simply finish: "stopped"
+    /// (the writer said so) or "failed" (the engine stopped on a
+    /// problem); shown and said, never dressed as finished
+    @Published var runEnded = ""
+    /// the last run was one that writes pages and files (a build or an
+    /// export), finished, so its results get their buttons
+    var madeFiles: Bool {
+        (runTitle == "Build" || runTitle == "Export") && runEnded.isEmpty
+            && !running
+    }
+    /// each run's number: a late handler from a run already replaced
+    /// must never touch the one now going
+    private var runID = 0
+    private var runStarted = Date()
+    private var userStopped = false
+    private var talkID = 0
     /// the chart an import just made, from the engine's "chart:" line
     private var importedChart: String?
     private var flavorTimer: Timer?
@@ -363,6 +442,11 @@ final class AppModel: ObservableObject {
         full += args
         runTitle = title
         runOutput = ""
+        runEnded = ""
+        runID += 1
+        let myRun = runID
+        runStarted = Date()
+        userStopped = false
         running = true
         playURL = nil
         progressPct = nil
@@ -393,14 +477,37 @@ final class AppModel: ObservableObject {
             let s = String(decoding: d, as: UTF8.self)
             DispatchQueue.main.async { self?.take(s) }
         }
-        p.terminationHandler = { [weak self] _ in
+        p.terminationHandler = { [weak self] proc_ in
+            // whatever is still in the pipe is the run's last word — the
+            // line that says what happened; read it before letting go
+            pipe.fileHandleForReading.readabilityHandler = nil
+            let rest = pipe.fileHandleForReading.readDataToEndOfFile()
+            let status = proc_.terminationStatus
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, myRun == self.runID else { return }
+                if !rest.isEmpty {
+                    self.take(String(decoding: rest, as: UTF8.self) + "\n")
+                }
                 self.running = false
                 self.stopFlavor()
-                pipe.fileHandleForReading.readabilityHandler = nil
+                self.progressPct = nil
+                if self.userStopped {
+                    self.runEnded = "stopped"
+                    self.importedChart = nil
+                    announce("\(title) stopped. Nothing after the last line "
+                             + "shown was made.")
+                    return
+                }
+                if status != 0 {
+                    self.runEnded = "failed"
+                    self.importedChart = nil
+                    let why = self.runOutput.split(separator: "\n")
+                        .last.map(String.init) ?? ""
+                    announce("\(title) stopped on a problem. " + why)
+                    return
+                }
                 if wantsPlay {
-                    self.playURL = self.newestMP3()
+                    self.playURL = self.newestMP3(since: self.runStarted)
                 }
                 let last = self.runOutput.split(separator: "\n")
                     .last.map(String.init) ?? "Done."
@@ -415,7 +522,7 @@ final class AppModel: ObservableObject {
                 }
                 announce("\(title) finished. \(last)" + opened
                          + (self.playURL != nil
-                            ? " Play it, Command P, is ready." : ""))
+                            ? " The listen is ready: Command P plays it." : ""))
             }
         }
         proc = p
@@ -474,19 +581,21 @@ final class AppModel: ObservableObject {
         if FileManager.default.fileExists(atPath: chartURL.path) {
             let a = NSAlert()
             a.messageText = "There is already a chart called \(base)."
-            a.informativeText = "Replace it with a new chart from "
+            a.informativeText = "Keep both, naming this one with a "
+                + "number, or replace the old chart with one from "
                 + (paths.count > 1 ? "these \(paths.count) demos"
                    : "this demo")
-                + " (the old chart goes to the Trash, so nothing is "
-                + "lost), or keep both and name this one \(base) 2."
-            a.addButton(withTitle: "Replace it")
+                + " (it goes to the Trash, so nothing is lost). Return "
+                + "keeps both."
+            // Return is the safe answer: nothing of his moves
             a.addButton(withTitle: "Keep both")
+            a.addButton(withTitle: "Replace it")
             a.addButton(withTitle: "Cancel")
             switch a.runModal() {
-            case .alertFirstButtonReturn:
+            case .alertSecondButtonReturn:
                 try? FileManager.default.trashItem(at: chartURL,
                                                    resultingItemURL: nil)
-            case .alertSecondButtonReturn:
+            case .alertFirstButtonReturn:
                 var n = 2
                 while FileManager.default.fileExists(atPath:
                     chartsFolder().appendingPathComponent("\(base) \(n)")
@@ -575,11 +684,13 @@ final class AppModel: ObservableObject {
         return Int(first)
     }
 
+    /// Stop the run going. It stays "running" until the engine has
+    /// really gone, so a new run can't start under it; the end is then
+    /// said as stopped, never as finished.
     func stopRun() {
+        guard running else { return }
+        userStopped = true
         proc?.terminate()
-        running = false
-        stopFlavor()
-        progressPct = nil
     }
 
     /// Split the engine's stream into lines; a "progress:" line moves
@@ -600,9 +711,16 @@ final class AppModel: ObservableObject {
             }
             if line.hasPrefix("chart: ") {
                 // the engine names the chart it made; the app opens it
-                // rather than reading a path aloud
-                importedChart = String(line.dropFirst("chart: ".count))
-                continue
+                // rather than reading a path aloud. Only a real .chart
+                // file counts: an error line starts "chart: " too, and
+                // used to become the chart being worked on
+                let made = String(line.dropFirst("chart: ".count))
+                    .trimmingCharacters(in: .whitespaces)
+                if made.hasSuffix(".chart")
+                    && FileManager.default.fileExists(atPath: made) {
+                    importedChart = made
+                    continue
+                }
             }
             runOutput += line + "\n"
         }
@@ -702,14 +820,40 @@ final class AppModel: ObservableObject {
                     .path) }
     }
 
-    func newestMP3() -> URL? {
+    /// A folder setting ("pages_to", "listens_to", "braille_to"), or
+    /// the chart's own build folder — the engine's rule.
+    func settingFolder(_ key: String) -> URL? {
         guard let c = chart else { return nil }
-        let dir = URL(fileURLWithPath: c).deletingLastPathComponent()
+        let cfgURL = URL(fileURLWithPath: NSHomeDirectory()
+            + "/.config/copyist/config.json")
+        if let d = try? Data(contentsOf: cfgURL),
+           let j = try? JSONSerialization.jsonObject(with: d)
+                as? [String: Any],
+           let to = (j[key] as? String)?
+                .trimmingCharacters(in: .whitespaces), !to.isEmpty {
+            return URL(fileURLWithPath:
+                (to as NSString).expandingTildeInPath)
+        }
+        return URL(fileURLWithPath: c).deletingLastPathComponent()
             .appendingPathComponent("build")
+    }
+
+    /// This chart's newest listen, where the listens land; with since,
+    /// only one made after it (a run that made no listen offers none).
+    func newestMP3(since: Date? = nil) -> URL? {
+        guard chart != nil, let dir = settingFolder("listens_to") else {
+            return nil
+        }
+        let title = chartName.replacingOccurrences(of: "/", with: " - ")
         guard let items = try? FileManager.default
             .contentsOfDirectory(at: dir, includingPropertiesForKeys:
                 [.contentModificationDateKey]) else { return nil }
-        return items.filter { $0.pathExtension == "mp3" }
+        return items.filter { $0.pathExtension == "mp3"
+            && (dir.lastPathComponent == "build"
+                || $0.lastPathComponent.hasPrefix(title))
+            && (since == nil || ((try? $0.resourceValues(forKeys:
+                [.contentModificationDateKey]).contentModificationDate)
+                ?? .distantPast) >= since!.addingTimeInterval(-1)) }
             .max { a, b in
                 let da = (try? a.resourceValues(forKeys:
                     [.contentModificationDateKey])
@@ -740,6 +884,11 @@ final class AppModel: ObservableObject {
     func startTalk(_ args: [String]) {
         guard let tool = Tool.find(), let c = chart else { return }
         let fromDemo = args.first == "new"
+        // one conversation at a time: a new one ends the old, whose
+        // late ending must not close this one
+        if talking { talkProc?.terminate() }
+        talkID += 1
+        let myTalk = talkID
         talk = []
         question = ""
         questionDefault = ""
@@ -771,12 +920,17 @@ final class AppModel: ObservableObject {
             DispatchQueue.main.async { self?.receive(s) }
         }
         p.terminationHandler = { [weak self] _ in
+            out.fileHandleForReading.readabilityHandler = nil
+            let rest = out.fileHandleForReading.readDataToEndOfFile()
             let errText = String(decoding: err.fileHandleForReading
                 .readDataToEndOfFile(), as: UTF8.self)
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, myTalk == self.talkID else { return }
+                if !rest.isEmpty {
+                    self.receive(String(decoding: rest, as: UTF8.self)
+                                 + "\n")
+                }
                 self.talking = false
-                out.fileHandleForReading.readabilityHandler = nil
                 self.question = ""
                 self.questionDefault = ""
                 let why = errText.split(separator: "\n")
@@ -1003,7 +1157,7 @@ struct DeskCommands: Commands {
             .disabled(model == nil)
         }
         CommandGroup(replacing: .appSettings) {
-            Button("Settings…") { model?.tab = .settings }
+            Button("Settings…") { model?.go(.settings) }
                 .keyboardShortcut(",", modifiers: .command)
                 .disabled(model == nil)
         }
@@ -1013,6 +1167,16 @@ struct DeskCommands: Commands {
                     .keyboardShortcut(t.key, modifiers: .command)
                     .disabled(model == nil)
             }
+            Divider()
+            Button("Bigger Text") { model?.textSize(1) }
+                .keyboardShortcut("=", modifiers: .command)
+                .disabled(model == nil)
+            Button("Smaller Text") { model?.textSize(-1) }
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(model == nil)
+            Button("Actual Size Text") { model?.textSize(0) }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(model == nil)
             Divider()
         }
         CommandMenu("Chart") {
@@ -1036,16 +1200,25 @@ struct DeskCommands: Commands {
             Button("Emboss…") { model?.emboss() }
                 .disabled(model?.chart == nil)
             Divider()
-            Button("Listen…") { model?.tab = .listen }
+            Button("Listen") { model?.go(.listen) }
                 .keyboardShortcut("l", modifiers: .command)
                 .disabled(model?.chart == nil)
             Button("Play the Last Listen") {
-                if let u = model?.newestMP3() { NSWorkspace.shared.open(u) }
+                if let u = model?.newestMP3() {
+                    NSWorkspace.shared.open(u)
+                } else {
+                    announce("No listen yet. Build it first, Command B.")
+                }
             }
             .keyboardShortcut("p", modifiers: .command)
             .disabled(model?.chart == nil)
             Button("Open the Score") {
-                if let u = model?.scorePDF() { NSWorkspace.shared.open(u) }
+                if let u = model?.scorePDF() {
+                    NSWorkspace.shared.open(u)
+                } else {
+                    announce("No score pages yet. Build it first, "
+                             + "Command B.")
+                }
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(model?.chart == nil)
@@ -1070,7 +1243,6 @@ struct DeskCommands: Commands {
             Divider()
             Button("Stop") {
                 model?.stopRun()
-                announce("Stopped.")
             }
             .keyboardShortcut(".", modifiers: .command)
             .disabled(model?.running != true)
@@ -1109,7 +1281,14 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity,
                        alignment: .topLeading)
             }
+            // a new text size redraws everything at it; controls grow too
+            .id(model.textScale)
+            .controlSize(model.textScale >= 1.4 ? .large : .regular)
         }
+        // each window is named for its chart, so the Window menu and
+        // Command backtick can tell two desks apart
+        .navigationTitle(model.chart == nil ? "Copyist"
+                         : "Copyist — \(model.chartName)")
         .preferredColorScheme(model.vibe == .stage ? .dark :
                               model.vibe == .manuscript ? .light : nil)
         .foregroundStyle(pal.text)
@@ -1177,9 +1356,9 @@ struct ContentView: View {
             group.notify(queue: .main) {
                 let got = urls.keys.sorted().compactMap { urls[$0] }
                 guard !got.isEmpty else { return }
-                announce(got.count == 1
-                         ? "Bringing in \(got[0].lastPathComponent)."
-                         : "Bringing in \(got.count) files.")
+                // no "bringing in" line of its own: the run's "started"
+                // or the interview's first words follow at once, and
+                // two at the same moment cut each other off
                 model.bringIn(got.map(\.path))
             }
             return true
@@ -1196,15 +1375,15 @@ struct HeaderBar: View {
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: "music.quarternote.3")
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: ts(22), weight: .bold))
                 .foregroundStyle(pal.accent)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Copyist")
-                    .font(.system(size: 20, weight: .bold, design: .serif))
+                    .font(.system(size: ts(20), weight: .bold, design: .serif))
                 Text(model.chart == nil ? "No chart open"
                      : "Working on \(model.chartName)")
-                    .font(.system(size: 12))
+                    .font(.system(size: ts(12)))
                     .foregroundStyle(pal.sub)
                     .lineLimit(1)
             }
@@ -1226,7 +1405,7 @@ struct HeaderBar: View {
                         Text(model.runTitle
                              + (model.progressPct.map { " \(Int($0))%" }
                                 ?? ""))
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: ts(12), weight: .semibold))
                     }
                 }
                 .buttonStyle(.bordered)
@@ -1263,12 +1442,12 @@ struct TabStrip: View {
                 } label: {
                     HStack(spacing: 7) {
                         Image(systemName: t.icon)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: ts(13), weight: .semibold))
                         Text(t.title)
-                            .font(.system(size: 13, weight: on ? .bold
+                            .font(.system(size: ts(13), weight: on ? .bold
                                                               : .medium))
                         Text("⌘\(t.rawValue)")
-                            .font(.system(size: 10, weight: .medium,
+                            .font(.system(size: ts(10), weight: .medium,
                                           design: .rounded))
                             .foregroundStyle(on ? pal.accentText
                                                   .opacity(0.75)
@@ -1309,12 +1488,12 @@ struct TabHeading: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(tab.title)
-                .font(.system(size: 22, weight: .bold, design: .serif))
+                .font(.system(size: ts(22), weight: .bold, design: .serif))
                 .accessibilityLabel(tab.spokenPlace)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityFocused($here)
             Text(tab.blurb)
-                .font(.system(size: 13))
+                .font(.system(size: ts(13)))
                 .foregroundStyle(pal.sub)
                 .accessibilityHidden(true)   // said on arrival already
         }
@@ -1344,7 +1523,7 @@ struct Card<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: ts(14), weight: .semibold))
                 .foregroundStyle(pal.sub)
                 .accessibilityAddTraits(.isHeader)
             content
@@ -1371,20 +1550,20 @@ struct ActionButton: View {
         Button(action: act) {
             HStack(spacing: 12) {
                 Image(systemName: icon)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: ts(20), weight: .semibold))
                     .foregroundStyle(pal.accent)
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: ts(15), weight: .semibold))
                     Text(line)
-                        .font(.system(size: 12))
+                        .font(.system(size: ts(12)))
                         .foregroundStyle(pal.sub)
                 }
                 Spacer(minLength: 0)
                 if !keys.isEmpty {
                     Text(keys)
-                        .font(.system(size: 11, weight: .medium,
+                        .font(.system(size: ts(11), weight: .medium,
                                       design: .rounded))
                         .foregroundStyle(pal.sub)
                         .padding(.horizontal, 6)
@@ -1404,7 +1583,7 @@ struct ActionButton: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.45)
+        .opacity(enabled ? 1 : 0.6)
         // label the Button itself: wrapping it in a combined element
         // hides its press action, and VoiceOver's press does nothing
         .accessibilityLabel(title)
@@ -1414,19 +1593,14 @@ struct ActionButton: View {
     }
 }
 
-/// "⌘⇧I" said the way VoiceOver users say it.
+/// "⇧⌘I" (the Mac's printed order) said the way VoiceOver users say
+/// it: "Command Shift I", Command first, whatever the order on screen.
 func spokenKeys(_ k: String) -> String {
-    var out: [String] = []
-    for ch in k {
-        switch ch {
-        case "⌘": out.append("Command")
-        case "⇧": out.append("Shift")
-        case "⌥": out.append("Option")
-        case "⌃": out.append("Control")
-        default: out.append(String(ch))
-        }
-    }
-    return out.joined(separator: " ")
+    let names: [Character: String] = ["⌘": "Command", "⇧": "Shift",
+                                      "⌥": "Option", "⌃": "Control"]
+    let mods = "⌘⇧⌥⌃".filter { k.contains($0) }.map { names[$0]! }
+    let rest = k.filter { names[$0] == nil }.map(String.init)
+    return (mods + rest).joined(separator: " ")
 }
 
 // MARK: - Chart tab
@@ -1444,7 +1618,7 @@ struct ChartTab: View {
                     if let c = model.chart {
                         Text(URL(fileURLWithPath: c)
                                 .deletingLastPathComponent().path)
-                            .font(.system(size: 11))
+                            .font(.system(size: ts(11)))
                             .foregroundStyle(pal.sub)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -1455,13 +1629,13 @@ struct ChartTab: View {
                         if !model.parts.isEmpty {
                             Text("The band, \(model.parts.count) chairs: "
                                  + model.parts.joined(separator: ", "))
-                                .font(.system(size: 13))
+                                .font(.system(size: ts(13)))
                         }
                     }
                     ActionButton(icon: "plus.square", title: "New chart",
                                  line: "Name it, then describe the tune. "
                                      + "A demo is welcome, not needed.",
-                                 keys: "⌘⇧N", pal: pal) {
+                                 keys: "⇧⌘N", pal: pal) {
                         startNewChart(model)
                     }
                     ActionButton(icon: "folder", title: "Open a chart",
@@ -1472,14 +1646,14 @@ struct ChartTab: View {
                                  line: "A score, a MIDI demo, or words and "
                                      + "chords in any format. Or drop it "
                                      + "on the window.",
-                                 keys: "⌘⇧I", pal: pal) {
+                                 keys: "⇧⌘I", pal: pal) {
                         pickAnything(model)
                     }
                     ActionButton(icon: "bubble.left.and.bubble.right",
                                  title: "Tell me the tune",
                                  line: "Describe it in one breath. Copyist "
                                      + "writes the sections.",
-                                 keys: "⌘⇧T", pal: pal) {
+                                 keys: "⇧⌘T", pal: pal) {
                         if model.chart == nil && !newChart(model) { return }
                         model.startTalk(["edit"])
                     }
@@ -1500,7 +1674,7 @@ struct ChartTab: View {
                                         .foregroundStyle(on ? pal.accent
                                                             : pal.sub)
                                     Text(name)
-                                        .font(.system(size: 14,
+                                        .font(.system(size: ts(14),
                                                       weight: on ? .semibold
                                                                  : .regular))
                                     Spacer()
@@ -1529,7 +1703,11 @@ struct BuildTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             TabHeading(tab: .build, pal: pal)
+            // two rows of three: six in one row left each button a
+            // sliver, its title a tower of broken words
+            VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
+
                 ActionButton(icon: "hammer", title: "Build it",
                              line: "Pages, read-alouds, findings, and the "
                                  + "band plays it.",
@@ -1551,6 +1729,9 @@ struct BuildTab: View {
                              enabled: model.chart != nil) {
                     model.run("What changed", args: ["diff"])
                 }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
                 ActionButton(icon: "square.and.arrow.up",
                              title: "Export…",
                              line: "Choose the bars, the parts, the look "
@@ -1558,14 +1739,6 @@ struct BuildTab: View {
                              keys: "⌘E", pal: pal,
                              enabled: model.chart != nil) {
                     model.showExport = true
-                }
-                ActionButton(icon: "printer",
-                             title: "Emboss",
-                             line: "Send the braille to your embosser, "
-                                 + "after you say yes.",
-                             keys: "", pal: pal,
-                             enabled: model.chart != nil) {
-                    model.emboss()
                 }
                 ActionButton(icon: "hand.point.up.braille",
                              title: "Braille",
@@ -1575,6 +1748,16 @@ struct BuildTab: View {
                              enabled: model.chart != nil) {
                     model.run("Braille", args: ["braille"])
                 }
+                ActionButton(icon: "printer",
+                             title: "Emboss",
+                             line: "Send the braille to your embosser, "
+                                 + "after you say yes.",
+                             keys: "", pal: pal,
+                             enabled: model.chart != nil) {
+                    model.emboss()
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
             }
             .fixedSize(horizontal: false, vertical: true)
             RunPanel(pal: pal, tab: .build)
@@ -1618,7 +1801,7 @@ struct ExportSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Export")
-                    .font(.system(size: 22, weight: .bold, design: .serif))
+                    .font(.system(size: ts(22), weight: .bold, design: .serif))
                     .accessibilityAddTraits(.isHeader)
                 box("Bars") {
                     Toggle("The whole song", isOn: $whole)
@@ -1635,7 +1818,7 @@ struct ExportSheet: View {
                                 .frame(width: 90)
                                 .accessibilityLabel("To bar")
                             Text("as printed on the pages")
-                                .font(.system(size: 11))
+                                .font(.system(size: ts(11)))
                                 .foregroundStyle(pal.sub)
                         }
                         .textFieldStyle(.roundedBorder)
@@ -1689,7 +1872,7 @@ struct ExportSheet: View {
                         .disabled(sampling)
                         Text("The first bars of the first thing picked, "
                              + "in this look.")
-                            .font(.system(size: 11))
+                            .font(.system(size: ts(11)))
                             .foregroundStyle(pal.sub)
                     }
                     if let u = sample {
@@ -1715,6 +1898,8 @@ struct ExportSheet: View {
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
                         .tint(pal.accent)
+                        // the label in the accent's own ink: white on amber read at 1.6:1
+                        .foregroundStyle(pal.accentText)
                 }
             }
             .padding(24)
@@ -1740,7 +1925,7 @@ struct ExportSheet: View {
              @ViewBuilder _ content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: ts(14), weight: .semibold))
                 .foregroundStyle(pal.sub)
                 .accessibilityAddTraits(.isHeader)
             content()
@@ -1869,22 +2054,43 @@ struct RunPanel: View {
     @EnvironmentObject var model: AppModel
     let pal: Palette
     let tab: Tab
+    /// a run the app started (not a tab the writer chose) takes
+    /// VoiceOver to its title, so the cursor is never left on a button
+    /// that just went away with the old tab
+    @AccessibilityFocusState private var onTitle: Bool
+
+    var emptyLine: String {
+        if model.chart == nil {
+            return "Open or start a chart first: the Chart tab, Command 1."
+        }
+        if !model.runTitle.isEmpty && model.runTab != tab {
+            return "The last run, \(model.runTitle), is on the "
+                + "\(model.runTab.title) tab."
+        }
+        return tab == .build
+            ? "Nothing built yet in this window. Build it, Command B."
+            : "Nothing played or read yet in this window."
+    }
 
     var body: some View {
         if model.runTab != tab || (model.runTitle.isEmpty
                                    && !model.running) {
-            Text(tab == .build
-                 ? "Nothing built yet in this window. Build it, Command B."
-                 : "Nothing played or read yet in this window.")
-                .font(.system(size: 13))
+            Text(emptyLine)
+                .font(.system(size: ts(13)))
                 .foregroundStyle(pal.sub)
         } else {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Text(model.runTitle)
-                        .font(.system(size: 17, weight: .bold,
+                        .font(.system(size: ts(17), weight: .bold,
                                       design: .serif))
                         .accessibilityAddTraits(.isHeader)
+                        .accessibilityFocused($onTitle)
+                        .onAppear {
+                            guard !model.userSwitch else { return }
+                            DispatchQueue.main.asyncAfter(
+                                deadline: .now() + 0.3) { onTitle = true }
+                        }
                     if model.running {
                         if let pct = model.progressPct {
                             ProgressView(value: pct, total: 100)
@@ -1894,14 +2100,14 @@ struct RunPanel: View {
                                 .accessibilityValue("\(Int(pct)) percent, "
                                                     + model.progressWhat)
                             Text("\(Int(pct))% — \(model.progressWhat)")
-                                .font(.system(size: 12))
+                                .font(.system(size: ts(12)))
                                 .foregroundStyle(pal.sub)
                                 .accessibilityHidden(true)
                         } else {
                             ProgressView().controlSize(.small)
                                 .accessibilityLabel("Working")
                             Text(model.flavor)
-                                .font(.system(size: 12))
+                                .font(.system(size: ts(12)))
                                 .foregroundStyle(pal.sub)
                                 .accessibilityHidden(true)
                         }
@@ -1912,6 +2118,28 @@ struct RunPanel: View {
                     } else {
                         Spacer()
                     }
+                }
+                if !model.runEnded.isEmpty {
+                    // not finished: said in words and drawn, never by
+                    // colour alone
+                    HStack(spacing: 8) {
+                        Image(systemName: model.runEnded == "stopped"
+                              ? "stop.circle" : "exclamationmark.triangle")
+                            .font(.system(size: ts(15)))
+                            .foregroundStyle(pal.accent)
+                            .accessibilityHidden(true)
+                        Text(model.runEnded == "stopped"
+                             ? "Stopped. Nothing after the last line below "
+                               + "was made."
+                             : "This stopped on a problem. The last lines "
+                               + "below say why.")
+                            .font(.system(size: ts(14), weight: .semibold))
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 10)
+                        .stroke(pal.accent, lineWidth: 2))
+                    .accessibilityElement(children: .combine)
                 }
                 if !model.running { ResultButtons(pal: pal) }
                 ScrollViewReader { proxy in
@@ -1960,15 +2188,17 @@ struct TranscriptLine: View {
                            : line
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             if finding {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10))
-                    .foregroundStyle(pal.sub)
+                // a finding is the line most worth reading: full
+                // contrast, full size, marked by its icon, not by fading
+                Image(systemName: "exclamationmark.circle")
+                    .font(.system(size: ts(12)))
+                    .foregroundStyle(pal.accent)
                     .accessibilityHidden(true)
             }
             Text(body)
-                .font(.system(size: finding ? 12 : 13,
+                .font(.system(size: ts(13),
                               design: finding ? .default : .monospaced))
-                .foregroundStyle(finding ? pal.sub : pal.text)
+                .foregroundStyle(pal.text)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -1984,15 +2214,19 @@ struct ResultButtons: View {
     let pal: Palette
 
     var body: some View {
-        HStack(spacing: 8) {
+        // wraps onto a second row rather than squeezing six buttons
+        // into one at a big text size
+        FlowLayout(spacing: 8) {
             if let u = model.playURL {
                 Button {
                     NSWorkspace.shared.open(u)
                 } label: {
-                    Label("Play it", systemImage: "play.fill")
+                    Label("Play the listen", systemImage: "play.fill")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(pal.accent)
+                // the label in the accent's own ink: white on amber read at 1.6:1
+                .foregroundStyle(pal.accentText)
                 .accessibilityHint("Command P")
             }
             if model.chart != nil {
@@ -2073,7 +2307,7 @@ struct ResultButtons: View {
                     }
                     .buttonStyle(.bordered)
                 }
-                if model.playURL != nil || model.runTitle == "Build",
+                if model.playURL != nil || model.madeFiles,
                    let score = model.scorePDF() {
                     Button {
                         NSWorkspace.shared.open(score)
@@ -2083,7 +2317,7 @@ struct ResultButtons: View {
                     .buttonStyle(.bordered)
                     .accessibilityHint("Command Shift E")
                 }
-                if model.runTitle == "Build" {
+                if model.madeFiles {
                     let xml = model.musicXMLFiles()
                     if !xml.isEmpty {
                         Button {
@@ -2100,7 +2334,7 @@ struct ResultButtons: View {
                                            + "or Finale")
                     }
                 }
-                if model.runTitle == "Build",
+                if model.madeFiles,
                    let dir = model.pagesFolder(),
                    FileManager.default.fileExists(atPath: dir.path) {
                     Button {
@@ -2113,7 +2347,6 @@ struct ResultButtons: View {
                                        + "part's PDF in Finder")
                 }
             }
-            Spacer()
         }
     }
 }
@@ -2137,6 +2370,7 @@ struct ListenTab: View {
                     Card(title: "Listen", pal: pal) {
                         HStack {
                             Text("Start at bar")
+                                .accessibilityHidden(true)  // the field says it
                             TextField("the top", text: $fromBar)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 90)
@@ -2150,11 +2384,11 @@ struct ListenTab: View {
                              ? "Who plays: the whole band."
                              : "Who plays: just "
                                + solo.sorted().joined(separator: ", ") + ".")
-                            .font(.system(size: 12))
+                            .font(.system(size: ts(12)))
                             .foregroundStyle(pal.sub)
                         if model.parts.isEmpty {
                             Text("Open a chart to pick players.")
-                                .font(.system(size: 12))
+                                .font(.system(size: ts(12)))
                                 .foregroundStyle(pal.sub)
                         }
                         // plain rows, not a grid: a grid is a container
@@ -2191,6 +2425,8 @@ struct ListenTab: View {
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(pal.accent)
+                            // the label in the accent's own ink: white on amber read at 1.6:1
+                            .foregroundStyle(pal.accentText)
                             .disabled(model.chart == nil)
                             if !solo.isEmpty {
                                 Button("Everyone") { solo = [] }
@@ -2207,7 +2443,7 @@ struct ListenTab: View {
                                              + "listen first.")
                                 }
                             } label: {
-                                Label("Play the last one",
+                                Label("Play the last listen",
                                       systemImage: "play.fill")
                             }
                             .buttonStyle(.bordered)
@@ -2223,7 +2459,7 @@ struct ListenTab: View {
                             }
                         }
                         Text("Spoken the way a player would read it.")
-                            .font(.system(size: 12))
+                            .font(.system(size: ts(12)))
                             .foregroundStyle(pal.sub)
                         Button {
                             var args = ["read"]
@@ -2262,6 +2498,11 @@ struct ListenTab: View {
         if Int(b) != nil {
             args += ["--from-bar", b]
             what += " from bar \(b)"
+        } else if !b.isEmpty {
+            // never quietly play from the top when a bar was asked for
+            announce("'\(b)' isn't a bar number. Type a number like 17, "
+                     + "or leave it empty for the top.")
+            return
         }
         if !solo.isEmpty {
             let who = solo.sorted().joined(separator: ",")
@@ -2289,7 +2530,7 @@ struct TalkView: View {
                                  title: "Tell me the tune",
                                  line: "Describe it in one breath. Copyist "
                                      + "writes the sections.",
-                                 keys: "⌘⇧T", pal: pal) {
+                                 keys: "⇧⌘T", pal: pal) {
                         if model.chart == nil && !newChart(model) { return }
                         model.startTalk(["edit"])
                     }
@@ -2317,7 +2558,7 @@ struct TalkView: View {
                             HStack {
                                 if line.mine { Spacer(minLength: 60) }
                                 Text(line.text)
-                                    .font(.system(size: 14))
+                                    .font(.system(size: ts(14)))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
                                     .background(RoundedRectangle(
@@ -2351,10 +2592,10 @@ struct TalkView: View {
             if !model.question.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(model.question)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: ts(15), weight: .semibold))
                     if !model.questionDefault.isEmpty {
                         Text("Return keeps: \(model.questionDefault)")
-                            .font(.system(size: 12))
+                            .font(.system(size: ts(12)))
                             .foregroundStyle(pal.sub)
                     }
                     HStack(spacing: 8) {
@@ -2362,7 +2603,9 @@ struct TalkView: View {
                             .textFieldStyle(.roundedBorder)
                             .focused($focused)
                             .onSubmit { send() }
-                            .accessibilityLabel("Answer. \(model.question)")
+                            // the question was just said; focus landing
+                            // here says only where you are
+                            .accessibilityLabel("Your answer")
                         Button {
                             let cfg = loadConfig()
                             if let f = pickFile(start: cfg["midi"]) {
@@ -2378,6 +2621,8 @@ struct TalkView: View {
                             .keyboardShortcut(.defaultAction)
                             .buttonStyle(.borderedProminent)
                             .tint(pal.accent)
+                            // the label in the accent's own ink: white on amber read at 1.6:1
+                            .foregroundStyle(pal.accentText)
                     }
                 }
                 .padding(14)
@@ -2391,7 +2636,7 @@ struct TalkView: View {
                 HStack {
                     ProgressView().controlSize(.small)
                     Text("Copyist is thinking…")
-                        .font(.system(size: 12))
+                        .font(.system(size: ts(12)))
                         .foregroundStyle(pal.sub)
                 }
             } else if !model.talk.isEmpty {
@@ -2404,6 +2649,8 @@ struct TalkView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(pal.accent)
+                    // the label in the accent's own ink: white on amber read at 1.6:1
+                    .foregroundStyle(pal.accentText)
                     .accessibilityHint("Command B")
                     Button("New conversation") { model.talk = [] }
                         .buttonStyle(.bordered)
@@ -2455,6 +2702,15 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     .tint(pal.accent)
+                    Picker("Text size", selection: $model.textScale) {
+                        ForEach(textSizes, id: \.self) { k in
+                            Text("\(Int((k * 100).rounded())) percent")
+                                .tag(k)
+                        }
+                    }
+                    .accessibilityHint("Command equals is bigger, "
+                                       + "Command minus smaller, Command "
+                                       + "zero back to 100 percent")
                     Toggle("Say each build step aloud as it happens",
                            isOn: $model.speakSteps)
                         .accessibilityHint("Off, you hear only when it "
@@ -2466,15 +2722,22 @@ struct SettingsView: View {
                 group("Your charts") {
                     Text("The name on every new chart, and how the "
                          + "pages dress.")
-                        .font(.system(size: 11))
+                        .font(.system(size: ts(11)))
                         .foregroundStyle(pal.sub)
                     HStack {
                         TextField("Composer", text: $composer)
                             .textFieldStyle(.roundedBorder)
                             .onSubmit { set("composer", composer) }
+                            // typed and moved on is saved, not dropped
+                            .onDisappear {
+                                if composer != (cfg["composer"] ?? "") {
+                                    set("composer", composer)
+                                }
+                            }
                             .accessibilityLabel("Composer, now "
                                 + (cfg["composer"] ?? "not set"))
                         Button("Save") { set("composer", composer) }
+                            .accessibilityLabel("Save the composer")
                     }
                     Picker("Look", selection: bind("look")) {
                         ForEach(looks, id: \.self) {
@@ -2485,7 +2748,7 @@ struct SettingsView: View {
                 group("What a build makes") {
                     Text("Any mix. Listen and Braille on the Build tab "
                          + "make just their one thing.")
-                        .font(.system(size: 11))
+                        .font(.system(size: ts(11)))
                         .foregroundStyle(pal.sub)
                     ForEach(exportChoices, id: \.0) { key, label in
                         Toggle(label, isOn: export(key))
@@ -2515,7 +2778,7 @@ struct SettingsView: View {
                     .id("embosser")
                     Text("An embosser shows up here once it is added in "
                          + "System Settings, Printers and Scanners.")
-                        .font(.system(size: 11))
+                        .font(.system(size: ts(11)))
                         .foregroundStyle(pal.sub)
                 }
                 group("When a build lands") {
@@ -2527,7 +2790,7 @@ struct SettingsView: View {
                 group("Where finished files go") {
                     Text("Empty keeps everything with the build, "
                          + "next to the chart.")
-                        .font(.system(size: 11))
+                        .font(.system(size: ts(11)))
                         .foregroundStyle(pal.sub)
                     pathRow("PDF pages", key: "pages_to")
                     pathRow("Listen MP3s", key: "listens_to")
@@ -2537,7 +2800,7 @@ struct SettingsView: View {
                 group("MIDI and demos") {
                     Text("The folder your playing comes from, and how "
                          + "Copyist reads its rhythms.")
-                        .font(.system(size: 11))
+                        .font(.system(size: ts(11)))
                         .foregroundStyle(pal.sub)
                     pathRow("Your DAW's export folder", key: "midi")
                     Picker("How Copyist reads your played rhythms",
@@ -2554,12 +2817,18 @@ struct SettingsView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 120)
                             .onSubmit { set("countin", countin) }
+                            .onDisappear {
+                                if countin != (cfg["countin"] ?? "") {
+                                    set("countin", countin)
+                                }
+                            }
                             .accessibilityLabel("Count-in bars, now "
                                 + (cfg["countin"]?.isEmpty == false
                                    ? cfg["countin"]! : "read from the demo"))
                         Button("Save") { set("countin", countin) }
+                            .accessibilityLabel("Save the count-in")
                         Text("offered when the demo itself says nothing")
-                            .font(.system(size: 11))
+                            .font(.system(size: ts(11)))
                             .foregroundStyle(pal.sub)
                     }
                 }
@@ -2573,7 +2842,7 @@ struct SettingsView: View {
                          + "it plays, its size and its license. Pick "
                          + "what to install; nothing downloads until you "
                          + "press Install.")
-                        .font(.system(size: 11))
+                        .font(.system(size: ts(11)))
                         .foregroundStyle(pal.sub)
                     ForEach(soundRows, id: \.0) { row in
                         if row.2 {
@@ -2609,7 +2878,7 @@ struct SettingsView: View {
                     Text("Where the page leaves it to the band. Turn any "
                          + "of these off and the next listen leaves it "
                          + "out, and says so.")
-                        .font(.system(size: 11))
+                        .font(.system(size: ts(11)))
                         .foregroundStyle(pal.sub)
                     Toggle("The rhythm section plays the slashes",
                            isOn: onUnlessNo("listen_grooves"))
@@ -2660,7 +2929,7 @@ struct SettingsView: View {
                     }
                 }
                 Text(status)
-                    .font(.system(size: 13))
+                    .font(.system(size: ts(13)))
                     .foregroundStyle(pal.sub)
                     .padding(.bottom, 20)
                     .accessibilityAddTraits(.updatesFrequently)
@@ -2746,7 +3015,7 @@ struct SettingsView: View {
                @ViewBuilder _ content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: ts(14), weight: .semibold))
                 .foregroundStyle(pal.sub)
                 .accessibilityAddTraits(.isHeader)
             content()
@@ -2768,14 +3037,19 @@ struct SettingsView: View {
                       + "Copyist/Sounds"
                     : "not set"))
                 .lineLimit(1)
+                // the folder's own name is the end of the path: keep it
+                .truncationMode(.middle)
+                .help(cfg[key] ?? "")
             Spacer()
             Button("Choose…") {
                 if let f = pickFile(start: cfg[key], dirs: true) {
                     set(key, f)
                 }
             }
+            .accessibilityLabel("Choose \(label)")
             if cfg[key]?.isEmpty == false {
                 Button("Clear") { set(key, "") }
+                    .accessibilityLabel("Clear \(label)")
             }
         }
     }

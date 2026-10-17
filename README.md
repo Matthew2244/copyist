@@ -170,7 +170,9 @@ python3 prototype/chart.py yourtune.chart
 
 There is also **Copyist.app**, a real Mac app over the same engine, built
 from `app/` with `app/build.sh --install`. It has two designed looks, Dark
-Stage and Manuscript, or it can match the system. Same big actions as the
+Stage and Manuscript, or it can match the system, and every word in it
+grows with one text size setting, 100 to 200 percent (View > Bigger Text,
+Command =, or Settings). Same big actions as the
 CLI, a settings desk in plain groups where every control states its
 value, and the roadmap conversation held in a chat view. A build shows a
 real progress bar fed by the engine itself ("the band is playing it in,

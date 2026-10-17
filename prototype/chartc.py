@@ -714,7 +714,8 @@ STEP = set('ABCDEFG')
 
 
 def fail(msg):
-    sys.exit("chartc: " + msg)
+    # "chart:", the program's name to the writer, never the module's
+    sys.exit("chart: " + msg)
 
 
 # ------------------------------------------------------------- parsing
@@ -1443,7 +1444,14 @@ def parse_chart(path):
     for sec in chart['sections']:
         content = []
         for off, bar in enumerate(sec['content']):
-            beats = meter_at(meters, start + off)[0]
+            mt = meter_at(meters, start + off)
+            beats = mt[0]
+            for b, c in bar:
+                if b is not None and not 1 <= b < beats + 1:
+                    fmt = int(b) if float(b).is_integer() else b
+                    fail(f"section {sec['name']}, bar {off + 1}: a chord "
+                         f"on beat {fmt}, but a {mt[0]}/{mt[1]} bar has "
+                         f"beats 1 to {beats}")
             n = len(bar)
             content.append([
                 (b, c) if b is not None else
@@ -2143,6 +2151,11 @@ def resolve_groups(band, custom=None):
 
 def compile_chart(chart_path, outdir):
     chart = parse_chart(chart_path)
+    if not chart['sections']:
+        # nothing to build is not a success to report
+        fail("this chart has no sections yet. The conversation (edit) "
+             "writes them, or add a line like 'section A, 8 bars' with "
+             "its chords under it")
     hdr = chart['header']
     meter = parse_meter(hdr.get('meter', '4/4'))
     src_path = hdr.get('source')
@@ -2329,7 +2342,7 @@ def compile_chart(chart_path, outdir):
             elif plan.get('bg', {}).get(l):
                 what = "backgrounds, made up in the listen"
             elif kind == 'engraved':
-                what = "the engraving"
+                what = "the engraving's notes"
             elif kind == 'hits':
                 what = "kicks"
             elif kind == 'groove':
@@ -2347,7 +2360,9 @@ def compile_chart(chart_path, outdir):
             elif cued:
                 what = "rest, with a cue to watch"
             fates.append(f"{sec['label'] or sec['name']}: {what}")
-        findings.add(f"{l} — " + "; ".join(fates))
+        # said as a sentence: "drums — A: your line" read as code
+        findings.add(f"what {l} plays, section by section — "
+                     + "; ".join(fates))
         if not sounded:
             findings.add(f"{l} NEVER PLAYS A BAR IN THIS CHART — "
                          "meant, or a missing line?")
@@ -3485,7 +3500,21 @@ def build_plans(chart, band, groups, labels):
                          f"line. Write 'figure NAME, N bars:' with "
                          f"'notes: ...' under it, then '{target}: figure "
                          f"NAME' here")
-                fail(f"{loc}: instruction '{piece}' is not built yet")
+                import difflib
+                known = ['solo', 'solos', 'groove', 'rest', 'tacet',
+                         'from demo', 'figure', 'hits', 'backgrounds',
+                         'dyn', 'cue', 'double', 'soli', 'fill', 'fall',
+                         'short', 'legato', 'lyrics', 'trill', 'shout',
+                         'lay out', 'comp', 'walk', 'slashes', 'unison',
+                         'play', 'tutti', 'crescendo', 'diminuendo',
+                         'text', 'enters', 'cut to', 'cut back',
+                         'explode', 'ghost', 'scoop', 'doit']
+                head = piece.split()[0] if piece.split() else piece
+                near = difflib.get_close_matches(head, known, n=1,
+                                                 cutoff=0.6)
+                fail(f"{loc}: '{piece}' isn't an instruction I know"
+                     + (f" — did you mean {near[0]}?" if near else ".")
+                     + " CHART-WRITING.md lists them all")
             if soli_src:
                 inst_of = {x['label']: canonical_instrument(
                     x['instrument']) for x in band}
@@ -3598,7 +3627,48 @@ def build_plans(chart, band, groups, labels):
                                             bar)
         plans.append(plan)
         start += sec['bars']
+    solo_turn_words(plans, labels)
     return plans, start - 1
+
+
+def _nth(n):
+    return {1: '1st', 2: '2nd', 3: '3rd'}.get(n, f'{n}th')
+
+
+def solo_turn_words(plans, labels):
+    """Soloists named together take turns (the listen has always played
+    it so), and the page and the read-aloud say whose turn is whose:
+    'Solo, 1st time' / 'Solo, 2nd time' when there is a pass each, else
+    'Solo, bars 1 to 8' through the repeats. It used to print a bare
+    'Solo' on every part, two players blowing at once (2026-10-17)."""
+    for plan in plans:
+        sec = plan['sec']
+        if sec.get('trade') or sec.get('open'):
+            continue
+        who = [l for l in labels
+               if (1, 'Solo') in plan['texts'].get(l, ())]
+        order = []
+        for tgt, ins, _loc in sec.get('directives', ()):
+            if ins.strip().lower().startswith('solo'):
+                for l in [tgt] + [x for x in labels if x not in who]:
+                    if l in who and l not in order:
+                        order.append(l)
+        who = order + [l for l in who if l not in order]
+        if len(who) < 2:
+            continue
+        passes = max(sec.get('repeat') or 1, 1)
+        walk = sec['bars'] * passes
+        each = max(walk // len(who), 1)
+        for k, l in enumerate(who):
+            if passes == len(who):
+                note = f"Solo, {_nth(k + 1)} time"
+            else:
+                lo = k * each + 1
+                hi = walk if k == len(who) - 1 else lo + each - 1
+                note = (f"Solo, bars {lo} to {hi}" +
+                        (" through the repeats" if passes > 1 else ""))
+            texts = plan['texts'][l]
+            texts[texts.index((1, 'Solo'))] = (1, note)
 
 
 TRANSPOSE_XML = {
@@ -3628,6 +3698,8 @@ SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
 # What the listen may make up, each the writer's to turn off (chart
 # settings, listen_*): set by the front door before a build.
 TAKE = ''          # the listen's take; '' = the tune's own, fixed
+TAKE_KEPT = False  # the take came from the listen_take setting
+LISTENING = True   # this run makes a listen (a check or pages-only does not)
 LISTEN_OPTS = {'grooves': True, 'solos': True, 'backgrounds': True,
                'endings': True, 'mutes': True, 'brushes': True,
                'builds': True, 'feather': True}
@@ -3984,8 +4056,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                 + ("the drummer sets it up"
                                    if pl['sec'].get('_cue_role') == 'drums'
                                    else "the band just goes on")))
-    if TAKE and findings is not None:
-        findings.add(f"listen: take {TAKE} — everything the band made up "
+    if TAKE and findings is not None and LISTENING:
+        findings.add(f"listen: take {TAKE}, the one your listen_take "
+                     "setting keeps; 'new' plays a fresh take each build"
+                     if TAKE_KEPT else
+                     f"listen: take {TAKE} — everything the band made up "
                      "is played fresh this build. To hear this take again, "
                      f"chart set listen_take={TAKE}; 'same' keeps one take "
                      "for every build")
@@ -5916,8 +5991,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             f.write("\n".join(seen) + "\n" if seen else
                     "No findings — nothing was reduced, guessed, "
                     "or moved.\n")
-    print(f"chartc: wrote {len(written)} files, {total} bars, "
-          f"{len(chart['sections'])} sections.")
+    print(f"Wrote {len(written)} files, {total} bars, "
+          f"{len(chart['sections'])} "
+          f"{'section' if len(chart['sections']) == 1 else 'sections'}.")
     return written
 
 

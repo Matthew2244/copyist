@@ -396,15 +396,21 @@ def main():
 
     out = []
     title = hdr.get('title', 'Untitled')
+    if a.section:
+        names = [pl['sec']['name'] for pl in plans]
+        if a.section.lower() not in [n.lower() for n in names]:
+            sys.exit(f'chart: no section called "{a.section}". '
+                     f'Sections: {", ".join(dict.fromkeys(names))}.')
 
     if a.part:
         want = a.part.lower().strip()
         if want not in [l.lower() for l in labels]:
-            sys.exit(f'chartread: no band part called "{a.part}". '
+            sys.exit(f'chart: no band part called "{a.part}". '
                      f'Parts: {", ".join(labels)}.')
         label = next(l for l in labels if l.lower() == want)
         out.append(f"{title} — the {label} part. "
-                   f"{len(plans)} sections, {total} bars.")
+                   f"{len(plans)} {'section' if len(plans) == 1 else 'sections'}, "
+                   f"{total} bars.")
         if int(hdr.get('countin', 0)):
             out.append("Bar numbers here are your DAW's, count-in "
                        "included. The printed page starts at one.")

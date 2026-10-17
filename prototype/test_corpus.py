@@ -2434,8 +2434,10 @@ def check_user_chair():
         chartc.compile_chart(os.path.join(tmp, "f.chart"), out)
     log = buf.getvalue()
     check("every part's fate is a finding",
-          "flute — Top: your line; B: rest" in log
-          and "piano — Top: slashes; B: slashes" in log, log[:300])
+          "what flute plays, section by section — Top: your line; "
+          "B: rest" in log
+          and "what piano plays, section by section — Top: slashes; "
+          "B: slashes" in log, log[:300])
     check("a part that never plays is called out loudly",
           "horn NEVER PLAYS A BAR IN THIS CHART" in log)
 
@@ -6370,8 +6372,9 @@ def check_solos_and_endings():
           {n: [round(e[0], 2) for e in ev[n]] for n in ("tenor",
                                                          "trumpet")})
     tpage = open(os.path.join(out, "T — tenor.musicxml")).read()
-    check("the page keeps its slashes and the word",
-          "slash" in tpage and ">Solo<" in tpage)
+    check("the page keeps its slashes and says whose turn",
+          "slash" in tpage and ">Solo, bars 1 to 4<" in tpage,
+          re.findall(r'>Solo[^<]*<', tpage))
     out, pl = build("section A, 4 bars\n  chords: F, Bb7, C7, F\n"
                     "  tenor: figure mel\n  ending: hold, trumpet "
                     "noodles, drums fill, last hit on cue\n")
@@ -7852,6 +7855,63 @@ def check_streamline():
     g = chartc.grouped_findings(lines)
     check("the same finding at many bars speaks once, naming the bars",
           len(g) == 2 and "4 times, bars 3-5, 9" in g[0], str(g))
+
+    # a wrong answer in the demo interview asks again (it used to end
+    # the conversation, or put the next answer on the wrong track)
+    with tempfile.TemporaryDirectory() as tmp:
+        kit = [(b * 1920 + i * 480, b * 1920 + i * 480 + 100, 38, 90)
+               for b in range(2) for i in range(4)]
+        smf.write(os.path.join(tmp, "x drums.mid"), kit, 480, 90)
+        out = os.path.join(tmp, "x", "x.chart")
+        os.makedirs(os.path.dirname(out))
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("\n\nbluesy\nF\n4/5\n4/4\nfast\n90\n"
+                                "lots\n0\n\ndrumz\ndrums\n\n")
+        try:
+            with redirect_stdout(io.StringIO()) as talk:
+                chartnew.interview(out, os.path.join(tmp, "x drums.mid"))
+        finally:
+            sys.stdin = old_stdin
+        said = talk.getvalue()
+        text = open(out).read() if os.path.exists(out) else ""
+        check("a wrong key, meter, tempo or count-in is asked again",
+              "key: F" in text and "tempo: 90" in text
+              and "'bluesy' doesn't read" in said, said[-300:])
+        check("an instrument typo asks again, with a near guess",
+              "did you mean drums" in said and "  drums: from demo" in text)
+        empty = os.path.join(tmp, "e.chart")
+        open(empty, "w").write("title: e\n")
+        try:
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(empty, os.path.join(tmp, "eb"))
+            said = ""
+        except SystemExit as e:
+            said = str(e)
+        check("an empty chart is refused, saying how to start",
+              "no sections yet" in said, said)
+        late = os.path.join(tmp, "l.chart")
+        open(late, "w").write("title: l\nband:\n  trumpet\nsection A, "
+                              "1 bars\n  chords: C7@5\n")
+        try:
+            with redirect_stdout(io.StringIO()):
+                chartc.compile_chart(late, os.path.join(tmp, "lb"))
+            said = ""
+        except SystemExit as e:
+            said = str(e)
+        check("a chord past the bar's last beat is refused",
+              "beats 1 to 4" in said, said)
+    import textformats
+    cp = textformats.parse_chordpro("{title: S}\n[Verse]\n[G]a [C]b\n"
+                                    "[Chorus]\n[Em]c [D]d\n")
+    names = [x.get('name') or x.get('label') for x in cp['sections']]
+    check("ChordPro [Verse] and [Chorus] lines name sections",
+          len(cp['sections']) == 2
+          and not any('m7b5' in str(x) for x in cp['sections']), str(names))
+    sheet = textformats.parse_chordsheet("Plain Tune\nKey of D\n\n"
+                                         "Verse:\nD G A D\n")
+    check("a sheet's 'Key of D' and first-line title are read",
+          sheet['title'] == "Plain Tune" and sheet['key']
+          and 'D' in str(sheet['key']), str((sheet['title'], sheet['key'])))
 
     # the room, run in stretches with warm-up, matches the whole song's
     from array import array

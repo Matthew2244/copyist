@@ -1177,6 +1177,12 @@ def run_import(argv):
         return
     path, into, to, pick = argv[0], None, None, None
     rest = argv[1:]
+    # more MIDI files after the first: one tune, a file per instrument
+    more = []
+    while rest and not rest[0].startswith('--') and \
+            rest[0].lower().endswith(('.mid', '.midi', '.kar', '.smf')):
+        more.append(rest.pop(0))
+    build_after = True
     if rest and rest[0] == '--list':
         # every song a playlist link or songbook file holds, numbered
         import textformats
@@ -1195,9 +1201,11 @@ def run_import(argv):
             into, rest = rest[1], rest[2:]
         elif rest[0] == '--to' and len(rest) > 1:
             to, rest = rest[1], rest[2:]
+        elif rest[0] == '--no-build':
+            build_after, rest = False, rest[1:]
         else:
-            say(f"I don't know '{rest[0]}' here; --song, --list, --into "
-                "and --to are the words import takes.")
+            say(f"I don't know '{rest[0]}' here; --song, --list, --into, "
+                "--to and --no-build are the words import takes.")
             sys.exit(2)
     try:
         chart, find = chartimport.import_file(path, to, say=say,
@@ -1206,15 +1214,33 @@ def run_import(argv):
         say(str(e))
         sys.exit(1)
     if chart == 'interview':
-        base = os.path.splitext(os.path.basename(path))[0]
-        folder = os.path.join(to or chartimport.charts_folder(),
-                              chartimport.safe_name(base))
-        os.makedirs(folder, exist_ok=True)
-        out = os.path.join(folder, chartimport.safe_name(base) + '.chart')
         import chartnew
+        demos = [os.path.abspath(p) for p in [path] + more]
+        for p in demos[1:]:
+            if not os.path.exists(p):
+                say(f"No MIDI file at {p}.")
+                sys.exit(1)
+        base = chartimport.safe_name(chartnew.common_title(demos))
+        home = to or chartimport.charts_folder()
+        name, n = base, 2
+        # a name already taken gets a number, never an overwrite
+        while os.path.exists(os.path.join(home, name, name + '.chart')):
+            name, n = f"{base} {n}", n + 1
+        if name != base:
+            say(f"There is already a chart called {base}; this one is "
+                f"{name}.")
+        folder = os.path.join(home, name)
+        os.makedirs(folder, exist_ok=True)
+        out = os.path.join(folder, name + '.chart')
         cfg = load_cfg()
-        chartnew.interview(out, os.path.abspath(path),
+        chartnew.interview(out, demos,
                            composer=cfg.get('composer', ''), cfg=cfg)
+        if build_after and os.path.exists(out):
+            # demo in, everything out: the chart builds as written
+            say("Building it now.")
+            sys.stdout.flush()
+            subprocess.run([sys.executable, os.path.abspath(__file__),
+                            out, 'build'])
         say(f"chart: {out}")
         return
     for line in find:
@@ -1302,7 +1328,28 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] in ('keyswitches', 'ks'):
         run_keyswitches(sys.argv[2:])
         return
-    ap = argparse.ArgumentParser(
+    class Parser(argparse.ArgumentParser):
+        """One plain sentence for a typo, not a usage wall."""
+        def error(self, message):
+            import difflib
+            verbs = [v for v in verb_arg.choices if len(v) > 1]
+            m = re.search(r"invalid choice: '([^']*)'", message)
+            if m:
+                bad = m.group(1)
+                # "chekc tune.chart": the typo landed where the chart goes
+                words = [w for w in sys.argv[1:] if not w.startswith('-')]
+                guess = bad
+                if bad.lower().endswith('.chart') and words:
+                    guess = words[0]
+                near = difflib.get_close_matches(guess.lower(), verbs, n=1,
+                                                 cutoff=0.5)
+                sys.exit(f"chart: I don't know the command '{guess}'"
+                         + (f" — did you mean {near[0]}?" if near else ".")
+                         + " The commands: " + ", ".join(verbs) + ".")
+            sys.exit(f"chart: {message}. 'chart.py --help' lists "
+                     "everything.")
+
+    ap = Parser(
         description="Compile a chart and make everything a writer "
                     "needs. 'chart settings' shows the defaults desk.")
     ap.add_argument('chart', help="the .chart file")
@@ -1411,6 +1458,16 @@ def main():
     path = args.chart
     if not os.path.exists(path):
         sys.exit(f"chart: no file at '{path}'.")
+    # a demo or a score where a chart goes: say which door it takes,
+    # never "something broke inside"
+    low = path.lower()
+    if low.endswith(('.mid', '.midi', '.kar', '.smf')):
+        sys.exit(f"chart: {os.path.basename(path)} is a MIDI demo, not a "
+                 "chart. Bring it in and it becomes one: chart.py import "
+                 f"\"{path}\" (a few questions, then it builds).")
+    if low.endswith(('.musicxml', '.xml', '.mxl', '.mscz')):
+        sys.exit(f"chart: {os.path.basename(path)} is a score, not a "
+                 f"chart. Bring it in: chart.py import \"{path}\".")
     base_dir = os.path.dirname(os.path.abspath(path))
     title_dir = args.outdir or os.path.join(base_dir, "build")
     spoken_dir = dest_dir(cfg, 'spoken_to', base_dir)
@@ -1509,6 +1566,9 @@ def main():
     else:
         import secrets
         chartc.TAKE = str(1 + secrets.randbelow(9999))
+    chartc.TAKE_KEPT = tk.isdigit()
+    chartc.LISTENING = ('listen' in ex and args.command
+                        not in ('check', 'preview'))
     written = chartc.compile_chart(path, title_dir)
     try:
         shutil.copy2(path, built_from)
@@ -1541,6 +1601,23 @@ def main():
         rng = chartexcerpt.bar_range(args.bars)
     except ValueError as e:
         sys.exit(f"chart: {e}")
+    if rng:
+        # bars past the end used to "export" nothing and report success
+        score = next((w for w in written if is_score(w)), None)
+        try:
+            xml = open(score, encoding='utf-8').read() if score else ''
+            part = re.search(r'<part\b.*?</part>', xml, re.S)
+            last = len(re.findall(r'<measure\b', part.group(0))) \
+                if part else 0
+        except OSError:
+            last = 0
+        if last and rng[0] > last:
+            sys.exit(f"chart: the chart has {last} bars, so there is no "
+                     f"bar {rng[0]} to start from.")
+        if last and rng[1] > last:
+            say(f"The chart ends at bar {last}, so this exports bars "
+                f"{rng[0]} to {last}.")
+            rng = (rng[0], last)
     sel = select_parts(args.parts, labels)
     import tempfile
     excerpt_dir = tempfile.mkdtemp(prefix='copyist-excerpt-')

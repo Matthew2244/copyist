@@ -373,8 +373,15 @@ def interview(out_path, demo_path, composer='', cfg=None):
 
     title = ask("Title", os.path.splitext(os.path.basename(out_path))[0])
     composer = ask("Composer", composer)
-    key = ask(key_said, key_default)
-    meter_txt = ask("Meter, like 4/4 or 3/4 or 6/8", ts_default)
+    # a wrong answer asks again; it never ends the conversation (it
+    # used to: one typo at the meter lost every answer before it)
+    key = ask_until(key_said, key_default, chartc.parse_key,
+                    "A key is a note name and maybe minor: F, Bb, "
+                    "Eb minor, F sharp")
+    meter_txt = ask_until("Meter, like 4/4 or 3/4 or 6/8", ts_default,
+                          chartc.parse_meter,
+                          "A meter is two numbers, like 4/4, 3/4, 6/8 "
+                          "or 5/4")
     meter = chartc.parse_meter(meter_txt)
     # a demo whose own map changes meter counts its bars by that map;
     # otherwise the answered meter rules, uniform
@@ -426,8 +433,14 @@ def interview(out_path, demo_path, composer='', cfg=None):
             tempo_q = "Tempo, dotted quarter to the beat"
         else:
             tempo_default = str(round(quarter_bpm))
-    tempo = ask(tempo_q, tempo_default)
-    countin = ask("Count-in bars in the demo", countin_default)
+    tempo = ask_until(tempo_q, tempo_default,
+                      lambda t: t == "" or (20 <= float(t) <= 400)
+                      or chartc.fail("tempo out of range"),
+                      "A tempo is a number of beats a minute, like 120")
+    countin = ask_until("Count-in bars in the demo", countin_default,
+                        lambda t: t == "" or (0 <= int(t) <= 16)
+                        or chartc.fail("count-in out of range"),
+                        "The count-in is a number of bars, like 0, 1 or 2")
     dyn = ask("Dynamics: pedal reads your CC 11, by hand means you "
               "dictate", "pedal")
 
@@ -442,14 +455,28 @@ def interview(out_path, demo_path, composer='', cfg=None):
         info = (f'Track "{name}"{where}: {len(notes)} notes, '
                 f'{pname(min(pitches))} to {pname(max(pitches))}. '
                 'Instrument')
-        inst = ask(info, guess_instrument(
-            name, os.path.splitext(os.path.basename(f))[0], notes))
+        guess = guess_instrument(
+            name, os.path.splitext(os.path.basename(f))[0], notes)
+        while True:
+            inst = ask(info, guess)
+            if not inst:
+                break
+            inst = chartc.canonical_instrument(inst)
+            if inst in chartc.HORNS:
+                break
+            # a typo asks again, for THIS track: skipping it used to
+            # hand every later answer to the wrong track
+            import difflib
+            near = difflib.get_close_matches(
+                inst, list(chartc.HORNS) + list(chartc.INSTRUMENT_ALIASES),
+                n=1, cutoff=0.6)
+            say(f"  I don't know '{inst}' as an instrument"
+                + (f" — did you mean {near[0]}?" if near else ".")
+                + " Say it again, or press Enter to leave this track out.")
+            if ask.eof:
+                inst = ""
+                break
         if not inst:
-            continue
-        inst = chartc.canonical_instrument(inst)
-        if inst not in chartc.HORNS:
-            say(f"  {inst} is not in the instrument table yet — skipping "
-                "this track; ask for it to be added, it takes a minute.")
             continue
         shift = sniff_octave(pitches, chartc.HORNS[inst]['fold'])
         if shift:

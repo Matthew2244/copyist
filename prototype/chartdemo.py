@@ -135,7 +135,7 @@ class Demo:
             if len(note_tracks) == 1:
                 return note_tracks[0]
             raise SystemExit(
-                f"chartc: demo '{os.path.basename(self.path)}' has "
+                f"chart: demo '{os.path.basename(self.path)}' has "
                 f"{len(note_tracks)} note tracks — name one")
         want = name.strip().lower()
         hits = [ti for ti in note_tracks
@@ -144,7 +144,7 @@ class Demo:
             return hits[0]
         have = [self.names.get(ti, f"(track {ti})") for ti in note_tracks]
         raise SystemExit(
-            f"chartc: demo track '{name}' "
+            f"chart: demo track '{name}' "
             f"{'is ambiguous' if hits else 'not found'} in "
             f"{os.path.basename(self.path)} — tracks: {have}")
 
@@ -163,7 +163,7 @@ def load_demo(path):
     # re-exporting the take while the editing desk is open must get the
     # new one, not the take the desk read an hour ago
     if not os.path.exists(path):
-        raise SystemExit(f"chartc: demo file '{path}' not found")
+        raise SystemExit(f"chart: demo file '{path}' not found")
     st = os.stat(path)
     key = (path, st.st_mtime_ns, st.st_size)
     if key not in _DEMOS:
@@ -710,7 +710,7 @@ def attach_lyrics(res, text, part_label, loc, find=None):
         return
     if res.get('staves'):
         raise SystemExit(
-            f"chartc: {loc}: lyrics need one singing line — this figure "
+            f"chart: {loc}: lyrics need one singing line — this figure "
             "came out polyphonic")
     phrases, autos = parse_lyrics(text)
     if autos and find is not None:
@@ -737,7 +737,7 @@ def attach_lyrics(res, text, part_label, loc, find=None):
             shape = "; ".join(
                 f"bar {bar_of(r[0])}: {len(r)} note(s)" for r in mel)
             raise SystemExit(
-                f"chartc: {loc}: '{part_label}' sings "
+                f"chart: {loc}: '{part_label}' sings "
                 f"{len(mel)} phrase(s) but the words give "
                 f"{len(phrases)} — the melody's phrases are: {shape}")
         def rejoin(ph):
@@ -764,7 +764,7 @@ def attach_lyrics(res, text, part_label, loc, find=None):
                            f"{len(ph)} syllable(s)")
         if bad:
             raise SystemExit(
-                f"chartc: {loc}: '{part_label}': " + "; ".join(bad[:3])
+                f"chart: {loc}: '{part_label}': " + "; ".join(bad[:3])
                 + " — an underscore holds a syllable one more note")
         toks = [t for ph in phrases for t in ph]
     else:
@@ -772,7 +772,7 @@ def attach_lyrics(res, text, part_label, loc, find=None):
         if len(toks) != len(tl):
             shape = ", ".join(str(len(r)) for r in mel)
             raise SystemExit(
-                f"chartc: {loc}: '{part_label}' sings {len(tl)} note(s) "
+                f"chart: {loc}: '{part_label}' sings {len(tl)} note(s) "
                 f"here but the lyrics carry {len(toks)} syllable(s) — "
                 f"the melody phrases hold {shape}; slashes in the words "
                 "anchor them phrase by phrase")
@@ -820,7 +820,7 @@ def inline_res(ref, meter, spoken_shift, fifths=0):
     n_units = bars * bar_ticks
     if ref['ticks'] != n_units:
         raise SystemExit(
-            f"chartc: {ref['loc']}: the figure's notes fill "
+            f"chart: {ref['loc']}: the figure's notes fill "
             f"{ref['ticks'] / DIV:g} beats but {bars} bar(s) of "
             f"{m_num}/{m_den} hold {n_units / DIV:g}")
     timeline, pos, trills, trems = [], 0, {}, {}
@@ -908,7 +908,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                      "drums) names them once")
     if not picked:
         raise SystemExit(
-            f"chartc: {part_label}: demo bars {bar_lo}-{bar_hi} of "
+            f"chart: {part_label}: demo bars {bar_lo}-{bar_hi} of "
             f"'{track_name or os.path.basename(demo.path)}' hold no notes")
 
     # ---- take the lay-back out. The offset is measured against the grid

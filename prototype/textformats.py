@@ -1210,7 +1210,15 @@ META_RX = re.compile(r'^\s*(title|artist|composer|by|written by|words and '
                      r'|time|meter|style|feel)\s*[:=]\s*(.+?)\s*$', re.I)
 
 
+KEY_OF_RX = re.compile(r'^\s*(?:in\s+the\s+)?key\s+of\s+(.+?)\s*$', re.I)
+
+
 def _meta_line(ln, song, ctx):
+    # "Key of D", the way most hand-typed sheets say it
+    k_of = KEY_OF_RX.match(ln)
+    if k_of and key_from_text(k_of.group(1)):
+        song['key'] = key_from_text(k_of.group(1))
+        return True
     m = META_RX.match(ln)
     if not m:
         return False
@@ -1344,6 +1352,19 @@ def parse_chordpro(text, name_hint='Untitled'):
                 start(h[0])
                 if h[2]:
                     cur.bars += chordline_bars(h[2], beats, ctx)
+                continue
+        # "[Verse]" or "[Chorus]" alone on its line is a section's name,
+        # the way many ChordPro files mark them; read as a chord it made
+        # "Chorus" a Cm7b5 (2026-10-17)
+        alone = re.fullmatch(r'\[([^\]]+)\]', s)
+        if alone:
+            h = header_line(alone.group(1).strip())
+            if h and not h[2]:
+                if h[3]:
+                    stanzas.append(_Stanza(h[0], repeat=True))
+                    cur = None
+                else:
+                    start(h[0])
                 continue
         ensure()
         for ch in re.findall(r'\[([^\]]*)\]', s):

@@ -239,6 +239,25 @@ function Do-BuildKnown([string]$p, [string]$mode, [string]$doing) {
         "and pick 'How is the build going' whenever you want the news.")
 }
 
+function Do-ShowFiles {
+    # where a build put everything, selected in Explorer: the score's
+    # MusicXML when there is one, else the folder itself
+    $p = Pick-Chart
+    if (-not $p) { return }
+    $dir = Join-Path (Split-Path -Parent $p) 'build'
+    if (-not (Test-Path $dir)) {
+        Show-Info 'Nothing built yet for this chart. Build it first, Ctrl+B.'
+        return
+    }
+    $score = Get-ChildItem -Path $dir -Filter '*score.musicxml' -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($score) {
+        Start-Process explorer.exe -ArgumentList ('/select,"' + $score.FullName + '"')
+    } else {
+        Start-Process explorer.exe -ArgumentList ('"' + $dir + '"')
+    }
+}
+
 function Do-Export {
     # the export picker, one plain question at a time: bars, parts,
     # what to make, the look. Empty keeps the whole song, every part,
@@ -370,19 +389,26 @@ function Do-BringIn {
     # a score, a MIDI demo, or words and chords in any format - the
     # same door as the Mac app's Bring in a file
     $dlg = New-Object System.Windows.Forms.OpenFileDialog
-    $dlg.Title = 'Bring in a file - a score, a MIDI demo, or words and chords'
+    $dlg.Title = 'Bring in a file - a score, a MIDI demo (several at once make one chart), or words and chords'
     $dlg.Filter = ('Everything Copyist reads|*.musicxml;*.xml;*.mxl;' +
         '*.mscz;*.mid;*.midi;*.txt;*.md;*.rtf;*.doc;*.docx;*.odt;' +
         '*.html;*.htm;*.pdf;*.cho;*.chordpro;*.chopro;*.crd;*.pro;*.abc|' +
         'All files (*.*)|*.*')
+    # a DAW's one-file-per-instrument export: pick them all, one chart
+    $dlg.Multiselect = $true
     if ($dlg.ShowDialog() -ne 'OK') { return }
     $f = $dlg.FileName
     $ext = [System.IO.Path]::GetExtension($f).ToLower()
-    if (@('.mid', '.midi', '.kar', '.smf') -contains $ext) {
+    $midis = @($dlg.FileNames | Where-Object {
+        @('.mid', '.midi', '.kar', '.smf') -contains
+            [System.IO.Path]::GetExtension($_).ToLower() })
+    if ($midis.Count -gt 0) {
         # the demo interview is a conversation: a real console window,
-        # which NVDA reads natively
-        $line = '/c "' + $py + ' "' + $chartPy + '" import "' + $f +
-            '" & echo. & echo Done. Press any key to close this window. & pause >nul"'
+        # which NVDA reads natively. Several demos make one chart, and
+        # it builds as soon as the interview has written it
+        $files = ($midis | ForEach-Object { '"' + $_ + '"' }) -join ' '
+        $line = '/c "' + $py + ' "' + $chartPy + '" import ' + $files +
+            ' & echo. & echo Done. Press any key to close this window. & pause >nul"'
         Start-Process -FilePath 'cmd.exe' -ArgumentList $line
         return
     }
@@ -417,9 +443,12 @@ function Do-BringIn {
         }
     }
     $out = Run-Chart ('import "' + $f + '"' + $into + $song)
-    $made = ($out -split "`n" | Where-Object { $_ -like 'chart: *' } |
+    # only a real .chart file is the chart made: an error line starts
+    # "chart: " too
+    $made = ($out -split "`n" | Where-Object {
+        $_ -like 'chart: *.chart' -and (Test-Path ($_.Substring(7).Trim())) } |
         Select-Object -Last 1)
-    $shown = ($out -split "`n" | Where-Object { $_ -notlike 'chart: *' }) -join "`n"
+    $shown = ($out -split "`n" | Where-Object { $_ -ne $made }) -join "`n"
     if ($made) {
         $path = $made.Substring(7).Trim()
         Set-Content -Path $lastFile -Value $path
@@ -547,6 +576,8 @@ Add-Action $buildFlow 'Export' 'Choose the bars, the parts, what to make and the
     Do-Export }
 Add-Action $buildFlow 'Braille' 'Just the braille: a file for each part, read back against the score.' 'Ctrl+Shift+B' {
     Do-Build 'braille' 'Making the braille, each part read back against the score.' }
+Add-Action $buildFlow 'Show the files' 'The build folder in Explorer: the MusicXML for MuseScore, Sibelius, Dorico or Finale, the PDFs, the listen.' 'Ctrl+Shift+X' {
+    Do-ShowFiles }
 Add-Action $buildFlow 'How is the build going' 'The news on a background build, on a button press, never a timer.' 'F5' {
     Do-HowGoes }
 
@@ -607,6 +638,7 @@ $form.Add_KeyDown({
             'L' { Do-Listen }
             'R' { Do-ReadPart }
             'I' { if ($e.Shift) { Do-BringIn; Update-Working } }
+            'X' { if ($e.Shift) { Do-ShowFiles } }
             'T' { if ($e.Shift) { $p = Pick-Chart; if ($p) { Open-Talk $p 'edit' } } }
             'Oemcomma' { Go-Tab 4; Do-Settings }
             default { $e.SuppressKeyPress = $false; return }
