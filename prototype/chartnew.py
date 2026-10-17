@@ -472,8 +472,9 @@ def interview(out_path, demo_path, composer='', cfg=None):
             src = dm.names.get(ti)
         else:
             # its own file: the band line names the file, not a track
+            # forward slashes: a chart written on Windows opens on a Mac
             src = os.path.relpath(f, os.path.dirname(
-                os.path.abspath(out_path)))
+                os.path.abspath(out_path))).replace(os.sep, '/')
             if len(demos[f].tracks) > 1:
                 say(f"  {os.path.basename(f)} has more than one track; "
                     f"{label} plays all of them.")
@@ -504,7 +505,9 @@ def interview(out_path, demo_path, composer='', cfg=None):
     lines += [f"key: {key}",
               f"meter: {meter[0]}/{meter[1]}",
               f"tempo: {tempo}" if tempo else "# tempo: none stated",
-              f"demo: {os.path.relpath(demo_path, os.path.dirname(os.path.abspath(out_path)))}"]
+              "demo: " + os.path.relpath(
+                  demo_path, os.path.dirname(os.path.abspath(out_path))
+              ).replace(os.sep, '/')]
     if int(countin or 0):
         lines.append(f"countin: {countin}")
     if dyn.lower().startswith("h") or "hand" in dyn.lower():
