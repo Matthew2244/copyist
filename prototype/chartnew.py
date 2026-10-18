@@ -264,10 +264,11 @@ def interview_no_demo(out_path, composer='', cfg=None):
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write("\n".join(lines) + "\n")
     name = os.path.basename(out_path)
-    say(f"Wrote {name}: {len(band)} part(s), no sections yet. Next, "
-        f"describe the tune: run 'chart {name} edit' and say it the way "
-        "you'd tell the band, like: blues in F, swing at 140, head twice, "
-        "solos for everybody, head out.")
+    # the conversation carries straight on to the tune itself (the
+    # app's New chart and the command line's new both do), so this
+    # never says "go and run another command"
+    say(f"Wrote {name}: the band, {len(band)} "
+        f"{'part' if len(band) == 1 else 'parts'}. Now the tune.")
 
 
 def interview(out_path, demo_path, composer='', cfg=None):
@@ -568,5 +569,5 @@ def interview(out_path, demo_path, composer='', cfg=None):
             lines.append(f"  {label}: from demo bars {lo}-{hi}")
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write("\n".join(lines) + "\n")
-    say(f"Wrote {os.path.basename(out_path)}: {len(band)} part(s), every "
+    say(f"Wrote {os.path.basename(out_path)}: {chartc.n_of(len(band), 'part')}, every "
         f"one playing its demo, {total} bars. It is ready to build.")

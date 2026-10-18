@@ -680,7 +680,7 @@ def score_to_chart(xml, score_file, title_hint):
                     + "), a slip in the program that wrote it; the check "
                     "will name them too, and fixing them there fixes them "
                     "here")
-    find.insert(0, f"{len(band)} part(s), {len(sections)} section(s), "
+    find.insert(0, f"{chartc.n_of(len(band), 'part')}, {chartc.n_of(len(sections), 'section')}, "
                 f"{len(body_nums)} bars"
                 + (", a pickup" if pickup_q is not None else ""))
     return "\n".join(lines) + "\n", title, find

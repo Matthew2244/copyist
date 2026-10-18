@@ -68,6 +68,9 @@ def say_key(k):
     k = str(k).strip()
     if not k:
         return k
+    # "g flat", "f sharp minor": the spelled-out way the header takes too
+    k = re.sub(r'\s+flat\b', 'b', k, flags=re.I)
+    k = re.sub(r'\s+sharp\b', '#', k, flags=re.I)
     spoken = k[0].upper() + (' flat' if k[1:2] == 'b' else
                              ' sharp' if k[1:2] == '#' else '')
     rest = k[2:] if k[1:2] in ('b', '#') else k[1:]
@@ -246,7 +249,7 @@ def part_section(plan, label, chord_parts, figures=None):
                      if item.get('every') else "")
             span = item['res']['bars'][1]
             lines.append(
-                (f"Your written figure, {span} bar(s), spoken at "
+                (f"Your written figure, {chartc.n_of(span, 'bar')}, spoken at "
                  f"concert pitch:{extra}") if item.get('inline') else
                 (f"Your line, bars {lo} to {hi}, spoken at "
                  f"concert pitch:{extra}"))
@@ -429,16 +432,19 @@ def main():
         if hdr.get('composer'):
             bits.append("by " + hdr['composer'])
         if hdr.get('key'):
-            k = hdr['key']
-            spoken = k[0] + (' flat' if k[1:2] == 'b' else
-                             ' sharp' if k[1:2] == '#' else '')
-            if 'minor' in k.lower():
-                spoken += ' minor'
-            bits.append("in " + spoken)
+            bits.append("in " + say_key(hdr['key']))
+        tempo = str(hdr.get('tempo', '')).strip()
         if hdr.get('feel'):
-            bits.append(hdr['feel'])
+            bits.append(hdr['feel'] + (f" at {tempo}" if tempo.isdigit()
+                                       else ""))
+        elif tempo.isdigit():
+            bits.append(f"at {tempo}")
+        elif tempo:
+            bits.append(tempo)       # tempo words, said as written
         out.append(", ".join(bits) +
-                   f". {len(band)} parts, {len(plans)} sections, "
+                   f". {len(band)} {'part' if len(band) == 1 else 'parts'}, "
+                   f"{len(plans)} "
+                   f"{'section' if len(plans) == 1 else 'sections'}, "
                    f"{total} bars" +
                    (", plus a pickup." if chart['pickup'] else "."))
         for plan in plans:

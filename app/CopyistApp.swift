@@ -2315,8 +2315,9 @@ struct TranscriptLine: View {
                     .accessibilityHidden(true)
             }
             Text(body)
-                .font(.system(size: ts(13),
-                              design: finding ? .default : .monospaced))
+                // the engine speaks prose: drawn in the reading face,
+                // not a typewriter's
+                .font(.system(size: ts(13)))
                 .foregroundStyle(pal.text)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -3146,7 +3146,7 @@ def check_roadmap():
         chartedit.CONFIG_DIR = real_dir
     said = out.getvalue()
     check("the session ends written and checked",
-          "Written and checked: 7 section(s), 112 bars" in said, said)
+          "Written and checked: 7 sections, 112 bars" in said, said)
     import chartc
     final = chartc.parse_chart(chart_path)
     names = [s["name"] for s in final["sections"]]
@@ -7786,6 +7786,14 @@ def check_percussion_section_grooves():
                                   75, 80, 81, 82)))
 
 
+def _tmpchart(body):
+    import tempfile
+    fd, p = tempfile.mkstemp(suffix=".chart")
+    with os.fdopen(fd, "w") as f:
+        f.write("title: t\nkey: C\nband:\n  drums\n" + body)
+    return p
+
+
 def check_streamline():
     """2026-10-17, his ask: 'way more streamlined'. A DAW's one file
     per instrument comes in as ONE chart that builds as written; the
@@ -7912,6 +7920,53 @@ def check_streamline():
     check("a sheet's 'Key of D' and first-line title are read",
           sheet['title'] == "Plain Tune" and sheet['key']
           and 'D' in str(sheet['key']), str((sheet['title'], sheet['key'])))
+
+    # the editing desk takes chords in the same breath, and "x4" after
+    # a line means the whole line when that is what adds up
+    import chartedit
+    with tempfile.TemporaryDirectory() as tmp:
+        cp_ = os.path.join(tmp, "m.chart")
+        open(cp_, "w").write("title: m\nkey: Bb\nband:\n  piano\n  bass\n"
+                             "section verse, 16 bars\n  chords: nc x16\n"
+                             "section chorus, 8 bars\n  chords: nc x8\n")
+        real_vocab = chartedit.VOCAB_PATH
+        chartedit.VOCAB_PATH = os.path.join(tmp, "vocab.json")
+        old_stdin = sys.stdin
+        sys.stdin = io.StringIO("verse chords Bb, Eb, F7, Bb x4\n\n"
+                                "chords for the chorus: Eb, Bb, F7, Bb, "
+                                "Eb, Bb, F7, Bb\n\n")
+        try:
+            with redirect_stdout(io.StringIO()) as talk:
+                try:
+                    chartedit.edit(cp_)
+                except SystemExit:
+                    pass
+        finally:
+            sys.stdin = old_stdin
+            chartedit.VOCAB_PATH = real_vocab
+        text = open(cp_).read()
+        check("the desk takes chords said with the section, any order",
+              "chords: (Bb, Eb, F7, Bb) x4" in text
+              and "chords: Eb, Bb, F7, Bb, Eb, Bb, F7, Bb" in text,
+              talk.getvalue()[-400:])
+    sc = lambda body: chartedit.scaffold_only(chartc.parse_chart(
+        _tmpchart(body)))
+    check("a described form with no chords yet is never replaced unasked",
+          not sc("section intro, 4 bars\n  chords: nc x4\nsection verse, "
+                 "8 bars\n  chords: nc x8\n")
+          and sc("section A, 4 bars\n  chords: nc x4\n"
+                 "  drums: from demo bars 1-4\n"))
+    import chart as chart_mod
+    w, n_ = chart_mod._was_now("Intro, 4 bars. Groove. Changes: no chord.",
+                               "Intro, 4 bars. Groove. Changes: F7.")
+    check("a changed section says only what changed",
+          (w, n_) == ("Changes: no chord.", "Changes: F7."), str((w, n_)))
+    import chartread
+    check("a spelled-out key is spoken whole",
+          chartread.say_key("g flat") == "G flat"
+          and chartread.say_key("b flat major") == "B flat major")
+    check("one part, two parts", chartc.n_of(1, "part") == "1 part"
+          and chartc.n_of(2, "part") == "2 parts")
 
     # the room, run in stretches with warm-up, matches the whole song's
     from array import array

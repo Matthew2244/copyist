@@ -1358,15 +1358,24 @@ def splice(path, keep_existing, prog_lines, section_lines,
 
 def scaffold_only(chart):
     """True when the sections are still chartnew's untouched scaffold —
-    nc bars and nothing else — safe to replace without asking."""
-    if not chart["sections"]:
+    no sections at all, or its one big section of no-chord bars whose
+    only lines are the interview's own 'from demo bars' — safe to
+    replace without asking. A form the writer described (intro, verse,
+    chorus), even with no chords yet, is his: never replaced unasked
+    (it was, 2026-10-17, when every section was still no-chord)."""
+    secs = chart["sections"]
+    if not secs:
         return True
-    for sec in chart["sections"]:
-        for bar in sec.get("content") or []:
-            for _, sym in bar:
-                if sym is not None:
-                    return False
-        if sec.get("directives"):
+    if len(secs) != 1:
+        return False
+    sec = secs[0]
+    for bar in sec.get("content") or []:
+        for _, sym in bar:
+            if sym is not None:
+                return False
+    for d in sec.get("directives") or []:
+        instr = d[1] if isinstance(d, (list, tuple)) else str(d)
+        if not re.fullmatch(r"from demo bars \d+(?:-\d+)?", instr.strip()):
             return False
     return True
 
@@ -1411,9 +1420,11 @@ def _carve(plan):
     return parts
 
 
-def _chords_for(plan, ctx):
+def _chords_for(plan, ctx, first=None):
     """One section's chords, by whichever door he picks. Returns the
-    chords text (bars grammar), validated to the section's length."""
+    chords text (bars grammar), validated to the section's length.
+    first is chords already said in the same breath as the section
+    ("verse chords Bb, Eb, F7, Bb"): taken as the first answer."""
     name, bars = plan["name"], plan["bars"]
     prior = {p["name"]: p for p in ctx["done"] if p.get("chords_text")}
     # a later A of a carved form defaults to the first A's changes
@@ -1444,10 +1455,22 @@ def _chords_for(plan, ctx):
     if prior:
         doors += ", 'same as <section>'"
     while True:
-        a = ask(f"Chords for {name} ({bars} bars) — {doors}, or Enter "
-                "for none yet")
+        if first:
+            a, first = first, None
+        else:
+            a = ask(f"Chords for {name} ({bars} bars) — {doors}, or "
+                    "Enter for none yet")
         if not a:
             return f"nc x{bars}" if bars > 1 else "nc"
+        # a new instruction typed here is not a chord: step back rather
+        # than learn "chords" as a word for good
+        if re.match(r"(?:the\s+)?(?:chords?\s+(?:of|for|in)\b|who\s|"
+                    r"cut\s|add\s|tempo\s|feel\s|transpose\b|rename\s|"
+                    r"repeat\s|read it back|done\b|help\b)", a.strip(),
+                    re.I) or re.match(r"\S+\s+chords?\b", a.strip(), re.I):
+            say(f"That sounds like a new instruction, so {name} keeps "
+                "what it had. Say it again at the next question.")
+            return None
         m = re.fullmatch(r"same as (.+)", a.strip(), re.IGNORECASE)
         if m:
             src = m.group(1).strip().lower()
@@ -1497,6 +1520,20 @@ def _chords_for(plan, ctx):
             say(f"That didn't parse: {e.code}")
             continue
         if got != bars:
+            # "Bb, Eb, F7, Bb x4" — the grammar repeats the last chord,
+            # a musician means the whole line four times: offer that
+            # when it is what makes the bars add up
+            mx = re.fullmatch(r"(.+?)\s+x(\d+)", text.strip())
+            if mx and "," in mx.group(1):
+                try:
+                    one = len(chartc.parse_bars(mx.group(1), name))
+                except SystemExit:
+                    one = 0
+                if one * int(mx.group(2)) == bars:
+                    yn = ctx["ask"](f"The whole line {mx.group(2)} times, "
+                                    f"{bars} bars? yes or no", "yes")
+                    if not yn.lower().startswith("n"):
+                        return f"({mx.group(1)}) x{mx.group(2)}"
             say(f"That's {got} bars and {name} is {bars} — same door, "
                 "try again.")
             continue
@@ -2195,7 +2232,8 @@ def _realize_plans(ctx, plans, named, extra=()):
                     say(f"I don't see a section called '{p['use']}' "
                         "to solo over — I'll ask for the changes.")
                 _ask_bars(p)
-                p["chords_text"] = _chords_for(p, ctx)
+                p["chords_text"] = _chords_for(p, ctx) or (
+                f"nc x{p['bars']}" if p["bars"] > 1 else "nc")
         elif p["kind"] == "out":
             src = _resolve_out(p, pool, named)
             if src:
@@ -2212,9 +2250,11 @@ def _realize_plans(ctx, plans, named, extra=()):
                     say(f"I couldn't read 'out on the {p['source']}' "
                         "against the sections I have — I'll ask.")
                 _ask_bars(p)
-                p["chords_text"] = _chords_for(p, ctx)
+                p["chords_text"] = _chords_for(p, ctx) or (
+                f"nc x{p['bars']}" if p["bars"] > 1 else "nc")
         else:
-            p["chords_text"] = _chords_for(p, ctx)
+            p["chords_text"] = _chords_for(p, ctx) or (
+                f"nc x{p['bars']}" if p["bars"] > 1 else "nc")
         ctx["done"].append(p)
         p["who"] = _who_for(p, ctx)
 
@@ -2230,7 +2270,7 @@ def _report(path):
     total = 0
     for sec in final["sections"]:
         total += sec["bars"] * max(sec.get("repeat") or 1, 1)
-    say(f"Written and checked: {len(final['sections'])} section(s), "
+    say(f"Written and checked: {chartc.n_of(len(final['sections']), 'section')}, "
         f"{total} bars through the form. Next: chart build, and "
         "you'll hear it.")
     return final
@@ -2269,7 +2309,7 @@ def _new_form(path, ctx):
     moved = chartimport.place_waiting_words(path)
     if moved:
         say(f"The words you brought in went beside their "
-            f"sections: {moved} stanza(s).")
+            f"sections: {chartc.n_of(moved, 'stanza')}.")
     _report(path)
 
 
@@ -2500,7 +2540,7 @@ def _figure_from_file(fname, ctx):
     if track:
         line += f', track "{track}"'
     line += f", bars 1-{bars}"
-    return line, bars, f"{bars} bar(s) played in " \
+    return line, bars, f"{chartc.n_of(bars, 'bar')} played in " \
         f"{os.path.basename(p)}"
 
 
@@ -2566,7 +2606,7 @@ def _notes_for(path, ctx, chart, part_text, sec_text):
                     f"{plan['bars']}", "1")
         b0 = num(start) or 1
         if b0 < 1 or b0 - 1 + fig_bars > plan["bars"]:
-            say(f"{fig_bars} bar(s) starting at bar {b0} runs past "
+            say(f"{chartc.n_of(fig_bars, 'bar')} starting at bar {b0} runs past "
                 f"{plan['name']}'s {plan['bars']} — pick again.")
             continue
         name = f"{target} {plan['name']} bar {b0}"
@@ -2574,7 +2614,7 @@ def _notes_for(path, ctx, chart, part_text, sec_text):
         while name in chart["figures"]:
             name = f"{target} {plan['name']} bar {b0} take {k}"
             k += 1
-        say(f"{name}, {fig_bars} bar(s): {described}")
+        say(f"{name}, {chartc.n_of(fig_bars, 'bar')}: {described}")
         yn = ask("Write it? yes or no", "yes")
         if yn.lower().startswith("n"):
             continue
@@ -2652,7 +2692,7 @@ def run_commands(path, ctx):
             + (f" x{s['repeat']}" if s.get("repeat") else "")
             for s in secs)
         if not shown:
-            say(f"This chart has {len(secs)} section(s): {summary}.")
+            say(f"This chart has {chartc.n_of(len(secs), 'section')}: {summary}.")
             say("Say what to do: chords of <section> / who plays in "
                 "<section> / notes for <part> in <section> / add "
                 "<new sections> / cut <section> / rename <section> "
@@ -2674,7 +2714,7 @@ def run_commands(path, ctx):
                    "whats there", "what is there"):
             total = sum(s["bars"] * max(s.get("repeat") or 1, 1)
                         for s in secs)
-            say(f"{len(secs)} section(s): {summary} — {total} bars "
+            say(f"{chartc.n_of(len(secs), 'section')}: {summary} — {total} bars "
                 "through the form.")
             continue
         m = re.fullmatch(r"tempo\s+(.+)", low)
@@ -2707,15 +2747,41 @@ def run_commands(path, ctx):
             ctx["key"] = newkey
             say(f"Done — the chart is in {newkey} now.")
             continue
-        m = re.fullmatch(r"(?:change\s+)?(?:the\s+)?chords\s+"
-                         r"(?:of|for|in)\s+(?:the\s+)?(.+)", low)
+        # "chords of the verse", "chords for chorus: Bb Eb F7 Bb",
+        # "verse chords Bb, Eb, F7, Bb x4": the section, and maybe the
+        # chords in the same breath (it used to want the exact words
+        # "chords of verse", then ask again)
+        said_plan, said_chords = None, None
+        m = (re.fullmatch(r"(?:change\s+)?(?:the\s+)?chords?\s+"
+                          r"(?:of|for|in)\s+(?:the\s+)?(.+)", a, re.I)
+             or re.fullmatch(r"(?:the\s+)?(.+?\s+chords?\b.*)", a, re.I))
         if m:
-            plan = _sec_plan(chart, m.group(1).strip(), ctx)
-            if not plan:
-                say(f"No section called '{m.group(1).strip()}'. "
+            tail = re.sub(r"\s+chords?\b", "", m.group(1), count=1,
+                          flags=re.I) if not re.match(
+                r"(?:change\s+)?(?:the\s+)?chords?\s+(?:of|for|in)\b",
+                a, re.I) else m.group(1)
+            words = tail.split()
+            for k in range(len(words), 0, -1):
+                cand = _sec_plan(chart, " ".join(words[:k]).strip(":,"),
+                                 ctx)
+                if cand:
+                    said_plan = cand
+                    rest = " ".join(words[k:])
+                    rest = re.sub(r"^(?::|=|are|is|to|go)\s*", "", rest,
+                                  flags=re.I).strip()
+                    said_chords = rest or None
+                    break
+            if not said_plan and re.match(r"(?:change\s+)?(?:the\s+)?"
+                                          r"chords?\s+(?:of|for|in)\b",
+                                          a, re.I):
+                say(f"No section called '{tail.strip()}'. "
                     f"The sections are: {summary}.")
                 continue
-            text = _chords_for(plan, ctx)
+        if said_plan:
+            plan = said_plan
+            text = _chords_for(plan, ctx, first=said_chords)
+            if text is None:
+                continue
             lines = _lines(path)
             span = _section_span(lines, plan["name"])
             _save_lines(path, _set_section_chords(lines, span, text))

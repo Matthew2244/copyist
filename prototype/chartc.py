@@ -713,6 +713,11 @@ QUAL_SYNONYMS = {'-': 'm', '-7': 'm7', '-9': 'm9', '-11': 'm11',
 STEP = set('ABCDEFG')
 
 
+def n_of(n, word):
+    """'1 part', '5 parts': said aloud, 'part(s)' is read as 'part s'."""
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
 def fail(msg):
     # "chart:", the program's name to the writer, never the module's
     sys.exit("chart: " + msg)
@@ -2609,7 +2614,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
             resolved[target].extend(new)
             if moved:
                 findings.add(f"{target}: exploded from {srcl}, "
-                             f"{len(moved)} note(s) moved an octave into "
+                             f"{n_of(len(moved), 'note')} moved an octave into "
                              "range")
             if div_word:
                 plan['texts'][target].append((1, 'div.'))
@@ -2636,7 +2641,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                              src_label=None, soli=srcl))
             if moved:
                 findings.add(f"{target}: soli under the {srcl}, "
-                             f"{len(moved)} note(s) moved an octave into "
+                             f"{n_of(len(moved), 'note')} moved an octave into "
                              "range")
     # ---- double and cue: another part's resolved line joins this one.
     # It re-renders with the TARGET's transposition and key, so a

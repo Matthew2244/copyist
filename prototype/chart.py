@@ -93,11 +93,37 @@ def parse_readaloud(path):
     return bars, other
 
 
+def _sentences(text):
+    """A read-aloud line in its sentences (". " ends one)."""
+    return [x for x in re.split(r'(?<=\.)\s+', text.strip()) if x]
+
+
+def _was_now(old, new):
+    """Two wordings of one section, said as what changed: the sentences
+    they share are left out, so "Changes: no chord for 4 bars" against
+    "Changes: F seven for 4 bars" is the whole news."""
+    o, n = _sentences(old), _sentences(new)
+    while o and n and o[0] == n[0]:
+        o, n = o[1:], n[1:]
+    while o and n and o[-1] == n[-1]:
+        o, n = o[:-1], n[:-1]
+    return " ".join(o) or "nothing", " ".join(n) or "nothing"
+
+
+def _who(labels):
+    return (", ".join(labels[:-1]) + " and " + labels[-1]
+            if len(labels) > 1 else labels[0])
+
+
 def diff_readalouds(prev_dir, cur_dir, title, labels):
     """Compare the previous build's read-alouds with the current ones.
     Returns (sentences, had_previous). Spoken style: the writer's own
-    bar numbers, was/now, and an explicit all-clear."""
-    out = []
+    bar numbers, was/now, and an explicit all-clear. A section whose
+    wording changed is one sentence, was and now, saying only what
+    changed; the same change in several parts is said once, naming
+    them all (one chord change used to be 12 lines, piano and bass each
+    with a 'removed' and an 'added')."""
+    said = {}             # what changed -> the parts it changed in
     had_prev = False
     for label in labels:
         name = f"{title} — {label} part, read aloud.txt"
@@ -108,23 +134,37 @@ def diff_readalouds(prev_dir, cur_dir, title, labels):
         had_prev = True
         ob, oo = old
         nb, no = new
+        mine = []
         for bar in sorted(set(ob) | set(nb)):
             if bar not in nb:
-                out.append(f"{label}, bar {bar} — the written material "
-                           f"is gone. Was: {ob[bar]}")
+                mine.append(f"bar {bar} — the written material is gone. "
+                            f"Was: {ob[bar]}")
             elif bar not in ob:
-                out.append(f"{label}, bar {bar} — new material: {nb[bar]}")
+                mine.append(f"bar {bar} — new material: {nb[bar]}")
             elif ob[bar] != nb[bar]:
-                out.append(f"{label}, bar {bar} — was: {ob[bar]} "
-                           f"Now: {nb[bar]}")
+                mine.append(f"bar {bar} — was: {ob[bar]} Now: {nb[bar]}")
         if oo != no:
             import difflib
+            gone, came = [], []
             for d in difflib.unified_diff(oo, no, lineterm='', n=0):
                 if d.startswith('-') and not d.startswith('---'):
-                    out.append(f"{label} — wording removed: {d[1:]}")
+                    gone.append(d[1:])
                 elif d.startswith('+') and not d.startswith('+++'):
-                    out.append(f"{label} — wording added: {d[1:]}")
-    return out, had_prev
+                    came.append(d[1:])
+            head = lambda t: (_sentences(t) or [t])[0]
+            for g in gone:
+                twin = next((c for c in came if head(c) == head(g)), None)
+                if twin is not None:
+                    came.remove(twin)
+                    w, n_ = _was_now(g, twin)
+                    mine.append(f"{head(g).rstrip('.')}: was {w} Now {n_}")
+                else:
+                    mine.append(f"wording removed: {g}")
+            for c in came:
+                mine.append(f"wording added: {c}")
+        for m in mine:
+            said.setdefault(m, []).append(label)
+    return [f"{_who(who)} — {what}" for what, who in said.items()], had_prev
 
 
 def subset_listen(listen_src, keep_labels, dst):
@@ -353,7 +393,7 @@ def make_braille(sources, title, where, ex, page=None):
                 frozenset({'braille', 'braille pages'}): "Braille files "
                 "and braille views"}[frozenset(ex & {'braille',
                                                      'braille pages'})]
-        say(f"{what} for {len(made)} part(s): " + ", ".join(made) + ". "
+        say(f"{what} for {chartc.n_of(len(made), 'part')}: " + ", ".join(made) + ". "
             + ("Every one read back note for note against the score."
                if not doubts else ""))
     for d in doubts:
@@ -561,7 +601,7 @@ def where_it_all_is(title_dir, pages_dir, listen_dir, spoken_dir, title,
     pdf = (count(pages_dir, '.pdf') - count(pages_dir, '(braille view).pdf')
            if 'pages' in ex else 0)
     if pdf:
-        bits.append(f"{pdf} PDF(s)" + ("" if pages_dir == title_dir else
+        bits.append(f"{chartc.n_of(pdf, 'PDF')}" + ("" if pages_dir == title_dir else
                                        f" in {nice(pages_dir)}"))
     mp3 = count(listen_dir, '.mp3') if 'listen' in ex else 0
     if mp3:
@@ -1038,7 +1078,7 @@ def list_instruments(want):
                 'Ask for the instrument to be added; it takes a minute.')
             return
         if names:
-            say(f'{len(names)} instrument(s) matching "{want}": '
+            say(f'{chartc.n_of(len(names), "instrument")} matching "{want}": '
                 + ", ".join(names) + ".")
         if aliased:
             say("Nicknames that work: " + ", ".join(
@@ -1188,7 +1228,7 @@ def run_import(argv):
         import textformats
         text, _how = textformats.read_text(path)
         songs = textformats.parse_all(text, os.path.basename(path))
-        say(f"{len(songs)} song(s) in {os.path.basename(path)}:")
+        say(f"{chartc.n_of(len(songs), 'song')} in {os.path.basename(path)}:")
         for i, sg in enumerate(songs, 1):
             say(f"  {i}. {sg.get('title') or 'Untitled'}")
         say("Bring one in with: chart import FILE --song NAME (or its "
@@ -1438,6 +1478,14 @@ def main():
         import chartnew
         chartnew.interview(args.chart, args.demo,
                            composer=cfg['composer'], cfg=cfg)
+        # no demo: the band is named and the form isn't, so the roadmap
+        # conversation goes on in the same breath rather than sending
+        # the writer off to run 'edit'
+        if os.path.exists(args.chart) and not re.search(
+                r'^section ', open(args.chart, encoding='utf-8').read(),
+                re.M):
+            import chartedit
+            chartedit.edit(args.chart, composer=cfg['composer'], cfg=cfg)
         return
 
     if args.command == 'keys':
@@ -1511,7 +1559,9 @@ def main():
         elif not sentences:
             say("Nothing changed since the last build.")
         else:
-            say(f"{len(sentences)} change(s) since the last build:")
+            say(f"{len(sentences)} "
+                f"{'change' if len(sentences) == 1 else 'changes'} "
+                "since the last build:")
             for s in sentences:
                 say(s)
         return
@@ -1579,7 +1629,7 @@ def main():
     if bad:
         for b in bad[:10]:
             say("broken measure: " + b)
-        sys.exit(f"chart: {len(bad)} measure(s) do not add up — that is a "
+        sys.exit(f"chart: {chartc.n_of(len(bad), 'measure')} do not add up — that is a "
                  "converter bug, not your chart. Report the lines above.")
     if chart['header'].get('look'):
         parse_look(chart['header']['look'])   # refuse nonsense in check
@@ -1666,7 +1716,9 @@ def main():
         if not sentences:
             say("Nothing changed since the last build.")
         elif len(sentences) <= 12:
-            say(f"{len(sentences)} change(s) since the last build:")
+            say(f"{len(sentences)} "
+                f"{'change' if len(sentences) == 1 else 'changes'} "
+                "since the last build:")
             for s in sentences:
                 say(s)
         else:
@@ -1840,7 +1892,7 @@ def main():
         if got:
             if os.path.exists(stale) and os.path.exists(mp3):
                 os.remove(stale)       # the other band's old take
-            countin_words = (f", after {args.count_in} bar(s) of "
+            countin_words = (f", after {chartc.n_of(args.count_in, 'bar')} of "
                              "count-in" if args.count_in else "")
             if band:
                 played_on = ("the sample shelf" if os.path.isdir(band)
