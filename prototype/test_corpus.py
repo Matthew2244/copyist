@@ -7910,10 +7910,14 @@ def check_lead_sheet_from_markers():
                 continue
             du = re.search(r'<duration>(\d+)', n_)
             ty = re.search(r'<type>(\w+)</type>', n_)
+            # the band's human timing in its ending leaves gaps finer
+            # than any written value (a twelfth of a beat late), so
+            # "right" is within a 64th; a held chord written a half
+            # short (what MuseScore played) is far outside that
             if du and ty and ty.group(1) in beats_of and \
                     '<time-modification>' not in n_:
                 v = beats_of[ty.group(1)] * (2 - .5 ** n_.count('<dot/>'))
-                odd += abs(int(du.group(1)) / dv - v) > 0.02
+                odd += abs(int(du.group(1)) / dv - v) >= 0.0625
         check("every listening note's written value is its length "
               "(other programs play it right)", lx != "" and odd == 0,
               f"{odd} notes disagree")
