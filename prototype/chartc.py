@@ -2057,6 +2057,134 @@ def slash_bar(div, clef, staves, fifths, meter=(4, 4)):
     return "\n".join(out) + "\n"
 
 
+_TYPE_BEATS = {'maxima': 32, 'long': 16, 'breve': 8, 'whole': 4,
+               'half': 2, 'quarter': 1, 'eighth': 0.5, '16th': 0.25,
+               '32nd': 0.125, '64th': 0.0625, '128th': 0.03125}
+
+
+def portable(xml):
+    """Every note's written value says how long it lasts, so any program
+    plays what Copyist plays (2026-10-27: MuseScore read a 2.5-beat chord
+    written as a half note as a half note; Copyist's player goes by
+    duration and sounded right). A note too long for one value becomes
+    tied notes, a chord all together; a tie it already carried is kept
+    at its ends. Tuplets, graces and whole-bar rests are left as they
+    are."""
+    import convert as _c
+    out, div = [], None
+    for chunk in re.split(r'(<measure\b[^>]*>.*?</measure>)', xml,
+                          flags=re.S):
+        if not chunk.startswith('<measure'):
+            out.append(chunk)
+            continue
+        m_ = re.search(r'<divisions>(\d+)</divisions>', chunk)
+        if m_:
+            div = int(m_.group(1))
+        if div is None:
+            out.append(chunk)
+            continue
+        out.append(_portable_measure(chunk, div, _c))
+    return ''.join(out)
+
+
+def _portable_measure(meas, div, _c):
+    pieces = re.split(r'(<note\b[^>]*>.*?</note>)', meas, flags=re.S)
+    # gather chord groups: a note and the <chord/> notes after it, with
+    # only whitespace between them
+    out, i = [], 0
+    while i < len(pieces):
+        p = pieces[i]
+        if not p.startswith('<note'):
+            out.append(p)
+            i += 1
+            continue
+        group, gaps = [p], []
+        j = i + 1
+        while (j + 1 < len(pieces) and not pieces[j].strip()
+               and pieces[j + 1].startswith('<note')
+               and '<chord/>' in pieces[j + 1]):
+            gaps.append(pieces[j])
+            group.append(pieces[j + 1])
+            j += 2
+        out.append(_split_group(group, gaps, div, _c))
+        i = j
+    return ''.join(out)
+
+
+def _split_group(group, gaps, div, _c):
+    def whole():
+        return ''.join(g + (gaps[k] if k < len(gaps) else '')
+                       for k, g in enumerate(group))
+    first = group[0]
+    if ('<grace' in first or '<time-modification>' in first
+            or 'measure="yes"' in first):
+        return whole()
+    durs = {re.search(r'<duration>(\d+)</duration>', g).group(1)
+            if re.search(r'<duration>(\d+)</duration>', g) else None
+            for g in group}
+    ty = re.search(r'<type>([\w]+)</type>', first)
+    if len(durs) != 1 or None in durs or not ty or \
+            ty.group(1) not in _TYPE_BEATS:
+        return whole()
+    ticks = int(next(iter(durs)))
+    dots = first.count('<dot/>')
+    want = _TYPE_BEATS[ty.group(1)] * (2 - 0.5 ** dots)
+    if abs(ticks / div - want) < 1e-6:
+        return whole()
+    parts = _c.decompose(ticks, div)
+    if len(parts) == 1:
+        plen, ptype, pdots = parts[0]
+        return ''.join(_retype(g, ptype, pdots) +
+                       (gaps[k] if k < len(gaps) else '')
+                       for k, g in enumerate(group))
+    gap = gaps[0] if gaps else '\n      '
+    rest = '<rest' in first
+    made = []
+    for n, (plen, ptype, pdots) in enumerate(parts):
+        for k, g in enumerate(group):
+            had_stop = '<tie type="stop"/>' in g
+            had_start = '<tie type="start"/>' in g
+            t_stop = n > 0 or had_stop
+            t_start = n < len(parts) - 1 or had_start
+            x = re.sub(r'<duration>\d+</duration>',
+                       f'<duration>{plen}</duration>', g)
+            x = _retype(x, ptype, pdots)
+            x = re.sub(r'\s*<tie type="(start|stop)"/>', '', x)
+            x = re.sub(r'<tied [^>]*/>', '', x)
+            x = re.sub(r'\s*<beam\b[^>]*>[^<]*</beam>', '', x)
+            if n > 0:
+                # what is said once rides the first note only
+                x = re.sub(r'\s*<accidental\b[^>]*>[^<]*</accidental>',
+                           '', x)
+                x = re.sub(r'\s*<lyric\b.*?</lyric>', '', x,
+                           flags=re.S)
+                x = re.sub(r'\s*<notations>.*?</notations>', '', x,
+                           flags=re.S)
+            x = re.sub(r'\s*<notations>\s*</notations>', '', x)
+            if not rest and (t_stop or t_start):
+                ties = (('\n        <tie type="stop"/>' if t_stop else '')
+                        + ('\n        <tie type="start"/>'
+                           if t_start else ''))
+                x = re.sub(r'(<duration>\d+</duration>)',
+                           lambda m_: m_.group(1) + ties, x, count=1)
+                tied = (('<tied type="stop"/>' if t_stop else '')
+                        + ('<tied type="start"/>' if t_start else ''))
+                if '<notations>' in x:
+                    x = x.replace('<notations>', '<notations>' + tied, 1)
+                else:
+                    x = re.sub(r'(\s*<lyric\b|\s*</note>)',
+                               lambda m_: '\n        <notations>' + tied
+                               + '</notations>' + m_.group(1), x, count=1)
+            made.append(x)
+    return gap.join(made)
+
+
+def _retype(note, ptype, pdots):
+    x = re.sub(r'\s*<dot/>', '', note)
+    return re.sub(r'<type>[\w]+</type>',
+                  f'<type>{ptype}</type>' + '<dot/>' * pdots, x, count=1)
+
+
 class Beats(list):
     """A bar's hit beats. `push` marks the last hit as a push: an
     anticipation held over the barline, tied into the next bar until
@@ -5973,9 +6101,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     title = re.sub(r'\s*[/\\:]\s*', ' - ', hdr.get('title', 'chart'))
     score_path = os.path.join(outdir, f'{title} — score.musicxml')
     with open(score_path, 'w', encoding='utf-8') as f:
-        f.write(document(labels,
+        f.write(portable(document(labels,
                          directions_on=lambda l: l == labels[0],
-                         harmony_on=lambda l: l in chord_parts))
+                         harmony_on=lambda l: l in chord_parts)))
     written = [score_path]
     listen_path = os.path.join(outdir, f'{title} — for listening.musicxml')
     # two passes: the first only learns what the lead plays in every
@@ -5991,10 +6119,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         live.update(was)
     LEAD['heard'] = {}
     with open(listen_path, 'w', encoding='utf-8') as f:
-        f.write(document(labels,
+        f.write(portable(document(labels,
                          directions_on=lambda l: l == labels[0],
                          harmony_on=lambda l: l in chord_parts,
-                         listen=True))
+                         listen=True)))
     LEAD['heard'] = None
     chartgroove.BAND_NOW = chartgroove.MELODY_NOW = None
     chartgroove.LEAD_NOW = None
@@ -6031,8 +6159,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     for l in labels:
         p = os.path.join(outdir, f'{title} — {src_of.get(l, l)}.musicxml')
         with open(p, 'w', encoding='utf-8') as f:
-            f.write(document([l], directions_on=lambda _: True,
-                             harmony_on=lambda _: True, part_mode=True))
+            f.write(portable(document([l], directions_on=lambda _: True,
+                             harmony_on=lambda _: True, part_mode=True)))
         written.append(p)
     if findings:
         seen = []

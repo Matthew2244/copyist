@@ -822,7 +822,11 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
 
     def attrs(ticks):
         return (f'      <attributes><divisions>{DIV}</divisions>'
-                f'<time><beats>{n16(ticks)}</beats><beat-type>16'
+                # the hold is real time, so the bar keeps its length,
+                # but its sixteenth-count meter is bookkeeping, not
+                # something to print (MuseScore showed "61/16")
+                f'<time print-object="no"><beats>{n16(ticks)}</beats>'
+                '<beat-type>16'
                 '</beat-type></time></attributes>\n')
 
     def bar_of(ticks):

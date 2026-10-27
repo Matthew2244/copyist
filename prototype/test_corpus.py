@@ -4775,8 +4775,10 @@ def check_feels_and_technique_for_every_part():
     parts = _re.findall(r'<part id="P\d">(.*?)</part>', x, _re.S)
     ms = _re.findall(r'<measure number="\d+"[^>]*>(.*?)</measure>',
                      parts[1], _re.S)
+    # notes struck: a tied continuation is the same note held
     counts = [len([n for n in _re.findall(r'<note\b.*?</note>', ms[2 * i],
-                                          _re.S) if '<rest' not in n])
+                                          _re.S) if '<rest' not in n
+                   and '<tie type="stop"/>' not in n])
               for i in range(len(feels))]
     check("feel: the bass walks 4 in swing, 2 in two feel, 1 in a ballad, "
           "and the latin tumbao is 2",
@@ -7892,6 +7894,32 @@ def check_lead_sheet_from_markers():
               in xml)
         check("one staff means one staff",
               "<staves>2</staves>" not in xml)
+        lx = ""
+        for root, _d, files in os.walk(tmp):
+            for f in files:
+                if f.endswith("for listening.musicxml"):
+                    lx = open(os.path.join(root, f)).read()
+        beats_of = {'whole': 4, 'half': 2, 'quarter': 1, 'eighth': .5,
+                    '16th': .25, '32nd': .125}
+        odd, dv = 0, None
+        # divisions change mid-part (a groove switches to 24 a beat)
+        for n_ in re.findall(r'<divisions>\d+</divisions>|<note\b.*?'
+                             r'</note>', lx, re.S):
+            if n_.startswith('<divisions>'):
+                dv = int(re.search(r'\d+', n_).group(0))
+                continue
+            du = re.search(r'<duration>(\d+)', n_)
+            ty = re.search(r'<type>(\w+)</type>', n_)
+            if du and ty and ty.group(1) in beats_of and \
+                    '<time-modification>' not in n_:
+                v = beats_of[ty.group(1)] * (2 - .5 ** n_.count('<dot/>'))
+                odd += abs(int(du.group(1)) / dv - v) > 0.02
+        check("every listening note's written value is its length "
+              "(other programs play it right)", lx != "" and odd == 0,
+              f"{odd} notes disagree")
+        check("an ending's bookkeeping meter does not print",
+              '<beat-type>16' not in lx or
+              '<time print-object="no">' in lx)
         check("braille names with numbers read back",
               "read back note for note" in run.stdout, run.stdout[-400:])
 
