@@ -7875,7 +7875,9 @@ def check_lead_sheet_from_markers():
         with open(out, "w") as f:
             f.write(text)
         import subprocess
-        run = subprocess.run([sys.executable, "chart.py", out, "build",
+        run = subprocess.run([sys.executable, os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "chart.py"),
+            out, "build",
                               "--no-listen", "--no-pages"],
                              capture_output=True, text=True)
         xml = ""
