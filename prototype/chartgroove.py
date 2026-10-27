@@ -512,8 +512,11 @@ class Bar:
         for tick in list(self.onsets):
             ticks, notes = self.onsets[tick]
             a, b = tick / q, (tick + ticks) / q
+            # a short stab (a quarter of a beat) is heard against the
+            # lead too: needing an eighth's overlap never caught it
+            need = min(0.5, max(b - a, 0.05))
             over = [m for s, e, m in heard if min(b, e) - max(a, s)
-                    >= 0.5 - 1e-6]
+                    >= need - 1e-6]
             top = max(over) if over else None
             moved = []
             for n in notes:
@@ -928,7 +931,10 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
     home = _roll(weights, ph)
     pick = home if d() < 0.6 else _roll(weights, d)
     base = int(62 + 16 * heat)
-    bell = d() < 0.06 + 0.08 * heat
+    # the bell is a colour for a phrase, the whole pattern on it: bell
+    # strokes on 1 and 3 under bow strokes on 2 and 4 turned the accent
+    # upside down
+    bell = _Dice('ride bell', absbar // 4)() < 0.06 + 0.08 * heat
     for sl in pick:
         b = _slot_beat(sl)
         if b > bar.num + 0.99:
@@ -937,7 +943,7 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
         on2_4 = sl % 3 == 0 and (sl // 3) % 2 == 1
         v = base + (6 if on2_4 else -14 if sl % 3 else 0) + \
             int((d() - 0.5) * 8)
-        cym = _BELL if bell and sl in (0, 6) else _RIDE
+        cym = _BELL if bell else _RIDE
         ln = beat // 3 if sl % 3 else half
         bar.add(at, ln, ('u', cym, max(30, min(v, 118))))
     # the hi-hat foot: 2 and 4 mostly; sometimes only 4, all four when
@@ -1950,6 +1956,14 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
     beat = bar.div * 4 // bar.den
     n = bar.num
     prev = state.get('bass', 36)
+    if style in ('reggae', 'hiphop', 'funk'):
+        # the lowest, fattest thing in the band: each bar starts back
+        # in its home (E1-A2), not wherever the last line drifted
+        # (Crescent's one drop sat on G3)
+        while prev > 45:
+            prev -= 12
+        while prev < 28:
+            prev += 12
 
     def tone(b, what):
         c = _chord_at(chords, b)
@@ -1991,7 +2005,11 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
     if style == 'waltz':
         if 'swung' in traits:            # walking in three
             c = _chord_at(chords, 1)
-            ts = sorted({(_root_pc(c) + t) % 12 for t in _tones(c)})
+            # chord tones up from the root (3, 5, 7), not by pitch-class
+            # number: sorted that way the "middle" note was often the
+            # root again (F3 F3, Bb2 Bb2 — 15% repeats)
+            ts = [(_root_pc(c) + t) % 12
+                  for t in sorted({t % 12 for t in _tones(c)})]
             got = put(0, beat - beat // 8, tone(1, 'r'))
             prev = got
             mid = _near(ts[(absbar % (len(ts) - 1)) + 1], prev)
@@ -2006,17 +2024,33 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
         for i in range(2 * n):           # walking in eighths
             b = 1 + i / 2
             c = _chord_at(chords, b)
-            ts = sorted({(_root_pc(c) + t) % 12 for t in _tones(c)})
+            ts = [(_root_pc(c) + t) % 12
+                  for t in sorted({t % 12 for t in _tones(c)})]
             pc = _bass_pc(c) if i % 4 == 0 else ts[(i // 1) % len(ts)]
             prev = put(int(round((b - 1) * beat)), beat // 2,
                        _near(pc, prev))
         return
     if style == 'swing' and 'ballad' in traits:
+        # a ballad bassist plays in two, with passing tones: the root on
+        # 1, and on 3 the fifth, or a step into the next chord when it is
+        # coming (it was one whole-note root a chord, 22 roots in 24
+        # bars, nothing moving under the solo)
         marks = sorted({max(1.0, b) for b, c in chords})
+        if n >= 4 and marks == [1.0]:
+            marks = [1.0, 3.0]
         for i, b in enumerate(marks):
             end = marks[i + 1] if i + 1 < len(marks) else n + 1
+            if b == 1.0 or any(abs(b - cb) < 1e-6 for cb, c in chords
+                               if c is not None and cb > 1.0):
+                what = 'r'
+            elif _next_root(sec, off, chords) is not None and \
+                    absbar % 2 == 1:
+                what = 'appr'
+            else:
+                what = 'f'
             prev = put(int(round((b - 1) * beat)),
-                       int(round((end - b) * beat)), tone(b, 'r'), 70)
+                       int(round((end - b) * beat)) - beat // 6,
+                       tone(b, what), 66 if b == 1.0 else 58)
         return
     if style == 'swing':                  # two feel: 1 and 3
         for b in range(1, n + 1, 2):
@@ -2990,7 +3024,25 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
                                         if c is not None), None)
         _comp(bar, state, absbar, feel, chords, sound_id, heat)
     state['hits'] = None
+    if _new_style(feel, bar) and OPTS['builds']:
+        # the styled grooves (gospel, funk, reggae, the Latin and
+        # Brazilian feels, the waltz) play fixed weights: they follow
+        # the tune's build too now, the way swing already did — a vamp
+        # climbs, a shout digs in (the bass sat at 0.8 start to finish)
+        _with_heat(bar, heat)
     return bar.xml()
+
+
+def _with_heat(bar, heat):
+    """Scale a bar's struck notes by how far the tune has built: about
+    -2 dB near the top of a tune, +3 dB at its height."""
+    f = 0.8 + 0.4 * max(0.0, min(1.0, heat))
+    for t, (ln, ns) in bar.onsets.items():
+        for k, n in enumerate(ns):
+            if n[0] in ('u', 'p') and len(n) > 2 and \
+                    isinstance(n[2], (int, float)):
+                ns[k] = (n[0], n[1], max(20, min(127, int(n[2] * f)))) \
+                    + tuple(n[3:])
 
 
 # the writer's switches for what the band makes up (chart settings)
@@ -3435,6 +3487,22 @@ def _clear_comp(bar, t0=0, t1=None):
 
 
 def _drummer_marks(bar, sec, off, absbar, heat, state=None):
+    """The marks, then, with brushes in hand, brush-sized: a stick-level
+    kick and crash over brush taps (Blue Hour, 1.07 against 0.45) is not
+    how a brush player marks a section."""
+    if (state or {}).get('impl') != 'brushes':
+        return _drummer_marks_played(bar, sec, off, absbar, heat, state)
+    before = {t: len(ns) for t, (_ln, ns) in bar.onsets.items()}
+    _drummer_marks_played(bar, sec, off, absbar, heat, state)
+    for t, (_ln, ns) in bar.onsets.items():
+        for k in range(before.get(t, 0), len(ns)):
+            n = ns[k]
+            if n[0] == 'u' and isinstance(n[2], (int, float)):
+                ns[k] = (n[0], n[1], max(24, int(n[2] * 0.5))) + \
+                    tuple(n[3:])
+
+
+def _drummer_marks_played(bar, sec, off, absbar, heat, state=None):
     """What a drummer does with the form: a crash and kick where a new
     section or soloist starts; at a phrase end a fill from the whole
     vocabulary (never the one just played, so no two handoffs sound
@@ -5569,15 +5637,29 @@ def piano_comp(bar, state, absbar, chords, next_chord, heat, sound_id,
                 bar.add(at_(b) + k * roll, ln - k * roll,
                         ('p', m + 12 * top if m + 12 * top <= 81 else m,
                          w0 - 4 + (4 if k == len(v) - 1 else 0)))
-        if tex == 'ballad_answer' and bar.num >= 4 and d() < 0.6:
+        # the answer goes only where the lead leaves room (the soloist
+        # still moving at 3.5 is no place for it), under the lead's own
+        # register, and turns its contour bar to bar (the same falling
+        # three notes, bar after bar, over a trumpet solo)
+        room = melody_room(at_(3.5), bar, beat)
+        lead_top = max((m_ for _s, _e, m_ in (MELODY_NOW or ())),
+                       default=None)
+        if tex == 'ballad_answer' and bar.num >= 4 and room is not None \
+                and d() < (0.25 if LEAD_IS_SOLO else 0.6) and \
+                (busy is None or busy < 0.6):
             c = _chord_at(chords, 3.5)
             root = _root_pc(c)
             sc = [(root + i) % 12 for i in _scale(c)]
-            m = _near(sc[int(d() * len(sc)) % len(sc)], 79)
+            ceiling = min(79, lead_top - 3) if lead_top else 79
+            m = _near(sc[int(d() * len(sc)) % len(sc)], ceiling - 2)
+            while m > ceiling:
+                m -= 12
+            up = absbar % 3 == 1          # some bars rise, most fall
             for k in range(3):
-                bar.add(at_(3.5) + k * half, half, ('p', m, w0 - 6))
-                m = next(x for x in range(m - 1, m - 4, -1)
-                         if x % 12 in sc)
+                bar.add(max(room, at_(3.5)) + k * half, half,
+                        ('p', m, w0 - 6))
+                rng_ = range(m + 1, m + 4) if up else range(m - 1, m - 4, -1)
+                m = next((x for x in rng_ if x % 12 in sc), m)
         return
     if tex == 'hold_answer':
         # left hand holds the change, the right answers off the beat

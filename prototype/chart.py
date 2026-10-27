@@ -1974,15 +1974,22 @@ def main():
                 os.remove(stale)       # the other band's old take
             countin_words = (f", after {chartc.n_of(args.count_in, 'bar')} of "
                              "count-in" if args.count_in else "")
+            # under "as played" slashes the listen plays the take, not
+            # the page: say so, or "the page is wrong" sends him hunting
+            take = bool(chartc.LISTEN_ONLY and any(
+                chartc.LISTEN_ONLY.values()))
+            what = ("your own take under the slashes, and exactly what "
+                    "the pages say everywhere else" if take else
+                    "exactly what the pages say")
             if band:
                 played_on = ("the sample shelf" if os.path.isdir(band)
                              else os.path.splitext(
                                  os.path.basename(band))[0])
                 say("The listen file is ready — the band plays real "
                     f"recorded instruments ({played_on}), "
-                    "exactly what the pages say"
-                    + countin_words
-                    + ". Anywhere it sounds wrong, the page is wrong.")
+                    + what + countin_words
+                    + ". Anywhere a written part sounds wrong, the page "
+                    "is wrong.")
             elif got == 'synth':
                 say("The listen file is ready, but on the plain synth: "
                     "the sample shelf failed partway (the reason is "

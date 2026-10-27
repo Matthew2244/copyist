@@ -4790,9 +4790,9 @@ def check_feels_and_technique_for_every_part():
                                           _re.S) if '<rest' not in n
                    and '<tie type="stop"/>' not in n])
               for i in range(len(feels))]
-    check("feel: the bass walks 4 in swing, 2 in two feel, 1 in a ballad, "
-          "and the latin tumbao is 2",
-          counts[0] in (4, 5) and counts[1] == 2 and counts[2] == 1
+    check("feel: the bass walks 4 in swing, 2 in two feel, 2 in a ballad "
+          "(in two, with passing tones), and the latin tumbao is 2",
+          counts[0] in (4, 5) and counts[1] == 2 and counts[2] == 2
           and counts[4] == 2, repr(dict(zip(feels, counts))))
     check("feel: bossa, afro-cuban and funk each play their own bass",
           len({counts[3], counts[4], counts[5]}) == 3,

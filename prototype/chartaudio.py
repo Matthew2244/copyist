@@ -58,7 +58,8 @@ _ART_RX = [(_mark_rx(p), f) for p, f in _ART_MARKS]
 # the rest of the books' small marks, as the player reads them
 _MORE_MARKS = [('staccatissimo', ('stac',)), ('spiccato', ('stac',)),
                ('detached-legato', ('ten', 'stac')),
-               ('breath-mark', ()), ('caesura', ())]
+               # a breath takes air off the note; a caesura stops time
+               ('breath-mark', ('breath',)), ('caesura', ('caesura',))]
 
 # the drum map read backwards: staff position and notehead -> GM number.
 # Our own charts write instruments.DRUM_MAP positions; a lifted engraving
@@ -727,6 +728,11 @@ def parse_score(path, only=None):
                     hq = q_on + q_dur - 1e-6
                     holds[hq] = max(holds.get(hq, 0.0),
                                     min(q_dur, 2.0) * 0.9)
+                if 'caesura' in art:
+                    # the railroad tracks: everyone stops, a beat of
+                    # silence, then on
+                    hq = q_on + q_dur - 1e-6
+                    holds[hq] = max(holds.get(hq, 0.0), 0.5)
                 key = (voice, midi)
                 if '<tie type="stop"/>' in t and key in carry:
                     i = carry[key]
@@ -1231,6 +1237,7 @@ def to_mp3(wav_path, mp3_path):
     if which('ffmpeg') is None:
         return False
     r = subprocess.run(['ffmpeg', '-y', '-hide_banner', '-i', wav_path,
-                        '-codec:a', 'libmp3lame', '-qscale:a', '3',
+                        # V0: the listen is heard on good monitors too
+                        '-codec:a', 'libmp3lame', '-qscale:a', '0',
                         mp3_path], capture_output=True)
     return r.returncode == 0 and os.path.exists(mp3_path)

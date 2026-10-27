@@ -21,6 +21,7 @@ The reverb runs at half rate on the send bus (a room tail has no
 business above 11 kHz) which keeps pure Python honest about time.
 """
 import math
+import re
 import os
 import sys
 import wave
@@ -315,6 +316,50 @@ def calibrate(shelf, voice, part, sr, note_secs=1.0):
     return min(max(_LEVEL_TARGET / loud, 1e-3), 1e3)
 
 
+_STRING_SEATS = (('violin', -0.5), ('viola', 0.2), ('cello', 0.45))
+_VOICE_SEATS = (('soprano', -0.3), ('alto', -0.1), ('tenor', 0.1),
+                ('baritone', 0.2), ('bass', 0.3))
+
+
+def chair_pans(parts):
+    """A pan per chair, or None to keep its family's seat: violins left,
+    violas and cellos right (American seating), the choir spread S A T B
+    across the middle, and chairs sharing one sound fanned around their
+    section's seat — one spot per family stacked whole sections."""
+    out = [None] * len(parts)
+    by_sid = {}
+    for i, p in enumerate(parts):
+        by_sid.setdefault((p.get('sound') or '').lower(), []).append(i)
+    for i, p in enumerate(parts):
+        sid = (p.get('sound') or '').lower()
+        nm = (p.get('name') or '').lower()
+        if p.get('percussion') or 'contrabass' in sid:
+            continue
+        if sid.startswith('strings.'):
+            base = next((v for w, v in _STRING_SEATS if w in sid), None)
+            if base is None:
+                continue
+            group = by_sid[sid]
+            if 'violin' in sid and len(group) > 1:
+                # firsts outside, seconds in
+                base = -0.5 if group.index(i) == 0 else -0.2
+            out[i] = base
+            continue
+        if sid.startswith('voice') or any(
+                w in nm for w, _ in _VOICE_SEATS) and 'sax' not in nm \
+                and sid.startswith('voice'):
+            out[i] = next((v for w, v in _VOICE_SEATS if w in nm), None)
+            if out[i] is not None:
+                continue
+        group = by_sid.get(sid, [])
+        seat = seat_of(sid)
+        if seat and len(group) > 1:
+            k = group.index(i)
+            out[i] = max(-0.9, min(0.9, seat[1] + (k - (len(group) - 1)
+                                                   / 2.0) * 0.16))
+    return out
+
+
 def seat_of(sound_id):
     """(dB, pan) for a chair, or None to keep the old spread."""
     sid = (sound_id or '').lower()
@@ -379,11 +424,21 @@ class Shelf:
             inst = self._load(HAND_SFZ)
             if inst is not None and inst.regions:
                 return {'sus': inst}
+        if 'strings.violin' in sid and 'solo' not in nm:
+            # the violins are a section like the violas and cellos (the
+            # solo violin over two sections sounded like a soloist)
+            sid = 'strings.group'
         if percussion and 'drum.group' not in sid:
             sid = 'drum.group'
         for frags, variants in _SFZ_VOICES:
             if any(f in sid for f in frags):
                 out = {}
+                variants = dict(variants)
+                m = re.search(r'(\d+)\s*$', nm)
+                if 'brass.trumpet' in sid and m and int(m.group(1)) > 1:
+                    # a section trumpet plays straight tone; the lead
+                    # keeps the vibrato (big-band section practice)
+                    variants['sus'] = _V + 'TrumpetSus.sfz'
                 for k, rel in variants.items():
                     inst = self._load(rel)
                     if inst is not None and inst.regions:
@@ -493,7 +548,10 @@ _SEND = {'piano': .12, 'mallet': .16, 'organ': .08, 'guitar': .10,
          'bass': .04, 'strings': .22, 'voice': .16, 'brass': .18,
          'reed': .16, 'flute': .16, 'synth': .12, 'drums': .10}
 _BREATHERS = {'brass', 'reed', 'flute', 'voice', 'strings'}
-_ONE_LINE = {'brass', 'reed', 'flute', 'voice', 'bass', 'guitar'}
+# bowed strings too: a 0.8 s release under every next note smeared a
+# fast line five notes deep (184 bpm eighths)
+_ONE_LINE = {'brass', 'reed', 'flute', 'voice', 'bass', 'guitar',
+             'strings'}
 _CHANGE = 0.035          # seconds two notes overlap in a real change
 _TAIL = 0.35             # a note's own tail before a rest
 _FADE = 0.03
@@ -633,6 +691,28 @@ def _phrasing(events, swings):
             for (q, _d, _m, _g, art) in events]
 
 
+def _drift(idx, q):
+    """A slow wander for one player, -0.5..0.5, smooth over beats: two
+    seeded sine-ish layers (a 6-bar sway and a 2-bar one), the same on
+    every build."""
+    h1 = _hash01(idx, 7, 11) * 6.283
+    h2 = _hash01(idx, 13, 17) * 6.283
+    return 0.32 * math.sin(q / 24.0 * 6.283 + h1) + \
+        0.18 * math.sin(q / 8.0 * 6.283 + h2)
+
+
+def dyn_loudness(level):
+    """Extra level for a dynamic (sound-dynamics / 100: pp .40, p .54,
+    mf .89, f 1.06, ff 1.23) on top of its velocity layer: about +1.75
+    dB at f and +3.5 at ff, -2 at p and -3 at pp, so ff sits about 9 dB
+    over mf the way a section really opens up."""
+    if level >= 0.89:
+        db = min(level - 0.89, 0.40) / 0.34 * 3.5
+    else:
+        db = -min(0.89 - level, 0.55) / 0.49 * 3.0
+    return 10.0 ** (db / 20.0)
+
+
 def _shape(art, d, vel, fam):
     """The page's marks -> what the player does: length, weight,
     brightness, and pitch/amp curves. Returns (d, vel, brightness,
@@ -642,13 +722,18 @@ def _shape(art, d, vel, fam):
     if 'ghost' in art:
         vel *= 0.5
         bright *= 0.6
+    # gain goes with velocity squared: 1.25 was a polite +1.9 dB; an
+    # accent a player means is +3 to +4, marcato more
     if 'acc' in art:
-        vel *= 1.25
+        vel *= 1.45
         bright *= 1.12
     if 'marc' in art:
-        vel *= 1.35
+        vel *= 1.6
         d = max(d * 0.55, 0.06)
         bright *= 1.2
+    if 'breath' in art or 'caesura' in art:
+        # the written breath: air comes off the end of the note
+        d = max(d - 0.2, d * 0.6, 0.06)
     if 'stac' in art:
         d = max(min(d * 0.45, 0.5), 0.06)
     elif 'ten' not in art and 'leg' not in art and fam in _BREATHERS:
@@ -1052,7 +1137,23 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
             # a guitar with no program of its own would fall to the
             # piano: jazz guitar, or nylon for an acoustic
             part['program'] = 25 if 'acoustic' in sid else 27
-        detunes.append(((nth % 4) - 1.5) * 0.04 if sid else 0.0)
+        detunes.append(0.0)
+    # section spread: chairs on one sound sit a few cents apart, centred
+    # on pitch — a single chair is dead in tune (every first chair,
+    # piano, bass and drums included, had been 6 cents flat)
+    totals = {}
+    for part in plan['parts']:
+        sid = part.get('sound', '')
+        totals[sid] = totals.get(sid, 0) + 1
+    seen_ = {}
+    for i_, part in enumerate(plan['parts']):
+        sid = part.get('sound', '')
+        k_ = seen_.get(sid, 0)
+        seen_[sid] = k_ + 1
+        n_ = totals[sid]
+        if sid and n_ > 1 and not part['percussion']:
+            detunes[i_] = (k_ - (n_ - 1) / 2.0) * 0.04
+    pans = chair_pans(plan['parts'])
 
     # every chair to one heard loudness first; the seats set the mix
     def typical_secs(p):
@@ -1119,7 +1220,15 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
             h = _hash01(idx, i, midi)
             fk = feel_at(q_on)
             jit = {'loose': 2.6, 'tight': 0.5, 'back': 1.3}.get(fk, 1.0)
-            a += (h - 0.5) * (0.006 if part['percussion'] else 0.016) * jit
+            # a player drifts, slowly, then comes back: a smooth wander
+            # across the phrase (1/f-like, Hennig et al. 2011: heard as
+            # human where note-to-note noise is heard as sloppy), with a
+            # smaller jitter on each note
+            spread = 0.006 if part['percussion'] else 0.016
+            # mostly the band's own breath, shared (the bass and drums
+            # must not wander apart), a little of each player's own
+            a += ((0.45 * _drift(-1, q_on) + 0.25 * _drift(idx, q_on))
+                  + (h - 0.5) * 0.45) * spread * jit
             # where the band sits against the time, when the chart says
             if fk == 'back':
                 # laid back the way players mean it: the soloist and
@@ -1167,6 +1276,13 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
                 dd, vel, bright, bend, amps = _shape(art, d, vel, fam)
                 if amps is None and abs(g1 - g0) > 0.02 and g0 > 0:
                     amps = [(0.0, 1.0), (dd, g1 / g0)]   # the hairpin
+                # velocity picks the layer and stops at 127, so f and ff
+                # had almost no room over mf (+3 and +5.5 dB on a
+                # trumpet): the level itself opens up the ends
+                loud = dyn_loudness(g0)
+                if abs(loud - 1.0) > 0.01:
+                    amps = [(t_, x_ * loud) for t_, x_ in amps] if amps \
+                        else [(0.0, loud), (dd, loud)]
             # a single-line player's note ends where the next begins,
             # overlapping only as long as a real change takes; before a
             # rest its tail is the player's, a breath, and the room
@@ -1314,6 +1430,7 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
             seat = seat_of(part.get('sound', ''))
             if seat is not None:
                 sdb, pan = seat
+                pan = pans[idx] if pans[idx] is not None else pan
                 sg = 10.0 ** (sdb / 20.0) * cal[idx]
             else:
                 pan = (-0.6 + 1.2 * idx / max(n_parts - 1, 1)) \
@@ -1379,10 +1496,16 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
             # measuring one chair against another: no leveling
             scale = float(os.environ['COPYIST_FIXED_GAIN'])
         out = array('h', bytes(4 * frames))
+        # TPDF dither into 16 bits, seeded so a rebuild stays byte for
+        # byte the same: truncating quiet tails and fades distorted them
+        import random as _rnd
+        rg = _rnd.Random(16).random
+        dith = [rg() - rg() for _ in range(65536)]
         for i in range(frames):
-            out[2 * i] = int(max(-32767.0, min(32767.0, L[i] * scale)))
-            out[2 * i + 1] = int(max(-32767.0,
-                                     min(32767.0, R[i] * scale)))
+            out[2 * i] = int(round(max(-32767.0, min(
+                32767.0, L[i] * scale + dith[i & 65535]))))
+            out[2 * i + 1] = int(round(max(-32767.0, min(
+                32767.0, R[i] * scale + dith[(i + 32768) & 65535]))))
         pcm = out.tobytes()
     if plan.get('fade') is not None:
         # "fade out" on the page: the band goes down to nothing by the
