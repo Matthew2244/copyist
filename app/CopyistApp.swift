@@ -845,6 +845,32 @@ final class AppModel: ObservableObject {
             .appendingPathComponent("build")
     }
 
+    /// When this chart's MusicXML was last written, said the way a
+    /// person says it ("today at 3:42 PM"), or nil if it never was.
+    func lastBuilt() -> String? {
+        guard let c = chart else { return nil }
+        let dir = URL(fileURLWithPath: c).deletingLastPathComponent()
+            .appendingPathComponent("build")
+        let title = chartName.replacingOccurrences(of: "/", with: " - ")
+        let items = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.contentModificationDateKey]))
+            ?? []
+        let dates = items.filter {
+            $0.lastPathComponent.hasPrefix(title)
+                && $0.pathExtension == "musicxml"
+        }.compactMap {
+            try? $0.resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate
+        }
+        guard let newest = dates.max() else { return nil }
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        f.doesRelativeDateFormatting = true
+        return f.string(from: newest).lowercased()
+            .replacingOccurrences(of: ", ", with: " at ")
+    }
+
     /// Where braille lands: the "braille_to" setting, else the build
     /// folder — the engine's rule.
     func brailleFolder() -> URL? {
@@ -1727,7 +1753,9 @@ struct ChartTab: View {
                                     .deletingLastPathComponent()
                                     .lastPathComponent)
                         if !model.parts.isEmpty {
-                            Text("The band, \(model.parts.count) chairs: "
+                            Text("The band, \(model.parts.count) "
+                                 + (model.parts.count == 1 ? "chair: "
+                                    : "chairs: ")
                                  + model.parts.joined(separator: ", "))
                                 .font(.system(size: ts(13)))
                         }
@@ -2184,8 +2212,14 @@ struct RunPanel: View {
             return "The last run, \(model.runTitle), is on the "
                 + "\(model.runTab.title) tab."
         }
+        if tab == .build, let when = model.lastBuilt() {
+            // built before, maybe from the Terminal: say so, never
+            // "nothing built"
+            return "Last built \(when). Show the files, Command Shift X, "
+                + "or build again, Command B."
+        }
         return tab == .build
-            ? "Nothing built yet in this window. Build it, Command B."
+            ? "Not built yet. Build it, Command B."
             : "Nothing played or read yet in this window."
     }
 

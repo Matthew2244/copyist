@@ -3215,7 +3215,8 @@ def check_roadmap():
         chartedit.ask.same, chartedit.ask.repeats = None, 0
     said = out.getvalue()
     check("a question that never gets through stops the run",
-          "runs away" in ended and "nothing written" in ended, ended)
+          "runs away" in ended and ("nothing written" in ended or
+                                    "keeps what was already saved" in ended), ended)
     check("and it stops after a handful of tries, not a terabyte",
           said.count("heavy disco") <=
           2 * (chartedit.ASK_REPEAT_LIMIT + 1)
@@ -7913,8 +7914,7 @@ def check_lead_sheet_from_markers():
         import subprocess
         run = subprocess.run([sys.executable, os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "chart.py"),
-            out, "build",
-                              "--no-listen", "--no-pages"],
+            out, "build", "--no-listen"],
                              capture_output=True, text=True)
         xml = ""
         for root, _d, files in os.walk(tmp):
@@ -7958,6 +7958,33 @@ def check_lead_sheet_from_markers():
         check("an ending's bookkeeping meter does not print",
               '<beat-type>16' not in lx or
               '<time print-object="no">' in lx)
+        pdf = b""
+        for root, _d, files in os.walk(tmp):
+            for f in files:
+                if f.endswith("piano.pdf"):
+                    pdf = open(os.path.join(root, f), "rb").read()
+        check("the pages carry a text layer (VoiceOver, Find, copy)",
+              pdf.count(b"/ToUnicode") >= 2 and b"/FMT" in pdf)
+        import chartengrave
+        xml_ = re.sub(r'\s+/>', '/>', xml)
+        pid_ = re.findall(r'<score-part id="([^"]+)">', xml_)[0]
+        ms_, _w = chartengrave.parse_part(xml_, pid_)
+        plain = [m_ for m_ in ms_ if not m_['show']]
+        check("a bar of slashes spaces like a lead sheet",
+              plain and chartengrave.measure_width(plain[0]) < 150,
+              str([round(chartengrave.measure_width(m_)) for m_ in plain]))
+        import textformats
+        import chartimport
+        cho = ("{title: Evening}\n{start_of_verse}\n"
+               "[G]Evening comes down [C]slow\n[Em]Over the river [D]low\n"
+               "{end_of_verse}\n")
+        song_ = textformats.parse_song(cho, "Evening")
+        txt_, _t, fnd_, _w = chartimport.song_to_chart(song_, "e.cho")
+        check("ChordPro words print over the bar their line starts on",
+              'at bar 1: text "Evening comes down slow"' in txt_
+              and 'at bar 3: text "Over the river low"' in txt_
+              and "  voice" not in txt_
+              and any("piano, bass and drums" in f_ for f_ in fnd_), txt_)
         check("braille names with numbers read back",
               "read back note for note" in run.stdout, run.stdout[-400:])
 

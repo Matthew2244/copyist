@@ -1087,6 +1087,7 @@ class _Stanza:
     def __init__(self, label=None, repeat=False):
         self.label, self.repeat = label, repeat
         self.bars, self.words = [], []
+        self.word_starts = []     # the bar (0-based) each words line opens on
 
 
 def canon_label(raw):
@@ -1154,7 +1155,8 @@ def finish_sections(stanzas, ctx):
                 continue
             out.append({'name': assign(base),
                         'bars': [list(b) for b in src['bars']],
-                        'words': src['words']})
+                        'words': src['words'],
+                        'word_starts': src.get('word_starts')})
             continue
         if s.label:
             label = canon_label(s.label)
@@ -1166,7 +1168,10 @@ def finish_sections(stanzas, ctx):
             label = ('Intro' if idx == 0 else
                      'Outro' if idx == len(st) - 1 else 'Interlude')
         sec = {'name': assign(label), 'bars': s.bars,
-               'words': "\n".join(s.words) if s.words else None}
+               'words': "\n".join(s.words) if s.words else None,
+               'word_starts': (list(s.word_starts)
+                               if len(s.word_starts) == len(s.words)
+                               else None)}
         out.append(sec)
         last[_label_base(label)] = sec
     return out
@@ -1367,6 +1372,7 @@ def parse_chordpro(text, name_hint='Untitled'):
                     start(h[0])
                 continue
         ensure()
+        line_start = len(cur.bars)
         for ch in re.findall(r'\[([^\]]*)\]', s):
             ch = ch.strip()
             if not ch or ch.startswith('*'):
@@ -1378,6 +1384,8 @@ def parse_chordpro(text, name_hint='Untitled'):
         words = re.sub(r'\s+', ' ', re.sub(r'\[[^\]]*\]', '', s)).strip()
         if words and re.search(r'\w', words):
             cur.words.append(words)
+            cur.word_starts.append(min(line_start,
+                                       max(len(cur.bars) - 1, 0)))
     song['sections'] = finish_sections(stanzas, ctx)
     song['findings'] = ctx.finish()
     return song

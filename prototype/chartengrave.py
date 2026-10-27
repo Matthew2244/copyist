@@ -53,6 +53,7 @@ def step_pos(step, octave, clef):
 # this use.
 SMUFL = {
     'gClef': 0xE050, 'cClef': 0xE05C, 'fClef': 0xE062, 'percClef': 0xE069,
+    'metNoteQuarterUp': 0xECA5, 'metAugmentationDot': 0xECB7,
     'flat': 0xE260, 'natural': 0xE261, 'sharp': 0xE262,
     'dblSharp': 0xE263, 'dblFlat': 0xE264,
     'wholeHead': 0xE0A2, 'halfHead': 0xE0A3, 'blackHead': 0xE0A4,
@@ -285,13 +286,16 @@ class Pdf:
             return total
         return 0.52 * size * len(s)
 
-    def glyph(self, x, y, name, size):
-        """One SMuFL glyph at its registration point. True if drawn."""
+    def glyph(self, x, y, name, size, spoken=False):
+        """One SMuFL glyph at its registration point. True if drawn.
+        Music glyphs are silent to a screen reader and to copy; a
+        `spoken` one (a chord symbol's flat or sharp) reads as the real
+        character, through the same font with a text layer."""
         gid = self.music.gids.get(name) if self.music else None
         if gid is None:
             return False
-        self._w(f"BT /FM {size:.2f} Tf {x:.2f} {y:.2f} Td "
-                f"<{gid:04X}> Tj ET")
+        self._w(f"BT /{'FMT' if spoken else 'FM'} {size:.2f} Tf "
+                f"{x:.2f} {y:.2f} Td <{gid:04X}> Tj ET")
         return True
 
     def gw(self, name, size):
@@ -365,6 +369,57 @@ class Pdf:
         for tag, name in self.FONTS.items():
             font_ids[tag] = add(f"<< /Type /Font /Subtype /Type1 "
                                 f"/BaseFont /{name} >>")
+        def to_unicode(font, music, silent=False):
+            """The text behind the glyphs, so VoiceOver in Preview, Find
+            and copy read words, not glyph numbers (2026-10-27: the
+            pages read as '1LJKW7UDLQ'). A text face maps every glyph to
+            its character; the music font maps only the accidentals a
+            chord symbol uses, to the real flat, sharp and natural."""
+            if silent:
+                # notation reads as nothing (a space) — except the
+                # tempo mark's note, so it reads "quarter = 150"
+                said = {0xECA5: 0x2669, 0xECA7: 0x266A, 0xECA3: 0x1D15E,
+                        0xECA2: 0x1D15D, 0xECB7: 0x2E}
+                pairs = {g: said.get(cp, 0x20)
+                         for cp, g in font.cmap.items() if g}
+            elif music:
+                pairs = {font.cmap[cp]: uni for cp, uni in (
+                    (0xE260, 0x266D), (0xE261, 0x266E), (0xE262, 0x266F),
+                    (0xE263, 0x1D12A), (0xE264, 0x1D12B))
+                    if cp in font.cmap}
+            else:
+                pairs = {}
+                for cp in sorted(font.cmap):
+                    g = font.cmap[cp]
+                    if g and g not in pairs:
+                        pairs[g] = cp
+            items = sorted(pairs.items())
+
+            def utf16(cp):
+                if cp > 0xFFFF:
+                    cp -= 0x10000
+                    return (f"{0xD800 + (cp >> 10):04X}"
+                            f"{0xDC00 + (cp & 0x3FF):04X}")
+                return f"{cp:04X}"
+            body = ["/CIDInit /ProcSet findresource begin",
+                    "12 dict begin", "begincmap",
+                    "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) "
+                    "/Supplement 0 >> def",
+                    "/CMapName /Adobe-Identity-UCS def", "/CMapType 2 def",
+                    "1 begincodespacerange", "<0000> <FFFF>",
+                    "endcodespacerange"]
+            for i in range(0, len(items), 100):
+                chunk = items[i:i + 100]
+                body.append(f"{len(chunk)} beginbfchar")
+                body += [f"<{g:04X}> <{utf16(u)}>" for g, u in chunk]
+                body.append("endbfchar")
+            body += ["endcmap", "CMapName currentdict /CMap defineresource "
+                     "pop", "end", "end"]
+            data = zlib.compress("\n".join(body).encode('latin-1'))
+            return add(f"<< /Length {len(data)} /Filter /FlateDecode >>"
+                       "\nstream\n" + data.decode('latin-1')
+                       + "\nendstream")
+
         def embed_otf(font, psname):
             fdata = zlib.compress(font.data)
             ff = add(f"<< /Length {len(fdata)} /Filter /FlateDecode "
@@ -385,9 +440,24 @@ class Pdf:
                       f"/FontDescriptor {fd} 0 R "
                       f"/DW {round(font.adv[-1] * 1000 / font.upem)} "
                       f"/W [0 [{ws}]] >>")
+            if psname == 'Leland':
+                # the notation itself carries no text; its twin, used
+                # only for a chord symbol's accidentals, says them
+                tu = to_unicode(font, True)
+                quiet = to_unicode(font, True, silent=True)
+                return (add(f"<< /Type /Font /Subtype /Type0 "
+                            f"/BaseFont /{psname} /Encoding /Identity-H "
+                            f"/DescendantFonts [{cid} 0 R] "
+                            f"/ToUnicode {quiet} 0 R >>"),
+                        add(f"<< /Type /Font /Subtype /Type0 "
+                            f"/BaseFont /{psname} /Encoding /Identity-H "
+                            f"/DescendantFonts [{cid} 0 R] "
+                            f"/ToUnicode {tu} 0 R >>"))
+            tu = to_unicode(font, False)
             return add(f"<< /Type /Font /Subtype /Type0 "
                        f"/BaseFont /{psname} /Encoding /Identity-H "
-                       f"/DescendantFonts [{cid} 0 R] >>")
+                       f"/DescendantFonts [{cid} 0 R] "
+                       f"/ToUnicode {tu} 0 R >>")
 
         face_refs = ""
         seen = {}
@@ -398,9 +468,8 @@ class Pdf:
             face_refs += f" /{self.face_res[id(f)]} {seen[id(f)]} 0 R"
         music_ref = ""
         if self.music:
-            music_ref = (" /FM "
-                         + str(embed_otf(self.music, 'Leland'))
-                         + " 0 R")
+            silent, said = embed_otf(self.music, 'Leland')
+            music_ref = f" /FM {silent} 0 R /FMT {said} 0 R"
         res = ("<< /Font << "
                + " ".join(f"/F{t} {i} 0 R" for t, i in font_ids.items())
                + music_ref + face_refs + " >> >>")
@@ -580,14 +649,14 @@ def draw_clef(pdf, x, top, clef):
         pdf.text(x + 1.6 * SP, mid - 3, "C", size=2.4 * SP, font='TB')
 
 
-def draw_accidental(pdf, x, y, alter, scale=1.0):
+def draw_accidental(pdf, x, y, alter, scale=1.0, spoken=False):
     s = SP * scale
     if pdf.music:
         name = {1: 'sharp', -1: 'flat', 0: 'natural',
                 2: 'dblSharp', -2: 'dblFlat'}.get(alter)
         size = 4 * SP * scale
         if name and pdf.glyph(x - pdf.gw(name, size) * 0.6, y, name,
-                              size):
+                              size, spoken=spoken):
             return
     if alter == 1:              # sharp
         for dx in (-0.45 * s, 0.45 * s):
@@ -1251,10 +1320,17 @@ def measure_width(meas):
     # export counts 256 a quarter, and its rests were spacing ten times
     # too wide — one or two bars a line on every lifted page
     unit = 24.0 / max(meas['state'].get('div', 24), 1)
+    # a bar of slashes and kicks carries no accidentals, ledger lines or
+    # chords of noteheads: it spaces like a lead sheet, about four bars
+    # a line, and its chord symbols claim their own room below (two a
+    # line was every slash part's lot, and bar 1 sat alone)
+    slashy = bool(meas['events']) and all(
+        x.slash or x.rest for _p, ns, _s, _v in meas['events'] for x in ns)
+    base, grow = (1.2 * SP, 0.65 * SP) if slashy else (2.4 * SP, 1.15 * SP)
     for pos, notes, staff, voice in meas['events']:
         n = notes[0]
         per[(staff, voice)] = per.get((staff, voice), 0) + (
-            2.4 * SP + 1.15 * SP * (max(n.dur * unit, 2) ** 0.5)
+            base + grow * (max(n.dur * unit, 2) ** 0.5)
             + (1.6 * SP if any(x.alter and not x.rest
                                for x in notes) else 0))
     # the optical floor: every onset's ink plus the gap, end to end
@@ -1818,13 +1894,26 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
         tx = bx + est + 7
     if meas['metronome']:
         dot, per = meas['metronome']
-        notehead(pdf, tx + SP, ht + 5.2 * SP, 'black', scale=0.5)
-        pdf.line(tx + 1.6 * SP, ht + 5.2 * SP, tx + 1.6 * SP,
-                 ht + 6.8 * SP, w=0.8)
-        pdf.text(tx + 2.2 * SP, ht + 4.8 * SP,
-                 ("." if dot else "") + " = " + per, size=8.5, font='HB')
-        tx += 2.2 * SP + pdf.tw(("." if dot else "") + " = " + per,
-                                8.5, 'HB') + 6
+        # the font's own metronome note: one shape, head and stem
+        # joined (the hand-drawn one came apart at small sizes), and it
+        # reads as a quarter note to a screen reader
+        msize = 4 * SP * 0.62
+        if pdf.glyph(tx + 0.4 * SP, ht + 4.8 * SP, 'metNoteQuarterUp',
+                     msize):
+            nx = tx + 0.4 * SP + pdf.gw('metNoteQuarterUp', msize)
+            if dot:
+                pdf.glyph(nx + 0.6, ht + 4.8 * SP, 'metAugmentationDot',
+                          msize)
+                nx += pdf.gw('metAugmentationDot', msize) + 0.6
+            said = " = " + per
+        else:
+            notehead(pdf, tx + SP, ht + 5.2 * SP, 'black', scale=0.5)
+            pdf.line(tx + 1.6 * SP, ht + 5.2 * SP, tx + 1.6 * SP,
+                     ht + 6.8 * SP, w=0.8)
+            nx = tx + 2.2 * SP
+            said = ("." if dot else "") + " = " + per
+        pdf.text(nx, ht + 4.8 * SP, said, size=8.5, font='HB')
+        tx = nx + pdf.tw(said, 8.5, 'HB') + 6
     ty = ht + 4.8 * SP
     for pos, words in meas['texts']:
         frac = pos / max(meas['len'], 1)
@@ -1892,10 +1981,18 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
         return marks[-1][1] + extra
 
     last_cx = None
+    bar_end = x0 + width - 1.5
     for pos, sym in meas['chords']:
         cxs = xat(pos)
         if last_cx is not None:      # two changes never print on top
             cxs = max(cxs, last_cx + 7)
+        # a push on the and of four keeps inside its bar: run past the
+        # barline and it lands on the next bar's number
+        wide = draw_chord_symbol(pdf, 0, 0, sym, measure=True)
+        if cxs + wide > bar_end:
+            cxs = max(bar_end - wide,
+                      (last_cx + 4) if last_cx is not None else x0,
+                      cxs - 3 * SP)
         last_cx = draw_chord_symbol(pdf, cxs, chord_y, sym)
     DYN_GLYPH = {'p': 'dynP', 'f': 'dynF', 'mf': 'dynMF',
                  'mp': 'dynMP', 'pp': 'dynPP', 'ff': 'dynFF',
@@ -2374,32 +2471,40 @@ def draw_mark(pdf, x, y, mark):
         pdf.text(x - 2, y, MARK_WORD.get(mark, ''), size=9, font='HB')
 
 
-def draw_chord_symbol(pdf, x, y, sym):
+def draw_chord_symbol(pdf, x, y, sym, measure=False):
     """F7, Bbm7b5, C/E — root and bass accidentals drawn as real
-    flats and sharps beside their letters."""
+    flats and sharps beside their letters. `measure` draws nothing and
+    returns the width it would take."""
     m = re.match(r'([A-G])([b#]?)([^/]*)(?:/([A-G])([b#]?))?$', sym)
     if not m:
-        pdf.text(x, y, sym, size=10.5, font='HB')
-        return x + 0.58 * 10.5 * len(sym)
+        if not measure:
+            pdf.text(x, y, sym, size=10.5, font='HB')
+        return (0 if measure else x) + 0.58 * 10.5 * len(sym)
     size = 10.5
 
     def piece(px, letter, acc, rest=''):
-        pdf.text(px, y, letter, size=size, font='HB')
+        if not measure:
+            pdf.text(px, y, letter, size=size, font='HB')
         px += max(0.68 * size, pdf.tw(letter, size, 'HB') + 1.5)
         if acc:
-            draw_accidental(pdf, px + 1.5, y + 3.2,
-                            -1 if acc == 'b' else 1, scale=0.52)
+            if not measure:
+                draw_accidental(pdf, px + 1.5, y + 3.2,
+                                -1 if acc == 'b' else 1, scale=0.52,
+                                spoken=True)
             px += 4.6
         if rest:
-            pdf.text(px, y, rest, size=size * 0.86, font='HB')
+            if not measure:
+                pdf.text(px, y, rest, size=size * 0.86, font='HB')
             px += max(0.56 * size * 0.86 * len(rest),
                       pdf.tw(rest, size * 0.86, 'HB') + 1)
         return px
+    x0 = x
     px = piece(x, m.group(1), m.group(2), m.group(3) or '')
     if m.group(4):
-        pdf.text(px, y, "/", size=size, font='HB')
+        if not measure:
+            pdf.text(px, y, "/", size=size, font='HB')
         px = piece(px + 0.5 * size, m.group(4), m.group(5))
-    return px
+    return px - x0 if measure else px
 
 
 def draw_arc(pdf, sx, sy, ex, ey, arc):

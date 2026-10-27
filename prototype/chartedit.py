@@ -71,6 +71,19 @@ def say(line):
 ASK_REPEAT_LIMIT = 12
 
 
+EDITING = [None]     # the chart this conversation is writing
+
+
+def _kept():
+    """What a stopped conversation leaves: said plainly, never "nothing
+    written" over a chart whose header and band are already saved."""
+    p = EDITING[0]
+    if p and os.path.exists(p):
+        return (f"{os.path.basename(p)} keeps what was already saved; "
+                f"'chart \"{os.path.basename(p)}\" edit' carries on")
+    return "nothing written"
+
+
 def _answer(question, line):
     """Hand an answer back, and end the run if this exact question has
     come back with this exact answer too many times over."""
@@ -82,7 +95,7 @@ def _answer(question, line):
         sys.exit(f"chart: '{question}' came back the same "
                  f"{ask.repeats} times running, so the answer is not "
                  f"getting through. Stopping before this runs away — "
-                 f"nothing written.")
+                 f"{_kept()}.")
     return line
 
 
@@ -1390,9 +1403,10 @@ def _ask_bars(plan):
             plan["bars"] = n
         elif ask.eof:
             sys.exit(f"chart: the conversation ended before the "
-                     f"{plan['name']} got a length — nothing written.")
+                     f"{plan['name']} got a length — {_kept()}.")
         else:
-            say(f"I need a number of bars for the {plan['name']}.")
+            say(f"I need a number of bars for the {plan['name']}, "
+                "like 8, 12 or 32.")
 
 
 def _carve(plan):
@@ -1815,6 +1829,7 @@ def _who_for(plan, ctx):
 def edit(path, demo=None, composer="", cfg=None):
     """The roadmap conversation, start to written chart."""
     cfg = cfg or {}
+    EDITING[0] = path
     if not os.path.exists(path):
         import chartnew
         say("No chart there yet — the interview first, then the "

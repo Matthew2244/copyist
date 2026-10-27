@@ -855,9 +855,17 @@ def song_to_chart(song, source_name):
     if mel:
         lines.append("  melody = voice" if mel.get('lyrics')
                      else "  melody = flute")
-    elif has_words:
+    elif has_words and not has_bars:
+        # words waiting for a tune: the singer comes with them
         lines.append("  voice")
     lines += ["  piano", "  bass = double bass", "  drums", ""]
+    if has_bars:
+        # said, never slipped in: the band the chart starts with
+        find.append("the band is piano, bass and drums" +
+                    (", with the melody" if mel else "") +
+                    (", the words printed over their bars"
+                     if has_words and not mel else "") +
+                    "; name your own band at the editing desk")
     if mel and has_bars:
         figtxt = melody_notes(mel['notes'])
         nbars = sum(len(s['bars']) for s in song['sections'])
@@ -912,9 +920,22 @@ def song_to_chart(song, source_name):
         if mel and first:
             lines.append("  melody: figure melody")
         first = False
-        for w in (s.get('words') or '').splitlines():
-            if w.strip():
-                lines.append(f"  # {w.strip()}")
+        wl = [w.strip() for w in (s.get('words') or '').splitlines()
+              if w.strip()]
+        starts = s.get('word_starts')
+        if wl and not mel:
+            # no tune to hang them under, so each line prints over the
+            # bar it starts on, the way a chord-and-words sheet reads
+            # (they used to sit in comments, and the singer got nothing)
+            if not starts or len(starts) != len(wl):
+                starts = [k * len(bars) // len(wl) for k in range(len(wl))]
+            for w, b in zip(wl, starts):
+                said = w.replace('"', "'")
+                lines.append(f'  at bar {min(b, len(bars) - 1) + 1}: '
+                             f'text "{said}"')
+        else:
+            for w in wl:
+                lines.append(f"  # {w}")
         lines.append("")
     return "\n".join(lines) + "\n", title, find, False
 
@@ -941,7 +962,11 @@ def import_text(path, out_dir, say, into=None, pick=None):
     folder, chart = new_home(title, out_dir)
     with open(chart, 'w', encoding='utf-8') as f:
         f.write(text_out)
-    find.insert(0, f"read {how}: {describe_kind(song['kind'])}")
+    kind = describe_kind(song['kind'])
+    # "Read a ChordPro file: a ChordPro song" said one thing twice
+    same = kind.split()[-2 if kind.endswith(('song', 'chart')) else -1] \
+        .lower() in how.lower()
+    find.insert(0, f"read {how}" + ("" if same else f": {kind}"))
     return chart, find
 
 
