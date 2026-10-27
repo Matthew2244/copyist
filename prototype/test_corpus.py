@@ -8081,6 +8081,9 @@ def check_lead_sheet_from_markers():
               "  chords: Gm7 x2" in lines_[5:]
               and lines_[0] == "chords head: Gm7 x2, D7 x2, Gm7 x2",
               repr(lines_))
+        check("a lead sheet's listen plays the take (as played)",
+              ", as played" in text and
+              chartlead.parse_marker("A, comp")["comp"] is True)
         check("braille names with numbers read back",
               "read back note for note" in run.stdout, run.stdout[-400:])
 

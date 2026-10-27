@@ -2528,6 +2528,22 @@ def compile_chart(chart_path, outdir):
                 if bar in demo_measures[l]:
                     fail(f"'{l}' has two demo figures landing on bar {bar}")
                 demo_measures[l][bar] = xml
+    listen_measures = {l: {} for l in labels}
+    for l in labels:
+        for item in LISTEN_ONLY.get(l, ()):
+            h = horn_of[l]
+            keys_ = chart.get('keys') or [(1, key)]
+            fig_f = key_at(keys_, item['res']['at'])[0]
+            minor_at, chords_at = spelling_hints(chart, key, h['foff'])
+            ms = chartdemo.render_range(
+                item['res'], fig_f, 0, item['fall'], findings,
+                short=item['short'], every=item['every'],
+                doit=item['doit'], scoops=item['scoops'],
+                fifths_at=lambda b, k=keys_: key_at(k, b)[0],
+                minor_at=minor_at, chords_at=chords_at)
+            listen_measures[l].update(ms)
+    LISTEN_MEASURES.clear()
+    LISTEN_MEASURES.update(listen_measures)
     # ---- figure lifts from MusicXML: written bars placed verbatim by
     # name. A lifted bar brings its source's divisions with it; the bar
     # after the figure restates the part's own — both of this pipeline's
@@ -2706,6 +2722,10 @@ def compile_chart(chart_path, outdir):
                          div_marks)
 
 
+LISTEN_ONLY = {}     # label -> resolved lifts the listen alone plays
+LISTEN_MEASURES = {}  # label -> {bar: measure XML} of those, rendered
+
+
 def resolve_demo(chart, plans, band, labels, chart_path, findings,
                  meter=(4, 4)):
     """Resolve every from-demo overlay to a quantized timeline. Shared by
@@ -2865,7 +2885,15 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                     'every': ref.get('every'),
                                     'doit': ref.get('doit', False),
                                     'scoops': ref.get('scoops', []),
-                                    'plan': plan})
+                                    'plan': plan,
+                                    'listen_only': ref.get('listen_only',
+                                                           False)})
+    # the listen-only lifts ("as played") leave here: pages, braille,
+    # read-alouds, cues and doubles never see them
+    LISTEN_ONLY.clear()
+    for l in labels:
+        LISTEN_ONLY[l] = [i for i in resolved[l] if i.get('listen_only')]
+        resolved[l] = [i for i in resolved[l] if not i.get('listen_only')]
     # ---- explode: one part's chords dealt across a group's chairs
     for plan in plans:
         done_src = {}
@@ -3722,6 +3750,20 @@ def build_plans(chart, band, groups, labels):
                     continue
                 if piece == 'as demo':
                     groove_words = 'as demo'
+                    continue
+                if piece in ('as played', 'listen as played',
+                             'play my take', 'plays my take'):
+                    # the page keeps its slashes or kicks; the listen
+                    # plays the demo's own notes for these bars (a lead
+                    # sheet heard as he played it, not comped from the
+                    # symbols)
+                    shift_ = int(chart['header'].get('countin', 0))
+                    demo_refs.append({'track': None,
+                                      'lo': start + shift_,
+                                      'hi': start + sec['bars'] - 1 + shift_,
+                                      'at': start, 'loc': loc,
+                                      'placed': None,
+                                      'listen_only': True})
                     continue
                 if piece in ('simplified', 'rhythmic slashes',
                              'rhythmic-slashes', 'full'):
@@ -4631,6 +4673,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     at += plans[k]['sec']['bars']
         i = j
     played_written = {}
+    played_as_take = {}
 
     def written_notes(sp_, lo, hi):
         """Does the source give this player real notes in these bars
@@ -5803,6 +5846,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         governing[0] = chord
                 if absbar in demo_measures[label]:
                     pieces.append(demo_measures[label][absbar])
+                elif listen and absbar in LISTEN_MEASURES.get(label, {}):
+                    pieces.append(LISTEN_MEASURES[label][absbar])
+                    played_as_take.setdefault(label, set()).add(
+                        sec['label'] or sec['name'])
                 elif waiting:
                     pieces.append(rest_bar(div, staves, bmeter))
                 elif kind == 'engraved':
@@ -6341,6 +6388,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                      + ", ".join(f"{src_of.get(l, l)} ({n} bars)"
                                  for l, n in realized_bars.items())
                      + " — the pages keep their slashes")
+    if played_as_take:
+        findings.add("listen: your own take plays under the page's "
+                     "slashes — " + "; ".join(
+                         f"{l} in " + ", ".join(sorted(v))
+                         for l, v in played_as_take.items()))
     if played_written:
         findings.add("listen: under the slashes, the source's own notes "
                      "play — "
@@ -6355,6 +6407,12 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             f.write(portable(document([l], directions_on=lambda _: True,
                              harmony_on=lambda _: True, part_mode=True)))
         written.append(p)
+    # the listening copy is the band's, not a page to open: counted
+    # apart, so this and "Your files" agree
+    print(f"Wrote {n_of(len(written) - 1, 'MusicXML file')} and the "
+          f"listening copy, {total} bars, "
+          f"{len(chart['sections'])} "
+          f"{'section' if len(chart['sections']) == 1 else 'sections'}.")
     if findings:
         seen = []
         for line in findings.lines:
@@ -6363,6 +6421,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         # said aloud, forty "could be either hand" lines are one thing:
         # the same finding at many bars prints once with its bars; the
         # findings file below keeps every line
+        said = [ln for ln in grouped_findings(seen)
+                if LISTENING or not ln.startswith('listen:')]
+        if said:
+            # the result first, then what to know: heard by ear, ten
+            # findings before "it built" was a long wait for the news
+            print(f"{n_of(len(said), 'finding')}, all kept in "
+                  "findings.txt:")
         for line in grouped_findings(seen):
             # a listen nobody asked for is not news: its lines stay in
             # findings.txt, unspoken
@@ -6375,12 +6440,6 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             f.write("\n".join(seen) + "\n" if seen else
                     "No findings — nothing was reduced, guessed, "
                     "or moved.\n")
-    # the listening copy is the band's, not a page to open: counted
-    # apart, so this and "Your files" agree
-    print(f"Wrote {n_of(len(written) - 1, 'MusicXML file')} and the "
-          f"listening copy, {total} bars, "
-          f"{len(chart['sections'])} "
-          f"{'section' if len(chart['sections']) == 1 else 'sections'}.")
     return written
 
 

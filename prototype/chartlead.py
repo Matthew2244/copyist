@@ -137,10 +137,29 @@ def name_chord(pitches, flats=True, names=None):
         if best:
             found = (best[2], best[3])
     if found is None:
+        # a rootless voicing (the left hand's 3-7-9, the bass player
+        # has the root): read only when nothing with its root in the
+        # hand fits, and only with the third and seventh both there
+        for qual, req in (("13", {4, 10, 9}), ("9", {4, 10, 2}),
+                          ("7#9", {4, 10, 3}), ("7b9", {4, 10, 1}),
+                          ("maj9", {4, 11, 2}), ("m9", {3, 10, 2}),
+                          ("m11", {3, 10, 5}), ("maj7", {4, 11}),
+                          ("m7", {3, 10})):
+            for root in range(12):
+                if root in pcs:
+                    continue
+                rel = {(p - root) % 12 for p in pcs}
+                if req <= rel and rel <= req | {7, 2, 9}:
+                    found = (qual, root, "rootless")
+                    break
+            if found:
+                break
+    if found is None:
         return None
-    qual, root = found
+    qual, root = found[0], found[1]
     sym = names[root] + qual
-    if bass != root:
+    # a rootless voicing's lowest note is a chord tone, not a bass line
+    if bass != root and len(found) < 3:
         sym += "/" + names[bass]
     return sym
 
@@ -318,7 +337,7 @@ _NAME_RX = r"([a-z]\d{0,2}|\d{1,3})"
 
 def _blank():
     return dict(name=None, label=None, header=[], feel=None, mode=None,
-                events=[], unknown=[], chords=None)
+                events=[], unknown=[], chords=None, comp=False)
 
 
 def _clean(text):
@@ -466,7 +485,13 @@ def _apply(p, praw, res):
                     r"play what i played|my rhythm)", bare):
         res["mode"] = "hits"
         return
-    if re.fullmatch(r"(slashes|time|comp|comping|just chords|"
+    if re.fullmatch(r"(comp|comping|band comps|make it up|realize)",
+                    bare):
+        # slashes on the page, and the band comps them in the listen
+        res["mode"] = "slashes"
+        res["comp"] = True
+        return
+    if re.fullmatch(r"(slashes|time|just chords|"
                     r"chords only|chords|changes|play time)", bare):
         res["mode"] = "slashes"
         return
@@ -791,6 +816,9 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
             lines.append(f"  feel: {pm['feel']}")
         lines.append("  chords: " + compress(bars))
         mode = pm["mode"] or "slashes"
+        # the listen plays his own take under the page's slashes, unless
+        # the marker hands it to the band ("comp")
+        take = "" if pm.get("comp") else ", as played"
         if mode == "hits":
             pieces = []
             for k, beats in enumerate(hits):
@@ -798,7 +826,7 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
                     pieces.append(f"hits bar {k + 1} on "
                                   + ", ".join(beats))
             lines.append(f"  {part}: " + (", ".join(pieces)
-                                          if pieces else "groove"))
+                                          if pieces else "groove") + take)
         elif mode == "notes":
             lines.append(f"  {part}: from demo bars {lo}-{hi}")
         elif mode == "tacet":
@@ -806,7 +834,7 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
         elif mode.startswith("solo"):
             lines.append(f"  {part}: {mode}")
         else:
-            lines.append(f"  {part}: groove")
+            lines.append(f"  {part}: groove" + take)
         more, said = section_extras(s, lo, n, first)
         lines += more
         find += said
@@ -831,7 +859,7 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
 
 def _merge(into, other):
     """Another marker's words join a section's own."""
-    for k in ("label", "feel", "mode", "chords"):
+    for k in ("label", "feel", "mode", "chords", "comp"):
         if other.get(k) and not into.get(k):
             into[k] = other[k]
     into["header"] = into["header"] + [h for h in other["header"]

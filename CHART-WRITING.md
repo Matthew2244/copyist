@@ -1326,6 +1326,10 @@ whether to make a lead sheet; say yes and it writes one:
   the section already going.
 - **Words it doesn't act on yet print anyway**, as text over that bar,
   and the build names each one, so nothing you said is lost.
+- **The listen plays your own take.** Each section's line ends `as
+  played`: the page shows slashes or kicks, and what you hear is what
+  you played into the demo. Say `comp` in a marker to hand that
+  section to Copyist's band instead.
 - It prints on **one staff**, the way a lead sheet does (a band line's
   `one staff` does that for any keyboard part), and tells you which
   sections have the same changes as an earlier one, in case you want to
