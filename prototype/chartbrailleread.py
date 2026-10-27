@@ -284,7 +284,11 @@ def read_line(r, s):
             if ' ' in s[i:j] or j + 1 == n or s[j + 1] in ' "<':
                 return j + 1
         k = i + 1
-        while k < n and (s[k].isalpha() or s[k] in "'7-"):
+        # a name with a number in it ("Chorus2", "Verse 2's" mark)
+        # writes the number sign and a-j inside the word
+        while k < n and (s[k].isalpha() or s[k] in "'7-" or (
+                s[k] == '#' and s[k + 1:k + 2].isalpha()
+                and s[k + 1] in 'ABCDEFGHIJ')):
             if s[k] == "'":
                 # dot 3 ends the word; "rit." writes its period as dot 3
                 # first, so an abbreviation ends in two

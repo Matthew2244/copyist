@@ -1279,6 +1279,58 @@ the window. Whatever you're holding:
 It never writes over a chart. A second version of a tune gets its
 file's name, or a number.
 
+### A lead sheet from your chords and markers
+
+Play the changes into one track (left hand on the bass, right hand
+voicing, pushes and all), drop markers where the sections start, and
+bring the MIDI in. When the track plays chords, the interview asks
+whether to make a lead sheet; say yes and it writes one:
+
+- **The chords land where you played them.** Each chord you struck is
+  named from its notes, bass note as the root (so Ab, Eb, Gb, Bb, Db, F
+  over an Ab bass is Ab13sus, not a stack of letters), and placed on the
+  beat or the and you hit it: `Abm7 Bmaj7@2+ Dbadd9@4+`. Striking the
+  same chord again prints nothing new.
+- **The markers are the form.** A marker's first word names the
+  section: a letter (`a` is letter A), a number, or a word like Intro,
+  Verse, Chorus, Bridge, Solo, Outro. Two of the same name become A and
+  A2.
+- **The rest of the marker says what happens there**, in the words you'd
+  use, separated by commas or a colon: `B chorus: hits, repeat 2x`.
+
+  | Say in the marker | It does |
+  |---|---|
+  | `intro`, `verse`, `chorus`, `bridge`, `solo`, `outro`, `tag`, `vamp` ... | the label beside the rehearsal mark |
+  | `hits`, `kicks`, `pushes`, `as played`, `my rhythm` | rhythm slashes on exactly the beats you played; a push on an and that rings over the barline ties into the next bar |
+  | `slashes`, `time`, `comp`, `chords only` (and the default) | slashes with the changes |
+  | `notes`, `as written`, `play this exact` | your notes, written out |
+  | `tacet`, `lay out` | rests |
+  | `solo`, `solo open` | the solo slashes |
+  | `no chords`, `nc`, `break`, `stop time` | N.C. (a break stops the band) |
+  | `repeat 2x`, `x2`, `twice`, `vamp till cue`, `open` | the repeat or vamp |
+  | `swing`, `funk`, `half time`, `ballad`, `feel bossa` ... | the feel, the tune's from the first section and that section's after |
+  | `tempo 96`, `key Db`, `meter 3/4` | the change, at that bar |
+  | `fermata`, `segno`, `to coda`, `coda`, `fine`, `d.s. al coda`, `d.c. al fine` ... | the road map |
+  | `rit.`, `rall.`, `a tempo`, `cresc`, `mf`, `text "anything"` | the words on the page |
+  | `fill` | a drum fill into the next bar |
+
+  A marker that starts with an instruction instead of a name, like
+  `fermata` or `rit.`, isn't a new section: it lands at its bar inside
+  the section already going.
+- **Words it doesn't act on yet print anyway**, as text over that bar,
+  and the build names each one, so nothing you said is lost.
+- It prints on **one staff**, the way a lead sheet does (a band line's
+  `one staff` does that for any keyboard part), and tells you which
+  sections have the same changes as an earlier one, in case you want to
+  write it as a repeat.
+
+From the terminal it's the same through `chart import`, or straight:
+
+    python3 prototype/chartlead.py "lead sheet test.MID" "Lead Sheet.chart" --key Ab
+
+Every chord and every word lands as ordinary chart text, so you can
+change any of it and build again.
+
 ### Words and chords, from any text
 
 Plain text, Markdown, RTF, Word, OpenDocument, HTML, a PDF with real

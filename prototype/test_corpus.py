@@ -7794,6 +7794,105 @@ def _tmpchart(body):
     return p
 
 
+def check_lead_sheet_from_markers():
+    """2026-10-27, his ask: a lead sheet from a played chord track, the
+    form and what each section does said in the DAW's markers. Chords
+    land where they were played, pushes tie over the barline, a marker's
+    words become chart text, and words Copyist does not act on yet print
+    and are named, never dropped."""
+    import io
+    import tempfile
+    from contextlib import redirect_stdout
+    import chartlead
+    import chartc
+    import chartbrailleread
+    import smf
+    print("\n== lead sheets: chords from the playing, form from markers ==")
+    nm = chartlead.name_chord
+    check("played voicings are named with the bass as root",
+          nm([44, 51, 54, 59, 63, 68]) == "Abm7"
+          and nm([49, 65, 68, 75]) == "Dbadd9"
+          and nm([44, 51, 54, 58, 56, 61, 65]) == "Ab13sus"
+          and nm([36, 43, 52, 61]) == "C7b9"
+          and nm([41, 51, 55, 58, 62]) == "F13sus")
+    pm = chartlead.parse_marker
+    a = pm("B chorus: hits, repeat 2x")
+    check("a marker names its section and says what it does",
+          a["name"] == "B" and a["label"] == "chorus"
+          and a["mode"] == "hits" and a["header"] == ["repeat 2x"])
+    b = pm("Outro: vamp till cue")
+    check("a word can be the section's name",
+          b["name"] == "Outro" and b["header"] == ["vamp till cue"])
+    c = pm("fermata")
+    check("an instruction alone is an event, not a section",
+          c["name"] is None and c["events"] == ["fermata"])
+    d = pm("D, half time, louder please")
+    check("unknown words are kept, to print and report",
+          d["feel"] == "half time" and d["unknown"] == ["louder please"])
+    check("rit. keeps its period",
+          pm("rit.")["events"] == ['text "rit."'])
+    with tempfile.TemporaryDirectory() as tmp:
+        div, bar = 480, 1920
+        notes = []
+
+        def hit(t, ln, ps):
+            for p_ in ps:
+                notes.append((t, t + ln, p_, 90))
+        for rep_ in range(2):
+            o = rep_ * 2 * bar
+            # Abm7 on 1, Dbadd9 pushed on the and of 4 into the next
+            # bar, Eb on its 3
+            hit(o, 900, (44, 51, 54, 59, 63))
+            hit(o + 7 * div // 2, 1000, (37, 53, 56, 63))
+            hit(o + bar + 2 * div, 800, (39, 55, 58, 63))
+        demo = os.path.join(tmp, "lead.mid")
+        smf.write(demo, notes, div, 150, name="Pianoteq 8",
+                  markers=[(0, "A intro, hits"), (2 * bar, "B"),
+                           (3 * bar, "fermata"),
+                           (2 * bar + div, "lots of soul")])
+        out = os.path.join(tmp, "lead.chart")
+        text, find = chartlead.lead_sheet(demo, out, title="Lead",
+                                          key="Ab")
+        check("chords land where they were played",
+              "chords: Abm7 Dbadd9@4+, Dbadd9 Eb@3" in text, text)
+        check("a push ties over the barline",
+              "hits bar 1 on 1, 4+ push" in text
+              and "hits bar 2 on 3" in text, text)
+        check("sections come from the markers, labelled",
+              'section A, 2 bars, label "intro"' in text
+              and "section B, 2 bars" in text)
+        check("an event marker lands inside its section",
+              "at bar 2: fermata" in text, text)
+        check("words it can't act on print and are named",
+              'text "lots of soul"' in text
+              and any("lots of soul" in f for f in find))
+        check("repeated changes are pointed out",
+              any("same changes as A" in f for f in find))
+        check("a lead sheet prints on one staff",
+              "one staff" in text)
+        # a numbered word name, so the braille proof meets "Chorus2"
+        text = text.replace("section B,", "section Chorus2,")
+        with open(out, "w") as f:
+            f.write(text)
+        import subprocess
+        run = subprocess.run([sys.executable, "chart.py", out, "build",
+                              "--no-listen", "--no-pages"],
+                             capture_output=True, text=True)
+        xml = ""
+        for root, _d, files in os.walk(tmp):
+            for f in files:
+                if f.endswith("piano.musicxml"):
+                    xml = open(os.path.join(root, f)).read()
+        check("the lead sheet builds", run.returncode == 0,
+              run.stdout[-400:] + run.stderr[-400:])
+        check("the pushed hit is tied on the page",
+              '<tied type="start"/>' in xml and '<tied type="stop"/>'
+              in xml)
+        check("one staff means one staff",
+              "<staves>2</staves>" not in xml)
+        check("braille names with numbers read back",
+              "read back note for note" in run.stdout, run.stdout[-400:])
+
 def check_streamline():
     """2026-10-17, his ask: 'way more streamlined'. A DAW's one file
     per instrument comes in as ONE chart that builds as written; the
@@ -8069,6 +8168,7 @@ if __name__ == "__main__":
     check_band_hears_the_lead()
     check_cues_and_cuts()
     check_streamline()
+    check_lead_sheet_from_markers()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

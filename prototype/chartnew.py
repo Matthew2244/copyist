@@ -442,6 +442,41 @@ def interview(out_path, demo_path, composer='', cfg=None):
                         lambda t: t == "" or (0 <= int(t) <= 16)
                         or chartc.fail("count-in out of range"),
                         "The count-in is a number of bars, like 0, 1 or 2")
+    # a demo that is all chords, or one carrying markers, can be a lead
+    # sheet: chord symbols from the playing, the form from the markers
+    import chartlead
+    marks, _md = chartlead.read_markers(demo_path)
+    chordy = [(f, ti, nm, ns) for f, ti, nm, ns in tracks
+              if f == demo_path
+              and chartlead.chordiness(ns, dm.division) >= 0.6]
+    if chordy and (len(tracks) == 1 or marks):
+        f0, ti0, nm0, ns0 = max(chordy, key=lambda t: len(t[3]))
+        said = (f'"{nm0}" plays chords'
+                + (f", and the demo carries "
+                   f"{chartc.n_of(len(marks), 'marker')}" if marks else ""))
+        lead = ask(f"{said}. Make a lead sheet: chord symbols where you "
+                   "played them, the form from the markers, and what each "
+                   "marker says? yes or no", "yes")
+        if not lead.lower().startswith("n"):
+            part = ask("Which instrument does the lead sheet print for",
+                       "piano")
+            part = chartc.canonical_instrument(part or "piano")
+            if part not in chartc.HORNS:
+                say(f"I don't know '{part}' as an instrument; it prints "
+                    "for piano.")
+                part = "piano"
+            text, find = chartlead.lead_sheet(
+                demo_path, out_path, title=title, composer=composer,
+                key=key, tempo=tempo or None, part=part, chord_track=nm0,
+                countin=int(countin or 0))
+            with open(out_path, 'w', encoding='utf-8') as fh:
+                fh.write(text)
+            nsec = text.count("\nsection ")
+            say(f"Wrote {os.path.basename(out_path)}: a lead sheet, "
+                f"{chartc.n_of(nsec, 'section')}. It is ready to build.")
+            for line in find:
+                say("  " + line)
+            return
     dyn = ask("Dynamics: pedal reads your CC 11, by hand means you "
               "dictate", "pedal")
 

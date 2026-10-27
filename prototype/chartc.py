@@ -1088,7 +1088,8 @@ def parse_chart(path):
                          r'(?:,\s*tuning ([\w ]+))?'
                          r'(?:,\s*demo "([^"]+)"(?:\s+octave (-?\d+))?)?'
                          r'(?:,\s*keyswitches "([^"]+)")?'
-                         r'(?:,\s*drummap "([^"]+)")?\s*$',
+                         r'(?:,\s*drummap "([^"]+)")?'
+                         r'(,\s*one staff)?\s*$',
                          s)
             if not m:
                 fail(f"{loc}: cannot read band line '{s}'")
@@ -1113,7 +1114,10 @@ def parse_chart(path):
                                   'demo': m.group(5),
                                   'demo_octave': int(m.group(6) or 0),
                                   'keyswitches': m.group(7),
-                                  'drummap': m.group(8)})
+                                  'drummap': m.group(8),
+                                  # a lead sheet: a keyboard part on one
+                                  # staff, the way a chord chart prints
+                                  'one_staff': bool(m.group(9))})
             continue
         if mode == 'output':
             continue        # defaults only in this increment
@@ -2053,23 +2057,48 @@ def slash_bar(div, clef, staves, fifths, meter=(4, 4)):
     return "\n".join(out) + "\n"
 
 
-def hits_bar(pattern, div, clef, staves, fifths, meter=(4, 4)):
+class Beats(list):
+    """A bar's hit beats. `push` marks the last hit as a push: an
+    anticipation held over the barline, tied into the next bar until
+    that bar's first hit, the way a lead sheet writes one."""
+    push = False
+
+
+def hits_bar(pattern, div, clef, staves, fifths, meter=(4, 4),
+             tie_in=False):
     """Rhythmic kicks: slash noteheads WITH stems at the named beats,
     rests around them — 'hits on 1, 2+, 4' as the spec always promised.
-    Each hit rings to the next hit or the bar line."""
+    Each hit rings to the next hit or the bar line; a hit too long for
+    one note value is tied, never re-struck. A pushed last hit
+    (`4+ push`) ties over the barline, and the next bar (`tie_in`)
+    opens on the held chord instead of rests."""
     import convert as _c
     num, den = meter
     pulse = div * 4 // den
     step, octv = SLASH_PITCH.get(clef, ('B', 4))
     alter = key_alter(step, fifths)
     positions = sorted({int(round((b - 1) * pulse)) for b in pattern})
+    push = bool(getattr(pattern, 'push', False))
     out = []
-    if positions and positions[0] > 0:
-        for ln in _c.emit_rest(positions[0], div, 1, 1):
-            out.append(ln)
+    spans = []
+    if not positions and tie_in:
+        # nothing struck: the pushed chord rings through the bar
+        spans.append((0, pulse * num, True))
+    elif positions and positions[0] > 0:
+        if tie_in:
+            spans.append((0, positions[0], True))
+        else:
+            for ln in _c.emit_rest(positions[0], div, 1, 1):
+                out.append(ln)
     for i, pos in enumerate(positions):
         end = positions[i + 1] if i + 1 < len(positions) else pulse * num
-        for plen, ptype, dots in _c.decompose(end - pos, div):
+        spans.append((pos, end, False))
+    for si, (pos, end, held) in enumerate(spans):
+        pieces = _c.decompose(end - pos, div)
+        last_span = si == len(spans) - 1
+        for pi, (plen, ptype, dots) in enumerate(pieces):
+            t_stop = pi > 0 or held
+            t_start = pi < len(pieces) - 1 or (last_span and push)
             if clef == 'percussion':
                 pitch = ('        <unpitched><display-step>%s'
                          '</display-step><display-octave>%d'
@@ -2081,13 +2110,22 @@ def hits_bar(pattern, div, clef, staves, fifths, meter=(4, 4)):
                             f'<alter>{alter}</alter>' if alter else '',
                             octv))
             out += ['      <note>', pitch,
-                    f'        <duration>{plen}</duration>',
-                    '        <voice>1</voice>',
+                    f'        <duration>{plen}</duration>']
+            if t_stop:
+                out.append('        <tie type="stop"/>')
+            if t_start:
+                out.append('        <tie type="start"/>')
+            out += ['        <voice>1</voice>',
                     f'        <type>{ptype}</type>']
             out += ['        <dot/>'] * dots
             out.append('        <notehead>slash</notehead>')
             if staves > 1:
                 out.append('        <staff>1</staff>')
+            if t_stop or t_start:
+                out.append('        <notations>'
+                           + ('<tied type="stop"/>' if t_stop else '')
+                           + ('<tied type="start"/>' if t_start else '')
+                           + '</notations>')
             out.append('      </note>')
     if staves > 1:
         bar = pulse * num
@@ -2467,6 +2505,8 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                          comf=(lo, h['comf'][1]))
                 findings.add(f"{b['label']}: tuning honored — the floor "
                              f"is now {lo_name}")
+            if b.get('one_staff') and h.get('grand'):
+                h = dict(h, grand=False)
             horn_of[b['label']] = h
     resolved = {l: [] for l in labels}
     for plan in plans:
@@ -3190,7 +3230,8 @@ def build_plans(chart, band, groups, labels):
             for p in raw_pieces:
                 if (pieces_merged
                         and pieces_merged[-1].startswith('hits')
-                        and re.fullmatch(r'[\d.+]+|and-of-\d+', p)):
+                        and re.fullmatch(r'(?:[\d.+]+|and-of-\d+)'
+                                         r'(?: push(?:ed)?)?', p)):
                     pieces_merged[-1] += ' ' + p
                 else:
                     pieces_merged.append(p)
@@ -3265,7 +3306,14 @@ def build_plans(chart, band, groups, labels):
                     continue
                 m = re.match(r'hits(?: bar (\d+))? on (.+)$', piece)
                 if m:
-                    beats = [parse_beat(t) for t in m.group(2).split()]
+                    # '4+ push': the last hit is held over the barline
+                    toks = m.group(2).split()
+                    pushed = bool(toks) and toks[-1] in ('push',
+                                                         'pushed')
+                    if pushed:
+                        toks = toks[:-1]
+                    beats = Beats(parse_beat(t) for t in toks)
+                    beats.push = pushed
                     hits_map[int(m.group(1)) if m.group(1) else None] = \
                         beats
                     continue
@@ -5496,9 +5544,15 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         if made:
                             realized_bars[label] = \
                                 realized_bars.get(label, 0) + 1
-                    elif pattern:
-                        pieces.append(hits_bar(pattern, div, clef,
-                                               staves, fifths, bmeter))
+                    elif pattern or getattr(
+                            hmap.get(off) if off > 0 else None,
+                            'push', False):
+                        before = hmap.get(off, hmap.get(None)) \
+                            if off > 0 else None
+                        pattern = pattern or Beats()
+                        pieces.append(hits_bar(
+                            pattern, div, clef, staves, fifths, bmeter,
+                            tie_in=bool(getattr(before, 'push', False))))
                     else:
                         pieces.append(slash_bar(div, clef, staves,
                                                 fifths, bmeter))

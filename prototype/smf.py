@@ -39,11 +39,14 @@ def _track(events):
     return b"MTrk" + struct.pack(">I", len(body)) + bytes(body)
 
 
-def write(path, notes, division, bpm, ts=(4, 4), name="Copyist"):
+def write(path, notes, division, bpm, ts=(4, 4), name="Copyist",
+          markers=()):
     """
     notes: iterable of (on_tick, off_tick, pitch, velocity).
     ts: one (num, den), or a list of (tick, num, den) the way a DAW
     export carries its meter map.
+    markers: (tick, text) pairs, written as marker events (FF 06) the
+    way REAPER exports its markers.
     """
     sigs = ts if isinstance(ts, list) else [(0, ts[0], ts[1])]
     conductor = _track([
@@ -53,6 +56,10 @@ def write(path, notes, division, bpm, ts=(4, 4), name="Copyist"):
         (t, b"\xFF\x58\x04" + bytes([n, max(d.bit_length() - 1, 0),
                                      0x18, 0x08]))
         for t, n, d in sigs
+    ] + [
+        (t, b"\xFF\x06" + vlq(len(txt.encode("utf-8")))
+         + txt.encode("utf-8"))
+        for t, txt in markers
     ])
     ev = []
     for on, off, pitch, vel in notes:

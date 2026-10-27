@@ -180,6 +180,8 @@ transposition and range. No `=` means the label is the instrument.
       bass = electric bass, tuning Bb0 Eb1 Ab1 Db2 Gb2
       drums = drum set, detail symbols
 
+- `one staff` prints a keyboard part on a single staff instead of the
+  grand staff, the way a lead sheet or chord chart does.
 - `detail <level>` sets that part's default detail level (DESIGN.md §11):
   `full`, `simplified`, `rhythmic-slashes`, `slashes`, `symbols`. Defaults
   come from the instrument profile (rhythm section → slashes, melodic → full).
@@ -458,7 +460,7 @@ drummer's.
   | `groove "half-time funk"` | the same, with the words above the first bar |
   | `figure <name> [at bar N]` | the notated figure, from that section-relative bar (default 1) |
   | `as engraved bars A-B [at bar N]` | each targeted part's own bars A–B of the `source:` score, exact |
-  | `hits on 1, 2+, 4` | rhythmic-slash kicks on those beats (bar prefix: `hits bar 3 on 2+, 4`) |
+  | `hits on 1, 2+, 4` | rhythmic-slash kicks on those beats (bar prefix: `hits bar 3 on 2+, 4`); a last hit followed by `push` (`hits bar 1 on 1, 4+ push`) is held over the barline, tied into the next bar until its first hit. A hit too long for one note value is tied, never re-struck |
   | `solo` / `solo open` | slashes under the solo changes, "Solo" / "solos (open)" printed — a soloist reads slashes, never empty bars (2026-09-21); notated material on the same part still wins its bars |
   | `backgrounds, on cue` | the figure marked "backgrounds on cue" |
   | `tacet` | whole-section multirest in the part |
