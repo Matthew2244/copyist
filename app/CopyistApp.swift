@@ -855,10 +855,16 @@ final class AppModel: ObservableObject {
         let items = (try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: [.contentModificationDateKey]))
             ?? []
-        let dates = items.filter {
-            $0.lastPathComponent.hasPrefix(title)
-                && $0.pathExtension == "musicxml"
-        }.compactMap {
+        // the files carry the chart's title, which may differ from its
+        // file name in capitals ("Lead Sheet Chords" in "lead sheet
+        // chords.chart"): any MusicXML here counts, the title's first
+        let mine = items.filter {
+            $0.pathExtension == "musicxml"
+                && $0.lastPathComponent.lowercased()
+                    .hasPrefix(title.lowercased())
+        }
+        let dates = (mine.isEmpty ? items.filter {
+            $0.pathExtension == "musicxml" } : mine).compactMap {
             try? $0.resourceValues(forKeys: [.contentModificationDateKey])
                 .contentModificationDate
         }
@@ -1716,6 +1722,10 @@ struct ActionButton: View {
         .accessibilityHint(keys.isEmpty ? line
             : (line.hasSuffix(".") ? String(line.dropLast()) : line)
               + ". " + spokenKeys(keys))
+        // an action is never "selected": SwiftUI carried the selected
+        // tab's trait onto the desk button in the same place (VoiceOver
+        // said "Check it, selected", 2026-10-27)
+        .accessibilityRemoveTraits(.isSelected)
     }
 }
 
