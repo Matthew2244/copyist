@@ -496,6 +496,8 @@ def main():
             bits.append("by " + hdr['composer'])
         if hdr.get('key'):
             bits.append("in " + say_key(hdr['key']))
+        if hdr.get('meter'):
+            bits.append(hdr['meter'].strip() + " time")
         tempo = str(hdr.get('tempo', '')).strip()
         if hdr.get('feel'):
             bits.append(hdr['feel'] + (f" at {tempo}" if tempo.isdigit()

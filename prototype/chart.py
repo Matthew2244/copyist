@@ -1720,12 +1720,14 @@ def main():
     # ---- read-alouds, next to the chart where the writer lives.
     # snapshot the outgoing read-alouds so the new build has something
     # to answer "what changed?" against
-    os.makedirs(prev_dir, exist_ok=True)
     if do_reads:
         for label in labels:
             cur = os.path.join(spoken_dir,
                                f"{title} — {label} part, read aloud.txt")
             if os.path.exists(cur):
+                # made only when there is something to keep: a first
+                # build left an empty folder behind
+                os.makedirs(prev_dir, exist_ok=True)
                 shutil.copy2(cur, prev_dir)
 
     read_list = ([l for l in labels if sel['labels'] is None

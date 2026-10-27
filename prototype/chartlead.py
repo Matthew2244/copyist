@@ -561,6 +561,118 @@ def _fifths_of(key):
         return None
 
 
+def form_from_markers(demo_path, div, barof, first, last):
+    """The demo's markers as a form: [dict(bar, text, pm, events)] with
+    demo bar numbers, plus findings. Section markers start sections;
+    an instruction on a section's first bar joins it; any other is an
+    event inside the section running; a marker in the count-in belongs
+    to the first bar; one past the end is left out and said."""
+    marks, mdiv = read_markers(demo_path)
+    find = []
+
+    def page(b):
+        return b - first + 1
+    # the form: section markers start sections; the rest are events
+    secs = []
+    for tick, text in marks:
+        b = barof(tick * div // mdiv if mdiv != div else tick)
+        pm = parse_marker(text)
+        if b > last:
+            find.append(f'marker "{text}" is after the last bar, so it '
+                        "was left out")
+            continue
+        if b < first:
+            # a marker in the count-in belongs to the first bar
+            b = first
+        if pm["name"]:
+            if secs and b == secs[-1]["bar"]:
+                if secs[-1].get("made"):
+                    # a real name replaces the A made up for an earlier
+                    # instruction at this bar; its words join
+                    _merge(pm, secs[-1]["pm"])
+                    secs[-1].update(text=text, pm=pm, made=False)
+                else:
+                    find.append(f"two section markers at bar {page(b)} "
+                                f'("{secs[-1]["text"]}" and "{text}"); '
+                                "kept the first")
+                continue
+            secs.append(dict(bar=b, text=text, pm=pm, events=[]))
+        elif secs and b == secs[-1]["bar"] and not secs[-1]["events"]:
+            # an instruction on a section's first bar is that section's
+            _merge(secs[-1]["pm"], pm)
+        elif secs:
+            secs[-1]["events"].append((b, pm, text))
+        else:
+            # an instruction before any section marker opens section A
+            pa = parse_marker("A")
+            _merge(pa, pm) if b == first else None
+            secs.append(dict(bar=first, text="A", pm=pa, made=True,
+                             events=[] if b == first else
+                             [(b, pm, text)]))
+    if not secs or secs[0]["bar"] > first:
+        secs.insert(0, dict(bar=first, text="(start)",
+                            pm=parse_marker("Intro" if secs else "A"),
+                            events=[]))
+        if marks:
+            find.append("the first marker is after the first bar; the "
+                        "bars before it are their own section")
+    # names must be unique: a second 'A' is A2, the way a book writes it
+    used = set()
+    for s in secs:
+        nm = s["pm"]["name"]
+        if nm in used:
+            k = 2
+            while f"{nm}{k}" in used:
+                k += 1
+            s["pm"]["name"] = f"{nm}{k}"
+        used.add(s["pm"]["name"])
+    return secs, find
+
+
+def section_extras(s, lo, n, first):
+    """A section's timed lines from its markers, and the findings: the
+    events, and words that print because nothing acts on them yet."""
+    lines, find = [], []
+    pm = s["pm"]
+    for ev in pm["events"]:
+        lines.append("  " + _event_line(ev, 1, n))
+    for b, epm, etext in s["events"]:
+        rel = b - lo + 1
+        for ev in epm["events"]:
+            lines.append("  " + _event_line(ev, rel, n))
+        loose = [w for w, v in (("its feel", epm["feel"]),
+                                ("how the part plays", epm["mode"]),
+                                ("a repeat", epm["header"]),
+                                ("a label", epm["label"]),
+                                ("no chords", epm["chords"])) if v]
+        if loose:
+            find.append(f'marker "{etext}" at bar {b - first + 1} is '
+                        f"inside a section, so {', '.join(loose)} only "
+                        "prints as words; give it a name first (like "
+                        '"C, hits") to start a section there')
+            lines.append(f'  at bar {rel}: text "{_clean(etext)}"')
+        for w in epm["unknown"]:
+            lines.append(f'  at bar {rel}: text "{w}"')
+            find.append(f'marker "{etext}" at bar {b - first + 1}: I '
+                        f'don\'t act on "{w}" yet, so it prints as words')
+    for w in pm["unknown"]:
+        lines.append(f'  at bar 1: text "{w}"')
+        find.append(f'marker "{s["text"]}": I don\'t act on "{w}" yet, '
+                    "so it prints as words over the section")
+    return lines, find
+
+
+def section_head(pm, n):
+    """'section B, 8 bars, label "chorus", repeat 2x' from a marker."""
+    head = f"section {pm['name']}, {n} bar{'s' if n != 1 else ''}"
+    if pm["label"] and pm["label"].replace(" ", "").lower() != \
+            pm["name"].replace(" ", "").lower():
+        head += f', label "{_clean(pm["label"])}"'
+    for h in pm["header"]:
+        head += f", {h}"
+    return head
+
+
 def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
                tempo=None, part="piano", chord_track=None, feel=None,
                countin=0):
@@ -622,64 +734,11 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
         last -= 1
     events = chord_events(notes, div, meter, barof, first, last,
                           names=spell)
-    marks, mdiv = read_markers(demo_path)
+    secs, mfind = form_from_markers(demo_path, div, barof, first, last)
+    find += mfind
 
     def page(b):
         return b - first + 1
-    # the form: section markers start sections; the rest are events
-    secs = []
-    for tick, text in marks:
-        b = barof(tick * div // mdiv if mdiv != div else tick)
-        pm = parse_marker(text)
-        if b > last:
-            find.append(f'marker "{text}" is after the last bar, so it '
-                        "was left out")
-            continue
-        if b < first:
-            # a marker in the count-in belongs to the first bar
-            b = first
-        if pm["name"]:
-            if secs and b == secs[-1]["bar"]:
-                if secs[-1].get("made"):
-                    # a real name replaces the A made up for an earlier
-                    # instruction at this bar; its words join
-                    _merge(pm, secs[-1]["pm"])
-                    secs[-1].update(text=text, pm=pm, made=False)
-                else:
-                    find.append(f"two section markers at bar {page(b)} "
-                                f'("{secs[-1]["text"]}" and "{text}"); '
-                                "kept the first")
-                continue
-            secs.append(dict(bar=b, text=text, pm=pm, events=[]))
-        elif secs and b == secs[-1]["bar"] and not secs[-1]["events"]:
-            # an instruction on a section's first bar is that section's
-            _merge(secs[-1]["pm"], pm)
-        elif secs:
-            secs[-1]["events"].append((b, pm, text))
-        else:
-            # an instruction before any section marker opens section A
-            pa = parse_marker("A")
-            _merge(pa, pm) if b == first else None
-            secs.append(dict(bar=first, text="A", pm=pa, made=True,
-                             events=[] if b == first else
-                             [(b, pm, text)]))
-    if not secs or secs[0]["bar"] > first:
-        secs.insert(0, dict(bar=first, text="(start)",
-                            pm=parse_marker("Intro" if secs else "A"),
-                            events=[]))
-        if marks:
-            find.append("the first marker is after the first bar; the "
-                        "bars before it are their own section")
-    # names must be unique: a second 'A' is A2, the way a book writes it
-    used = set()
-    for s in secs:
-        nm = s["pm"]["name"]
-        if nm in used:
-            k = 2
-            while f"{nm}{k}" in used:
-                k += 1
-            s["pm"]["name"] = f"{nm}{k}"
-        used.add(s["pm"]["name"])
     lines = [f"# Lead sheet from {os.path.basename(demo_path)}: chords "
              f'read from the "{said_track}" track, form from its',
              "# markers. Every chord and every word below is plain chart "
@@ -720,13 +779,7 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
         allmiss += [page(b) for b in misses]
         if pm["chords"] == "nc":
             bars = ["nc"] * n
-        head = f"section {pm['name']}, {n} bar{'s' if n != 1 else ''}"
-        if pm["label"] and pm["label"].replace(" ", "").lower() != \
-                pm["name"].replace(" ", "").lower():
-            head += f', label "{_clean(pm["label"])}"'
-        for h in pm["header"]:
-            head += f", {h}"
-        lines.append(head)
+        lines.append(section_head(pm, n))
         if pm["feel"] and pm["feel"] != tune_feel:
             lines.append(f"  feel: {pm['feel']}")
         lines.append("  chords: " + compress(bars))
@@ -747,31 +800,9 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
             lines.append(f"  {part}: {mode}")
         else:
             lines.append(f"  {part}: groove")
-        for ev in pm["events"]:
-            lines.append("  " + _event_line(ev, 1, n))
-        for b, epm, etext in s["events"]:
-            rel = b - lo + 1
-            for ev in epm["events"]:
-                lines.append("  " + _event_line(ev, rel, n))
-            loose = [w for w, v in (("its feel", epm["feel"]),
-                                    ("how the part plays", epm["mode"]),
-                                    ("a repeat", epm["header"]),
-                                    ("a label", epm["label"]),
-                                    ("no chords", epm["chords"])) if v]
-            if loose:
-                find.append(f'marker "{etext}" at bar {page(b)} is inside '
-                            f"a section, so {', '.join(loose)} only "
-                            "prints as words; give it a name first (like "
-                            '"C, hits") to start a section there')
-                lines.append(f'  at bar {rel}: text "{_clean(etext)}"')
-            for w in epm["unknown"]:
-                lines.append(f'  at bar {rel}: text "{w}"')
-                find.append(f'marker "{etext}" at bar {page(b)}: I don\'t '
-                            f'act on "{w}" yet, so it prints as words')
-        for w in pm["unknown"]:
-            lines.append(f'  at bar 1: text "{w}"')
-            find.append(f'marker "{s["text"]}": I don\'t act on "{w}" '
-                        "yet, so it prints as words over the section")
+        more, said = section_extras(s, lo, n, first)
+        lines += more
+        find += said
         lines.append("")
     if allmiss:
         find.append("no chord name for the hits at bar(s) "

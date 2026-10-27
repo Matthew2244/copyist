@@ -449,9 +449,12 @@ def interview(out_path, demo_path, composer='', cfg=None):
     chordy = [(f, ti, nm, ns) for f, ti, nm, ns in tracks
               if f == demo_path
               and chartlead.chordiness(ns, dm.division) >= 0.6]
-    if chordy and (len(tracks) == 1 or marks):
+    # one track of chords only: with more, a lead sheet would leave the
+    # other players out (the markers still carve their sections)
+    if chordy and len(tracks) == 1:
         f0, ti0, nm0, ns0 = max(chordy, key=lambda t: len(t[3]))
-        said = (f'"{nm0}" plays chords'
+        said = ((f'"{nm0}"' if dm.names.get(ti0) else "The demo")
+                + " plays chords"
                 + (f", and the demo carries "
                    f"{chartc.n_of(len(marks), 'marker')}" if marks else ""))
         lead = ask(f"{said}. Make a lead sheet: chord symbols where you "
@@ -467,7 +470,8 @@ def interview(out_path, demo_path, composer='', cfg=None):
                 part = "piano"
             text, find = chartlead.lead_sheet(
                 demo_path, out_path, title=title, composer=composer,
-                key=key, tempo=tempo or None, part=part, chord_track=nm0,
+                key=key, tempo=tempo or None, part=part,
+                chord_track=nm0 if dm.names.get(ti0) else None,
                 countin=int(countin or 0))
             with open(out_path, 'w', encoding='utf-8') as fh:
                 fh.write(text)
@@ -583,6 +587,51 @@ def interview(out_path, demo_path, composer='', cfg=None):
         if shift:
             piece += f" octave {shift:+d}"
         lines.append(piece)
+    marks_said = chartlead.read_markers(demo_path)[0]
+    if marks_said and not meter_events:
+        # the DAW's markers are the form: a section per section marker,
+        # every part playing its own demo bars inside it
+        ci = int(countin or 0)
+        last_bar = ci + total
+        secs, mfind = chartlead.form_from_markers(
+            demo_path, dm.division, barof, ci + 1, last_bar)
+        for i, sct in enumerate(secs):
+            lo = sct["bar"]
+            hi = secs[i + 1]["bar"] - 1 if i + 1 < len(secs) else last_bar
+            n = hi - lo + 1
+            pm = sct["pm"]
+            lines += ["", chartlead.section_head(pm, n)]
+            if pm["feel"]:
+                lines.append(f"  feel: {pm['feel']}")
+            lines.append(f"  chords: nc x{n}")
+            for label, inst, tname, shift in band:
+                ns_, _, bo = notes_by_label[label]
+                played = [bo(x.on) for x in ns_ if lo <= bo(x.on) <= hi]
+                if played:
+                    lines.append(f"  {label}: from demo bars "
+                                 f"{lo}-{hi}")
+                else:
+                    lines.append(f"  {label}: tacet")
+            if pm["mode"] or pm["chords"]:
+                # one demo, many players: who "hits" or "lays out" is
+                # for the writer to say per part
+                word = pm["mode"] or "no chords"
+                lines.append(f'  at bar 1: text "{word}"')
+                mfind.append(f'marker "{sct["text"]}": with several '
+                             f'parts, say which one plays "{word}" at the '
+                             "editing desk; it prints as words for now")
+            more, said = chartlead.section_extras(sct, lo, n, ci + 1)
+            lines += more
+            mfind += said
+        with open(out_path, 'w', encoding='utf-8') as f:
+            f.write("\n".join(lines) + "\n")
+        say(f"Wrote {os.path.basename(out_path)}: "
+            f"{chartc.n_of(len(band), 'part')}, "
+            f"{chartc.n_of(len(secs), 'section')} from the demo's "
+            f"markers, {total} bars. It is ready to build.")
+        for line in mfind:
+            say("  " + line)
+        return
     lines += ["",
               f"section A, {total} bars"]
     for b, (n, d) in meter_events:

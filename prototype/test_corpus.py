@@ -7985,6 +7985,34 @@ def check_lead_sheet_from_markers():
               and 'at bar 3: text "Over the river low"' in txt_
               and "  voice" not in txt_
               and any("piano, bass and drums" in f_ for f_ in fnd_), txt_)
+        # several files and markers: the markers carve every part
+        import chartnew
+        bar_ = 1920
+        keys_ = [(b_ * bar_, b_ * bar_ + 1800, p_, 90)
+                 for b_ in range(8) for p_ in (60, 64, 67)]
+        bass_ = [(b_ * bar_ + q_ * 480, b_ * bar_ + q_ * 480 + 400, 36, 90)
+                 for b_ in range(4, 8) for q_ in range(4)]
+        k_ = os.path.join(tmp, "two keys.mid")
+        b2_ = os.path.join(tmp, "two bass.mid")
+        smf.write(k_, keys_, 480, 110, name="x",
+                  markers=[(0, "A intro"), (4 * bar_, "B swing, x2")])
+        smf.write(b2_, bass_, 480, 110, name="x")
+        two = os.path.join(tmp, "two.chart")
+        answers = iter(["Two", "", "C", "", "", "", "", "",
+                        "piano", "", "", "bass", "", "", ""])
+        old_in = chartnew.ask
+        try:
+            chartnew.ask = lambda q, d="": (next(answers, "") or d)
+            chartnew.ask.eof = False
+            with redirect_stdout(io.StringIO()):
+                chartnew.interview(two, [k_, b2_])
+        finally:
+            chartnew.ask = old_in
+        tt = open(two).read()
+        check("a multi-file demo's markers carve every part's sections",
+              'section A, 4 bars, label "intro"' in tt
+              and "section B, 4 bars, repeat 2x" in tt
+              and "bass: tacet" in tt and "feel: swing" in tt, tt)
         check("braille names with numbers read back",
               "read back note for note" in run.stdout, run.stdout[-400:])
 

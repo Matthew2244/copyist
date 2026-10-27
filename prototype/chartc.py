@@ -2152,6 +2152,9 @@ def _split_group(group, gaps, div, _c):
             x = re.sub(r'\s*<tie type="(start|stop)"/>', '', x)
             x = re.sub(r'<tied [^>]*/>', '', x)
             x = re.sub(r'\s*<beam\b[^>]*>[^<]*</beam>', '', x)
+            ends = re.findall(r'<slur[^>]*type="stop"[^>]*/>|'
+                              r'<fermata[^>]*/>|<fermata[^>]*>[^<]*'
+                              r'</fermata>', g)
             if n > 0:
                 # what is said once rides the first note only
                 x = re.sub(r'\s*<accidental\b[^>]*>[^<]*</accidental>',
@@ -2160,6 +2163,20 @@ def _split_group(group, gaps, div, _c):
                            flags=re.S)
                 x = re.sub(r'\s*<notations>.*?</notations>', '', x,
                            flags=re.S)
+            if ends and len(parts) > 1:
+                # where a note lets go belongs to its last tied piece:
+                # the slur's end and the hold
+                for e in ends:
+                    x = x.replace(e, '')
+                if n == len(parts) - 1:
+                    if '<notations>' in x:
+                        x = x.replace('<notations>',
+                                      '<notations>' + ''.join(ends), 1)
+                    else:
+                        x = re.sub(r'(\s*<lyric\b|\s*</note>)',
+                                   lambda m_: '\n        <notations>'
+                                   + ''.join(ends) + '</notations>'
+                                   + m_.group(1), x, count=1)
             x = re.sub(r'\s*<notations>\s*</notations>', '', x)
             if not rest and (t_stop or t_start):
                 ties = (('\n        <tie type="stop"/>' if t_stop else '')

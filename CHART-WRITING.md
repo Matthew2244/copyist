@@ -1338,6 +1338,15 @@ From the terminal it's the same through `chart import`, or straight:
 Every chord and every word lands as ordinary chart text, so you can
 change any of it and build again.
 
+**Markers work on any demo, not only a lead sheet.** Bring in a demo
+with several players (one file or one per instrument) and the same
+markers carve the chart into sections: each part plays its own demo
+bars in each section, a part that plays nothing there rests, and the
+section words (labels, repeats, the feel, the road map, text) all do
+what the table says. Words about how one part plays (`hits`, `tacet`)
+print as words with a finding, because with several players you say
+which one at the editing desk.
+
 ### Words and chords, from any text
 
 Plain text, Markdown, RTF, Word, OpenDocument, HTML, a PDF with real
