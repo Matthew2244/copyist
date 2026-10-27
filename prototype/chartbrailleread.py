@@ -619,6 +619,15 @@ def back_translate(text):
             word_caps = True
             i += 2
             continue
+        # two-cell signs the writer uses: & / ( ) — "rock & roll" read
+        # back as "rock ?? roll" and the proof cried wolf
+        two = {'@&': '&', '_/': '/', '"<': '(', '">': ')'}.get(
+            text[i:i + 2])
+        if two:
+            out.append(two)
+            num = False
+            i += 2
+            continue
         if c == ',' and i + 1 < len(text) and text[i + 1].isalpha():
             out.append(text[i + 1].upper())
             i += 2

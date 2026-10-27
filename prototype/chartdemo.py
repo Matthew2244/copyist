@@ -158,6 +158,12 @@ class Demo:
 _DEMOS = {}
 
 
+def _xt(text):
+    """A lyric as MusicXML text: '&' and '<' escaped."""
+    import chartc
+    return chartc.xml_text(text)
+
+
 def load_demo(path):
     # keyed on the file's size and time as well as its name: a writer
     # re-exporting the take while the editing desk is open must get the
@@ -1900,7 +1906,7 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                     syl, txt, ext = lyric
                     lines.append('        <lyric>'
                                  f'<syllabic>{syl}</syllabic>'
-                                 f'<text>{txt}</text>'
+                                 f'<text>{_xt(txt)}</text>'
                                  + ('<extend/>' if ext else '')
                                  + '</lyric>')
                 lines.append('      </note>')
@@ -1955,7 +1961,7 @@ def _emit_ftrem(out, at_bar, pieces, grids, bar, main, trill, table,
         if lyric and k == 0:
             syl, txt, ext = lyric
             lines.append('        <lyric>'
-                         f'<syllabic>{syl}</syllabic><text>{txt}</text>'
+                         f'<syllabic>{syl}</syllabic><text>{_xt(txt)}</text>'
                          + ('<extend/>' if ext else '') + '</lyric>')
         lines.append('      </note>')
         out[bar_no].append("\n".join(lines) + "\n")

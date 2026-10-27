@@ -344,7 +344,7 @@ def _loose_ties(measures, staff=1):
     for m in measures:
         for _p, ns, _s, v in sorted((e for e in m['events']
                                      if e[2] == staff), key=lambda e: e[0]):
-            pitched = [n for n in ns if not n.rest and not n.slash]
+            pitched = [n for n in ns if not n.rest and not _groove(n)]
             if pitched:
                 lines.setdefault(v, []).append(pitched)
     loose = set()
@@ -366,7 +366,7 @@ def _mark_tied_accidentals(m, tied):
             {s: -1 for s in ce.KEY_STEPS_FLAT[:-f]} if f < 0 else {})
     for _p, ns, _s, _v in m['events']:
         for n in ns:
-            if n.rest or n.slash or not n.tie_stop or n.show_acc is not None:
+            if n.rest or _groove(n) or not n.tie_stop or n.show_acc is not None:
                 continue
             alter = n.alter or 0
             if alter != base.get(n.step, 0):
@@ -528,7 +528,7 @@ def measure_units(meas, slurs, staff=1, down=None, words=True):
     if down is None:
         down = _down(meas)
     full = _bar_length(meas)
-    slashed = bool(events) and all(n.slash for _p, ns, _s, _v in events
+    slashed = bool(events) and all(_groove(n) for _p, ns, _s, _v in events
                                    for n in ns)
     first_ch = chords[0][1] if chords else None
 
@@ -670,7 +670,7 @@ def _side_accidentals(meas, sides):
         cur = {}
         for _p, ns, _s, _v in evs:
             for x in ns:
-                if x.rest or x.slash:
+                if x.rest or _groove(x):
                     continue
                 k = (x.step, x.octave)
                 want = x.alter or 0
@@ -697,9 +697,15 @@ def _side_units(events, texts, dyns, chords, slurs, added, down,
         n = ns[0]
         pre = [expression(t) for p, t in texts if p == pos] + \
             [expression(d) for p, d in dyns if p == pos]
-        if n.slash and not was_slash:
+        if _groove(n) and not was_slash:
             pre.append(expression('slashes'))
-        was_slash = n.slash
+        was_slash = _groove(n)
+        # "kicks" once a passage, across barlines; a rest inside one
+        # keeps it going, a written note ends it
+        if getattr(n, 'kick', False) and not _KICKING[0]:
+            pre.append(expression('kicks'))
+        if not n.rest:
+            _KICKING[0] = bool(getattr(n, 'kick', False))
         is_first = first and not units
         ch = []
         while pending_ch and pending_ch[0][0] <= pos:
@@ -711,7 +717,7 @@ def _side_units(events, texts, dyns, chords, slurs, added, down,
                 voice.fresh()                # 22.3 (e)
             trip = vsigns.get(id(n), '') + groups.get(id(n), '')
             opener = SLUR_OPEN if slurs.get(id(n)) == 'open' else ''
-            if n.slash:
+            if _groove(n):
                 # a print slash beat: a rest of its value under the word
                 # "slashes" (see the transcriber's note)
                 body = REST.get(n.ntype, REST['quarter']) + DOT * n.dots
@@ -1001,6 +1007,8 @@ def part_to_brf(xml, pid, title, part_name, chords=True, page=None):
     """The braille for one part, on a page of `page` = (cells, lines),
     standard 40 by 25 when not given."""
     global LINE, PAGE
+    xml = xml.replace('&amp;', '&')     # escaped text, brailled plain
+    _KICKING[0] = False
     keep = LINE, PAGE
     LINE, PAGE = page or (40, 25)
     try:
@@ -1040,7 +1048,7 @@ def _part_to_brf(xml, pid, title, part_name, chords=True):
             for ln in _instrument_table(comps):          # 33.2, 34.2 (b)
                 pager.add(ln)
     has_slash = (chords or perc) and any(
-        n.slash for m in measures for _p, ns, _s, _v in m['events']
+        _groove(n) for m in measures for _p, ns, _s, _v in m['events']
         for n in ns)
     keys = any(m['state'].get('staves', 1) > 1 for m in measures)
     # 29.2: in keyboard music the hand signs say which way intervals read
@@ -1064,6 +1072,12 @@ def _part_to_brf(xml, pid, title, part_name, chords=True):
                      "follow it, up to the next note, stand for print "
                      "slashes: play or improvise on the chord symbols in "
                      "the line below. A rest anywhere else is a real rest.")
+    if any(getattr(n, 'kick', False) for m in measures
+           for _p, ns, _s, _v in m['events'] for n in ns):
+        notes.append("Where the word kicks appears, the notes that "
+                     "follow are print kicks: hit the chord symbols in "
+                     "that rhythm, ties and holds as written; their pitch "
+                     "is only where the print places them.")
     paras = [' '.join(notes)] if notes else []
     legend = [c for c in comps if c['legend']]
     if legend:
@@ -1489,6 +1503,17 @@ _PAIR = {'whole': 'W', '16th': 'W', 'half': 'H', '32nd': 'H',
          'quarter': 'Q', '64th': 'Q', 'eighth': 'E', '128th': 'E'}
 
 
+_KICKING = [False]     # inside a passage of kicks, part by part
+
+
+def _groove(n):
+    """A groove slash: time to keep, written as a rest under the word
+    "slashes". A kick (a slash with a stem) is rhythm and is written as
+    its note, under the word "kicks" — braille used to turn kicks into
+    rests and lose their values, ties and fermatas."""
+    return n.slash and not getattr(n, 'kick', False)
+
+
 def score_notes(xml, pid):
     """The part's notes in the order its braille writes them — each
     bar's sides as the in-accord takes them, each chord's written note
@@ -1508,7 +1533,7 @@ def score_notes(xml, pid):
                     key=lambda e: e[0])
         for side in _sides(m, ev, down):
             for _p, ns, _s, _v in side:
-                pitched = [x for x in ns if not x.rest and not x.slash]
+                pitched = [x for x in ns if not x.rest and not _groove(x)]
                 if not pitched:
                     continue
                 w = (max if down else min)(pitched, key=_dia)
@@ -1527,6 +1552,7 @@ def proofread(xml, pid, brf_text):
     with the score, note for note. Returns sentences, empty when every
     note, octave mark and accidental reads back as written."""
     import chartbrailleread
+    xml = xml.replace('&amp;', '&')
     got, errors = chartbrailleread.decode(brf_text)
     want = score_notes(xml, pid)
     out = list(errors)
@@ -1564,7 +1590,7 @@ def score_joins(measures):
     or a tied-on note) rather than starting its own."""
     out, in_group = [], False
     for n in _lead_seq(measures):
-        if n.rest or n.slash:
+        if n.rest or _groove(n):
             in_group = False
             continue
         if n.lyric:
@@ -1828,7 +1854,7 @@ def _syllabic_slurs(measures):
                         plan[id(x)] = 'short'
         group.clear()
     for n in _lead_seq(measures):
-        if n.rest or n.slash:
+        if n.rest or _groove(n):
             close()
         elif n.lyric:
             close()
@@ -1860,7 +1886,7 @@ def _spans(measures):
             if st != 1:
                 continue
             n, t = ns[0], at + pos
-            if cur is not None and (n.rest or n.slash or n.lyric):
+            if cur is not None and (n.rest or _groove(n) or n.lyric):
                 out[cur[0]] = (cur[1], t)
                 cur = None
             if n.lyric and not n.rest:
@@ -2159,7 +2185,7 @@ def _perc_plan(measures, xml, pid):
         return len(comps) - 1
     for n in notes:
         pos = (n.step, n.octave, n.head or 'normal')
-        if n.slash:
+        if _groove(n):
             i = comp('time', 'TM', 'Time (the slashes)')
         elif kit:
             k = next((j for j, (_a, _n, ps) in enumerate(KIT) if pos in ps),
@@ -2212,7 +2238,7 @@ def _perc_plan(measures, xml, pid):
                                 n.head or 'normal'))
         if sign:
             shapes[id(n)] = sign
-        if not n.slash:
+        if not _groove(n):
             n.step, n.octave = _bass_name(n.step, n.octave)
             n.alter = 0
     return comps, of, shapes
@@ -2488,7 +2514,7 @@ def _perc_notes(ms, xml, pid):
                 continue
             by = {}
             for n in ns:
-                if not n.rest and not n.slash:
+                if not n.rest and not _groove(n):
                     by.setdefault(of[id(n)], []).append(n)
             for ci, group in by.items():
                 w = min(group, key=_dia)

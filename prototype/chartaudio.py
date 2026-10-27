@@ -440,6 +440,7 @@ def parse_score(path, only=None):
     # an engraving's pretty-printing (`<chord />`, as every Sibelius
     # export writes it) must read exactly like our own compact form
     xml = re.sub(r'\s+/>', '/>', open(path, encoding='utf-8').read())
+    xml = xml.replace('&amp;', '&')     # escaped text, read plain
     meta = {}
     for sp in re.findall(r'<score-part id="([^"]+)">(.*?)</score-part>',
                          xml, re.S):

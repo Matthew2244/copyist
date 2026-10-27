@@ -1909,8 +1909,10 @@ def lifted_rest(piece):
                  r'|<figured-bass', piece):
         return False
     notes = re.findall(r'<note[ >].*?</note>', piece, re.S)
+    # a rest under a fermata is a hold every player must see (a
+    # multirest swallowed it, on the page and in the braille)
     return bool(notes) and all('<rest' in n and '<cue' not in n
-                               for n in notes)
+                               and '<fermata' not in n for n in notes)
 
 
 TECHNIQUE_RE = re.compile(
@@ -1918,15 +1920,25 @@ TECHNIQUE_RE = re.compile(
     r"[\w-]+ mute\b|mute\b)", re.I)
 
 
+def xml_text(text):
+    """Words as MusicXML text: an & or < in a title, a credit or a
+    lyric ("Simon & Garfunkel") made every file unreadable. An entity
+    already written stays as it is."""
+    text = re.sub(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)',
+                  '&amp;', str(text))
+    return text.replace('<', '&lt;').replace('>', '&gt;')
+
+
 def direction(text, placement='above'):
     return (f'      <direction placement="{placement}">'
-            f'<direction-type><words>{text}</words></direction-type>'
-            f'</direction>\n')
+            f'<direction-type><words>{xml_text(text)}</words>'
+            f'</direction-type></direction>\n')
 
 
 def rehearsal(mark):
     return ('      <direction placement="above"><direction-type>'
-            f'<rehearsal>{mark}</rehearsal></direction-type></direction>\n')
+            f'<rehearsal>{xml_text(mark)}</rehearsal></direction-type>'
+            '</direction>\n')
 
 
 _NAT_PC = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
@@ -2131,7 +2143,9 @@ def _split_group(group, gaps, div, _c):
     want = _TYPE_BEATS[ty.group(1)] * (2 - 0.5 ** dots)
     if abs(ticks / div - want) < 1e-6:
         return whole()
-    parts = _c.decompose(ticks, div)
+    parts = _values_for(ticks, div)
+    if not parts:
+        return whole()
     if len(parts) == 1:
         plen, ptype, pdots = parts[0]
         return ''.join(_retype(g, ptype, pdots) +
@@ -2194,6 +2208,33 @@ def _split_group(group, gaps, div, _c):
                                + '</notations>' + m_.group(1), x, count=1)
             made.append(x)
     return gap.join(made)
+
+
+def _values_for(ticks, div):
+    """A length as written values, largest first, none shorter than a
+    32nd: the band's human timing (86 ticks at 24 a quarter) leaves a
+    sliver no value can write, and it rides on the last value instead
+    of becoming a 2-tick "64th"."""
+    vals = sorted(((v * (2 - 0.5 ** d), t, d)
+                   for t, v in _TYPE_BEATS.items() if v >= 0.125
+                   and v <= 4 for d in (0, 1, 2)), reverse=True)
+    out, left = [], ticks
+    while left > 0:
+        for beats, t, d in vals:
+            need = beats * div
+            if need <= left + 1e-6 and abs(need - round(need)) < 1e-6:
+                out.append([int(round(need)), t, d])
+                left -= int(round(need))
+                break
+        else:
+            if not out:
+                # shorter than any value: the nearest that exists
+                return [(ticks, '32nd', 0)]
+            out[-1][0] += left           # a sliver rides the last value
+            left = 0
+        if len(out) > 8:
+            return []
+    return [tuple(x) for x in out]
 
 
 def _retype(note, ptype, pdots):
@@ -3801,10 +3842,30 @@ def build_plans(chart, band, groups, labels):
                 elif engraved:
                     plan['content'][l] = ('engraved', engraved)
                 elif hits_map:
-                    plan['content'][l] = ('hits',
-                                          (hits_map, groove_words or ''))
+                    was = plan['content'][l]
+                    if was[0] == 'hits':
+                        # a second hits line for the same part adds its
+                        # bars (it used to erase the first line's)
+                        merged = dict(was[1][0])
+                        merged.update(hits_map)
+                        plan['content'][l] = ('hits', (
+                            merged, groove_words or was[1][1]))
+                    else:
+                        if was[0] not in ('default', 'groove'):
+                            findings.add(
+                                f"{loc}: {l} already had "
+                                f"'{was[0]}' in {sec['name']}; these hits "
+                                "replace it")
+                        plan['content'][l] = ('hits',
+                                              (hits_map,
+                                               groove_words or ''))
                 elif groove_words is not None:
-                    plan['content'][l] = ('groove', groove_words)
+                    if plan['content'][l][0] == 'hits':
+                        # 'groove' beside written hits keeps the hits:
+                        # the bars they leave are slashes already
+                        pass
+                    else:
+                        plan['content'][l] = ('groove', groove_words)
                 elif solo_slashes and plan['content'][l][0] == 'default':
                     # a soloist reads slashes under the changes, never
                     # empty bars — rests with chords over them look like
@@ -6119,23 +6180,25 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                  part_mode=False):
         L = [XMLHEAD, '<score-partwise version="3.1">\n',
              '  <work>'
-             + ('<work-number>%s</work-number>' % hdr['number']
+             + ('<work-number>%s</work-number>' % xml_text(hdr['number'])
                 if hdr.get('number') else '')
              + '<work-title>%s</work-title></work>\n' %
-             hdr.get('title', 'Untitled'),
+             xml_text(hdr.get('title', 'Untitled')),
              '  <identification>']
         if hdr.get('composer'):
-            L.append('<creator type="composer">%s</creator>' % hdr['composer'])
+            L.append('<creator type="composer">%s</creator>'
+                     % xml_text(hdr['composer']))
         if hdr.get('arranger'):
-            L.append('<creator type="arranger">%s</creator>' % hdr['arranger'])
+            L.append('<creator type="arranger">%s</creator>'
+                     % xml_text(hdr['arranger']))
         if hdr.get('lyricist'):
             L.append('<creator type="lyricist">%s</creator>'
-                     % hdr['lyricist'])
+                     % xml_text(hdr['lyricist']))
         if hdr.get('rev'):
             L.append('<creator type="revision">%s</creator>'
-                     % hdr['rev'])
+                     % xml_text(hdr['rev']))
         if hdr.get('from'):
-            L.append('<source>%s</source>' % hdr['from'])
+            L.append('<source>%s</source>' % xml_text(hdr['from']))
         L.append('<encoding><software>Copyist chartc</software></encoding>'
                  '</identification>\n')
         L.append('  <part-list>\n')
@@ -6145,7 +6208,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 x for x in band if x['label'] == l)['instrument'])
             sound = SOUNDS.get(inst)
             L.append(f'    <score-part id="P{i}">'
-                     f'<part-name>{name}</part-name>')
+                     f'<part-name>{xml_text(name)}</part-name>')
             if sound:
                 iname, sid, prog = sound
                 # channel 10 is percussion's — every unpitched

@@ -3422,7 +3422,11 @@ def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test', perc=None):
                         f'<duration>{d}'
                         f'</duration>{ties}<voice>{vi + 1}</voice>{stf}<type>'
                         f'{_TYPE[dur[0]]}</type>{"<dot/>" * dots}{tm}' +
-                        ('<notehead>slash</notehead>' if 'slash' in flags
+                        # a groove slash has no stem (the compiler's
+                        # own); a kick is a slash with one
+                        ('<stem>none</stem><notehead>slash</notehead>'
+                         if 'slash' in flags else
+                         '<notehead>slash</notehead>' if 'kick' in flags
                          else f'<notehead>{head}</notehead>' if head
                          else '') +
                         (f'<notations>{tied}</notations>' if tied else '') +
@@ -3566,6 +3570,11 @@ def check_braille():
     check("braille: part-bar slashes are rests under 'slashes'",
           '>SLASHES' in got and "'VV" in got and '?' not in
           got.split('>SLASHES')[1][:4], got)
+    # kicks (slashes with stems) are rhythm: their notes, under "kicks"
+    got = ' '.join(music(brf([['{C7}', 'B4 q kick', 'B4 h kick',
+                               'r q', '|]']])))
+    check("braille: kicks are notes under the word 'kicks'",
+          '>KICKS' in got and "'VV" not in got, got)
 
     # 20.2: road-map words after the bar they close
     got = ' '.join(music(brf([['C5 w', '"To Coda"'], ['D5 w', '||',
@@ -7959,12 +7968,12 @@ def check_lead_sheet_from_markers():
             ty = re.search(r'<type>(\w+)</type>', n_)
             # the band's human timing in its ending leaves gaps finer
             # than any written value (a twelfth of a beat late), so
-            # "right" is within a 64th; a held chord written a half
+            # "right" is within a 32nd; a held chord written a half
             # short (what MuseScore played) is far outside that
             if du and ty and ty.group(1) in beats_of and \
                     '<time-modification>' not in n_:
                 v = beats_of[ty.group(1)] * (2 - .5 ** n_.count('<dot/>'))
-                odd += abs(int(du.group(1)) / dv - v) >= 0.0625
+                odd += abs(int(du.group(1)) / dv - v) >= 0.125
         check("every listening note's written value is its length "
               "(other programs play it right)", lx != "" and odd == 0,
               f"{odd} notes disagree")

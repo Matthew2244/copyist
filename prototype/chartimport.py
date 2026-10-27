@@ -897,7 +897,10 @@ def song_to_chart(song, source_name):
     for s in song['sections']:
         if not s.get('bars'):
             continue
-        name = re.sub(r'[,"]', ' ', s['name']).strip() or 'A'
+        # only what a section name may hold: "Verse (quiet)" or "Chorus:
+        # Big!" made a chart that would not compile
+        name = re.sub(r'\s+', ' ', re.sub(r'[^\w .-]', ' ',
+                                          s['name'])).strip() or 'A'
         # a name said again is the next of its kind: A, A2, A3, the way
         # the editing desk numbers them, so "same as A" means one thing
         seen[name.lower()] = seen.get(name.lower(), 0) + 1

@@ -331,6 +331,8 @@ class Pdf:
 
     def text(self, x, y, s, size=9, font='H', center=False, right=False):
         face = self.faces.get(font)
+        # escaped text from the file prints as the writer typed it
+        s = s.replace('&lt;', '<').replace('&gt;', '>')
         if center or right:
             est = self.tw(s, size, font)
             x -= est / 2 if center else est
@@ -734,7 +736,8 @@ class Note:
     __slots__ = ('show_acc',
                  'rest', 'step', 'alter', 'octave', 'dur', 'ntype',
                  'dots', 'chord', 'tie_start', 'tie_stop', 'slur_start',
-                 'slur_stop', 'artic', 'slash', 'head', 'parens', 'cue',
+                 'slur_stop', 'artic', 'slash', 'kick', 'head', 'parens',
+                 'cue',
                  'lyric', 'fermata',
                  'tmod', 'measure_rest',
                  'grace', 'grace_slash', 'graces',
@@ -774,6 +777,8 @@ def _parse_note(t):
             n.artic = a
             break
     n.slash = bool(re.search(r'<notehead[^>]*>slash<', t))
+    # a kick is a slash with a stem: rhythm to play, not time to keep
+    n.kick = n.slash and '<stem>none</stem>' not in t
     m = re.search(r'<notehead[^>]*>([\w-]+)</notehead>', t)
     n.head = m.group(1) if m else None
     n.parens = 'parentheses="yes"' in t
@@ -1349,6 +1354,8 @@ def engrave(xml_path, pdf_path, look=None):
     # `<chord />` and `<dot />`, as every Sibelius export writes them,
     # must read exactly like our own compact form
     xml = re.sub(r'\s+/>', '/>', open(xml_path, encoding='utf-8').read())
+    # text is escaped in the file (& as &amp;); the page prints it plain
+    xml = xml.replace('&amp;', '&')
     pids = re.findall(r'<score-part id="([^"]+)">', xml)
     names = dict(re.findall(r'<score-part id="([^"]+)">.*?<part-name[^>]*>'
                             r'([^<]*)</part-name>', xml, re.S))
