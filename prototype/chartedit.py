@@ -2872,7 +2872,7 @@ def _figure_from_file(fname, ctx):
         f"{os.path.basename(p)}"
 
 
-def _notes_for(path, ctx, chart, part_text, sec_text):
+def _notes_for(path, ctx, chart, part_text, sec_text, offer=False):
     """One lick into a real figure — said, typed in the notes
     grammar, or played into a MIDI file — placed at a bar of a
     section."""
@@ -2999,8 +2999,10 @@ def _notes_for(path, ctx, chart, part_text, sec_text):
         _save_lines(path, lines)
         say(f"{target} plays it in {plan['name']} — chart build to "
             "hear it.")
-        _offer_to_copies(path, ctx, target, plan["name"],
-                         place.strip().split(":", 1)[1].strip())
+        if offer:
+            # at the desk only: the first conversation asks this itself
+            _offer_to_copies(path, ctx, target, plan["name"],
+                             place.strip().split(":", 1)[1].strip())
         return
 
 
@@ -3193,7 +3195,7 @@ def run_commands(path, ctx):
                          r"(?:the\s+)?(.+)", low)
         if m:
             _notes_for(path, ctx, chart, m.group(1).strip(),
-                       m.group(2).strip())
+                       m.group(2).strip(), offer=True)
             continue
         m = re.fullmatch(r"rename\s+(?:the\s+)?([\w ]+?)\s+to\s+"
                          r"([\w ]+)", low)
