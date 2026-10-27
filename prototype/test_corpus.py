@@ -8035,6 +8035,52 @@ def check_lead_sheet_from_markers():
               'section A, 4 bars, label "intro"' in tt
               and "section B, 4 bars, repeat 2x" in tt
               and "bass: tacet" in tt and "feel: swing" in tt, tt)
+        ctx_ = textformats._Ctx()
+
+        def grid(line, prev=None):
+            return [[c for _b, c in bar] for bar in
+                    textformats.chordline_bars(line, 4, ctx_, prev)]
+        check("chord grids: repeat signs repeat, slash bars and % hold",
+              grid("|: Am | Dm :|") == [["Am"], ["Dm"], ["Am"], ["Dm"]]
+              and grid("| C / / / | / / / / | F |") == [["C"], ["C"],
+                                                       ["F"]]
+              and grid("| % | G7 |", "C") == [["C"], ["G7"]])
+        check("[A] alone on a line is a rehearsal letter",
+              textformats.header_line("[A]") == ("A", 1, "", False))
+        mid_ = (r"<note><rest/><duration>24</duration><voice>1</voice>"
+                r"<type>quarter</type><notations><fermata/></notations>"
+                r"</note>")
+        check("a rest under a fermata never joins a multirest",
+              not chartc.lifted_rest(mid_)
+              and chartc.lifted_rest(mid_.replace(
+                  "<notations><fermata/></notations>", "")))
+        check("& in words is escaped in MusicXML",
+              chartc.xml_text("Simon & Garfunkel <live>") ==
+              "Simon &amp; Garfunkel &lt;live&gt;"
+              and chartc.xml_text("A &amp; B") == "A &amp; B")
+        import chartedit
+        check("desk transposes typed melodies the nearer way",
+              chartedit.transpose_notes("Bb4 w, C5 q tr to D5", 2,
+                                        chartedit.PC_NAME)
+              == "C5 w, D5 q tr to E5")
+        check("desk bars: a progression's copies are found by bars",
+              chartedit._bars_of("Bb6 x2, Cm7 F7") ==
+              ["Bb6", "Bb6", "Cm7 F7"])
+        ans_ = iter(["yes"])
+        lines_ = ["chords head: Bb6 x2, D7 x2, Bb6 x2", "",
+                  "section A, 2 bars", "  chords: Bb6 x2", "",
+                  "section A2, 2 bars", "  chords: Bb6 x2"]
+        with redirect_stdout(io.StringIO()):
+            lines_ = chartedit._follow_copies(
+                chartedit._set_section_chords(
+                    lines_, chartedit._section_span(lines_, "A"),
+                    "Gm7 x2"),
+                "A", "Bb6 x2", "Gm7 x2",
+                {"ask": lambda q, d="": next(ans_, d)})
+        check("desk: a chord change reaches its copies and the solos",
+              "  chords: Gm7 x2" in lines_[5:]
+              and lines_[0] == "chords head: Gm7 x2, D7 x2, Gm7 x2",
+              repr(lines_))
         check("braille names with numbers read back",
               "read back note for note" in run.stdout, run.stdout[-400:])
 

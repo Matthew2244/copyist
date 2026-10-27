@@ -878,6 +878,11 @@ def header_line(line):
     if m and (not m.group('rest').strip()
               or is_chord_line(m.group('rest'))):
         return m.group('name'), 1, m.group('rest').strip(), False
+    # "[A]" or "[B2]" alone on its line is a rehearsal letter, the way
+    # chord sheets mark them (it printed as words over the bar)
+    m = re.fullmatch(r'\s*\[([A-H]\d?)\]\s*', line)
+    if m:
+        return m.group(1), 1, '', False
     return None
 
 
@@ -1025,15 +1030,32 @@ def chordline_bars(line, beats, ctx, prev=None):
     if m and s[:m.start()].strip():
         reps = int(m.group(1) or m.group(2))
         s = s[:m.start()]
-    s = re.sub(r':?\|+:?', '|', s)
+    # repeat signs repeat: "|: Am | Dm :|" is four bars, the way it is
+    # played (they used to be plain barlines, two bars)
+    s = re.sub(r'\|\|?:', ' |RS| ', s)
+    s = re.sub(r':\|\|?', ' |RE| ', s)
+    s = re.sub(r'\|+', '|', s)
     bars = []
+    rs = None
     if '|' in s:
         for g in s.split('|'):
             toks = g.split()
+            if toks == ['RS']:
+                rs = len(bars)
+                continue
+            if toks == ['RE']:
+                start = rs if rs is not None else 0
+                bars += [list(b) for b in bars[start:]]
+                rs = None
+                continue
             if not toks:
                 continue
-            if toks == ['%'] and bars:
-                bars.append(list(bars[-1]))
+            if toks == ['%']:
+                # a repeat bar: the bar before, on this line or the last
+                if bars:
+                    bars.append(list(bars[-1]))
+                elif prev:
+                    bars.append([(None, prev)])
                 continue
             slots = []
             for t in toks:
@@ -1044,6 +1066,10 @@ def chordline_bars(line, beats, ctx, prev=None):
                 if sym:
                     slots.append(sym)
             if not any(slots):
+                # a bar of slashes holds the chord before; it is a bar
+                if prev and toks and all(t in ('/', '.', '-', '//')
+                                         for t in toks):
+                    bars.append([(None, prev)])
                 continue
             bar = _slots_to_bar(slots, beats, prev)
             prev = bar[-1][1]

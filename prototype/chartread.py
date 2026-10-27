@@ -292,11 +292,13 @@ def part_section(plan, label, chord_parts, figures=None):
             extra = (f" Every note {words[item['every']]}."
                      if item.get('every') else "")
             span = item['res']['bars'][1]
+            pitch = ("written pitch, as your part reads"
+                     if item.get('written') else "concert pitch")
             lines.append(
                 (f"Your written figure, {chartc.n_of(span, 'bar')}, spoken at "
-                 f"concert pitch:{extra}") if item.get('inline') else
+                 f"{pitch}:{extra}") if item.get('inline') else
                 (f"Your line, bars {lo} to {hi}, spoken at "
-                 f"concert pitch:{extra}"))
+                 f"{pitch}:{extra}"))
             if item['res'].get('lyrics_text'):
                 lines.append(f"Words: {item['res']['lyrics_text']}")
             prose = chartdemo.say_range(item['res'], item['concert_fifths'],
@@ -397,12 +399,17 @@ def part_section(plan, label, chord_parts, figures=None):
                      f"{os.path.basename(ref['file'])}.")
     if shows_chords:
         lines.append(say_changes(sec))
+    roads = 0
     for bar, text in texts:
         # the printed bar, the number on the page and in the notes above
         # (a sign said "at bar 1" of letter A sent the player to bar 1)
         printed = bar + plan['start'] - 1
         if isinstance(text, tuple) and text[0] == 'road':
-            lines.append(f"At bar {printed}: {ROAD_SPOKEN[text[1]]}")
+            # the road map is said before the music: "the sign" after
+            # the notes it marks sends a reader back too late
+            lines.insert(1 + roads, f"At bar {printed}: "
+                         f"{ROAD_SPOKEN[text[1]]}")
+            roads += 1
             continue
         if isinstance(text, tuple) and text[0] == 'tempo':
             lines.append(f"At bar {printed}: tempo changes to {text[1]}.")
@@ -442,11 +449,30 @@ def main():
     resolved, horn_of, key = chartc.resolve_demo(chart, plans, band, labels,
                                                  a.chart, findings, meter)
     for l in labels:
+        h = horn_of.get(l) or {}
+        # a part's read-aloud says the notes the way its page and its
+        # braille print them: a trumpet hears its written C, not the
+        # concert B flat (the score read-aloud stays at concert)
+        written = bool(a.part) and h.get('transpose') and \
+            h.get('clef') != 'percussion'
         for item in resolved[l]:
             item['concert_fifths'] = chartc.key_at(
                 chart.get('keys') or [(1, key)], item['res']['at'])[0]
             item['fifths_at'] = (lambda b, k=chart.get('keys') or
                                  [(1, key)]: chartc.key_at(k, b)[0])
+            if written:
+                tr, foff = h['transpose'], h['foff']
+                res = item['res']
+                item['res'] = dict(res, timeline=[
+                    (st, en, [p + tr if isinstance(p, int) else p
+                              for p in ps])
+                    for st, en, ps in res['timeline']])
+                cf = item['concert_fifths']
+                item['concert_fifths'] = cf + chartc.written_foff(foff, cf)
+                item['fifths_at'] = (
+                    lambda b, f=item['fifths_at'], foff=foff:
+                    f(b) + chartc.written_foff(foff, f(b)))
+                item['written'] = True
             item['minor_at'], item['chords_at'] = chartc.spelling_hints(
                 chart, key)
     chord_parts = {l for l in labels

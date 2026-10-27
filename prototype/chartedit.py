@@ -1024,6 +1024,17 @@ PC_SHARP = {0: "C", 1: "C#", 2: "D", 3: "D#", 4: "E", 5: "F",
 SHARP_KEYS = {7, 2, 9, 4, 11, 6}         # G D A E B F#
 
 
+def transpose_notes(text, semis, names=PC_NAME):
+    """'Bb4 q, C5 e tr to D5' moved by semitones, spelled in the new
+    key, octaves following the letter."""
+    def move(m):
+        pc = _PC[m.group(1)] + {'b': -1, '#': 1, '': 0}[m.group(2)]
+        n = (int(m.group(3)) + 1) * 12 + pc + semis
+        name = names[n % 12]
+        return f"{name}{n // 12 - 1}"
+    return re.sub(r"\b([A-G])([b#]?)(-?\d)\b", move, text)
+
+
 def transpose_line(text, semis, names=PC_NAME):
     """Move every chord letter in a bars-grammar line by semitones."""
     def move(m):
@@ -2571,6 +2582,80 @@ def _sec_plan(chart, name, ctx):
     return None
 
 
+def _bars_of(text):
+    """'Bb7 x2, Eb7' -> ['Bb7', 'Bb7', 'Eb7'] (a group in parentheses
+    stays whole: None, so nothing guesses)."""
+    if text is None or "(" in text:
+        return None
+    out = []
+    for piece in text.split(","):
+        piece = piece.strip()
+        m = re.fullmatch(r"(.+?)\s+x(\d+)", piece)
+        if m:
+            out += [m.group(1).strip()] * int(m.group(2))
+        elif piece:
+            out.append(piece)
+    return out
+
+
+def _follow_copies(lines, name, old, new, ctx):
+    """A section's changes changed: its copies (A2 and A3 written out
+    as A's changes) and any named progression holding them (the solos'
+    'chords head:') follow, on his yes — they used to stay on the old
+    changes, and the soloists read the wrong ones."""
+    ob, nb = _bars_of(old), _bars_of(new)
+    if not ob or not nb:
+        return lines
+    copies = []
+    for i, l in enumerate(lines):
+        m = re.match(r"section\s+([\w .-]+?)\s*(?:,|$)", l.strip())
+        if m and m.group(1).strip().lower() != name.lower() and \
+                l and l[0] not in " \t":
+            if _bars_of(_raw_chords(lines, m.group(1).strip())) == ob:
+                copies.append(m.group(1).strip())
+    progs = []
+    for i, l in enumerate(lines):
+        m = re.match(r"chords ([\w ]+?):\s*(.+)$", l.strip())
+        if m and l and l[0] not in " \t":
+            pb = _bars_of(m.group(2))
+            if pb and any(pb[k:k + len(ob)] == ob
+                          for k in range(len(pb) - len(ob) + 1)):
+                progs.append((i, m.group(1), pb))
+    if not copies and not progs:
+        return lines
+    said = []
+    if copies:
+        said.append(", ".join(copies) + (" has" if len(copies) == 1
+                                         else " have")
+                    + f" the same changes {name} had")
+    if progs:
+        said.append("the " + ", ".join(f"'chords {p[1]}'" for p in progs)
+                    + " line holds them too (the solos read it)")
+    a = ctx["ask"]("; ".join(said) + ". Change those to match? yes or no",
+                   "yes")
+    if a.lower().startswith("n"):
+        say("Left as they were.")
+        return lines
+    for c in copies:
+        sp = _section_span(lines, c)
+        # a copy that used a progression keeps its own line now
+        lines = _set_section_chords(lines, sp, new)
+    for i, pname, pb in progs:
+        # every place the old bars sit: A's and its copies' both
+        out, k = [], 0
+        while k < len(pb):
+            if pb[k:k + len(ob)] == ob:
+                out += nb
+                k += len(ob)
+            else:
+                out.append(pb[k])
+                k += 1
+        lines[i] = f"chords {pname}: " + compress(out)
+    say("Changed: " + ", ".join(copies + [f"chords {p[1]}"
+                                          for p in progs]) + ".")
+    return lines
+
+
 def _raw_chords(lines, name):
     """The raw chords text a section carries — its own line, or the
     named progression it uses."""
@@ -2594,10 +2679,14 @@ def _raw_chords(lines, name):
 
 
 def transpose_chart(path, target, current_key):
-    """Move the key and every chord symbol; played material stays as
-    played, and the caller says so out loud."""
+    """Move the key, every chord symbol and every typed melody (a
+    'notes:' line, by the nearer way: Bb to C is up a step, not down a
+    seventh); played material stays as played, and the caller says so
+    out loud. Typed melodies used to stay in the old key over the new
+    changes."""
     tpc = key_pc(target)
     semis = (tpc - (key_pc(current_key) or 0)) % 12
+    move_by = semis - 12 if semis > 6 else semis
     sharp = tpc in SHARP_KEYS or "sharp" in target.lower() or \
         "#" in target
     names = PC_SHARP if sharp else PC_NAME
@@ -2615,6 +2704,11 @@ def transpose_chart(path, target, current_key):
         if m and not s.startswith("use "):
             out.append(m.group(1) + m.group(2)
                        + transpose_line(m.group(3), semis, names))
+            continue
+        m = re.match(r"^(\s*notes:\s*)(.+)$", l)
+        if m:
+            out.append(m.group(1) + transpose_notes(m.group(2), move_by,
+                                                    names))
             continue
         m = re.match(r"^key:\s*([A-Ga-g][b#]?)(.*)$", l)
         if m and l[0] not in " \t":
@@ -2928,18 +3022,39 @@ def run_commands(path, ctx):
             continue
         m = re.fullmatch(r"transpose(?:\s+(?:to|into))?\s+(.+)", low)
         if m:
-            if key_pc(m.group(1)) is None:
-                say(f"I can't read '{m.group(1)}' as a key.")
+            target = m.group(1).strip()
+            # "up a whole step", "down a minor third", "up 3 semitones"
+            im = re.fullmatch(r"(up|down)\s+(?:a\s+|an\s+)?(.+)", target)
+            if im:
+                steps = {"half step": 1, "semitone": 1, "whole step": 2,
+                         "tone": 2, "minor third": 3, "major third": 4,
+                         "fourth": 5, "perfect fourth": 5, "tritone": 6,
+                         "fifth": 7, "perfect fifth": 7}
+                nm = re.fullmatch(r"(\d+)\s+(?:semitones?|half steps?)",
+                                  im.group(2))
+                n_ = int(nm.group(1)) if nm else steps.get(im.group(2))
+                cur = key_pc(chart["header"].get("key", "C"))
+                if n_ is None or cur is None:
+                    say(f"I can't read '{target}' as a move. Say up a "
+                        "whole step, down a minor third, or a key.")
+                    continue
+                pc = (cur + (n_ if im.group(1) == "up" else -n_)) % 12
+                minor = " minor" if "minor" in chart["header"].get(
+                    "key", "").lower() else ""
+                target = PC_NAME[pc] + minor
+            if key_pc(target) is None:
+                say(f"I can't read '{target}' as a key.")
                 continue
             src = open(path, encoding="utf-8").read()
-            if "demo" in src or "from midi" in src or "notes:" in src:
-                say("Your played material stays as played — this "
-                    "moves the key and every chord symbol only.")
-            yn = ask(f"Transpose the whole chart to {m.group(1)}? "
+            if "demo" in src or "from midi" in src:
+                say("Played material from the demo stays as played; the "
+                    "key, every chord symbol and every typed melody "
+                    "move.")
+            yn = ask(f"Transpose the whole chart to {target}? "
                      "yes or no", "yes")
             if yn.lower().startswith("n"):
                 continue
-            newkey = transpose_chart(path, m.group(1),
+            newkey = transpose_chart(path, target,
                                      chart["header"].get("key", "C"))
             ctx["key"] = newkey
             say(f"Done — the chart is in {newkey} now.")
@@ -2980,9 +3095,12 @@ def run_commands(path, ctx):
             if text is None:
                 continue
             lines = _lines(path)
+            old = _raw_chords(lines, plan["name"])
             span = _section_span(lines, plan["name"])
-            _save_lines(path, _set_section_chords(lines, span, text))
+            lines = _set_section_chords(lines, span, text)
             say(f"{plan['name']} now plays: {text}")
+            lines = _follow_copies(lines, plan["name"], old, text, ctx)
+            _save_lines(path, lines)
             continue
         m = re.fullmatch(r"who(?:\s+plays)?(?:\s+in)?\s+"
                          r"(?:the\s+)?(.+)", low)
