@@ -2025,6 +2025,47 @@ def _same_melody(path, ctx, chart, target, sec):
     return False
 
 
+def _offer_to_copies(path, ctx, target, sec, figure_words):
+    """A melody just written for A: A2 and A3 (same changes, same
+    length, no line of their own for this part) are offered it, so the
+    last A of the head is never silent."""
+    lines = _lines(path)
+    mine = _bars_of(_raw_chords(lines, sec))
+    if not mine:
+        return
+    copies = []
+    for l in lines:
+        m = re.match(r"section\s+([\w .-]+?)\s*(?:,|$)", l.strip())
+        if not m or not l or l[0] in " \t":
+            continue
+        name = m.group(1).strip()
+        if name.lower() == sec.lower():
+            continue
+        if _bars_of(_raw_chords(lines, name)) != mine:
+            continue
+        sp = _section_span(lines, name)
+        has = any(re.match(r"\s*" + re.escape(target) + r"\s*:",
+                           lines[i], re.I) for i in range(sp[0] + 1, sp[1]))
+        if not has:
+            copies.append(name)
+    if not copies:
+        return
+    yn = ctx["ask"](", ".join(copies) + (" has" if len(copies) == 1
+                                         else " have")
+                    + f" the same changes as {sec}. Same melody there? "
+                    "yes or no", "yes")
+    if yn.lower().startswith("n"):
+        return
+    for name in copies:
+        sp = _section_span(lines, name)
+        j = sp[1]
+        while j > sp[0] + 1 and not lines[j - 1].strip():
+            j -= 1
+        lines.insert(j, f"  {target}: {figure_words}")
+    _save_lines(path, lines)
+    say(f"{target} plays the same melody in " + ", ".join(copies) + ".")
+
+
 def _copy_head_melody(path, targets, out_sec, head_secs):
     """The head out plays the head's melody: every figure and double
     the head's sections placed, again in the out, bar for bar."""
@@ -2958,6 +2999,8 @@ def _notes_for(path, ctx, chart, part_text, sec_text):
         _save_lines(path, lines)
         say(f"{target} plays it in {plan['name']} — chart build to "
             "hear it.")
+        _offer_to_copies(path, ctx, target, plan["name"],
+                         place.strip().split(":", 1)[1].strip())
         return
 
 

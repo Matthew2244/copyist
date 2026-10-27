@@ -2925,7 +2925,9 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
     for plan in plans:
         for kind_map, is_cue in ((plan['doubles'], False),
                                  (plan['cues'], True)):
-            for target, (srcl, shift, loc) in kind_map.items():
+            for target, dbl in kind_map.items():
+                srcl, shift, loc = dbl[0], dbl[1], dbl[-1]
+                octave_said = 'said' in dbl[2:-1]
                 word = "cue" if is_cue else "double"
                 if srcl not in labels:
                     fail(f"{loc}: '{srcl}' is not a band part to {word}")
@@ -2942,10 +2944,23 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     if r.get('lyrics'):
                         # a double plays the line; only the voice sings
                         r = dict(r, lyrics=None, lyrics_text=None)
-                    if shift:
-                        r = shift_res(r, shift)
                     steps = 0 if is_cue else plan.get('harm', {}).get(
                         target, 0)
+                    if not shift and not is_cue and not steps and \
+                            not octave_said:
+                        # unsaid, a double sits where that horn sits: a
+                        # trumpet melody at pitch put the tenor at its
+                        # ceiling and the bone in lead territory
+                        moved = _double_octave(r, horn_of.get(target))
+                        if moved:
+                            shift = moved
+                            findings.add(
+                                f"{target} doubles the {srcl} an octave "
+                                f"{'down' if moved < 0 else 'up'}, where "
+                                f"a {target} sits; say 'double {srcl} at "
+                                "pitch' to keep it in unison")
+                    if shift:
+                        r = shift_res(r, shift)
                     if steps:
                         # the arranger's "a third below": scale steps in
                         # the key in force where the line starts
@@ -2968,6 +2983,30 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
         chartgroove.SALT = salt_was
     breath_report(band, labels, resolved, chart, findings)
     return resolved, horn_of, (fifths, mode)
+
+
+def _double_octave(res, horn):
+    """-12, +12 or 0: the octave that puts more of a doubled line inside
+    this horn's comfortable range, never below its floor or above its
+    ceiling."""
+    if not horn:
+        return 0
+    ps = [p for _a, _b, got in (res.get('timeline') or [])
+          for p in got if isinstance(p, int)]
+    if not ps:
+        return 0
+    lo, hi = horn['comf']
+    flo, fhi = horn['fold']
+
+    def fits(d):
+        return sum(lo <= p + d <= hi for p in ps)
+    best = 0
+    for d in (-12, 12):
+        if min(ps) + d >= flo and max(ps) + d <= fhi and \
+                fits(d) > fits(best) and fits(d) - fits(0) >= \
+                max(1, len(ps) // 4):
+            best = d
+    return best
 
 
 _OCT_WORDS = {'an': 1, 'one': 1, 'a': 1, 'two': 2, 'three': 3}
@@ -3690,9 +3729,18 @@ def build_plans(chart, band, groups, labels):
                     continue
                 m = re.match(r'double ([\w ]+)$', piece)
                 if m:
-                    src, harm = harmony_phrase(m.group(1).strip())
-                    doubles = (src, 0) if harm else \
-                        octave_phrase(m.group(1).strip())
+                    said = m.group(1).strip()
+                    # "at pitch" / "in unison": the writer's octave,
+                    # never moved for range
+                    pitch_said = re.search(r'\s+(?:at pitch|in unison|'
+                                           r'same octave)$', said)
+                    if pitch_said:
+                        said = said[:pitch_said.start()].strip()
+                    src, harm = harmony_phrase(said)
+                    doubles = (src, 0) if harm else octave_phrase(said)
+                    if pitch_said or re.search(r'\b(?:loco|octaves?|8v|15m)',
+                                               said):
+                        doubles = doubles + ('said',)
                     continue
                 m = re.match(r'(?:soli|harmoni[sz]e)\s+(?:on\s+|under\s+)?'
                              r'(?:the\s+)?([\w ]+?)(?:,?\s+(close|drop 2|'

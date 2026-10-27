@@ -496,10 +496,25 @@ def main():
 
     if a.part:
         want = a.part.lower().strip()
-        if want not in [l.lower() for l in labels]:
-            sys.exit(f'chart: no band part called "{a.part}". '
-                     f'Parts: {", ".join(labels)}.')
-        label = next(l for l in labels if l.lower() == want)
+        low = {l.lower(): l for l in labels}
+        label = low.get(want)
+        if label is None:
+            # the band's nicknames work here as on the band line
+            # ("bone" for the trombone), then the instrument, then a
+            # near spelling
+            inst = chartc.canonical_instrument(want)
+            hits = [l for l in labels if chartc.canonical_instrument(
+                next(b for b in band if b['label'] == l)['instrument'])
+                == inst]
+            if len(hits) == 1:
+                label = hits[0]
+        if label is None:
+            import difflib
+            near = difflib.get_close_matches(want, list(low), n=1,
+                                             cutoff=0.6)
+            sys.exit(f'chart: no band part called "{a.part}"'
+                     + (f' — did you mean {low[near[0]]}?' if near else
+                        '.') + f' Parts: {", ".join(labels)}.')
         out.append(f"{title} — the {label} part. "
                    f"{len(plans)} {'section' if len(plans) == 1 else 'sections'}, "
                    f"{total} bars.")
