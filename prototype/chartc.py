@@ -2228,6 +2228,31 @@ def push_ties(hmap, bar, nbars):
     return tie_in, tie_out
 
 
+def _section_hits(plans, i, label):
+    if not 0 <= i < len(plans):
+        return None, None
+    kind, arg = plans[i]['content'].get(label, (None, None))
+    return (arg[0], plans[i]['sec']) if kind == 'hits' else (None, None)
+
+
+def _pushes_out(plans, i, label):
+    """Does section i end on a push this part ties out of?"""
+    hm, sec = _section_hits(plans, i, label)
+    if not hm or sec['repeat'] or sec['open']:
+        return False
+    return bool(getattr(hm.get(sec['bars']), 'push', False))
+
+
+def _opens_held(plans, i, label):
+    """Does section i open on the held chord for this part?"""
+    hm, _sec = _section_hits(plans, i, label)
+    if hm is None:
+        return False
+    p = hm.get(1)
+    return p is None or getattr(p, 'held', False) or \
+        (len(p) > 0 and min(p) > 1.0)
+
+
 def hits_bar(pattern, div, clef, staves, fifths, meter=(4, 4),
              tie_in=False, tie_out=None):
     """Rhythmic kicks: slash noteheads WITH stems at the named beats,
@@ -5717,9 +5742,23 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                 realized_bars.get(label, 0) + 1
                     elif pattern or getattr(pattern, 'held', False) or \
                             getattr(hmap.get(off) if off > 0 else None,
-                                    'push', False):
+                                    'push', False) or (
+                            off == 0 and _pushes_out(plans, pi_ - 1,
+                                                     label)):
                         t_in, t_out = push_ties(hmap, off + 1,
                                                 sec['bars'])
+                        # across a section line: a push in the last bar
+                        # ties into the next section's held first bar
+                        # (never out of a repeat, which goes round)
+                        if off + 1 == sec['bars'] and \
+                                getattr(hmap.get(off + 1), 'push', False) \
+                                and _opens_held(plans, pi_ + 1, label) \
+                                and not sec['repeat'] and not sec['open']:
+                            t_out = True
+                        if off == 0 and _pushes_out(plans, pi_ - 1,
+                                                    label) and \
+                                _opens_held(plans, pi_, label):
+                            t_in = True
                         pieces.append(hits_bar(
                             pattern if pattern is not None else Beats(),
                             div, clef, staves, fifths, bmeter,
@@ -6225,7 +6264,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             f.write("\n".join(seen) + "\n" if seen else
                     "No findings — nothing was reduced, guessed, "
                     "or moved.\n")
-    print(f"Wrote {n_of(len(written), 'MusicXML file')}, {total} bars, "
+    # the listening copy is the band's, not a page to open: counted
+    # apart, so this and "Your files" agree
+    print(f"Wrote {n_of(len(written) - 1, 'MusicXML file')} and the "
+          f"listening copy, {total} bars, "
           f"{len(chart['sections'])} "
           f"{'section' if len(chart['sections']) == 1 else 'sections'}.")
     return written

@@ -200,7 +200,7 @@ def chord_events(notes, division, meter, barof, first=1, last=None,
     return out
 
 
-def chord_bars(events, first, last, meter, bar_ticks, grid):
+def chord_bars(events, first, last, meter, bar_ticks, grid, song_last=None):
     """Per-bar chord text in the bars grammar ('Abm7 Bmaj7@2+ Dbadd9@4+')
     plus each bar's hits, for the bars first..last.  A chord that is the
     one already sounding prints nothing; an empty bar restates the chord
@@ -213,6 +213,13 @@ def chord_bars(events, first, last, meter, bar_ticks, grid):
     bars, hits, misses = [], [], []
     held = "nc"
     ring_end = 0              # when the last struck chord lets go
+    # a push may tie over a section line; only the tune's end stops it
+    song_last = song_last or last
+    # a chord struck before this section may still be ringing into it
+    before = [e for bb, evs in events.items() if bb < first for e in evs]
+    if before:
+        last_b = max(bb for bb in events if bb < first)
+        ring_end = max(events[last_b], key=lambda e: e[0])[3]
     for b in range(first, last + 1):
         evs = sorted(events.get(b, []), key=lambda e: e[0])
         carried = held
@@ -243,9 +250,9 @@ def chord_bars(events, first, last, meter, bar_ticks, grid):
             bar_start = (b - 1) * bar_ticks
             if ring_end > bar_start + grid // 2:
                 beats = ["held"]
-                if rings_over and b < last and not opens_next:
+                if rings_over and b < song_last and not opens_next:
                     beats[0] += " push"
-        elif rings_over and b < last and not opens_next:
+        elif rings_over and b < song_last and not opens_next:
             beats[-1] += " push"
         hits.append(beats)
     return bars, hits, misses
@@ -775,7 +782,7 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
         n = hi - lo + 1
         pm = s["pm"]
         bars, hits, misses = chord_bars(events, lo, hi, meter, bar_ticks,
-                                        grid)
+                                        grid, song_last=last)
         allmiss += [page(b) for b in misses]
         if pm["chords"] == "nc":
             bars = ["nc"] * n

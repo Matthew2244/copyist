@@ -7868,6 +7868,19 @@ def check_lead_sheet_from_markers():
           and chartc.push_ties({1: pb, 2: late}, 1, 4)[1] is True
           and chartc.push_ties({1: pb, 2: late}, 2, 4)[0] is True
           and chartc.push_ties({4: pb}, 4, 4)[1] is False)
+    across = os.path.join(tempfile.gettempdir(), "copyist-across.chart")
+    with open(across, "w") as f:
+        f.write("title: Across\nkey: C\nmeter: 4/4\nband:\n  piano, one "
+                "staff\n\nsection A, 1 bar\n  chords: C\n  piano: hits bar "
+                "1 on 1, 4+ push\n\nsection B, 1 bar\n  chords: F\n  "
+                "piano: hits bar 1 on 3\n")
+    with tempfile.TemporaryDirectory() as bd:
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(across, bd)
+        ax = open(os.path.join(bd, "Across — piano.musicxml")).read()
+    check("a push ties across a section line into a held bar",
+          ax.count('<tie type="start"/>') == 1
+          and ax.count('<tie type="stop"/>') == 1, ax[-600:])
     with tempfile.TemporaryDirectory() as tmp:
         div, bar = 480, 1920
         notes = []

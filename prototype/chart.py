@@ -727,6 +727,13 @@ def run_settings(argv):
         for k, _, desc in SETTINGS:
             say(f"  {k} (now: {cfg[k] or 'not set'}) — {desc}")
         say("Change one with: chart set key=value")
+        import chartedit
+        vocab = chartedit.load_vocab()
+        if vocab:
+            # what the desk was taught, said where settings are said
+            say("Words you taught the desk: " + "; ".join(
+                f"{w} means {m}" for w, m in sorted(vocab.items()))
+                + ". Forget one with: chart forget WORD")
         return
     # chart set key=value
     pair = " ".join(argv[1:])
@@ -1366,6 +1373,22 @@ def main():
         sys.stdout.reconfigure(errors='replace')   # a Windows console
     except Exception:                              # never kills a build
         pass
+    if len(sys.argv) > 1 and sys.argv[1] == 'forget':
+        import chartedit
+        vocab = chartedit.load_vocab()
+        word = " ".join(sys.argv[2:]).strip().lower()
+        if not word:
+            sys.exit("chart: forget wants the word, like: chart forget "
+                     "twice")
+        if word not in vocab:
+            say(f"The desk was never taught '{word}'"
+                + (f"; it knows {', '.join(sorted(vocab))}." if vocab
+                   else "."))
+            return
+        meaning = vocab.pop(word)
+        chartedit.save_vocab(vocab)
+        say(f"Forgotten: '{word}' no longer means '{meaning}'.")
+        return
     if len(sys.argv) > 1 and sys.argv[1] in ('settings', 'set'):
         run_settings(sys.argv[1:])
         return
@@ -1844,12 +1867,24 @@ def main():
             failed.append(os.path.basename(src) + f" ({why})"
                           if why else os.path.basename(src))
     if 'pages' in ex:
+        # a PDF is not a page: count the sheets (it said "8 pages" for
+        # eight PDFs holding 24)
+        sheets = 0
+        for src in to_draw:
+            try:
+                sheets += len(re.findall(rb'/Type /Page\b(?!s)',
+                                         open(page_of(src), 'rb').read()))
+            except OSError:
+                pass
+        said = (f"{chartc.n_of(pages, 'PDF')}, "
+                f"{chartc.n_of(sheets, 'page')} in all" if sheets
+                else chartc.n_of(pages, 'PDF'))
         if borrowed:
-            say(f"{pages} pages — Copyist drew "
+            say(f"{said} — Copyist drew "
                 f"{pages - len(borrowed)} itself; MuseScore covered "
                 + ", ".join(f"{n} — {w}" for n, w in borrowed) + ".")
         else:
-            say(f"{pages} pages, every one Copyist's own ink — no "
+            say(f"{said}, every one Copyist's own ink — no "
                 "MuseScore anywhere in this build.")
         if failed:
             say("No page for " + ", ".join(failed) + ".")

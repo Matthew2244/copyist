@@ -188,6 +188,13 @@ def learn(word, vocab, asker=ask):
         say(f"'{meaning}' can't be what '{word}' means, so I won't "
             "learn it. Skipping that word.")
         return ""
+    if re.search(r":|\b(?:tacet|plays?|groove|solos?|figure|from demo|"
+                 r"melody|backgrounds?|lays? out|rest)\b", low):
+        # an answer to who-plays is not a meaning: learned, it put every
+        # later answer one question off (2026-10-27)
+        say(f"'{meaning}' sounds like who plays, not what '{word}' "
+            "means, so I won't learn it. Skipping that word.")
+        return ""
     yn = asker(f"So '{word}' means '{meaning}' from now on? yes or no",
                "yes")
     if not yn.lower().startswith("y"):
@@ -195,8 +202,9 @@ def learn(word, vocab, asker=ask):
         return ""
     vocab[word.lower()] = meaning
     save_vocab(vocab)
-    say(f"Learned: '{word}' means '{meaning}', for good. Your "
-        "vocabulary list is in Copyist's settings.")
+    say(f"Learned: '{word}' means '{meaning}', for good. 'chart "
+        "settings' lists what you've taught me; 'chart forget "
+        f"{word}' undoes it.")
     return meaning
 
 
@@ -612,6 +620,13 @@ def _spoken_segment(seg):
                 if rest == words or rest.startswith(words + " "):
                     qual = q
                     i += len(words.split())
+                    # "g minor 7": the number finishes the quality
+                    if i < len(toks) and (qual + toks[i]) in \
+                            chartc.CHORD_KINDS and toks[i].isdigit() and \
+                            not (i == len(toks) - 1 and toks[i] not in
+                                 ("6", "7", "9", "11", "13")):
+                        qual += toks[i]
+                        i += 1
                     break
             else:
                 # a digit quality typed after a spoken root: "b flat 7"
@@ -621,13 +636,23 @@ def _spoken_segment(seg):
             # bare letter with no quality is major — the bandstand way
             chords.append(root + (qual if qual != "maj" else ""))
             continue
+        if t == "twice" and chords:
+            dur = 2
+            i += 1
+            continue
         n = num(toks[i])
         if n is not None:
-            # a stray number is only meaningful before "bars"
-            if i + 1 < len(toks) and toks[i + 1].lower() in ("bar",
-                                                             "bars"):
+            # a number is a length before "bars" or "times", or as the
+            # last word after a chord ("b flat maj7 2" is two bars —
+            # it used to be refused, then misread as degrees)
+            if i + 1 < len(toks) and toks[i + 1].lower() in (
+                    "bar", "bars", "times", "time"):
                 dur = n
                 i += 2
+                continue
+            if chords and i == len(toks) - 1:
+                dur = n
+                i += 1
                 continue
             raise SpokenError(toks[i], seg)
         raise SpokenError(toks[i], seg)
@@ -697,6 +722,22 @@ def _degree_at(toks, i):
     return None, 0, 0
 
 
+def _names_a_chord(tok):
+    """A bare note letter ("b", "G") or a chord symbol ("Bbmaj7",
+    "F#m7") — not a degree ("b7", "4"), not a word ("flat")."""
+    if re.fullmatch(r"[b#]?(?:[1-7]|[iv]+)\w*", tok, re.IGNORECASE):
+        return False
+    if re.fullmatch(r"[a-g]", tok, re.IGNORECASE):
+        return True
+    if not re.fullmatch(r"[A-Ga-g][b#]?[\w#+()/-]*", tok):
+        return False
+    try:
+        chartc.split_chord(tok[0].upper() + tok[1:])
+        return True
+    except SystemExit:
+        return False
+
+
 def degrees_to_chords(text, key_text):
     """Rewrite degree tokens as chord symbols in the key; everything
     else passes through.  None when nothing in the text is a degree."""
@@ -716,6 +757,12 @@ def degrees_to_chords(text, key_text):
     segs, seen = [], False
     for seg in text.split(","):
         toks = seg.split()
+        # a bar that names its chord by letter ("b flat maj7 2") is not
+        # degrees: its numbers are a quality and a bar count, and
+        # reading them as degrees made it "Bbmaj7 Cm7"
+        if toks and _names_a_chord(toks[0]):
+            segs.append(seg.strip())
+            continue
         out, i = [], 0
         while i < len(toks):
             d, alter, used = _degree_at(toks, i)
@@ -926,8 +973,18 @@ def extract_globals(text):
         text = text[:m.start()] + text[m.end():]
     m = re.search(r"\bin\s+the\s+key\s+of\s+([a-g](?:\s+(?:flat|"
                   r"sharp))?(?:\s+minor)?)\b", text, re.I)
-    if m:
-        k = m.group(1)
+    if not m:
+        # "in B flat, intro 8, ..." — a clause that is only a key (it
+        # became a section called "in b flat")
+        m = re.search(r"(?:^|,)\s*in\s+([a-g](?:\s*(?:flat|sharp|b|#))?"
+                      r"(?:\s+(?:minor|major))?)\s*(?=,|$)", text, re.I)
+    if m and key_pc(re.sub(r"(?<=[a-g])\s*b$", " flat",
+                           re.sub(r"\s*#$", " sharp",
+                                  m.group(1).replace(" major", "")),
+                           flags=re.I)) is not None:
+        k = re.sub(r"(?<=[a-g])\s*b(?=$|\s)", " flat",
+                   re.sub(r"\s*#", " sharp", m.group(1)), flags=re.I) \
+            .replace(" major", "")
         root = key_pc(k)
         names = PC_SHARP if "sharp" in k.lower() else PC_NAME
         g["key"] = names[root] + (" minor" if "minor" in k.lower()
@@ -2343,6 +2400,127 @@ def _save_lines(path, lines):
         f.write("\n".join(lines).rstrip("\n") + "\n")
 
 
+_ROAD_WORDS = {"fermata": "fermata", "hold": "fermata", "segno": "segno",
+               "sign": "segno", "the sign": "segno", "to coda": "to coda",
+               "coda": "coda", "the coda": "coda", "fine": "fine",
+               "break": "break", "d.s.": "d.s.", "ds": "d.s.",
+               "d.s. al coda": "d.s. al coda", "ds al coda": "d.s. al coda",
+               "d.s. al fine": "d.s. al fine", "ds al fine": "d.s. al fine",
+               "d.c.": "d.c.", "dc": "d.c.", "d.c. al coda": "d.c. al coda",
+               "dc al coda": "d.c. al coda", "d.c. al fine": "d.c. al fine",
+               "dc al fine": "d.c. al fine"}
+
+
+def _where_at_desk(lines, where):
+    """'bar 8 of tag' / 'the end of the shout' / 'the top of A' / 'A'
+    -> (section name, its bar, the section's span) or None."""
+    w = where.strip().rstrip(".")
+    w = re.sub(r"^the\s+", "", w)
+    m = re.fullmatch(r"(?:bar\s+(\d+)|the\s+(\w+)\s+bar)\s+(?:of|in)\s+"
+                     r"(?:the\s+)?(.+)", w)
+    bar = None
+    if m:
+        name = m.group(3).strip()
+        bar = int(m.group(1)) if m.group(1) else \
+            {"first": 1, "last": -1}.get(m.group(2))
+    else:
+        m = re.fullmatch(r"(end|last bar|top|start|beginning|first bar)"
+                         r"\s+of\s+(?:the\s+)?(.+)", w)
+        if m:
+            name = m.group(2).strip()
+            bar = -1 if m.group(1) in ("end", "last bar") else 1
+        else:
+            name, bar = w, 1
+    span = _section_span(lines, name)
+    if not span or bar is None:
+        return None
+    hm = re.match(r"\s*section\s+([\w .-]+?),\s*(\d+)\s+bars?",
+                  lines[span[0]], re.I)
+    n = int(hm.group(2)) if hm else 1
+    if hm:
+        name = hm.group(1).strip()     # its own spelling, not as typed
+    if bar == -1:
+        bar = n
+    if not 1 <= bar <= n:
+        return (name, None, span, n)
+    return (name, bar, span, n)
+
+
+def _road_at_desk(path, low):
+    """'fermata at bar 8 of tag', 'add a fermata on the last bar of the
+    shout', 'd.s. al coda at the end of the shout', 'the sign at the
+    top of A' — the road map, said at the desk (it could only be typed
+    into the file before)."""
+    m = re.fullmatch(r"(?:add\s+|put\s+)?(?:an?\s+|the\s+)?"
+                     r"(" + "|".join(re.escape(k) for k in sorted(
+                         _ROAD_WORDS, key=len, reverse=True)) + r")"
+                     r"\s+(?:at|on|in|after|to)\s+(.+)", low)
+    if not m:
+        return False
+    lines = _lines(path)
+    got = _where_at_desk(lines, m.group(2))
+    if got is None:
+        say(f"No section there: '{m.group(2)}'. Say it like 'bar 8 of "
+            "the tag' or 'the end of the shout'.")
+        return True
+    name, bar, span, n = got
+    if bar is None:
+        say(f"{name} has {n_word(n)}, so that bar isn't in it.")
+        return True
+    word = _ROAD_WORDS[m.group(1)]
+    end = span[1]
+    while end > span[0] + 1 and not lines[end - 1].strip():
+        end -= 1
+    lines.insert(end, f"  at bar {bar}: {word}")
+    _save_lines(path, lines)
+    say(f"{word.capitalize()} at bar {bar} of {name}.")
+    return True
+
+
+def _cue_at_desk(path, low):
+    """'cue trumpet in alto in B': alto's part prints trumpet's line,
+    cue-size, in section B."""
+    m = re.fullmatch(r"cue\s+(?:the\s+)?([\w ]+?)\s+in\s+(?:the\s+)?"
+                     r"([\w ]+?)\s+in\s+(?:the\s+)?([\w .-]+)", low)
+    if not m:
+        return False
+    src, who, where = (g.strip() for g in m.groups())
+    lines = _lines(path)
+    span = _section_span(lines, where)
+    if not span:
+        say(f"No section called '{where}'.")
+        return True
+    plays = any(re.match(r"\s*" + re.escape(src) +
+                         r"\s*:.*\b(?:figure|from demo|as engraved)\b",
+                         lines[i], re.I)
+                for i in range(span[0] + 1, span[1]))
+    if not plays:
+        # the build would refuse it: say so now, in the conversation
+        say(f"The {src} has no written line in {where} to cue. Give "
+            f"it one first (notes for {src} in {where}), then cue it.")
+        return True
+    for i in range(span[0] + 1, span[1]):
+        dm = re.match(r"(\s*)" + re.escape(who) + r"\s*:\s*(.*)$",
+                      lines[i], re.I)
+        if dm:
+            lines[i] = lines[i].rstrip() + f", cue {src}"
+            break
+    else:
+        end = span[1]
+        while end > span[0] + 1 and not lines[end - 1].strip():
+            end -= 1
+        lines.insert(end, f"  {who}: cue {src}")
+    _save_lines(path, lines)
+    hm = re.match(r"\s*section\s+([\w .-]+?)\s*(?:,|$)", lines[span[0]])
+    say(f"In {hm.group(1) if hm else where}, the {who} part shows the "
+        f"{src}'s line, cue-size.")
+    return True
+
+
+def n_word(n):
+    return f"{n} bar" + ("" if n == 1 else "s")
+
+
 def _section_span(lines, name):
     """The [start, end) line span of one section's block, trailing
     blanks included."""
@@ -2708,13 +2886,17 @@ def run_commands(path, ctx):
             for s in secs)
         if not shown:
             say(f"This chart has {chartc.n_of(len(secs), 'section')}: {summary}.")
-            say("Say what to do: chords of <section> / who plays in "
-                "<section> / notes for <part> in <section> / add "
-                "<new sections> / cut <section> / rename <section> "
-                "to <name> / repeat <section> N times / make "
-                "<section> open / tempo <number> / feel <words> / "
-                "transpose to <key> / read it back / replace the "
-                "form. Enter when done.")
+            # grouped, a sentence each: one line of thirteen slashes
+            # was a wall to hear
+            say("Say what to do. The music: chords of A, who plays in "
+                "A, notes for trumpet in A.")
+            say("The form: add a 4 bar tag after B, cut A, rename A to "
+                "head, repeat A 2 times, make solos open.")
+            say("The road map: fermata at the last bar of the tag, the "
+                "sign at the top of A, d.s. al coda at the end of the "
+                "shout, cue trumpet in alto in B.")
+            say("The tune: tempo 120, feel swing, transpose to F. And: "
+                "read it back, replace the form, or Enter when done.")
             shown = True
         a = ask("What are we doing").strip()
         if not a or a.lower() in ("done", "nothing", "quit", "stop"):
@@ -2832,6 +3014,8 @@ def run_commands(path, ctx):
             span = _section_span(lines, plan["name"])
             _save_lines(path, lines[:span[0]] + lines[span[1]:])
             say(f"{plan['name']} is out.")
+            continue
+        if _road_at_desk(path, low) or _cue_at_desk(path, low):
             continue
         m = re.fullmatch(r"add\s+(.+)", low)
         if m:
