@@ -571,10 +571,12 @@ def listen_excerpt(listen_src, title, listen_dir, rng, sel, cfg, count_in,
 
 
 def where_it_all_is(title_dir, pages_dir, listen_dir, spoken_dir, title,
-                    ex, base_dir=None):
-    """One sentence a writer can act on: where the files landed. The
-    MusicXML is always made (it is what the pages are drawn from), and
-    it is what MuseScore, Sibelius, Dorico and Finale open."""
+                    ex, base_dir=None, braille_dir=None):
+    """Where the files landed, one sentence per folder, every kind named
+    with its place (a braille reader wants the .brf most, and it used to
+    go unsaid). The MusicXML is always made (it is what the pages are
+    drawn from), and it is what MuseScore, Sibelius, Dorico and Finale
+    open."""
     def count(d, end):
         try:
             return len([f for f in os.listdir(d)
@@ -593,25 +595,35 @@ def where_it_all_is(title_dir, pages_dir, listen_dir, spoken_dir, title,
             return ("the " + os.path.relpath(d, base_dir)
                     + " folder beside the chart")
         return d.replace(home, '~', 1) if d.startswith(home) else d
-    bits = []
+    braille_dir = braille_dir or title_dir
+    places = {}
+
+    def put(d, what):
+        places.setdefault(os.path.abspath(d), [d, []])[1].append(what)
     xml = count(title_dir, '.musicxml')
     if xml:
-        bits.append(f"{xml} MusicXML file(s), for MuseScore, Sibelius, "
-                    f"Dorico or Finale, in {nice(title_dir)}")
+        put(title_dir, chartc.n_of(xml, 'MusicXML file') +
+            " for MuseScore, Sibelius, Dorico or Finale")
     pdf = (count(pages_dir, '.pdf') - count(pages_dir, '(braille view).pdf')
            if 'pages' in ex else 0)
     if pdf:
-        bits.append(f"{chartc.n_of(pdf, 'PDF')}" + ("" if pages_dir == title_dir else
-                                       f" in {nice(pages_dir)}"))
+        put(pages_dir, chartc.n_of(pdf, 'PDF'))
+    brf = count(braille_dir, '.brf') if 'braille' in ex else 0
+    if brf:
+        put(braille_dir, chartc.n_of(brf, 'braille file') + " (.brf)")
     mp3 = count(listen_dir, '.mp3') if 'listen' in ex else 0
     if mp3:
-        bits.append("the listen MP3" + ("" if listen_dir == title_dir
-                                        else f" in {nice(listen_dir)}"))
+        put(listen_dir, "the listen MP3")
     if 'read-alouds' in ex:
-        bits.append(f"read-alouds in {nice(spoken_dir)}")
-    if not bits:
+        put(spoken_dir, "the read-alouds")
+    if not places:
         return "Nothing was written this time."
-    return "Your files: " + "; ".join(bits) + "."
+
+    def listed(items):
+        return items[0] if len(items) == 1 else \
+            ", ".join(items[:-1]) + " and " + items[-1]
+    return "Your files. " + " ".join(
+        f"In {nice(d)}: {listed(items)}." for d, items in places.values())
 
 
 def parse_exports(text):
@@ -1203,6 +1215,33 @@ def run_keyswitches(argv):
     sys.exit(2)
 
 
+def _named_by_title(out, home, name):
+    """The interview asks the title; the folder and file were named from
+    the MIDI file before it did. Answered differently, they follow the
+    title (same folder depth, so the chart's demo path still holds),
+    unless that name is taken."""
+    import chartimport
+    try:
+        m = re.search(r'^title:\s*(.+)$', open(out, encoding='utf-8').read(),
+                      re.M)
+    except OSError:
+        return out
+    if not m:
+        return out
+    want = chartimport.safe_name(m.group(1).strip())
+    if not want or want == name or os.path.exists(os.path.join(home, want)):
+        return out
+    folder = os.path.join(home, want)
+    try:
+        os.rename(os.path.join(home, name), folder)
+        new = os.path.join(folder, want + '.chart')
+        os.rename(os.path.join(folder, name + '.chart'), new)
+    except OSError:
+        return out
+    say(f"Named it {want}, after its title.")
+    return new
+
+
 def run_import(argv):
     """chart import FILE [--into CHART] [--to FOLDER]: anything a writer
     has, in; a MIDI demo goes on to the interview. The last line names
@@ -1275,6 +1314,7 @@ def run_import(argv):
         cfg = load_cfg()
         chartnew.interview(out, demos,
                            composer=cfg.get('composer', ''), cfg=cfg)
+        out = _named_by_title(out, home, name)
         if build_after and os.path.exists(out):
             # demo in, everything out: the chart builds as written
             say("Building it now.")
@@ -1391,7 +1431,9 @@ def main():
 
     ap = Parser(
         description="Compile a chart and make everything a writer "
-                    "needs. 'chart settings' shows the defaults desk.")
+                    "needs. 'chart import FILE' brings in a score, a "
+                    "MIDI demo or words and chords; 'chart settings' "
+                    "shows the defaults desk.")
     ap.add_argument('chart', help="the .chart file")
     verb_arg = ap.add_argument('command', nargs='?', default='build',
                     choices=['build', 'check', 'read', 'parts', 'diff',
@@ -1705,8 +1747,9 @@ def main():
             sys.stdout.close()
             sys.stdout = old_stdout
     if do_reads:
-        say(f"Read-alouds written for all {len(labels)} parts and the "
-            "form.")
+        say("Read-alouds written for " + (
+            "the part" if len(labels) == 1 else
+            f"all {len(labels)} parts") + " and the form.")
 
     # ---- the blast radius: what did this build change?
     sentences, had = ((diff_readalouds(prev_dir, spoken_dir, title,
@@ -1966,7 +2009,8 @@ def main():
 
     if args.command == 'build':
         say(where_it_all_is(title_dir, pages_dir, listen_dir, spoken_dir,
-                            title, ex, base_dir))
+                            title, ex, base_dir,
+                            dest_dir(cfg, 'braille_to', title_dir)))
     say("Done. Proof it by ear before a single player sees it.")
     tname = os.path.splitext(os.path.basename(path))[0]
     if cfg['notify'] == 'yes':

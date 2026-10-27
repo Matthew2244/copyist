@@ -144,8 +144,8 @@ def say_changes(sec):
     return " ".join(bits)
 
 
-def say_bars(bars):
-    """A section's bars -> prose with runs of identical bars grouped."""
+def _say_run(bars):
+    """Bars with runs of identical bars grouped."""
     out, i = [], 0
     while i < len(bars):
         j = i
@@ -155,6 +155,40 @@ def say_bars(bars):
         text = say_bar(bars[i])
         out.append(f"{text} for {n} bars" if n > 1 else text)
         i = j + 1
+    return "; ".join(out)
+
+
+def say_bars(bars):
+    """A section's bars -> prose. A phrase of two to eight bars played
+    again straight after is said once, with how many times: heard, a
+    four-bar vamp read out four times over is a wall, not a chart."""
+    out, i = [], 0
+    n = len(bars)
+    while i < n:
+        best = (1, 1)                      # (phrase length, times)
+        for p in range(2, 9):
+            k = 1
+            while i + (k + 1) * p <= n and \
+                    bars[i + k * p:i + (k + 1) * p] == bars[i:i + p]:
+                k += 1
+            # a phrase of identical bars is a plain run, said that way
+            if k >= 2 and p * k > best[0] * best[1] and \
+                    len({str(b) for b in bars[i:i + p]}) > 1:
+                best = (p, k)
+        p, k = best
+        if k >= 2:
+            times = {2: "twice", 3: "three times"}.get(k, f"{k} times")
+            out.append(f"{p} bars, played {times}: "
+                       + _say_run(bars[i:i + p]))
+            i += p * k
+        else:
+            j = i
+            while j + 1 < n and bars[j + 1] == bars[i]:
+                j += 1
+            m = j - i + 1
+            text = say_bar(bars[i])
+            out.append(f"{text} for {m} bars" if m > 1 else text)
+            i = j + 1
     return "; ".join(out) + "."
 
 
@@ -186,6 +220,16 @@ def section_heading(sec):
                         if bar == 1 else
                         f"the key changes to {say_key(val)} at its bar "
                         f"{bar}")
+        elif kind == 'fermata':
+            # a hold is a road-map mark: a listener gets it nowhere else
+            bits.append(f"a fermata, hold, on its bar {bar}'s last note"
+                        if bar > 0 else "a fermata on its last bar")
+        elif kind == 'break':
+            bits.append(f"a break at its bar {bar}: the band hits the one "
+                        "and stops")
+        elif kind == 'fill':
+            bits.append("a drum fill into the next section" if bar < 0
+                        else f"a drum fill into its bar {bar + 1}")
     return ", ".join(bits) + "."
 
 
@@ -287,12 +331,31 @@ def part_section(plan, label, chord_parts, figures=None):
     elif kind == 'hits':
         hmap, gw = arg
         bits = []
+
+        def kick_words(pat):
+            if getattr(pat, 'held', False):
+                w = "nothing new, the chord held from the bar before"
+            else:
+                said = [say_beat(b) for b in pat]
+                w = "kicks on " + (", ".join(said[:-1]) + " and "
+                                   + said[-1] if len(said) > 1
+                                   else said[0] if said else "nothing")
+            if getattr(pat, 'push', False):
+                w += ", the last one pushed, held into the next bar"
+            return w
         if None in hmap:
-            bits.append("every bar kicks on "
-                        + " and ".join(say_beat(b) for b in hmap[None]))
+            bits.append("every bar " + kick_words(hmap[None]))
+        # bars with the same kicks are said once, with their bars
+        groups = {}
         for bar in sorted(k for k in hmap if k is not None):
-            bits.append(f"bar {bar} kicks on "
-                        + " and ".join(say_beat(b) for b in hmap[bar]))
+            groups.setdefault(kick_words(hmap[bar]), []).append(bar)
+        for words, bars_ in sorted(groups.items(), key=lambda g: g[1][0]):
+            if len(bars_) == 1:
+                who = f"bar {bars_[0]}"
+            else:
+                who = ("bars " + ", ".join(str(b) for b in bars_[:-1])
+                       + f" and {bars_[-1]}")
+            bits.append(f"{who}: {words}")
         g = f' "{gw}"' if gw else ""
         lines.append(f"Kicks{g} — {'; '.join(bits)}; slashes everywhere "
                      "else.")

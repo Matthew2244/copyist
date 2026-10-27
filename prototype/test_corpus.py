@@ -7833,6 +7833,40 @@ def check_lead_sheet_from_markers():
           d["feel"] == "half time" and d["unknown"] == ["louder please"])
     check("rit. keeps its period",
           pm("rit.")["events"] == ['text "rit."'])
+    check("a bare letter is always a section, even f or p",
+          pm("f")["name"] == "F" and pm("a")["name"] == "A")
+    check("instruction-only markers are not sections",
+          pm("a tempo")["name"] is None and pm("x4")["header"] ==
+          ["repeat 4x"] and pm("D.S. al Coda")["events"] ==
+          ["d.s. al coda"] and pm("mf")["events"] == ["dyn mf"])
+    check("the longest section word wins, and keeps its capitals",
+          pm("Head out")["name"] == "Head Out"
+          and pm("Head out")["mode"] is None
+          and pm("Verse 2 - hits")["name"] == "Verse 2")
+    check("Solo and Coda are section words that do their job",
+          pm("Solo")["mode"] == "solo" and "coda" in pm("Coda")["events"])
+    check("quoted words print as written, quotes made safe",
+          pm('A: "Sticks in"')["events"] == ['text "Sticks in"']
+          and pm('Mike\'s "big" one')["unknown"] == ["Mike's 'big' one"])
+    check("chord names: triads, ninths with no third, upper structures",
+          nm([39, 43, 46]) == "Eb" and nm([48, 55, 58, 62]) == "C9"
+          and nm([48, 52, 55, 59, 66]) == "Cmaj7#11"
+          and nm([40, 43, 45, 48]) == "Am7/E")
+    check("a sharp key sharps only its own notes",
+          nm([38, 46, 50, 53], names=chartlead.spelling(2)) == "Bb/D")
+    check("6/8 places chords on the eighth it counts",
+          chartlead.beat_text(3, (6, 8)) == "4"
+          and chartlead.grid_ticks(480, (6, 8)) == 240
+          and chartlead.grid_ticks(480, (2, 2)) == 480)
+    pb = chartc.Beats([1.0, 4.5])
+    pb.push = True
+    late = chartc.Beats([3.0])
+    check("pushes tie only where the next bar holds the chord",
+          chartc.push_ties({1: pb, 2: chartc.Beats([1.0])}, 1, 4)[1]
+          is False
+          and chartc.push_ties({1: pb, 2: late}, 1, 4)[1] is True
+          and chartc.push_ties({1: pb, 2: late}, 2, 4)[0] is True
+          and chartc.push_ties({4: pb}, 4, 4)[1] is False)
     with tempfile.TemporaryDirectory() as tmp:
         div, bar = 480, 1920
         notes = []

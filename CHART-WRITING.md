@@ -15,6 +15,13 @@ their slashes.
 
 The worked example below is an invented tune called *Uptown Local*.
 
+Every command here is written `chart ...`. That is the front door,
+`python3 prototype/chart.py`, as one word: put the repo's `bin` folder
+on your PATH (or link `bin/chart` into a folder that is) and the
+commands work exactly as written. On Windows, type
+`python prototype\chart.py` where the guide says `chart`, or use the
+Copyist window that `windows\Copyist.bat` opens.
+
 ## The header: who, what, where
 
     title: Uptown Local

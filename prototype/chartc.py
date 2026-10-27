@@ -2188,12 +2188,31 @@ def _retype(note, ptype, pdots):
 class Beats(list):
     """A bar's hit beats. `push` marks the last hit as a push: an
     anticipation held over the barline, tied into the next bar until
-    that bar's first hit, the way a lead sheet writes one."""
+    that bar's first hit, the way a lead sheet writes one. `held` marks
+    a bar struck nowhere that the chord rings through ('hits bar 2 on
+    held')."""
     push = False
+    held = False
+
+
+def push_ties(hmap, bar, nbars):
+    """(tie in, tie out) for a hits bar: a push ties only into a bar of
+    the same section that opens on the held chord (held, or its first
+    hit after the one); into a bar struck on the one, or past the
+    section's end, it is a plain hit and nothing dangles."""
+    def opens_held(p):
+        return p is None or getattr(p, 'held', False) or \
+            (len(p) > 0 and min(p) > 1.0)
+    cur, prev, nxt = hmap.get(bar), hmap.get(bar - 1), hmap.get(bar + 1)
+    tie_in = bar > 1 and bool(getattr(prev, 'push', False)) and \
+        opens_held(cur)
+    tie_out = bool(getattr(cur, 'push', False)) and bar < nbars and \
+        opens_held(nxt)
+    return tie_in, tie_out
 
 
 def hits_bar(pattern, div, clef, staves, fifths, meter=(4, 4),
-             tie_in=False):
+             tie_in=False, tie_out=None):
     """Rhythmic kicks: slash noteheads WITH stems at the named beats,
     rests around them — 'hits on 1, 2+, 4' as the spec always promised.
     Each hit rings to the next hit or the bar line; a hit too long for
@@ -2206,12 +2225,14 @@ def hits_bar(pattern, div, clef, staves, fifths, meter=(4, 4),
     step, octv = SLASH_PITCH.get(clef, ('B', 4))
     alter = key_alter(step, fifths)
     positions = sorted({int(round((b - 1) * pulse)) for b in pattern})
-    push = bool(getattr(pattern, 'push', False))
+    push = bool(getattr(pattern, 'push', False)) if tie_out is None \
+        else tie_out
     out = []
     spans = []
-    if not positions and tie_in:
-        # nothing struck: the pushed chord rings through the bar
-        spans.append((0, pulse * num, True))
+    if not positions:
+        # nothing struck: the chord rings through the bar, tied in from
+        # a push or restated on its own
+        spans.append((0, pulse * num, bool(tie_in)))
     elif positions and positions[0] > 0:
         if tie_in:
             spans.append((0, positions[0], True))
@@ -2532,7 +2553,10 @@ def compile_chart(chart_path, outdir):
                 what = "rest, with a cue to watch"
             fates.append(f"{sec['label'] or sec['name']}: {what}")
         # said as a sentence: "drums — A: your line" read as code
-        findings.add(f"what {l} plays, section by section — "
+        # "what drums play", "what bass plays": the label's own number
+        verb = 'play' if l.endswith('s') and not l.endswith('ss') \
+            else 'plays'
+        findings.add(f"what {l} {verb}, section by section — "
                      + "; ".join(fates))
         if not sounded:
             findings.add(f"{l} NEVER PLAYS A BAR IN THIS CHART — "
@@ -3440,8 +3464,10 @@ def build_plans(chart, band, groups, labels):
                                                          'pushed')
                     if pushed:
                         toks = toks[:-1]
-                    beats = Beats(parse_beat(t) for t in toks)
-                    beats.push = pushed
+                    held = toks == ['held']
+                    beats = Beats(() if held else
+                                  (parse_beat(t) for t in toks))
+                    beats.push, beats.held = pushed, held
                     hits_map[int(m.group(1)) if m.group(1) else None] = \
                         beats
                     continue
@@ -5672,15 +5698,15 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         if made:
                             realized_bars[label] = \
                                 realized_bars.get(label, 0) + 1
-                    elif pattern or getattr(
-                            hmap.get(off) if off > 0 else None,
-                            'push', False):
-                        before = hmap.get(off, hmap.get(None)) \
-                            if off > 0 else None
-                        pattern = pattern or Beats()
+                    elif pattern or getattr(pattern, 'held', False) or \
+                            getattr(hmap.get(off) if off > 0 else None,
+                                    'push', False):
+                        t_in, t_out = push_ties(hmap, off + 1,
+                                                sec['bars'])
                         pieces.append(hits_bar(
-                            pattern, div, clef, staves, fifths, bmeter,
-                            tie_in=bool(getattr(before, 'push', False))))
+                            pattern if pattern is not None else Beats(),
+                            div, clef, staves, fifths, bmeter,
+                            tie_in=t_in, tie_out=t_out))
                     else:
                         pieces.append(slash_bar(div, clef, staves,
                                                 fifths, bmeter))
@@ -6171,6 +6197,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         # the same finding at many bars prints once with its bars; the
         # findings file below keeps every line
         for line in grouped_findings(seen):
+            # a listen nobody asked for is not news: its lines stay in
+            # findings.txt, unspoken
+            if not LISTENING and line.startswith('listen:'):
+                continue
             print("finding:", line)
         # findings also land in a file: console scroll is not a record
         with open(os.path.join(outdir, f'{title} — findings.txt'), 'w',
@@ -6178,7 +6208,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             f.write("\n".join(seen) + "\n" if seen else
                     "No findings — nothing was reduced, guessed, "
                     "or moved.\n")
-    print(f"Wrote {len(written)} files, {total} bars, "
+    print(f"Wrote {n_of(len(written), 'MusicXML file')}, {total} bars, "
           f"{len(chart['sections'])} "
           f"{'section' if len(chart['sections']) == 1 else 'sections'}.")
     return written

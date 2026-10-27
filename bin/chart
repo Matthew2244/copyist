@@ -1,0 +1,7 @@
+#!/bin/sh
+# Copyist's front door as one word: `chart`. Put this folder on your PATH
+# (or link this file into a folder that is) and every `chart ...` in
+# CHART-WRITING.md works as written. It runs prototype/chart.py beside
+# it, so it works wherever the repo was cloned.
+here=$(cd "$(dirname "$0")/.." && pwd -P)
+exec python3 "$here/prototype/chart.py" "$@"
