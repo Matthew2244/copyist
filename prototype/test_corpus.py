@@ -5298,6 +5298,56 @@ def check_band_hears_the_lead():
           "back to the synth, the count in front of bar one",
           err_k is None and plan_k['count_off'] and res_k[3] > 0.5,
           str((err_k, plan_k['count_off'])))
+    # every listen at one loudness: -16 LUFS, under -1 dB true peak
+    import chartloud
+    import math as _m
+    import wave as _wave
+    from array import array as _arr
+    # the plain synth, which every machine has, through the same leveling
+    with redirect_stdout(io.StringIO()):
+        chartaudio.render(os.path.join(tmp_k, "b",
+                                       "K — for listening.musicxml"),
+                          os.path.join(tmp_k, "ks.wav"))
+    lw = _wave.open(os.path.join(tmp_k, "ks.wav"))
+    pcm_k = _arr('h', lw.readframes(lw.getnframes()))
+    xk = [[v / 32768 for v in pcm_k[0::2]], [v / 32768 for v in pcm_k[1::2]]]
+    got_k = chartloud.integrated(chartloud.k_energies(xk, lw.getframerate()),
+                                 lw.getframerate())
+    check("a listen is leveled to -16 LUFS, the file itself measuring "
+          "that, its peaks under -1 dB",
+          got_k is not None and abs(got_k + 16) < 0.3
+          and max(map(abs, pcm_k)) / 32768 < 10 ** (-1 / 20), str(got_k))
+    sr_k = 44100
+    sine = [_m.sin(2 * _m.pi * 997 * i / sr_k) for i in range(sr_k * 3)]
+    one = chartloud.integrated(chartloud.k_energies(
+        [sine, [0.0] * len(sine)], sr_k), sr_k)
+    check("the loudness meter reads a full-scale 997 Hz tone in one "
+          "channel as BS.1770 says, -3.01 LUFS",
+          one is not None and abs(one + 3.01) < 0.1, str(one))
+    # a quiet bed with hard hits on it: the leveling raises it to -16
+    # and the limiter keeps every hit, between the samples too, under
+    # the ceiling
+    import random as _r
+    rr = _r.Random(3)
+    bed = [0.02 * _m.sin(2 * _m.pi * 220 * i / sr_k) + 0.002 * (rr.random() - .5)
+           for i in range(sr_k * 6)]
+    for t in range(0, len(bed) - 2000, sr_k // 2):
+        ph = rr.random() * 6.3
+        for k in range(400):
+            bed[t + k] += 0.9 * _m.exp(-k / 60) * (
+                _m.sin(2 * _m.pi * 3100 * k / sr_k + ph)
+                + 0.6 * _m.sin(2 * _m.pi * 9700 * k / sr_k + 2 * ph))
+    chans = [bed, bed[::-1]]
+    G, gb, rep_k = chartloud.plan(chans, sr_k, chartloud.k_energies(chans, sr_k))
+    gl = chartloud.gain_ramp(gb, 0, len(bed), G, sr_k)
+    outs = [[x * g for x, g in zip(c, gl)] for c in chans]
+    after = chartloud.integrated(chartloud.k_energies(outs, sr_k), sr_k)
+    tp = max(chartloud._true_peak_near(c, i) for c in outs
+             for i in range(8, len(bed) - 9) if abs(c[i]) > 0.7)
+    check("a quiet track with hard hits comes up to -16 LUFS and the "
+          "limiter holds every hit under -1 dB true peak",
+          abs(after + 16) < 0.15 and tp < 10 ** (-1 / 20)
+          and rep_k['limited_db'] > 3, str((after, tp, rep_k)))
     was_bpm = chartgroove.BPM
     try:
         chartgroove.BPM = 176.0

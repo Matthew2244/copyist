@@ -411,6 +411,12 @@ so in its findings. In the Mac app they are switches under **What the
 listen makes up** in Settings; on Windows, the same corner of the
 defaults desk.
 
+**Every listen plays at the same loudness**: -16 LUFS, its peaks never
+over -1 dB true peak, so a ballad and a shout chorus come out at one
+level and nothing clips on a phone. The whole tune is raised to that,
+and a limiter catches the loudest hits; a quiet, punchy chart gets
+more of it than a busy one.
+
 Any one export can also take just some of the tune, some of the band,
 and its own look:
 

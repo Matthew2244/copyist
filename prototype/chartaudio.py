@@ -15,8 +15,9 @@ those — and the page and the sound can no longer disagree, because
 they are the same data.
 
 The synth is deliberately plain: harmonic recipes per instrument
-family, clean envelopes, a little stereo seating, no reverb, headroom
-kept (peaks at -1.4 dBFS — the iMessage playback lesson). Robot horns,
+family, clean envelopes, a little stereo seating, no reverb, every
+listen at -16 LUFS and never over -1 dB true peak (chartloud), so
+nothing clips on playback (the iMessage lesson). Robot horns,
 but OUR robot horns.
 """
 import math
@@ -1199,16 +1200,19 @@ def render(listen_path, wav_path, only=None, tail=1.5, count_in=None,
             else:
                 _add_note(L, R, a, d, freq, g, tab, panl, panr)
 
-    peak = max(max(abs(x) for x in L), max(abs(x) for x in R)) or 1.0
-    scale = 0.85 / peak                 # headroom on purpose
+    # every listen at one loudness, -16 LUFS, under -1 dB true peak
+    import chartloud
+    G, bg, _rep = chartloud.plan((L, R), SR,
+                                 chartloud.k_energies((L, R), SR))
+    gl = chartloud.gain_ramp(bg, 0, frames, G, SR)
     with wave.open(wav_path, 'wb') as w:
         w.setnchannels(2)
         w.setsampwidth(2)
         w.setframerate(SR)
         frames_i = array('h', [0]) * (2 * frames)
         for i in range(frames):
-            frames_i[2 * i] = int(max(-1, min(1, L[i] * scale)) * 32767)
-            frames_i[2 * i + 1] = int(max(-1, min(1, R[i] * scale)) * 32767)
+            frames_i[2 * i] = int(max(-1, min(1, L[i] * gl[i])) * 32767)
+            frames_i[2 * i + 1] = int(max(-1, min(1, R[i] * gl[i])) * 32767)
         pcm = frames_i.tobytes()
         if plan.get('fade') is not None:
             def _s(q):

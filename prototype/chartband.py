@@ -28,6 +28,7 @@ import wave
 from array import array
 
 import chartaudio
+import chartloud
 import sf2 as sf2mod
 import sfz as sfzmod
 
@@ -196,24 +197,19 @@ SYNTH_VOICE = 55          # GM Synth Voice, 1-based
 _LEVELS = None            # cache: (voice, key, vel) -> loudness
 
 
-def _kweight_coeffs(sr):
-    """ITU-R BS.1770's K-weighting as two biquads at this sample rate:
-    the head's high shelf (+4 dB above ~1.7 kHz) and the RLB high-pass
-    (~38 Hz) — the curve loudness meters (LUFS) hear through."""
-    import math as m
-    f0, g, q = 1681.974450955533, 3.999843853973347, 0.7071752369554196
-    k = m.tan(m.pi * f0 / sr)
-    vh = 10 ** (g / 20)
-    vb = vh ** 0.4996667741545416
-    a0 = 1 + k / q + k * k
-    shelf = ((vh + vb * k / q + k * k) / a0, 2 * (k * k - vh) / a0,
-             (vh - vb * k / q + k * k) / a0, 2 * (k * k - 1) / a0,
-             (1 - k / q + k * k) / a0)
-    f0, q = 38.13547087602444, 0.5003270373238773
-    k = m.tan(m.pi * f0 / sr)
-    a0 = 1 + k / q + k * k
-    hp = (1.0, -2.0, 1.0, 2 * (k * k - 1) / a0, (1 - k / q + k * k) / a0)
-    return shelf, hp
+from chartloud import kweight_coeffs as _kweight_coeffs  # noqa: E402
+
+# what the last render's leveling did (chartloud.plan's report), for
+# the sentence that says how the listen went and for the tests
+LOUDNESS = {}
+
+
+def _leveled(chans, sr, energies, tps=None):
+    """chartloud.plan, its report kept in LOUDNESS."""
+    G, bg, rep = chartloud.plan(chans, sr, energies, tps=tps)
+    LOUDNESS.clear()
+    LOUDNESS.update(rep)
+    return G, bg
 
 
 def _biquad_run(x, c):
@@ -1490,11 +1486,14 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
              (lambda f: on_progress(f, "the band is playing it in"))
              if on_progress else None)
         _room(L, R, wetL, wetR, SR)
-        peak = max(max(abs(x) for x in L), max(abs(x) for x in R)) or 1.0
-        scale = 0.85 * 32767.0 / peak
         if os.environ.get('COPYIST_FIXED_GAIN'):
             # measuring one chair against another: no leveling
-            scale = float(os.environ['COPYIST_FIXED_GAIN'])
+            gl = [float(os.environ['COPYIST_FIXED_GAIN'])] * frames
+        else:
+            G, bg = _leveled(
+                (L, R), SR, chartloud.k_energies((L, R), SR))
+            gl = chartloud.gain_ramp(bg, 0, frames, G * 32767.0,
+                                      SR)
         out = array('h', bytes(4 * frames))
         # TPDF dither into 16 bits, seeded so a rebuild stays byte for
         # byte the same: truncating quiet tails and fades distorted them
@@ -1503,9 +1502,9 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
         dith = [rg() - rg() for _ in range(65536)]
         for i in range(frames):
             out[2 * i] = int(round(max(-32767.0, min(
-                32767.0, L[i] * scale + dith[i & 65535]))))
+                32767.0, L[i] * gl[i] + dith[i & 65535]))))
             out[2 * i + 1] = int(round(max(-32767.0, min(
-                32767.0, R[i] * scale + dith[(i + 32768) & 65535]))))
+                32767.0, R[i] * gl[i] + dith[(i + 32768) & 65535]))))
         pcm = out.tobytes()
     if plan.get('fade') is not None:
         # "fade out" on the page: the band goes down to nothing by the
@@ -1873,14 +1872,21 @@ def _play_parallel(groups, play, fresh, ticks, frames, sr, on_progress):
         # ---- round two: sum, room and peak, a stretch per core
         cores = max(1, min(_fast_cores(), 32))
         size = -(-frames // cores)
-        size += size % 2                     # the room runs at half rate
+        hop = chartloud.hop_of(sr)
+        # whole loudness blocks per stretch (the room runs at half rate,
+        # and a block is an even number of samples)
+        size = -(-size // hop) * hop
         cuts = [(a, min(frames, a + size)) for a in range(0, frames, size)]
         warm = int(_WARM * sr)
         warm += warm % 2
         mixed = shared_memory.SharedMemory(create=True, size=2 * plane)
         shms.append(mixed)
-        peaks = shared_memory.SharedMemory(create=True, size=8 * len(cuts))
-        shms.append(peaks)
+        blk = chartloud.blk_of(sr)
+        nblocks = -(-frames // blk)
+        energy = shared_memory.SharedMemory(create=True, size=8 * nblocks)
+        shms.append(energy)
+        tpeak = shared_memory.SharedMemory(create=True, size=8 * nblocks)
+        shms.append(tpeak)
         names = [m.name for m in group_shms]
         tail = int(_ROOM_TAIL * sr)
 
@@ -1908,17 +1914,25 @@ def _play_parallel(groups, play, fresh, ticks, frames, sr, on_progress):
             L, R, wetL, wetR = planes
             _room(L, R, wetL, wetR, sr)
             keep = a - w0
+            # how loud each 100 ms of this stretch is; the warm-up
+            # before it only settles the filters
+            en = chartloud.k_energies(
+                (L[:keep + b0 - a], R[:keep + b0 - a]), sr, skip=keep)
+            tp = chartloud.true_peaks((L, R), blk, skip=keep,
+                                      upto=keep + b0 - a)
             L, R = L[keep:keep + b0 - a], R[keep:keep + b0 - a]
             b = b0
-            pk = max(max(L, default=0.0), -min(L, default=0.0),
-                     max(R, default=0.0), -min(R, default=0.0))
             out = shared_memory.SharedMemory(name=mixed.name)
             out.buf[4 * a:4 * b] = L.tobytes()
             out.buf[plane + 4 * a:plane + 4 * b] = R.tobytes()
             out.close()
-            pv = shared_memory.SharedMemory(name=peaks.name)
-            pv.buf[8 * ci:8 * ci + 8] = array('d', [pk]).tobytes()
-            pv.close()
+            ev = shared_memory.SharedMemory(name=energy.name)
+            k0 = a // blk
+            ev.buf[8 * k0:8 * (k0 + len(en))] = array('d', en).tobytes()
+            ev.close()
+            tv = shared_memory.SharedMemory(name=tpeak.name)
+            tv.buf[8 * k0:8 * (k0 + len(tp))] = array('d', tp).tobytes()
+            tv.close()
 
         import time as _tm
         t_mix = _tm.time()
@@ -1928,11 +1942,16 @@ def _play_parallel(groups, play, fresh, ticks, frames, sr, on_progress):
         if any(p.exitcode != 0 for p in procs):
             return None
         report(0.92, "the band is playing it in")
-        peak = max(array('d', bytes(peaks.buf[:8 * len(cuts)]))) or 1.0
-        scale = 0.85 * 32767.0 / peak
         if os.environ.get('COPYIST_FIXED_GAIN'):
             # measuring one chair against another: no leveling
-            scale = float(os.environ['COPYIST_FIXED_GAIN'])
+            G, bg = float(os.environ['COPYIST_FIXED_GAIN']), None
+        else:
+            G, bg = _leveled(
+                (array('f', bytes(mixed.buf[:plane])),
+                 array('f', bytes(mixed.buf[plane:2 * plane]))), sr,
+                list(array('d', bytes(energy.buf[:8 * nblocks]))),
+                list(array('d', bytes(tpeak.buf[:8 * nblocks]))))
+            G *= 32767.0
 
         # ---- round three: the 16-bit file, a stretch per core
         pcm = shared_memory.SharedMemory(create=True, size=frames * 4)
@@ -1941,12 +1960,14 @@ def _play_parallel(groups, play, fresh, ticks, frames, sr, on_progress):
         def write(a, b):
             src = shared_memory.SharedMemory(name=mixed.name)
             out16 = array('h', bytes(4 * (b - a)))
+            gl = (chartloud.gain_ramp(bg, a, b, G, sr) if bg is not None
+                  else [G] * (b - a))
             for ch in range(2):
                 f = array('f', bytes(src.buf[ch * plane + 4 * a:
                                              ch * plane + 4 * b]))
                 out16[ch::2] = array('h', (
                     32767 if x > 32767.0 else -32767 if x < -32767.0
-                    else int(x) for x in map(scale.__mul__, f)))
+                    else int(x) for x in map(operator.mul, f, gl)))
             src.close()
             dst = shared_memory.SharedMemory(name=pcm.name)
             dst.buf[4 * a:4 * b] = out16.tobytes()
