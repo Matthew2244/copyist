@@ -291,6 +291,13 @@ class Bar:
         self.div = div
         self.num, self.den = bmeter
         self.barlen = div * 4 * self.num // self.den
+        self.meter = tuple(bmeter)        # as printed
+        if self.den >= 8 and self.num % 3 and self.barlen % div:
+            # 7/8, 5/8, 7/16: the band feels quarters from the barline
+            # and the bar's real length cuts the last one short. Read
+            # as eighth beats, every pattern written for four pulses ran
+            # out halfway (swung 7/8: the ride rested 3/8 of every bar)
+            self.num, self.den = -(-self.barlen // div), 4
         self.fifths = fifths
         self.staves = staves
         # the groove thinks in SOUNDING pitches, but this bar lands in

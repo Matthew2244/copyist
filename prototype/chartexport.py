@@ -260,7 +260,8 @@ def write_midi(listen_path, folder, title):
     ppq = 480
 
     def tick(q):
-        return int(round(chartaudio._warp(q, plan['swings']) * ppq))
+        return int(round(chartaudio._warp(q, plan['swings'],
+                                          plan.get('bar_starts')) * ppq))
     tempos = plan['tempos'] or [(0.0, 120.0)]
     n0, d0 = plan['meter0']
     cond = [(0, b"\xFF\x03" + smf.vlq(len(title.encode('utf-8')))

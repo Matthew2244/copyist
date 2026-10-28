@@ -30,6 +30,29 @@ DIV = 24                # chart divisions per quarter (16th=6, trip-16th=4)
 BEATS = 4               # the 4/4 default; meter arrives per call
 BAR = DIV * BEATS       # the 4/4 bar, kept for callers with no meter
 
+
+# Beats count from every barline. A bar that is not a whole number of
+# quarters (7/8, 5/16) ends on a short beat, and the next bar's first
+# beat starts at its own downbeat — counted from the top of the tune, a
+# later downbeat would read as an off-beat. In 4/4, 3/4 and 6/8 these
+# are plain tick // DIV.
+def bar_beats(bar):
+    return -(-bar // DIV)
+
+
+def beat_of(pos, bar=BAR):
+    return (pos // bar) * bar_beats(bar) + (pos % bar) // DIV
+
+
+def beat_start(i, bar=BAR):
+    n = bar_beats(bar)
+    return (i // n) * bar + (i % n) * DIV
+
+
+def beat_end(i, bar=BAR):
+    n = bar_beats(bar)
+    return min(beat_start(i, bar) + DIV, (i // n + 1) * bar)
+
 # subdivisions a horn chart may use; quintuplets and septuplets stay out
 ALLOW = {k: v for k, v in tuplets.CANDIDATES.items() if k in (1, 2, 3, 4, 6, 8)}
 
@@ -842,8 +865,23 @@ def inline_res(ref, meter, spoken_shift, fifths=0):
     if ref.get('short') and timeline:
         s, e, ps = timeline[-1]
         timeline[-1] = (s, min(e, s + DIV // 2), ps)
-    grids = {b: 4 for b in range(n_units // DIV + 1)}
-    grids.update(ref.get('grids') or {})
+    grids = {b: 4 for b in range(bars * bar_beats(bar_ticks) + 1)}
+    for start, end, sub in ref.get('grids') or ():
+        # a triplet starts on one of ITS bar's beats and fills whole
+        # beats inside that bar (beat 1 of bar 2 in 7/8 is a beat)
+        b0 = beat_of(start, bar_ticks)
+        if beat_start(b0, bar_ticks) != start:
+            raise SystemExit(f"chart: {ref['loc']}: a triplet group must "
+                             "start on the beat")
+        b = b0
+        while beat_start(b, bar_ticks) < end:
+            if (beat_end(b, bar_ticks) - beat_start(b, bar_ticks) != DIV
+                    or beat_end(b, bar_ticks) > end):
+                raise SystemExit(
+                    f"chart: {ref['loc']}: a triplet group must fill "
+                    "whole beats inside one bar")
+            grids[b] = sub
+            b += 1
     raw = {s: (s, e, 90) for s, e, _ in timeline}
     return ({'timeline': timeline, 'grids': grids, 'n_units': n_units,
              'at': ref['at'], 'bars': (1, bars), 'dyns': [],
@@ -1370,10 +1408,12 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                     "ghosts asked, but no note sits far enough under "
                     "its neighbours — none written"))
 
-    grids_chart = {b: grids.get(b, default_sub)
-                   for b in range((n_units // DIV) + 1)}
+    # chosen on bars stretched to whole beats, so the keys already
+    # count from every barline: beat_of() reads them back
+    n_beats = (bar_hi - bar_lo + 1) * bar_beats(bar_ticks) + 1
+    grids_chart = {b: grids.get(b, default_sub) for b in range(n_beats)}
     if detail == 'simplified':
-        grids_chart = {b: 2 for b in range((n_units // DIV) + 1)}
+        grids_chart = {b: 2 for b in range(n_beats)}
 
     # ---- dynamics from the expression pedal (CC 11): one mark per level
     # change, judged by each bar's median, printed only on bars that play
@@ -1756,16 +1796,15 @@ def _pieces(start, end, grids, bar=BAR):
     cuts = []
     pos = start
     while pos < end:
-        b = pos // DIV
-        next_beat = (b + 1) * DIV
+        b = beat_of(pos, bar)
         stop = min(end, (pos // bar + 1) * bar)
         if _is_tuplet(grids, b):
-            stop = min(stop, next_beat)
+            stop = min(stop, beat_end(b, bar))
         else:
             nb = b + 1
-            while nb * DIV < stop:
+            while beat_start(nb, bar) < stop:
                 if _is_tuplet(grids, nb):
-                    stop = nb * DIV
+                    stop = beat_start(nb, bar)
                     break
                 nb += 1
         cuts.append((pos, stop))
@@ -1822,7 +1861,7 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
         if isinstance(table, KeyedTable):
             table.at = bar_no
         first, last = pi == 0, pi == len(pieces) - 1
-        sub = grids.get(a // DIV, 4)
+        sub = grids.get(beat_of(a, bar), 4)
         if pitches is None and a % bar == 0 and b - a == bar:
             out[bar_no].append(
                 '      <note>\n        <rest measure="yes"/>\n'
@@ -1831,6 +1870,15 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                 + staff_xml + '      </note>\n')
             continue
         parts = _name(b - a, sub)
+        bi = beat_of(a, bar)
+        if beat_end(bi, bar) - beat_start(bi, bar) == DIV // 2:
+            # the short last beat of a 7/8 or 5/8 bar holds half a
+            # sextuplet: three notes print as the 3:2 they are, not a
+            # six over three
+            parts = [(pl, pt, dt, dict(md, actual=md['actual'] // 2,
+                                       normal=md['normal'] // 2)
+                      if md and md['actual'] == 6 else md)
+                     for pl, pt, dt, md in parts]
         for qi, (plen, ptype, dots, mod) in enumerate(parts):
             plast = last and qi == len(parts) - 1
             pfirst = first and qi == 0
@@ -1997,7 +2045,7 @@ def _emit_ftrem(out, at_bar, pieces, grids, bar, main, trill, table,
     if len(pieces) != 1:
         return False
     a, b = pieces[0]
-    parts = _name(b - a, grids.get(a // DIV, 4))
+    parts = _name(b - a, grids.get(beat_of(a, bar), 4))
     if len(parts) != 1:
         return False
     plen, ptype, dots, mod = parts[0]

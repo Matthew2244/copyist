@@ -859,15 +859,13 @@ def parse_notes(text, loc):
                     trill_spec(m.group(5), midi, loc))
         return (dur_of(m.group(4), sn, sd), midi)
 
-    items, grids, pos = [], {}, 0
+    items, grids, pos = [], [], 0
     for tok in re.split(r',(?![^(]*\))', text):
         tok = tok.strip()
         if not tok:
             fail(f"{loc}: empty item in notes:")
         m = re.fullmatch(r'triplet\(\s*(.*?)\s*\)', tok)
         if m:
-            if pos % 24:
-                fail(f"{loc}: a triplet group must start on the beat")
             inner = [t.strip() for t in m.group(1).split(',')]
             letters = {re.sub(r'[^whqes]', '', t)[-1:] for t in inner}
             if letters - {'e', 's'} or len(letters) != 1:
@@ -881,8 +879,9 @@ def parse_notes(text, loc):
                 pos += ticks
             if (pos - start) % 24:
                 fail(f"{loc}: a triplet group must fill whole beats")
-            for b in range(start // 24, pos // 24):
-                grids[b] = sub
+            # where the beats fall depends on the bar it lands in, so
+            # the span is kept and inline_res checks it against the meter
+            grids.append((start, pos, sub))
             continue
         item = one(tok)
         items.append(item)
@@ -1462,9 +1461,22 @@ def parse_chart(path):
                          f"on beat {fmt}, but a {mt[0]}/{mt[1]} bar has "
                          f"beats 1 to {beats}")
             n = len(bar)
+            at = [1.0 + i * (beats / n) for i in range(n)]
+            per_q = mt[1] / 4             # bottom notes in a quarter
+            if mt[1] >= 8 and mt[0] % 3 and (mt[0] / per_q) % 1:
+                # 7/8 or 5/8: chords change where the beat groups start
+                # (7/8 as 2+2+3), never on a half-group "and"
+                starts = [1.0 + k * per_q
+                          for k in range(int(mt[0] // per_q))]
+                if len(starts) > 1 and mt[0] - (starts[-1] - 1) <= \
+                        per_q / 2:
+                    starts.pop()
+                if 1 < n <= len(starts):
+                    at = [starts[round(i * len(starts) / n)]
+                          for i in range(n)]
             content.append([
                 (b, c) if b is not None else
-                (1.0 + i * (beats / n) if n > 1 else 1.0, c)
+                (at[i] if n > 1 else 1.0, c)
                 for i, (b, c) in enumerate(bar)])
         sec['content'] = content
         start += sec['bars']
@@ -3304,14 +3316,17 @@ def auto_cues(plans, band, labels, resolved, chart, findings):
                     if tl:
                         nb = r['bars'][1] - r['bars'][0] + 1
                         per = max(r.get('n_units', nb) // max(nb, 1), 1)
-                        skip = (first - r['at']) * per
                         keep_u = (end_bar - first + 1) * per
+                        # grid keys are beats, counted bar by bar
+                        bpb = chartdemo.bar_beats(per)
+                        skip_b = (first - r['at']) * bpb
+                        keep_b = (end_bar - first + 1) * bpb
                         r2 = dict(r, timeline=tl, at=first,
                                   bars=(1, end_bar - first + 1),
                                   n_units=keep_u,
-                                  grids={k - skip: v for k, v in (
+                                  grids={k - skip_b: v for k, v in (
                                       r.get('grids') or {}).items()
-                                      if skip <= k < skip + keep_u},
+                                      if skip_b <= k < skip_b + keep_b},
                                   dyns=[], staves=None, trills={},
                                   trems={}, ks={}, lyrics=None,
                                   lyrics_text=None)

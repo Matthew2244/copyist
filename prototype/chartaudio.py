@@ -20,6 +20,7 @@ listen at -16 LUFS and never over -1 dB true peak (chartloud), so
 nothing clips on playback (the iMessage lesson). Robot horns,
 but OUR robot horns.
 """
+import bisect
 import math
 import os
 import re
@@ -481,6 +482,7 @@ def parse_score(path, only=None):
         dyn_state = 80.0
         q0 = 0.0                        # quarters at the measure's start
         bars = {}                       # printed bar -> q of FIRST play
+        bar_q = []                      # q of every bar as played
         events = []
         carry = {}                      # (voice, midi) -> event index, for ties
         dyns = []                       # (q, dynamics value) timeline
@@ -505,6 +507,7 @@ def parse_score(path, only=None):
         for num, meas in walk_cuts(expand_roadmap(_ms, road), _ms, road):
             if num.isdigit():
                 bars.setdefault(int(num), q0)
+            bar_q.append(q0)
             dv = re.search(r'<divisions>(\d+)</divisions>', meas)
             if dv:
                 div = int(dv.group(1))
@@ -804,7 +807,8 @@ def parse_score(path, only=None):
         parts.append({'name': m['name'], 'program': m['program'],
                       'percussion': m['percussion'],
                       'sound': m.get('sound', ''), 'events': events,
-                      'bars': bars, 'meter0': meter0 or (4, 4),
+                      'bars': bars, 'bar_starts': bar_q,
+                      'meter0': meter0 or (4, 4),
                       'length_q': q0, 'dyns': dyns, 'wedges': wedges})
     end_q = max((p['length_q'] for p in parts), default=0.0)
     meter0 = parts[0]['meter0'] if parts else (4, 4)
@@ -815,6 +819,7 @@ def parse_score(path, only=None):
             'count_off': (int(co.group(1)), int(co.group(2)), co.group(3))
             if co else None,
             'bars': parts[0]['bars'] if parts else {},
+            'bar_starts': parts[0]['bar_starts'] if parts else [],
             'meter0': meter0,
             'fade': fade, 'end_q': end_q,
             'tempos': sorted(tempos.items()),
@@ -952,11 +957,14 @@ def apply_fade(pcm, sr, t0, t1):
 # ------------------------------------------------------------- schedule
 
 
-def _warp(q, swings):
+def _warp(q, swings, starts=None):
     """Swing as an honest time warp: inside a swung span, the second
     half of each swing unit starts at the ratio point instead of
     halfway. The unit is the beat for eighth swing, the half-beat
-    for 16th swing."""
+    for 16th swing. Units count from the barline (`starts`, every
+    bar's q as played): after a 7/8 bar the next downbeat sits half a
+    beat off the top-of-tune count, and swung from there every
+    on-beat played late and every and straight."""
     ratio, unit = None, 1.0
     for at, r in swings:
         if at <= q + 1e-9:
@@ -966,7 +974,11 @@ def _warp(q, swings):
                 ratio, unit = r if isinstance(r, tuple) else (r, 1.0)
     if not ratio:
         return q
-    base = math.floor(q / unit) * unit
+    bs = 0.0
+    if starts:
+        i = bisect.bisect_right(starts, q + 1e-9) - 1
+        bs = starts[i] if i >= 0 else 0.0
+    base = bs + math.floor((q - bs) / unit + 1e-9) * unit
     f = (q - base) / unit
     if min(abs(f - 1 / 3), abs(f - 2 / 3)) < 0.02:
         # a written triplet is already swing: it stays where it's
@@ -1025,8 +1037,9 @@ def _seconds(plan):
     for part in plan['parts']:
         ev = []
         for q_on, q_dur, midi, gain, art in part['events']:
-            a = sec_of(_warp(q_on, plan['swings']))
-            b = sec_of(_warp(q_on + q_dur, plan['swings']))
+            a = sec_of(_warp(q_on, plan['swings'], plan.get('bar_starts')))
+            b = sec_of(_warp(q_on + q_dur, plan['swings'],
+                             plan.get('bar_starts')))
             ev.append((a, max(b - a, 0.03), midi, gain, art))
         out.append(ev)
     return out
@@ -1216,7 +1229,9 @@ def render(listen_path, wav_path, only=None, tail=1.5, count_in=None,
         pcm = frames_i.tobytes()
         if plan.get('fade') is not None:
             def _s(q):
-                return _sec_of(_warp(q, plan['swings']), plan['tempos'],
+                return _sec_of(_warp(q, plan['swings'],
+                                     plan.get('bar_starts')),
+                               plan['tempos'],
                                plan.get('holds', ()))
             pcm = apply_fade(pcm, SR, _s(plan['fade']) + lead,
                              _s(plan['end_q']) + lead)

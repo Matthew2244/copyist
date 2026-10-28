@@ -1794,6 +1794,31 @@ def beam_beat(time, div):
     return beat * 3 if den >= 8 and num % 3 == 0 else beat
 
 
+def beam_groups(time, div):
+    """(key, tuplet beat) for one bar: key(pos) names the beam group a
+    bar-relative position belongs to. A bar that is not a whole number
+    of quarters beams in quarters from the barline, the short end
+    joining the group before it (7/8 as 2+2+3, 5/8 as 2+3, 5/16 as
+    one group) — beaming by the bottom note flagged every eighth of a
+    7/8 bar alone. The tuplet beat stays the quarter there, so a
+    triplet in 7/8 gets one number."""
+    num, den = time[0], time[1]
+    beat = beam_beat(time, div)
+    bar = div * 4 * num // den
+    if bar % div == 0 or (den >= 8 and num % 3 == 0):
+        return (lambda p, _b=beat: p // _b), beat
+    starts = list(range(0, bar, div))
+    if len(starts) > 1 and bar - starts[-1] <= div // 2:
+        starts.pop()
+
+    def key(p, _s=starts):
+        k = 0
+        while k + 1 < len(_s) and _s[k + 1] <= p:
+            k += 1
+        return k
+    return key, div
+
+
 def under_credits(y, low):
     return y if low is None else min(y, low - HEAD_CLEAR)
 
@@ -2087,7 +2112,7 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
         draw_measure_number(pdf, meas, x0, top)
         return x0 + width
 
-    beat_len = beam_beat(state['time'], div)
+    beat_len = beam_groups(state['time'], div)
     streams = {}
     for pos, notes, staff, voice in meas['events']:
         streams.setdefault((staff, voice), []).append((pos, notes))
@@ -2125,12 +2150,16 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
     # notes that will beam together share one stem direction, decided
     # by the whole group — a lone dissenter would get its stem drawn
     # from the wrong side of the beam, a pole through the staff
+    if isinstance(beat_len, tuple):
+        group_of, tup_len = beat_len
+    else:
+        group_of, tup_len = (lambda p, _b=beat_len: p // _b), beat_len
     beat_ps = {}
     for pos, notes in events:
         n0 = notes[0]
         if n0.rest or not FLAGS.get(n0.ntype, 0):
             continue
-        beat_ps.setdefault(pos // beat_len, []).extend(
+        beat_ps.setdefault(group_of(pos), []).extend(
             step_pos(n.step, n.octave, clef) for n in notes)
     beat_dir = {b: (sum(ps) / len(ps)) < 4 for b, ps in beat_ps.items()}
     for ei, (pos, notes) in enumerate(events):
@@ -2165,8 +2194,8 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
         ys = [top - STAFF + p * SP / 2 for p in ps]
         if forced is not None:
             up = forced
-        elif FLAGS.get(n0.ntype, 0) and pos // beat_len in beat_dir:
-            up = beat_dir[pos // beat_len]
+        elif FLAGS.get(n0.ntype, 0) and group_of(pos) in beat_dir:
+            up = beat_dir[group_of(pos)]
         else:
             up = (sum(ps) / len(ps)) < 4
         half = head_half(pdf, scale, 'slash' if n0.slash else 'black')
@@ -2225,7 +2254,7 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
         nflags = FLAGS.get(n0.ntype, 0)
         if nflags:
             same_beat = [e for e in events
-                         if e[0] // beat_len == pos // beat_len
+                         if group_of(e[0]) == group_of(pos)
                          and not e[1][0].rest
                          and FLAGS.get(e[1][0].ntype, 0)]
             if len(same_beat) > 1:
@@ -2365,11 +2394,11 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                               (xb, ym + dy - 0.5 * SP),
                               (xa, y1 + dy - 0.5 * SP)], fill=True)
         if n0.tmod and not n0.trem2 \
-                and (not drawn or drawn[-1] != pos // beat_len):
-            pdf.text(xat(pos + beat_len / 2 - n0.dur / 2),
+                and (not drawn or drawn[-1] != pos // tup_len):
+            pdf.text(xat(pos + tup_len / 2 - n0.dur / 2),
                      (tip + (1.6 * SP if up else -2.6 * SP)),
                      str(n0.tmod), size=8, font='HO', center=True)
-            drawn.append(pos // beat_len)
+            drawn.append(pos // tup_len)
     flush_beam(pdf, pend_beam)
     ott = [(xat(pos), pos, notes[0].ott) for pos, notes in events
            if not notes[0].rest and notes[0].ott]

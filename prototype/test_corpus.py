@@ -7901,6 +7901,57 @@ def check_odd_meter_downbeats():
         said = str(e)
     check("a note played just ahead of the next bar is that bar's, "
           "and the lift says so", "belongs to bar 2" in said, said)
+    # a triplet on beat 1 of bar 2 in 7/8 prints as the triplet it is
+    notes = [(i * 480, i * 480 + 450, 60 + i, 90) for i in range(7)]
+    notes += [(3360 + i * 320, 3360 + i * 320 + 300, 72 + i, 90)
+              for i in range(3)]
+    notes += [(3360 + 960 + i * 480, 3360 + 960 + i * 480 + 450, 67, 90)
+              for i in range(5)]
+    path = os.path.join(tmp, "trip78.mid")
+    smf.write(path, notes, div, 120, ts=(7, 8))
+    d = chartdemo.load_demo(path)
+    res = chartdemo.resolve_range(d, None, 1, 2, 1, meter=(7, 8),
+                                  window=(d.bar_tick(1), d.bar_tick(3)),
+                                  part_label="flute",
+                                  findings=chartdemo.Findings())
+    bt = res['bar_ticks']
+    check("7/8: bar 2's first beat is a triplet beat, looked up from "
+          "its own barline",
+          res['grids'].get(chartdemo.beat_of(bt, bt)) == 3
+          and chartdemo._pieces(bt, bt + 24, res['grids'], bt)
+          == [(bt, bt + 24)], res['grids'])
+    import chartengrave
+    key, tup = chartengrave.beam_groups((7, 8), 24)
+    check("7/8 beams 2+2+3 from the barline, one tuplet number a quarter",
+          [key(p) for p in range(0, 84, 12)] == [0, 0, 1, 1, 2, 2, 2]
+          and tup == 24)
+    key, _ = chartengrave.beam_groups((4, 4), 24)
+    check("4/4 beams by the quarter, as always",
+          [key(p) for p in (0, 12, 24, 72)] == [0, 0, 1, 3])
+    import chartaudio
+    sw = [(0, (2 / 3, 1.0))]
+    w = chartaudio._warp
+    check("swing counts from every barline: after a 7/8 bar the downbeat "
+          "stays put and the and swings",
+          abs(w(7.5, sw, [0, 4, 7.5]) - 7.5) < 1e-9
+          and abs(w(8.0, sw, [0, 4, 7.5]) - (7.5 + 2 / 3)) < 1e-9
+          and abs(w(4.5, sw) - (4 + 2 / 3)) < 1e-9)
+    import chartgroove
+    b = chartgroove.Bar(24, (7, 8), 0, 1)
+    check("a 7/8 bar grooves in quarters, cut to its real length",
+          (b.num, b.den, b.barlen, b.meter) == (4, 4, 84, (7, 8)))
+    b = chartgroove.Bar(24, (6, 8), 0, 1)
+    check("6/8 stays compound", (b.num, b.den) == (6, 8))
+    import chartc
+    cp = os.path.join(tmp, "s78.chart")
+    with open(cp, "w") as f:
+        f.write("title: S\nkey: C\nmeter: 7/8\ntempo: 120\n\nband:\n"
+                "  piano\n\nsection A, 2 bars\n  chords: C F, C F G\n"
+                "  piano: groove\n")
+    bars = chartc.parse_chart(cp)['sections'][0]['content']
+    check("7/8 chords change on the beat groups, 4+3 and 2+2+3",
+          [b_ for b_, _c in bars[0]] == [1.0, 5.0]
+          and [b_ for b_, _c in bars[1]] == [1.0, 3.0, 5.0], bars)
     say = chartdemo._say_beat
     check("the read-aloud counts 1 e and a, 1 trip let",
           [say(x) for x in (6, 12, 18, 8, 16)]

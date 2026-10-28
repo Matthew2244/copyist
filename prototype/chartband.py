@@ -989,10 +989,11 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
     shelf = Shelf(sf_path)
     holds = plan.get('holds', ())
     swings = plan['swings']
+    starts = plan.get('bar_starts')
     tempos = plan['tempos']
 
     def sec_of(q):
-        return chartaudio._sec_of(chartaudio._warp(q, swings),
+        return chartaudio._sec_of(chartaudio._warp(q, swings, starts),
                                   tempos, holds)
 
     # a soloist swings flatter than the drummer's ride (Friberg &
@@ -1010,7 +1011,8 @@ def render_plan(plan, wav_path, sf_path, tail=2.0, count_in=None,
     swings_solo = _flat(swings)
 
     def sec_solo(q):
-        return chartaudio._sec_of(chartaudio._warp(q, swings_solo),
+        return chartaudio._sec_of(chartaudio._warp(q, swings_solo,
+                                                   starts),
                                   tempos, holds)
 
     def bpm_at(q):
