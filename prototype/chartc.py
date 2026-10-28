@@ -2424,6 +2424,16 @@ def resolve_groups(band, custom=None):
     return g
 
 
+# which bar numbers findings and read-alouds speak: 'daw' adds the
+# demo's count-in (the numbers in the writer's session), 'page' says the
+# printed numbers. chart.py sets it from the read_bars setting.
+SPOKEN = 'daw'
+
+
+def spoken_shift(hdr):
+    return int(hdr.get('countin', 0)) if SPOKEN == 'daw' else 0
+
+
 def compile_chart(chart_path, outdir):
     chart = parse_chart(chart_path)
     if not chart['sections']:
@@ -2663,7 +2673,7 @@ def compile_chart(chart_path, outdir):
 
     # ---- the range report: where each part peaks, in written pitch —
     # what an arranger checks before any page reaches a player
-    shift = int(hdr.get('countin', 0))
+    shift = spoken_shift(hdr)
     for l in labels:
         def bar_of_tick(start_bar, s):
             # the range report speaks bar numbers, and a bar is as
@@ -2788,7 +2798,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                  f"bar {pb} — split it there")
                     res, rawmap = chartdemo.inline_res(
                         dict(ref, short=ref.get('short', False)),
-                        fig_meter, int(hdr.get('countin', 0)),
+                        fig_meter, spoken_shift(hdr),
                         fifths=key_at(chart.get('keys')
                                       or [(1, (fifths, mode))],
                                       fig_lo)[0])
@@ -2869,7 +2879,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     derive_dyns=hdr.get('dynamics', '') not in
                     ('by hand', 'manual'),
                     short=ref.get('short', False),
-                    spoken_shift=int(hdr.get('countin', 0)),
+                    spoken_shift=spoken_shift(hdr),
                     part_label=l, findings=findings,
                     drums=h['clef'] == 'percussion')
                 # a drum set (or the aux table, several instruments on

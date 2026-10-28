@@ -7953,6 +7953,25 @@ def check_stems_and_page_bars():
           "Your line, bar 1," in said['page']
           and "Bar 1:" in said['page'] and "Bar 3:" not in said['page']
           and "printed page's" in said['page'], said['page'])
+    import chartc
+    logs = {}
+    for mode in ('daw', 'page'):
+        chartc.SPOKEN = mode
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            chartc.compile_chart(os.path.join(tmp, "p.chart"),
+                                 os.path.join(tmp, "out-" + mode))
+        fdir = os.path.join(tmp, "out-" + mode)
+        logs[mode] = buf.getvalue() + "".join(
+            open(os.path.join(fdir, f), encoding='utf-8').read()
+            for f in os.listdir(fdir) if f.endswith("findings.txt"))
+    chartc.SPOKEN = 'daw'
+    check("findings speak one numbering: the DAW's, count-in added",
+          "peak" in logs['daw'] and "at bar 3" in logs['daw']
+          and "at bar 1" not in logs['daw'], logs['daw'])
+    check("findings speak one numbering: the page's, from one",
+          "peak" in logs['page'] and "at bar 1" in logs['page']
+          and "bar 3" not in logs['page'], logs['page'])
 
 
 def check_lead_sheet_from_markers():

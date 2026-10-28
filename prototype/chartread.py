@@ -440,6 +440,7 @@ def main():
                     help="daw says your DAW's bar numbers, count-in "
                          "included; page says the printed page's")
     a = ap.parse_args()
+    chartc.SPOKEN = a.bars
 
     chart = chartc.parse_chart(a.chart)
     hdr = chart['header']

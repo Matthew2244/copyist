@@ -871,6 +871,12 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     The printed page keeps printed numbers — players count from one.
     """
     find = findings if findings is not None else Findings()
+    # the lift as the writer hears it said: the same numbering as every
+    # other bar in the findings (count-in added, or the printed page's)
+    said_lo = at_bar + spoken_shift
+    said_hi = said_lo + bar_hi - bar_lo
+    lift = (f"bar {said_lo}" if said_lo == said_hi
+            else f"bars {said_lo}-{said_hi}")
     src = demo.track(track_name)
     beat = demo.division
     m_num, m_den = meter
@@ -930,7 +936,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     lag = offs[len(offs) // 2]
     if abs(lag) > beat * 0.04:
         ms = abs(lag) * 60000 / (87 * beat)
-        find.add(f"{part_label}: bars {bar_lo}-{bar_hi} played "
+        find.add(f"{part_label}: {lift} played "
                  f"{'behind' if lag > 0 else 'ahead of'} the beat by about "
                  f"{ms:.0f} ms — that is the feel; the page keeps the "
                  "intended rhythm")
@@ -1050,7 +1056,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                               if tuplets.CANDIDATES[s][2] !=
                               tuplets.CANDIDATES[s][3]})
     if tupl:
-        find.add(f"{part_label}: bars {bar_lo}-{bar_hi} use tuplet beats "
+        find.add(f"{part_label}: {lift} use tuplet beats "
                  f"({tupl})")
 
     n_units = (bar_hi - bar_lo + 1) * pad
@@ -1232,7 +1238,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
 
     if detail == 'simplified':
         timeline, raw, dropped = _simplify(timeline, raw, n_units)
-        find.add(f"{part_label}: bars {bar_lo}-{bar_hi} simplified — "
+        find.add(f"{part_label}: {lift} simplified — "
                  + (f"{dropped} ornament(s) absorbed, " if dropped else "")
                  + "the rhythm smoothed to the eighth")
 
@@ -1351,7 +1357,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         gh = sorted({at_bar + spoken_shift + timeline[i][0] // bar_ticks
                      for i in ghosts})
     if legato and len(timeline) >= 2:
-        find.add(f"{part_label}: bars {bar_lo}-{bar_hi}: "
+        find.add(f"{part_label}: {lift}: "
                  + (f"{n_sl} slurred phrase(s) from the played legato"
                     if n_sl else
                     "legato asked, but the playing is detached — "
@@ -1391,9 +1397,10 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             dyns.append((bo * bar_ticks, k))
             prev = k
     if dyns:
-        find.add(f"{part_label}: bars {bar_lo}-{bar_hi} dynamics read from "
+        find.add(f"{part_label}: {lift} dynamics read from "
                  "the expression pedal: "
-                 + ", ".join(f"{k} at bar {at_bar + t // bar_ticks}"
+                 + ", ".join(f"{k} at bar "
+                             f"{at_bar + spoken_shift + t // bar_ticks}"
                              for t, k in dyns))
 
     return {'timeline': timeline, 'grids': grids_chart,

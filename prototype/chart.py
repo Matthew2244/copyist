@@ -1552,6 +1552,8 @@ def main():
                     'n': 'new', 'e': 'edit'}.get(args.command,
                                                  args.command)
     cfg = load_cfg()
+    # findings and read-alouds speak one numbering, the writer's choice
+    chartc.SPOKEN = cfg.get('read_bars') or 'daw'
 
     if args.command == 'new':
         import chartnew
