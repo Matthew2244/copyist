@@ -7978,6 +7978,23 @@ def check_stems_and_page_bars():
         check("a stem sits on the edge of the head Leland draws",
               abs(2 * half - width) < 0.01
               and half - 0.55 < width / 2 <= half + 0.01, (half, width))
+        polys = []
+
+        class Spy(chartengrave.Pdf):
+            def poly(self, pts, close=True, fill=True, w=1.0):
+                polys.append(pts)
+        spy = Spy(music=font)
+        # an eighth then a sixteenth (the dotted-eighth shape): the
+        # second beam's hook sits LEFT of the sixteenth's stem
+        chartengrave.flush_beam(spy, [(100, 80, True, 1),
+                                      (130, 80, True, 2)])
+        hook = polys[-1]
+        check("a lone sixteenth's beam hook points into its group",
+              max(x for x, _y in hook) <= 130.01
+              and min(x for x, _y in hook) < 130, hook)
+        check("double beams stand a quarter space apart",
+              abs((polys[0][0][1] - polys[1][0][1])
+                  - 0.75 * chartengrave.SP) < 0.01, polys[:2])
     tmp = tempfile.mkdtemp()
     div = 480
     smf.write(os.path.join(tmp, "d.mid"),

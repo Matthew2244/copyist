@@ -573,12 +573,12 @@ def notehead(pdf, x, y, kind='black', scale=1.0, parens=False):
                       (sx + side * 1.2, y - 1.7 * SP))], w=0.9)
 
 
-def draw_flag(pdf, x, y, up, n):
+def draw_flag(pdf, x, y, up, n, scale=1.0):
     if pdf.music:
         name = {1: 'flag8', 2: 'flag16', 3: 'flag32'}.get(min(n, 3))
         # a SMuFL flag's origin is the stem's left edge, not its centre
-        if name and pdf.glyph(x - 0.55, y, name + ('U' if up else 'D'),
-                              4 * SP):
+        if name and pdf.glyph(x - 0.55 * scale, y,
+                              name + ('U' if up else 'D'), 4 * SP * scale):
             return
     for i in range(n):
         dy = -i * 2.4 * (1 if up else -1)
@@ -2174,11 +2174,16 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             # rests high, the down-stem voice low
             rest_dy = 0 if forced is None else (
                 SP if forced else -1.5 * SP)
+            if n0.measure_rest:
+                # a whole-bar rest sits in the middle of the bar, and
+                # never wears a dot (a 3/4 pickup bar's read as a dotted
+                # whole rest)
+                cx = (xat(0) - 1.5 * SP + x0 + width) / 2
             draw_rest(pdf, cx, top,
                       'measure' if n0.measure_rest else n0.ntype,
                       dy=rest_dy)
             dot_x = cx + 1.6 * SP
-            for _ in range(n0.dots):
+            for _ in range(0 if n0.measure_rest else n0.dots):
                 _dot(pdf, dot_x, mid + 0.5 * SP)
                 dot_x += 3.4
             if getattr(n0, 'fermata', False):
@@ -2200,44 +2205,60 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             up = (sum(ps) / len(ps)) < 4
         half = head_half(pdf, scale, 'slash' if n0.slash else 'black')
         ledge = half + 0.45 * SP * scale
-        for p, yy in zip(ps, ys):
-            if p < -1:
-                for lp in range(-2, p - 1, -2):
-                    pdf.line(cx - ledge, top - STAFF + lp * SP / 2,
-                             cx + ledge, top - STAFF + lp * SP / 2,
-                             w=0.8)
-            if p > 9:
-                for lp in range(10, p + 1, 2):
-                    pdf.line(cx - ledge, top - STAFF + lp * SP / 2,
-                             cx + ledge, top - STAFF + lp * SP / 2,
-                             w=0.8)
-        ax = cx - 2.1 * SP
-        for n, yy in zip(notes, ys):
-            if getattr(n, 'show_acc', None) is not None:
-                draw_accidental(pdf, ax, yy, n.show_acc, scale=scale)
-                ax -= 1.7 * SP
-        if n0.graces:
-            draw_graces(pdf, n0, (ax if ax < cx - 2.1 * SP
-                                  else cx - 1.4 * SP) - GRACE_STEP * 0.6,
-                        top, clef)
-        head = ('slash' if n0.slash else DUR_HEADS.get(n0.ntype, 'black'))
-        order = sorted(range(len(ps)), key=lambda i: ps[i])
+        # a second puts one head across the stem: the upper one to the
+        # right of an up stem, the lower one to the left of a down stem
+        order = sorted(range(len(ps)), key=lambda i: ps[i],
+                       reverse=not up)
         side = {}
         prev_p, flip = None, False
         for i in order:
             flip = (not flip) if (prev_p is not None
-                                  and ps[i] - prev_p == 1) else False
+                                  and abs(ps[i] - prev_p) == 1) else False
             side[i] = flip
             prev_p = ps[i]
+        shove = (2 * half - 1.1 * scale) * (1 if up else -1)
+        dxs = [shove if side[i] else 0 for i in range(len(ps))]
+        # ledger lines reach under every head on them, a displaced one
+        # included
+        lines_at = {}
+        for p, dx in zip(ps, dxs):
+            for lp in (range(-2, p - 1, -2) if p < -1 else
+                       range(10, p + 1, 2) if p > 9 else ()):
+                lo_, hi_ = lines_at.get(lp, (0, 0))
+                lines_at[lp] = (min(lo_, dx), max(hi_, dx))
+        for lp, (lo_, hi_) in lines_at.items():
+            pdf.line(cx + lo_ - ledge, top - STAFF + lp * SP / 2,
+                     cx + hi_ + ledge, top - STAFF + lp * SP / 2, w=0.8)
+        # accidentals stand a quarter space off the leftmost head
+        # (2.1 spaces was the fallback oval's distance; off Leland's
+        # head it left a gap a reader takes for another note's sign)
+        acc_r = cx + min(dxs) - half - 0.25 * SP * scale
+        acc_drawn = False
+        for n, yy in zip(notes, ys):
+            if getattr(n, 'show_acc', None) is not None:
+                gname = {1: 'sharp', -1: 'flat', 0: 'natural',
+                         2: 'dblSharp', -2: 'dblFlat'}.get(n.show_acc)
+                gw_ = (pdf.gw(gname, 4 * SP * scale) if gname else 0) \
+                    or 1.7 * SP * scale
+                draw_accidental(pdf, acc_r - 0.4 * gw_, yy, n.show_acc,
+                                scale=scale)
+                acc_r -= gw_ + 0.15 * SP * scale
+                acc_drawn = True
+        ax = acc_r
+        if n0.graces:
+            draw_graces(pdf, n0, (ax if acc_drawn
+                                  else cx - 1.4 * SP) - GRACE_STEP * 0.6,
+                        top, clef)
+        head = ('slash' if n0.slash else DUR_HEADS.get(n0.ntype, 'black'))
         for i, (n, yy) in enumerate(zip(notes, ys)):
-            dx = ((2 * half - 1.1 * scale) * (1 if up else -1)
-                  if side[i] else 0)
+            dx = dxs[i]
             h = head
             if getattr(n, 'head', None) in ('x', 'circle-x', 'diamond',
                                             'triangle', 'slashed'):
                 h = n.head
             notehead(pdf, cx + dx, yy, h, scale=scale, parens=n.parens)
-        dot_x = cx + half + 0.6 * SP
+        # dots follow the rightmost head
+        dot_x = cx + max(dxs) + half + 0.6 * SP
         for _ in range(n0.dots):
             for yy in ys:
                 _dot(pdf, dot_x, yy + (0 if (round(yy - top) % round(SP))
@@ -2247,8 +2268,9 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
         if n0.ntype != 'whole':
             lo, hi = min(ys), max(ys)
             tip = (hi + 3.4 * SP * scale) if up else (lo - 3.4 * SP * scale)
-            pdf.line(stem_x, (lo if up else hi), stem_x, tip,
-                     w=1.1 * scale)
+            corner = 0.9 * SP * scale if n0.slash else 0
+            pdf.line(stem_x, (lo + corner if up else hi - corner), stem_x,
+                     tip, w=1.1 * scale)
         else:
             tip = max(ys) if up else min(ys)
         nflags = FLAGS.get(n0.ntype, 0)
@@ -2263,7 +2285,7 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                     flush_beam(pdf, pend_beam)
                     pend_beam = []
             else:
-                draw_flag(pdf, stem_x, tip, up, nflags)
+                draw_flag(pdf, stem_x, tip, up, nflags, scale=scale)
         else:
             flush_beam(pdf, pend_beam)
             pend_beam = []
@@ -2275,6 +2297,8 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             if mk in BEND_MARKS:
                 ay = (min(ys) - 2.2 * SP) if up else (max(ys) + 1.6 * SP)
                 acx = cx
+                if mk in ('fall', 'doit') and n0.dots:
+                    acx = dot_x - SP     # off the end, past the dots
                 if mk in ('scoop', 'plop') and any(
                         getattr(n, 'show_acc', None) is not None
                         for n in notes):
@@ -2290,7 +2314,11 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                 near_hi = max(ys) + 1.6 * SP + k * 1.5 * SP
                 draw_mark(pdf, cx, near_hi, mk)
         base = max(top + 0.6 * SP, max(ys) + 1.8 * SP,
-                   near_hi + 1.6 * SP if near_hi > max(ys) else -1e9)
+                   near_hi + 1.6 * SP if near_hi > max(ys) else -1e9,
+                   # over an up stem the accent clears the stem's end
+                   # (and the beam there), never sits on it
+                   tip + 1.3 * SP if up and n0.ntype != 'whole'
+                   else -1e9)
         for k, mk in enumerate(m for m in marks if m in ABOVE_MARKS):
             draw_mark(pdf, cx, base + k * 1.9 * SP, mk)
         for mk in (m for m in marks if m in AFTER_MARKS):
@@ -2322,21 +2350,60 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                 pdf.line(cx - 1.6 * SP, fy, cx, fy + 1.2 * SP, 0.9)
                 pdf.line(cx, fy + 1.2 * SP, cx + 1.6 * SP, fy, 0.9)
                 pdf.text(cx - 1, fy + 0.5, '.', size=8, font='HB')
-        if n0.tie_stop or n0.slur_stop:
-            if slur_open:
-                sx, sy, sup = slur_open.pop()
-                ey = (max(ys) if sup else min(ys))
-                arc = 2.2 * SP * (1 if sup else -1)
-                if sx is None:      # broken at the system turn: the
-                    sx = max(x0 + 0.8 * SP, cx - 5 * SP)
-                    sy = ey         # incoming half, flat to the note
-                    arc = 1.8 * SP * (1 if sup else -1)
-                draw_arc(pdf, sx, sy + 0.27 * arc, cx,
-                         ey + 0.27 * arc, arc)
+        closing = (n0.tie_stop or n0.slur_stop) and slur_open
+        # every note under an open slur raises (or lowers) what the arc
+        # must clear: a higher middle note had the slur run through it
+        for o in slur_open[:-1] if closing else slur_open:
+            if len(o) > 6 and o[0] is not None:
+                o[6].append((cx, max(ys) + (1.6 * SP if any(
+                    getattr(n, 'show_acc', None) is not None
+                    for n in notes) else 0), min(ys)))
+        if closing:
+            sx, sy, sup, *more = slur_open.pop()
+            slur = bool(more) and more[0] == 'slur'
+            if slur and more[1] != up and not sup:
+                # stems both ways under one slur: it goes above
+                sup, sy = True, more[2] + 0.9 * SP
+            acc = any(getattr(n, 'show_acc', None) is not None
+                      for n in notes)
+            if slur:
+                # a slur lands over (or under) the head's middle, clear
+                # of its accidental, not on the head's edge
+                ex = cx
+                ey = (max(ys) + (1.7 if acc else 0.9) * SP if sup
+                      else min(ys) - 0.9 * SP)
+            else:
+                ex = cx - 0.8 * half
+                ey = max(ys) if sup else min(ys)
+            if sx is None:      # broken at the system turn: the
+                sx = max(x0 + 0.8 * SP, cx - 5 * SP)
+                sy = ey         # incoming half, flat to the note
+            span = max(ex - sx, 1)
+            h = min(2.2 * SP, max(0.5 * SP, 0.3 * span))
+            if slur and len(more) > 3:
+                # high enough to clear every note under it, measured at
+                # that note's own place along the curve (the bezier
+                # rises 3t(1-t) of the arc above the chord line there)
+                for px, phi, plo in more[3]:
+                    t = min(max((px - sx) / span, 0.08), 0.92)
+                    line_y = sy + (ey - sy) * t
+                    gap = (phi + 0.9 * SP - line_y if sup
+                           else line_y - (plo - 0.9 * SP))
+                    h = max(h, gap / (3 * t * (1 - t)))
+                h = min(5 * SP, h)
+            arc = h * (1 if sup else -1)
+            lift = 0.27 * arc if not slur else 0
+            draw_arc(pdf, sx, sy + lift, ex, ey + lift, arc)
         if n0.tie_start or n0.slur_start:
             sup = not up
-            slur_open.append((cx + SP,
-                              (max(ys) if sup else min(ys)), sup))
+            if n0.slur_start and not n0.tie_start:
+                slur_open.append([cx, (max(ys) + 0.9 * SP if sup
+                                       else min(ys) - 0.9 * SP), sup,
+                                  'slur', up, max(ys), []])
+            else:
+                slur_open.append((cx + 0.8 * half,
+                                  (max(ys) if sup else min(ys)), sup,
+                                  'tie', up, max(ys)))
         if n0.lyric:
             syl, txt, ext = n0.lyric
             shown = txt + ("" if syl in ('single', 'end') else " -")
@@ -2438,10 +2505,11 @@ def drain_ties(pdf, carry, edge):
     incoming half."""
     for key, opens in carry.items():
         fresh = []
-        for sx, sy, sup in opens:
+        for sx, sy, sup, *_more in opens:
             if sx is None:
                 continue            # never landed; let it go quietly
-            arc = 1.8 * SP * (1 if sup else -1)
+            arc = min(1.8 * SP, max(0.5 * SP, 0.3 * (edge - sx))) * \
+                (1 if sup else -1)
             draw_arc(pdf, sx, sy + 0.3 * arc, edge, sy + 0.3 * arc, arc)
             fresh.append((None, None, sup))
         carry[key] = fresh
@@ -2589,20 +2657,38 @@ def flush_beam(pdf, group):
     d = 1 if up else -1
     for g in group:                       # stems reach the slanted beam
         pdf.line(g[0], g[1] - d * 2.5 * SP, g[0], beam_y(g[0]), w=1.1)
+    thick, step = 0.5 * SP, 0.75 * SP    # a quarter space between beams
+
+    def slab(xa, xb, off):
+        pdf.poly([(xa, beam_y(xa) + off), (xb, beam_y(xb) + off),
+                  (xb, beam_y(xb) + off - thick * d),
+                  (xa, beam_y(xa) + off - thick * d)], fill=True)
     for i in range(levels):
-        off = -i * 2.6 * d
-        full = [g for g in group if g[3] > i]
-        if len(full) == len(group) or i == 0:
-            pdf.poly([(x1, beam_y(x1) + off), (x2, beam_y(x2) + off),
-                      (x2, beam_y(x2) + off - 2 * d),
-                      (x1, beam_y(x1) + off - 2 * d)], fill=True)
-        else:
-            for g in full:                # partial 16th beams: short hooks
-                gx = g[0]
-                pdf.poly([(gx, beam_y(gx) + off),
-                          (gx + 6, beam_y(gx + 6) + off),
-                          (gx + 6, beam_y(gx + 6) + off - 2 * d),
-                          (gx, beam_y(gx) + off - 2 * d)], fill=True)
+        off = -i * step * d
+        if i == 0:
+            slab(x1, x2, off)
+            continue
+        # runs of neighbours that both reach this level share a beam; a
+        # lone one gets a hook pointing into the group (left on the
+        # group's last note, the dotted-eighth-sixteenth shape)
+        k = 0
+        while k < len(group):
+            if group[k][3] <= i:
+                k += 1
+                continue
+            j = k
+            while j + 1 < len(group) and group[j + 1][3] > i:
+                j += 1
+            if j > k:
+                slab(group[k][0], group[j][0], off)
+            else:
+                gx = group[k][0]
+                hook = 1.2 * SP
+                if k == len(group) - 1:
+                    slab(gx - hook, gx, off)
+                else:
+                    slab(gx, gx + hook, off)
+            k = j + 1
 
 
 def draw_barline(pdf, meas, x0, tops, width):
