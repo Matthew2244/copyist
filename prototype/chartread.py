@@ -454,6 +454,8 @@ def main():
     meter = chartc.parse_meter(hdr.get('meter', '4/4'))
     resolved, horn_of, key = chartc.resolve_demo(chart, plans, band, labels,
                                                  a.chart, findings, meter)
+    chartc.build_pickup(chart, groups, labels, horn_of, key, meter,
+                        findings)
     for l in labels:
         h = horn_of.get(l) or {}
         # a part's read-aloud says the notes the way its page and its
@@ -536,8 +538,16 @@ def main():
         if chart['pickup']:
             pk = chart['pickup']
             t = "; ".join(f'"{x}"' for x in pk['texts'])
-            out.append(f"Pickup, {pk['beats']} beats" +
-                       (f", marked {t}." if t else "."))
+            beats = pk['beats']
+            line = (f"Pickup, {beats:g} beat{'' if beats == 1 else 's'}"
+                    + (f", marked {t}" if t else ""))
+            mine = chart.get('_pickup_said', {}).get(label)
+            if mine:
+                h_ = horn_of.get(label) or {}
+                mine = mine[1] if (h_.get('transpose') and h_.get(
+                    'clef') != 'percussion') else mine[0]
+            out.append(line + (f". You play it: {mine}" if mine
+                               else ". You rest.") )
         for plan in plans:
             if a.section and plan['sec']['name'].lower() != a.section.lower():
                 continue

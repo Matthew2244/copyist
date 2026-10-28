@@ -34,7 +34,7 @@ STEPS = {'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6}
 
 # staff position (line/space index from bottom line, in half-spaces) of
 # middle C for each clef
-CLEF_C4 = {'G': -2, 'F': 10, 'C': 4, 'percussion': -2}
+CLEF_C4 = {'G': -2, 'G8': 5, 'F': 10, 'C': 4, 'percussion': -2}
 
 DUR_HEADS = {'whole': 'whole', 'half': 'half'}
 FLAGS = {'eighth': 1, '16th': 2, '32nd': 3, '64th': 4}
@@ -52,7 +52,7 @@ def step_pos(step, octave, clef):
 # registered to their staff lines — the font was designed for exactly
 # this use.
 SMUFL = {
-    'gClef': 0xE050, 'cClef': 0xE05C, 'fClef': 0xE062, 'percClef': 0xE069,
+    'gClef': 0xE050, 'gClef8vb': 0xE052, 'cClef': 0xE05C, 'fClef': 0xE062, 'percClef': 0xE069,
     'metNoteQuarterUp': 0xECA5, 'metAugmentationDot': 0xECB7,
     'flat': 0xE260, 'natural': 0xE261, 'sharp': 0xE262,
     'dblSharp': 0xE263, 'dblFlat': 0xE264,
@@ -595,8 +595,14 @@ def draw_flag(pdf, x, y, up, n, scale=1.0):
 
 def draw_clef(pdf, x, top, clef):
     mid = top - STAFF / 2
+    if clef == 'G8' and not (pdf.music and pdf.music.gids.get('gClef8vb')):
+        draw_clef(pdf, x, top, 'G')
+        pdf.text(x + 0.2 * SP, top - STAFF - 2.6 * SP, '8', size=7,
+                 font='TI', center=True)
+        return
     if pdf.music:
         name, yy = {'G': ('gClef', top - 3 * SP),
+                    'G8': ('gClef8vb', top - 3 * SP),
                     'F': ('fClef', top - SP),
                     'C': ('cClef', mid),
                     'percussion': ('percClef', mid)}.get(
@@ -930,9 +936,14 @@ def parse_part(xml, pid):
         sv = re.search(r'<staves>(\d+)</staves>', m)
         if sv:
             state['staves'] = int(sv.group(1))
-        for cnum, sign in re.findall(
-                r'<clef(?:\s+number="(\d+)")?[^>]*>\s*<sign>(\w+)</sign>',
-                m):
+        for cnum, sign, body_ in re.findall(
+                r'<clef(?:\s+number="(\d+)")?[^>]*>\s*<sign>(\w+)</sign>'
+                r'(.*?)</clef>', m, re.S):
+            # a treble clef an octave down (the tenor voice's) keeps its
+            # 8 and its staff positions
+            if sign == 'G' and re.search(
+                    r'<clef-octave-change>-1</clef-octave-change>', body_):
+                sign = 'G8'
             state['clefs'][int(cnum or 1)] = (
                 'percussion' if sign == 'percussion' else sign)
             meas['show']['clef'] = dict(state['clefs'])
@@ -1426,10 +1437,6 @@ def engrave(xml_path, pdf_path, look=None):
             first_page = False
         y -= lift
         tops = staff_tops(y, staves)
-        for stop in tops:
-            for i in range(5):
-                pdf.line(MARGIN, stop - i * SP, PAGE_W - MARGIN,
-                         stop - i * SP, w=0.7)
         if staves > 1:
             draw_brace(pdf, MARGIN - 2, tops[0], tops[-1] - STAFF)
             pdf.line(MARGIN, tops[0], MARGIN, tops[-1] - STAFF, w=1.2)
@@ -1449,6 +1456,14 @@ def engrave(xml_path, pdf_path, look=None):
         stretch = (PAGE_W - MARGIN - x) / sum(w for _, w in system)
         if si == len(systems) - 1:
             stretch = min(stretch, 1.15)   # the last system never gapes
+        # the staff ends at the last barline: on a short last system the
+        # lines had run on, empty, to the margin
+        end_x = min(PAGE_W - MARGIN,
+                    x + sum(w for _, w in system) * stretch)
+        for stop in tops:
+            for i in range(5):
+                pdf.line(MARGIN, stop - i * SP, end_x, stop - i * SP,
+                         w=0.7)
         for mi, (meas, w) in enumerate(system):
             x = draw_measure(pdf, meas, x, tops, w * stretch,
                              first_in_system=(mi == 0), carry=carry,
@@ -1581,10 +1596,6 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
             part_tops.append(staff_tops(py, staves))
             py -= part_height(staves) + SCORE_GAP
         for (pname, measures, staves), tops in zip(parts, part_tops):
-            for stop in tops:
-                for i in range(5):
-                    pdf.line(M, stop - i * SP, W - M, stop - i * SP,
-                             w=0.7)
             if staves > 1:
                 draw_brace(pdf, M - 2, tops[0], tops[-1] - STAFF)
             # clear of the section bracket at M-5 (the last letters of
@@ -1618,6 +1629,12 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
         stretch = (W - M - x) / sum(widths[j] for j in cols)
         if si == len(systems) - 1:
             stretch = min(stretch, 1.15)
+        end_x = min(W - M, x + sum(widths[j] for j in cols) * stretch)
+        for tops in part_tops:
+            for stop in tops:
+                for i in range(5):
+                    pdf.line(M, stop - i * SP, end_x, stop - i * SP,
+                             w=0.7)
         col_xs = []
         for mi, j in enumerate(cols):
             w = widths[j] * stretch
@@ -1638,6 +1655,8 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
         yb = part_tops[-1][-1] - STAFF - 2.6 * SP
         for xj, j in zip(col_xs, cols):
             num = str(parts[-1][1][j]['num'])
+            if num == '0':
+                continue                  # a pickup bar has no number
             tw = max(pdf.tw(num, 7, 'H'), 7)
             pdf.text(xj + 2.5, yb - 5, num, size=7, font='H')
             pdf.poly([(xj, yb - 7.5), (xj + tw + 5, yb - 7.5),
@@ -1676,8 +1695,8 @@ def key_width(meas):
 
 def draw_key(pdf, x, top, fifths, clef, meas):
     order = KEY_SHARPS if fifths > 0 else KEY_FLATS
-    base = {'G': 0, 'F': -2, 'C': -1, 'percussion': None}[
-        clef if clef in ('G', 'F', 'C') else 'percussion']
+    base = {'G': 0, 'G8': 0, 'F': -2, 'C': -1, 'percussion': None}[
+        clef if clef in ('G', 'G8', 'F', 'C') else 'percussion']
     cancel = (meas or {}).get('show', {}).get('cancel')
     if base is not None and cancel:
         # the naturals first, on the very lines the old signature used
@@ -2462,7 +2481,12 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                               (xa, y1 + dy - 0.5 * SP)], fill=True)
         if n0.tmod and not n0.trem2 \
                 and (not drawn or drawn[-1] != pos // tup_len):
-            pdf.text(xat(pos + tup_len / 2 - n0.dur / 2),
+            # centred over the tuplet's own notes: one that fills only
+            # part of the beat had its number pushed off to the left
+            grp = [e[0] for e in events
+                   if e[0] // tup_len == pos // tup_len
+                   and getattr(e[1][0], 'tmod', None) == n0.tmod]
+            pdf.text((xat(min(grp)) + xat(max(grp))) / 2,
                      (tip + (1.6 * SP if up else -2.6 * SP)),
                      str(n0.tmod), size=8, font='HO', center=True)
             drawn.append(pos // tup_len)
@@ -2524,7 +2548,7 @@ def _dot(pdf, x, y):
 
 
 def draw_measure_number(pdf, meas, x0, top):
-    if meas['num'].isdigit() and meas['num'] != '1' \
+    if meas['num'].isdigit() and meas['num'] not in ('0', '1') \
             and not meas['rehearsal']:
         pdf.text(x0 + 1, top + 0.9 * SP, meas['num'], size=6.5, font='HO')
 

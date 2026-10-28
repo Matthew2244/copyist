@@ -8042,6 +8042,51 @@ def check_stems_and_page_bars():
           and "bar 3" not in logs['page'], logs['page'])
 
 
+def check_pickups_play():
+    """2026-10-28, four reviewers at once: a pickup's lick was read for
+    its words and the notes thrown away; bar 0 had no clef, key, time,
+    rest or tempo, so the opening 4/4 and the metronome never printed."""
+    import io
+    import tempfile
+    from contextlib import redirect_stdout
+    import chartc
+    import chartread
+    print("\n== pickups: the lick plays, bar 0 is a real bar ==")
+    tmp = tempfile.mkdtemp()
+    cp = os.path.join(tmp, "pk.chart")
+    with open(cp, "w") as f:
+        f.write("title: P\nkey: F\nmeter: 4/4\ntempo: 160\n"
+                "feel: swing\n\nband:\n  trumpet\n  piano\n\n"
+                "figure lick, 3 beats:\n"
+                "  notes: rest e, C5 e, A4 e, C5 e, A4 e, F4 e\n\n"
+                'pickup 3 beats: trumpet, figure lick, text "(pick up)"\n\n'
+                "section A, 2 bars\n  chords: F7, Bb7\n"
+                "  trumpet: solo\n")
+    out = os.path.join(tmp, "out")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(cp, out)
+    x = open(os.path.join(out, "P — score.musicxml")).read()
+    bar0 = {pid: re.search(r'<measure implicit="yes" number="0">(.*?)'
+                           r'</measure>', x.split(f'<part id="{pid}">')[1],
+                           re.S).group(1)
+            for pid in ('P1', 'P2')}
+    check("the pickup lick prints in the trumpet's bar 0, written pitch",
+          re.findall(r'<step>(\w)</step>', bar0['P1'])
+          == ['D', 'B', 'D', 'B', 'G'], bar0['P1'])
+    check("bar 0 carries the time signature and the tempo",
+          '<time>' in bar0['P1'] and 'metronome' in bar0['P1'])
+    check("a part that waits rests through the pickup",
+          '<rest/>' in bar0['P2'] and '<note>' not in bar0['P2'].replace(
+              '<note><rest/>', ''))
+    buf = io.StringIO()
+    sys.argv = ['chartread', cp, '--part', 'trumpet']
+    with redirect_stdout(buf):
+        chartread.main()
+    check("the read-aloud says the pickup from beat 2, at written pitch",
+          "You play it: from the and of 2, eighths: D 5" in buf.getvalue(),
+          buf.getvalue()[:300])
+
+
 def check_lead_sheet_from_markers():
     """2026-10-27, his ask: a lead sheet from a played chord track, the
     form and what each section does said in the DAW's markers. Chords
@@ -8601,6 +8646,7 @@ if __name__ == "__main__":
     check_lead_sheet_from_markers()
     check_odd_meter_downbeats()
     check_stems_and_page_bars()
+    check_pickups_play()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

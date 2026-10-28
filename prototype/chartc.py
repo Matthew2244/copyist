@@ -162,7 +162,9 @@ HORNS = {
     'soprano':           _inst(0,  (60, 84),  'G', 0, (60, 81)),
     'mezzo':             _inst(0,  (57, 81),  'G', 0, (57, 79)),
     'alto voice':        _inst(0,  (53, 77),  'G', 0, (55, 74)),
-    'tenor voice':       _inst(12, (48, 72),  'G', 0, (48, 69)),
+    # the tenor reads treble-8 at sounding pitch, the way every vocal
+    # score prints it (a plain treble an octave up read as a soprano)
+    'tenor voice':       _inst(0,  (48, 72),  'G8', 0, (48, 69)),
     'baritone voice':    _inst(0,  (41, 67),  'F', 0, (43, 65)),
     'bass voice':        _inst(0,  (40, 64),  'F', 0, (40, 62)),
 }
@@ -366,6 +368,7 @@ INSTRUMENT_ALIASES = {
     'drum set': 'drums', 'drum kit': 'drums', 'kit': 'drums',
     'vocals': 'voice', 'vocal': 'voice', 'lead vocal': 'voice',
     'singer': 'voice',
+    'soprano voice': 'soprano',
     'conga': 'congas', 'bongo': 'bongos', 'timbale': 'timbales',
     'tubular bells': 'chimes', 'wind chimes': 'mark tree',
     'steel drums': 'steel pan', 'steel drum': 'steel pan',
@@ -1039,13 +1042,12 @@ def parse_chart(path):
                 continue
             m = re.match(r'figure ([\w ]+?),\s*(\d+) (bars?|beats?):\s*$', s)
             if m:
-                if m.group(3).startswith('beat'):
-                    fail(f"{loc}: beat-length figures ride on inline "
-                         "notes:, which is not built yet — declare bars")
                 mode = 'figure'
+                beats_long = m.group(3).startswith('beat')
                 chart['figures'][m.group(1).strip()] = cur_fig = {
-                    'bars': int(m.group(2)), 'kind': None, 'loc': loc,
-                    'used': False}
+                    'bars': 0 if beats_long else int(m.group(2)),
+                    'beats': int(m.group(2)) if beats_long else None,
+                    'kind': None, 'loc': loc, 'used': False}
                 continue
             if re.match(r'figure ', s):
                 fail(f"{loc}: a figure is 'figure <name>, <N> bars:' "
@@ -1057,10 +1059,30 @@ def parse_chart(path):
                 # a pickup may be a beat and a half (a dotted-quarter
                 # lead-in); whole beats stay whole numbers
                 pb = float(m.group(1))
+                # "pickup 3 beats: piano, figure lick, text "..."" — the
+                # part named first plays the figure or the notes: (they
+                # had been read for their words alone and the lick
+                # silently dropped)
+                body = m.group(3) or ''
+                plays = []
+                nm = re.match(r'\s*([\w ]+?)\s*,\s*notes:\s*(.+)$', body)
+                if nm:
+                    items, grids, ticks = parse_notes(nm.group(2), loc)
+                    plays.append((nm.group(1).strip(),
+                                  {'kind': 'inline', 'items': items,
+                                   'grids': grids, 'ticks': ticks,
+                                   'loc': loc}))
+                else:
+                    for fm in re.finditer(
+                            r'(?:^|,)\s*([\w ]+?)\s*,\s*figure '
+                            r'([\w ]+?)\s*(?=,|$)', body):
+                        plays.append((fm.group(1).strip(),
+                                      fm.group(2).strip()))
                 chart['pickup'] = {'beats': int(pb) if pb == int(pb)
                                    else pb,
                                    'engraved': bool(m.group(2)),
-                                   'texts': texts}
+                                   'texts': texts, 'plays': plays,
+                                   'loc': loc}
                 continue
             m = re.match(r'section ([\w .-]+?)((?:,.*)?)$', s)
             if m:
@@ -1100,7 +1122,11 @@ def parse_chart(path):
             if canonical_instrument(inst) not in HORNS:
                 # on a band list a bare alto or tenor is the sax, as the
                 # interview has it; the singer is "alto voice"
-                if inst.lower() in ('alto', 'tenor'):
+                if inst.lower() in ('alto', 'tenor', 'baritone'):
+                    # ...unless the band is a choir (soprano is on it):
+                    # decided once the whole band is read
+                    chart.setdefault('_bare_satb', []).append(
+                        m.group(1).strip())
                     inst = inst + ' sax'
                 else:
                     fail(f"{loc}: '{inst}' is not an instrument Copyist "
@@ -1145,6 +1171,9 @@ def parse_chart(path):
                          r',\s*bars (\d+)-(\d+)$', bar_words(s))
             if m:
                 lo, hi = int(m.group(3)), int(m.group(4))
+                if cur_fig.get('beats'):
+                    fail(f"{loc}: a figure counted in beats is written "
+                         "inline, with notes: — bars come in whole")
                 if hi - lo + 1 != cur_fig['bars']:
                     fail(f"{loc}: the figure declares {cur_fig['bars']} "
                          f"bars but references {hi - lo + 1}")
@@ -1155,6 +1184,9 @@ def parse_chart(path):
                          r',\s*bars (\d+)-(\d+)$', bar_words(s))
             if m:
                 lo, hi = int(m.group(3)), int(m.group(4))
+                if cur_fig.get('beats'):
+                    fail(f"{loc}: a figure counted in beats is written "
+                         "inline, with notes: — bars come in whole")
                 if hi - lo + 1 != cur_fig['bars']:
                     fail(f"{loc}: the figure declares {cur_fig['bars']} "
                          f"bars but references {hi - lo + 1}")
@@ -1491,6 +1523,23 @@ def parse_chart(path):
     # a bandleader who says "bass" on a swing chart means the upright;
     # on a funk or rock chart, the electric (Matthew, 2026-09-30: "you
     # like using the electric bass a lot in these demos")
+    # soprano, alto, tenor, bass on one band list is a choir: the alto
+    # and tenor sing (an alto sax had been handed the altos' words)
+    if any(b['instrument'].lower() == 'soprano' for b in chart['band']):
+        sung = []
+        for b in chart['band']:
+            word = b['instrument'].lower()
+            if b['label'] in chart.get('_bare_satb', ()):
+                b['instrument'] = word.replace(' sax', '') + ' voice'
+                sung.append(b['label'])
+            elif b['label'] in chart.get('_bare_bass', ()) and \
+                    word == 'bass':
+                b['instrument'] = 'bass voice'
+                sung.append(b['label'])
+        chart['_bare_bass'] = [x for x in chart.get('_bare_bass', ())
+                               if x not in sung]
+        if sung:
+            chart['_choir_said'] = sung
     if chart.get('_bare_bass'):
         hf = chart['header'].get('feel', '')
         feels = [sec.get('feel') for sec in chart['sections']
@@ -2436,6 +2485,99 @@ def resolve_groups(band, custom=None):
     return g
 
 
+def build_pickup(chart, groups, labels, horn_of, key, meter, findings):
+    """What the pickup bar plays, part by part: MusicXML for the page
+    and the listen, words for the read-aloud. Shared by the compiler
+    and chartread, so the two cannot disagree."""
+    hdr = chart['header']
+    pickup_xml = {}
+    pk = chart.get('pickup')
+    for target, what in (pk or {}).get('plays', ()):
+        tg = groups.get(target) or ([target] if target in labels else None)
+        if tg is None:
+            fail(f"{pk['loc']}: '{target}' is not a band part or group")
+        fig = what
+        if isinstance(what, str):
+            if what not in chart['figures']:
+                fail(f"{pk['loc']}: no figure called '{what}'")
+            fig = chart['figures'][what]
+            fig['used'] = True
+            if fig['kind'] != 'inline':
+                fail(f"{pk['loc']}: a pickup plays written notes: — "
+                     f"figure {what} lifts bars; give it notes:")
+        m1 = meter_at(chart['meters'] or [(1, meter)], 1)
+        pb = pk['beats']
+        num, den = (int(pb), m1[1]) if pb == int(pb) else \
+            (int(pb * 2), m1[1] * 2)
+        want = chartdemo.DIV * 4 * num // den
+        if pb >= m1[0]:
+            fail(f"{pk['loc']}: a pickup is less than a bar — "
+                 f"{pb:g} beats fills a whole bar of {m1[0]}/{m1[1]}")
+        if fig['ticks'] != want:
+            fail(f"{fig['loc']}: the pickup is {pb:g} beats but its notes "
+                 f"fill {fig['ticks'] * m1[1] / (4 * chartdemo.DIV):g} — "
+                 "make them the same")
+        for l in tg:
+            h = horn_of.get(l)
+            if h is None:
+                fail(f"{pk['loc']}: '{l}' cannot play written notes "
+                     "(it reads grooves and hits)")
+            res, _raw = chartdemo.inline_res(
+                dict(fig, inline=fig['items'], hi=1, at=0), (num, den),
+                spoken_shift(hdr), fifths=key[0])
+            fw = key[0] + written_foff(h['foff'], key[0])
+            ms = chartdemo.render_range(res, fw, h['transpose'], False,
+                                        findings)
+            if ms.get(0):
+                pickup_xml[l] = ms[0]
+            # the read-aloud counts the pickup as the end of a bar (a
+            # three-beat pickup in 4/4 starts on beat 2), at concert
+            # pitch for the score and written pitch for the part
+            full = chartdemo.DIV * 4 * m1[0] // m1[1]
+            off = full - want
+
+            def words(tr, fifths):
+                r2 = dict(res, bar_ticks=full, n_units=full,
+                          grids={},
+                          timeline=[(a_ + off, b_ + off,
+                                     [p + tr for p in ps])
+                                    for a_, b_, ps in res['timeline']])
+                said = chartdemo.say_range(r2, fifths)
+                return " ".join(v for v in said.values() if v)
+            chart.setdefault('_pickup_said', {})[l] = (
+                words(0, key[0]), words(h['transpose'], fw))
+    chart['_pickup_xml'] = pickup_xml
+
+
+def opening_marks(hdr, m_num, m_den):
+    """The feel and the tempo over the first bar a player reads — the
+    pickup bar when there is one (a chart with a pickup had printed no
+    tempo at all)."""
+    pieces = []
+    if hdr.get('feel'):
+        pieces.append(direction(hdr['feel'].capitalize()))
+    if hdr.get('tempo') and not re.fullmatch(r'[\d.]+', str(hdr['tempo'])):
+        # tempo words are performance language, printed verbatim
+        # (Lush Life says "Slow, freely")
+        pieces.append(direction(hdr['tempo']))
+    elif hdr.get('tempo'):
+        # a compound meter's tempo is a dotted-quarter figure — that
+        # is how a 6/8 player reads it
+        compound = m_den == 8 and m_num % 3 == 0
+        dot = '<beat-unit-dot/>' if compound else ''
+        sound = (float(hdr['tempo']) * 1.5 if compound
+                 else float(hdr['tempo']))
+        pieces.append(
+            '      <direction placement="above">'
+            '<direction-type><metronome>'
+            f'<beat-unit>quarter</beat-unit>{dot}'
+            f'<per-minute>{hdr["tempo"]}</per-minute>'
+            '</metronome></direction-type>'
+            f'<sound tempo="{sound:g}"/>'
+            '</direction>\n')
+    return pieces
+
+
 # which bar numbers findings and read-alouds speak: 'daw' adds the
 # demo's count-in (the numbers in the writer's session), 'page' says the
 # printed numbers. chart.py sets it from the read_bars setting.
@@ -2494,6 +2636,10 @@ def compile_chart(chart_path, outdir):
                      f"chart is the {'upright' if up else 'electric'}; "
                      f"write 'bass = {'electric bass' if up else 'upright'}'"
                      " for the other")
+    if chart.get('_choir_said'):
+        findings.add("band: soprano on the list makes it a choir — "
+                     + ", ".join(chart['_choir_said'])
+                     + " sing; write 'alto = alto sax' for the horn")
 
     # meter changes worth saying out loud, in the writer's own bar numbers
     meters_map = chart['meters']
@@ -2523,6 +2669,7 @@ def compile_chart(chart_path, outdir):
     resolved, horn_of, key = resolve_demo(chart, plans, band, labels,
                                           chart_path, findings, meter)
     demo_measures = {l: {} for l in labels}
+    build_pickup(chart, groups, labels, horn_of, key, meter, findings)
     for l in labels:
         for item in resolved[l]:
             h = horn_of[l]
@@ -3567,6 +3714,10 @@ def build_plans(chart, band, groups, labels):
                              piece)
                 if m and m.group(1).strip() in chart['figures']:
                     fig = chart['figures'][m.group(1).strip()]
+                    if fig.get('beats'):
+                        fail(f"{loc}: figure {m.group(1).strip()} is "
+                             f"{fig['beats']} beats long — a pickup's "
+                             "length; in a section, declare it in bars")
                     fig['used'] = True
                     at = start + int(m.group(2) or 1) - 1
                     if fig['kind'] == 'midi':
@@ -4113,6 +4264,8 @@ TRANSPOSE_XML = {
 
 CLEF_XML = {'G': '<sign>G</sign><line>2</line>',
             'F': '<sign>F</sign><line>4</line>',
+            'G8': '<sign>G</sign><line>2</line>'
+                  '<clef-octave-change>-1</clef-octave-change>',
             'C': '<sign>C</sign><line>3</line>',
             'percussion': '<sign>percussion</sign><line>2</line>'}
 
@@ -5445,6 +5598,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                        (f'        {tr}\n' if tr else ''))
                     + '      </attributes>\n')
 
+        need_attrs = source is None
         pk = chart['pickup']
         if pk:
             content = ''
@@ -5456,15 +5610,42 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             if pk['engraved'] and sp and pk_num is not None:
                 content = strip_lifted(sp['measures'][pk_num],
                                        clef == 'percussion')
+            pk_ticks = int(round(pk['beats'] * div * 4
+                                 / meter_at(meters, 1)[1]))
+            if not content and label in chart.get('_pickup_xml', {}):
+                content = chart['_pickup_xml'][label]
+            elif not content:
+                # the part waits: a real rest the pickup's length, on
+                # every staff it has (bar 0 had printed empty)
+                def rest_of(staff=None):
+                    out_ = ''
+                    for ticks, ty, dots in chartdemo.decompose(pk_ticks,
+                                                               div):
+                        out_ += ('      <note><rest/>'
+                                 f'<duration>{ticks}</duration>'
+                                 f'<voice>{staff or 1}</voice>'
+                                 f'<type>{ty}</type>' + '<dot/>' * dots
+                                 + (f'<staff>{staff}</staff>'
+                                    if staff else '')
+                                 + '</note>\n')
+                    return out_
+                content = (rest_of(1) + f'      <backup><duration>'
+                           f'{pk_ticks}</duration></backup>\n'
+                           + rest_of(2)) if grand else rest_of()
+            lead = ''
+            if need_attrs:
+                # bar 0 is the first bar the player reads: the clef,
+                # key and time signature start here
+                lead = attributes()
+                need_attrs = False
             if with_directions:
-                if hdr.get('feel'):
-                    content = direction(hdr['feel'].capitalize()) + content
+                lead += ''.join(opening_marks(hdr, *meter_at(meters, 1)))
                 for t in pk['texts']:
-                    content = direction(t, 'below') + content
+                    lead += direction(t, 'below')
+            content = lead + content
             out.append((f'    <measure implicit="yes" number="0">\n{content}'
                         '    </measure>\n', False, False))
 
-        need_attrs = source is None
         was_groove = False
         was_swing = (False, False)
         was_feelk = None                # laid back / loose / on top
@@ -5730,28 +5911,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         f'{count_off[0]} {count_off[1]} {count_off[2]}'
                         '</words></direction-type></direction>\n')
                 if with_directions and absbar == 1 and not chart['pickup']:
-                    if hdr.get('feel'):
-                        pieces.append(direction(hdr['feel'].capitalize()))
-                    if hdr.get('tempo') and not re.fullmatch(
-                            r'[\d.]+', str(hdr['tempo'])):
-                        # tempo words are performance language, printed
-                        # verbatim (Lush Life says "Slow, freely")
-                        pieces.append(direction(hdr['tempo']))
-                    elif hdr.get('tempo'):
-                        # a compound meter's tempo is a dotted-quarter
-                        # figure — that is how a 6/8 player reads it
-                        compound = m_den == 8 and m_num % 3 == 0
-                        dot = '<beat-unit-dot/>' if compound else ''
-                        sound = (float(hdr['tempo']) * 1.5 if compound
-                                 else float(hdr['tempo']))
-                        pieces.append(
-                            '      <direction placement="above">'
-                            '<direction-type><metronome>'
-                            f'<beat-unit>quarter</beat-unit>{dot}'
-                            f'<per-minute>{hdr["tempo"]}</per-minute>'
-                            '</metronome></direction-type>'
-                            f'<sound tempo="{sound:g}"/>'
-                            '</direction>\n')
+                    pieces.extend(opening_marks(hdr, m_num, m_den))
                 if with_directions and off == 0:
                     mark = sec['name']
                     if re.fullmatch(r'[A-Z]\d*|\d+', mark):
