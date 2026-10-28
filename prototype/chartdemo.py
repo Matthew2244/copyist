@@ -904,10 +904,16 @@ def inline_res(ref, meter, spoken_shift, fifths=0):
     bars = ref['hi']
     n_units = bars * bar_ticks
     if ref['ticks'] != n_units:
+        # counted in the meter's own note: eighths in 6/8 (it had said
+        # "8 beats but 2 bars of 6/8 hold 6", counting quarters)
+        unit = DIV * 4 / m_den
+        name = {2: 'half notes', 4: 'quarters', 8: 'eighths',
+                16: 'sixteenths'}.get(m_den, 'beats')
         raise SystemExit(
             f"chart: {ref['loc']}: the figure's notes fill "
-            f"{ref['ticks'] / DIV:g} beats but {bars} bar(s) of "
-            f"{m_num}/{m_den} hold {n_units / DIV:g}")
+            f"{ref['ticks'] / unit:g} {name} but {bars} bar(s) of "
+            f"{m_num}/{m_den} hold {n_units / unit:g} — add or take out "
+            "notes until they match")
     timeline, pos, trills, trems, spell = [], 0, {}, {}, {}
     breaths = set()
     for item in ref['inline']:

@@ -1300,7 +1300,8 @@ def _plain_rest(m, first=False):
             (first or (not m['signs'] and not m['rehearsal'])) and
             all(sum(1 for e in m['events'] if e[2] == st) <= 1
                 for st in {e[2] for e in m['events']}) and
-            all(n.rest for _p, ns, _s, _v in m['events'] for n in ns))
+            all(n.rest and not n.fermata
+                for _p, ns, _s, _v in m['events'] for n in ns))
 
 
 def _merge_rests(measures):

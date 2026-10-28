@@ -2673,8 +2673,11 @@ def compile_chart(chart_path, outdir):
     findings = chartdemo.Findings()
     if chart.get('_bass_said'):
         up = chart['_bass_said'] == 'double bass'
-        findings.add(f"band: 'bass' on a {'jazz' if up else 'backbeat'} "
-                     f"chart is the {'upright' if up else 'electric'}; "
+        feel_ = (hdr.get('feel') or '').strip()
+        findings.add(f"band: 'bass' "
+                     + (f"with a {feel_} feel" if feel_ else
+                        "with no feel written")
+                     + f" is the {'upright' if up else 'electric'}; "
                      f"write 'bass = {'electric bass' if up else 'upright'}'"
                      " for the other")
     if chart.get('_choir_said'):
@@ -4788,10 +4791,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             continue                    # the notes stop where they stop
         song = (hdr.get('title', ''), pl['sec']['name'])
         if any(k == 'choice' for k, _ in steps):
+            we = written_ending(pl)
+            if any(b_ == pl['sec']['bars'] and k_ == 'fermata'
+                   for b_, k_, _t in pl['sec']['events']):
+                # a fermata on the last bar is the writer's ending: the
+                # band holds it (a cold stop had played over it)
+                we = 'long'
             chosen = chartending.band_choice(
                 pl['sec']['feel'] or hdr.get('feel') or '', song,
                 keys_l is not None, bool(groups.get('horns')),
-                written_ending(pl), has_drums=drums_l is not None)
+                we, has_drums=drums_l is not None)
             pl['_written_end'] = written_ending(pl)
             j = next(n for n, (k, _) in enumerate(steps) if k == 'choice')
             have = {k for k, _ in steps}
@@ -6376,7 +6385,15 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                              and (pieces[0] == rest_bar(div, staves,
                                                         bmeter)
                                   or lifted_rest(pieces[0])))
-                head_ok = (not pure_rest and not open_bl
+                # a jump (To Coda, D.S., D.C., Fine) happens at the end
+                # of its own bar: that bar stands alone, never inside or
+                # at the head of a multirest (To Coda over a two-bar
+                # rest sent the player on a bar late)
+                jumps = any(re.search(r'<sound (?:tocoda|dalsegno|dacapo|'
+                                      r'fine)=', p) for p in pieces)
+                if jumps:
+                    pure_rest = False
+                head_ok = (not pure_rest and not open_bl and not jumps
                            and '<repeat' not in barline
                            and any(p == rest_bar(div, staves, bmeter)
                                    or lifted_rest(p) for p in pieces)

@@ -409,6 +409,30 @@ def score_to_chart(xml, score_file, title_hint):
             full = div * 4 * meter0[0] // meter0[1]
             if 0 < reach < full:
                 pickup_q = Fraction(reach, div)
+    # tempo and holds live on whichever staff the program put them on
+    # (usually the top one, often a transposing horn): every part is
+    # read for them, the first sets the header, later ones are changes
+    # (a trumpet-on-top score had come in with no tempo at all)
+    seen_t, holds = {}, set()
+    for b_ in bodies.values():
+        for i_, (_a, mm) in enumerate(re.findall(
+                r'<measure ([^>]*)>(.*?)</measure>', b_, re.S)):
+            tm = re.search(r'<per-minute>([\d.]+)</per-minute>', mm) or \
+                re.search(r'<sound[^>]*tempo="([\d.]+)"', mm)
+            if tm and i_ not in seen_t:
+                seen_t[i_] = round(float(tm.group(1)))
+            if '<fermata' in mm:
+                holds.add(i_)
+    running = tempo
+    for i_ in sorted(seen_t):
+        if running is None:
+            tempo = running = seen_t[i_]
+        elif seen_t[i_] != running:
+            events.append((i_, 'tempo', str(seen_t[i_])))
+            running = seen_t[i_]
+    for i_ in sorted(holds):
+        events.append((i_, 'fermata', ''))
+    events.sort(key=lambda e: e[0])
     body_nums = nums[1:] if pickup_q is not None else nums
     if not body_nums:
         raise ImportTrouble("This score has no measures to lift.")
@@ -640,7 +664,7 @@ def score_to_chart(xml, score_file, title_hint):
         lines.append("  chords: " + ", ".join(chords))
         for i, kind, val in events:
             if c0 <= i < c1:
-                lines.append(f"  at bar {i - c0 + 1}: {kind} {val}")
+                lines.append(f"  at bar {i - c0 + 1}: {kind} {val}".rstrip())
         lines.append(f"  all: as engraved bars {lo}-{hi}")
         lines.append("")
     if simplified:

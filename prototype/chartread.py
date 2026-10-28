@@ -216,7 +216,7 @@ def say_bars(bars):
     return "; ".join(out) + "."
 
 
-def section_heading(sec, start=None):
+def section_heading(sec, start=None, form=False):
     """`start` is the section's first printed bar: marks inside it are
     said in printed bars, the numbers on the page (a meter change said
     'at bar 3' of its section, next to To Coda 'at bar 14')."""
@@ -249,6 +249,10 @@ def section_heading(sec, start=None):
             kv = say_key(_written_key(val))
             bits.append(f"the key changes to {kv} here" if bar == 1 else
                         f"the key changes to {kv} {at(bar)}")
+        elif kind == 'tempo' and form:
+            # the form names every tempo change (a part says its own,
+            # before its notes)
+            bits.append(f"the tempo changes to {val} {at(bar)}")
         elif kind == 'fermata':
             # a hold is a road-map mark: a listener gets it nowhere else
             bits.append(f"a fermata, hold, on the last note {at(bar)}"
@@ -641,8 +645,8 @@ def main():
             road = sorted({(b_, t_[1]) for lab in plan['texts']
                            for b_, t_ in plan['texts'][lab]
                            if isinstance(t_, tuple) and t_[0] == 'road'})
-            out.append(section_heading(sec, plan['start']) + " "
-                       + say_changes(sec) +
+            out.append(section_heading(sec, plan['start'], form=True)
+                       + " " + say_changes(sec) +
                        "".join(f" At bar {b_ + plan['start'] - 1}: "
                                f"{ROAD_SPOKEN[k_][0].upper()}"
                                f"{ROAD_SPOKEN[k_][1:]}" for b_, k_ in road))

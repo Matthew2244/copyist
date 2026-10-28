@@ -923,7 +923,9 @@ def _perform_tempo(perf, tempos, holds, end_q, meter0):
                    + [a for a in written if a > q + 1e-9]
                    + [m for m, _ in marks[i + 1:] if m > q + 1e-9])
         # a fermata inside the ramp is where it lands
-        for hq, _x in holds:
+        # (holds arrives as the parser's dict; a list of pairs works too)
+        for hq, _x in (holds.items() if isinstance(holds, dict)
+                       else holds):
             if q < hq < stop:
                 stop = hq + 1e-6
                 break

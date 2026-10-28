@@ -1005,7 +1005,7 @@ def check_figures():
          '  notes: C5 q, D5 q, E5 q\n\n'
          'section A, 2 bars\n  chords: C, F\n'
          '  trumpet: figure lick\n  piano: groove\n',
-         "fill 3 beats but 1 bar(s) of 4/4 hold 4"),
+         "fill 3 quarters but 1 bar(s) of 4/4 hold 4"),
         ("r6", 'title: X\nkey: C\nmeter: 4/4\ntempo: 100\n\n'
          'band:\n  piano\n\nfigure lick, 1 bars:\n'
          '  notes: C5 q, triplet( D5 e, E5 q, F5 e )\n\n'
@@ -8276,6 +8276,40 @@ def check_singers_round():
           x.count('<slur number="1" type="start"/>') == 1, x.count('<slur'))
 
 
+def check_form_and_time_round():
+    """2026-10-28, an arranger's review of time and form: a rit. then a
+    fermata broke the listen; a To Coda hid inside a multirest; a
+    written final fermata was played over by a cold stop."""
+    import io
+    import tempfile
+    from contextlib import redirect_stdout
+    import chartc
+    import chartaudio
+    print("\n== form and time: holds, jumps, endings ==")
+    tmp = tempfile.mkdtemp()
+    cp = os.path.join(tmp, "f.chart")
+    with open(cp, "w") as f:
+        f.write("title: F\nkey: C\nmeter: 4/4\ntempo: 100\n"
+                "feel: funk\n\nband:\n  trumpet\n  piano\n  bass\n"
+                "  drums\n\nfigure m, 2 bars:\n  notes: C5 w, D5 w\n\n"
+                "section A, 6 bars\n  chords: C, F, G, C, F, C\n"
+                "  trumpet: figure m\n  at bar 3: rit.\n"
+                "  at bar 4: to coda\n  at bar 6: fermata\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(cp, os.path.join(tmp, "o"))
+    plan = chartaudio.parse_score(os.path.join(tmp, "o",
+                                               "F — for listening.musicxml"))
+    check("a rit. then a fermata: the listen builds", bool(plan['parts']))
+    x = open(os.path.join(tmp, "o", "F — trumpet.musicxml")).read()
+    bar4 = re.search(r'<measure number="4"[^>]*>(.*?)</measure>', x, re.S)
+    check("a To Coda bar stands alone, never inside a multirest",
+          bar4 and 'tocoda' in bar4.group(1)
+          and '<multiple-rest>' not in bar4.group(1), x[:0])
+    f = open(os.path.join(tmp, "o", "F — findings.txt")).read()
+    check("a written final fermata makes the band's ending a hold",
+          "band chose one: hold" in f, f[-300:])
+
+
 def check_lead_sheet_from_markers():
     """2026-10-27, his ask: a lead sheet from a played chord track, the
     form and what each section does said in the DAW's markers. Chords
@@ -8839,6 +8873,7 @@ if __name__ == "__main__":
     check_rhythm_section_round()
     check_horn_stand_round()
     check_singers_round()
+    check_form_and_time_round()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
