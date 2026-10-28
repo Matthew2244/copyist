@@ -286,6 +286,8 @@ def part_section(plan, label, chord_parts, figures=None):
                 lines.append(f"You double the {item['src_label']}{oct_} "
                              "— the same line, written for you.")
             lo, hi = item['res']['bars']
+            if item.get('page_bars'):
+                lo, hi = item['res']['at'], item['res']['at'] + hi - lo
             words = {'strong-accent': 'marcato — short and fat',
                      'staccato': 'staccato', 'tenuto': 'tenuto — full value',
                      'accent': 'accented'}
@@ -297,8 +299,8 @@ def part_section(plan, label, chord_parts, figures=None):
             lines.append(
                 (f"Your written figure, {chartc.n_of(span, 'bar')}, spoken at "
                  f"{pitch}:{extra}") if item.get('inline') else
-                (f"Your line, bars {lo} to {hi}, spoken at "
-                 f"{pitch}:{extra}"))
+                (f"Your line, {f'bar {lo}' if lo == hi else f'bars {lo} to {hi}'}, "
+                 f"spoken at {pitch}:{extra}"))
             if item['res'].get('lyrics_text'):
                 lines.append(f"Words: {item['res']['lyrics_text']}")
             prose = chartdemo.say_range(item['res'], item['concert_fifths'],
@@ -434,6 +436,9 @@ def main():
     ap.add_argument('chart')
     ap.add_argument('--part', help='a band part label, e.g. "alto 1"')
     ap.add_argument('--section', help='read just this section')
+    ap.add_argument('--bars', choices=('daw', 'page'), default='daw',
+                    help="daw says your DAW's bar numbers, count-in "
+                         "included; page says the printed page's")
     a = ap.parse_args()
 
     chart = chartc.parse_chart(a.chart)
@@ -456,6 +461,10 @@ def main():
         written = bool(a.part) and h.get('transpose') and \
             h.get('clef') != 'percussion'
         for item in resolved[l]:
+            if a.bars == 'page':
+                # the printed numbers, everywhere this part is said
+                item['res']['spoken_shift'] = 0
+                item['page_bars'] = True
             item['concert_fifths'] = chartc.key_at(
                 chart.get('keys') or [(1, key)], item['res']['at'])[0]
             item['fifths_at'] = (lambda b, k=chart.get('keys') or
@@ -519,7 +528,9 @@ def main():
                    f"{len(plans)} {'section' if len(plans) == 1 else 'sections'}, "
                    f"{total} bars.")
         if int(hdr.get('countin', 0)):
-            out.append("Bar numbers here are your DAW's, count-in "
+            out.append("Bar numbers here are the printed page's, from "
+                       "one." if a.bars == 'page' else
+                       "Bar numbers here are your DAW's, count-in "
                        "included. The printed page starts at one.")
         if chart['pickup']:
             pk = chart['pickup']

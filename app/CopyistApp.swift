@@ -3002,6 +3002,15 @@ struct SettingsView: View {
                             .font(.system(size: ts(11)))
                             .foregroundStyle(pal.sub)
                     }
+                    Picker("Bar numbers the read-alouds say",
+                           selection: Binding(
+                               get: { (cfg["read_bars"] ?? "").isEmpty
+                                      ? "daw" : cfg["read_bars"]! },
+                               set: { set("read_bars", $0) })) {
+                        Text("Your DAW's, count-in included").tag("daw")
+                        Text("The printed page's, from one").tag("page")
+                    }
+                        .accessibilityLabel("Bar numbers the read-alouds say")
                 }
                 group("Sounds") {
                     Toggle("Play the recorded instruments (off plays the "

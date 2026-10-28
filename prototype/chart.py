@@ -239,6 +239,10 @@ SETTINGS = (
                        "them with the build"),
     ('spoken_to', '', "a folder where the spoken read-alouds land — "
                       "empty keeps them next to the chart"),
+    ('read_bars', 'daw', "the bar numbers the read-alouds say: daw "
+                         "(your DAW's, count-in included, to find the "
+                         "spot in your session) or page (the printed "
+                         "page's, from one, as the players count)"),
     ('sounds', '', "the sample library the listen plays on — a "
                    "library's name or an .sf2 file's path; empty "
                    "plays the plain built-in synth"),
@@ -769,6 +773,11 @@ def run_settings(argv):
             chartbraille.paper(v)
         except ValueError as e:
             sys.exit(f"chart: {e}")
+    if k == 'read_bars':
+        v = {'daw': 'daw', 'session': 'daw', 'page': 'page',
+             'pages': 'page', 'printed': 'page'}.get(v.lower(), '')
+        if not v:
+            sys.exit("chart: read_bars is daw or page.")
     if k == 'countin' and v and not v.isdigit():
         sys.exit("chart: countin is a number of bars, like 1 or 2 "
                  "(or empty for none).")
@@ -830,6 +839,11 @@ def run_settings(argv):
                     "comes in and the file itself doesn't say."
                     if v else "countin is unset — read from each "
                     "demo's own first bar.")
+    if k == 'read_bars':
+        lines[k] = ("read_bars is page — the read-alouds say the printed "
+                    "bar numbers, from one." if v == 'page' else
+                    "read_bars is daw — the read-alouds say your DAW's "
+                    "bar numbers, count-in included.")
     if k == 'listen_take':
         lines[k] = ("listen_take is new — every build a fresh take; the "
                     "findings name it, so you can keep one you like."
@@ -1605,7 +1619,8 @@ def main():
 
     if args.command == 'read':
         argv = [path] + (['--part', args.part] if args.part else []) \
-            + (['--section', args.section] if args.section else [])
+            + (['--section', args.section] if args.section else []) \
+            + ['--bars', load_cfg().get('read_bars') or 'daw']
         sys.argv = ['chartread'] + argv
         chartread.main()
         return
@@ -1760,7 +1775,8 @@ def main():
         progress(2 + 10 * ri / max(len(read_list), 1),
                  f"speaking the {label} part" if label
                  else "speaking the form")
-        argv = [path] + (['--part', label] if label else [])
+        argv = [path] + (['--part', label] if label else []) \
+            + ['--bars', cfg.get('read_bars') or 'daw']
         name = (f"{title} — {label} part, read aloud.txt" if label
                 else f"{title} — form, read aloud.txt")
         out = os.path.join(spoken_dir, name)

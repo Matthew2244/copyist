@@ -515,6 +515,17 @@ class Pdf:
 # ------------------------------------------------------------ glyphs
 
 
+def head_half(pdf, scale=1.0, kind='black'):
+    """Half the width of the head actually drawn. Stems, ledger lines,
+    dots and a second's flipped head all measure from it: Leland's head
+    is half as wide as the fallback oval, and stems spaced for the oval
+    floated off Leland's heads (his Fresh Air part, 2026-10-28)."""
+    if kind == 'slash':
+        return 0.9 * SP * scale
+    w = pdf.gw('blackHead', 4 * SP * scale) if pdf.music else 0
+    return w / 2 if w else 1.28 * SP * scale
+
+
 def notehead(pdf, x, y, kind='black', scale=1.0, parens=False):
     """An oval head — Leland's when the font is here, our bezier when
     not; a parallelogram for slashes either way."""
@@ -565,7 +576,9 @@ def notehead(pdf, x, y, kind='black', scale=1.0, parens=False):
 def draw_flag(pdf, x, y, up, n):
     if pdf.music:
         name = {1: 'flag8', 2: 'flag16', 3: 'flag32'}.get(min(n, 3))
-        if name and pdf.glyph(x, y, name + ('U' if up else 'D'), 4 * SP):
+        # a SMuFL flag's origin is the stem's left edge, not its centre
+        if name and pdf.glyph(x - 0.55, y, name + ('U' if up else 'D'),
+                              4 * SP):
             return
     for i in range(n):
         dy = -i * 2.4 * (1 if up else -1)
@@ -1257,15 +1270,16 @@ def draw_graces(pdf, n0, right_x, top, clef):
         for p in ps:
             for lp in (range(-2, p - 1, -2) if p < -1 else
                        range(10, p + 1, 2) if p > 9 else ()):
-                pdf.line(gx - 1.2 * SP, top - STAFF + lp * SP / 2,
-                         gx + 1.2 * SP, top - STAFF + lp * SP / 2, w=0.6)
+                gl = head_half(pdf, s) + 0.45 * SP * s
+                pdf.line(gx - gl, top - STAFF + lp * SP / 2,
+                         gx + gl, top - STAFF + lp * SP / 2, w=0.6)
         ax = gx - 1.5 * SP
         for g, yy in zip(grp, ys):
             if g.show_acc is not None:
                 draw_accidental(pdf, ax, yy, g.show_acc, scale=s)
         for yy in ys:
             notehead(pdf, gx, yy, 'black', scale=s)
-        sx = gx + 1.15 * SP * s
+        sx = gx + head_half(pdf, s) - 0.4 * s
         tip = max(ys) + 3.0 * SP * s
         pdf.line(sx, min(ys), sx, tip, w=0.8)
         tips.append((sx, tip))
@@ -2155,16 +2169,18 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             up = beat_dir[pos // beat_len]
         else:
             up = (sum(ps) / len(ps)) < 4
+        half = head_half(pdf, scale, 'slash' if n0.slash else 'black')
+        ledge = half + 0.45 * SP * scale
         for p, yy in zip(ps, ys):
             if p < -1:
                 for lp in range(-2, p - 1, -2):
-                    pdf.line(cx - 1.9 * SP, top - STAFF + lp * SP / 2,
-                             cx + 1.9 * SP, top - STAFF + lp * SP / 2,
+                    pdf.line(cx - ledge, top - STAFF + lp * SP / 2,
+                             cx + ledge, top - STAFF + lp * SP / 2,
                              w=0.8)
             if p > 9:
                 for lp in range(10, p + 1, 2):
-                    pdf.line(cx - 1.9 * SP, top - STAFF + lp * SP / 2,
-                             cx + 1.9 * SP, top - STAFF + lp * SP / 2,
+                    pdf.line(cx - ledge, top - STAFF + lp * SP / 2,
+                             cx + ledge, top - STAFF + lp * SP / 2,
                              w=0.8)
         ax = cx - 2.1 * SP
         for n, yy in zip(notes, ys):
@@ -2185,19 +2201,20 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             side[i] = flip
             prev_p = ps[i]
         for i, (n, yy) in enumerate(zip(notes, ys)):
-            dx = 2.15 * SP * scale * (1 if up else -1) if side[i] else 0
+            dx = ((2 * half - 1.1 * scale) * (1 if up else -1)
+                  if side[i] else 0)
             h = head
             if getattr(n, 'head', None) in ('x', 'circle-x', 'diamond',
                                             'triangle', 'slashed'):
                 h = n.head
             notehead(pdf, cx + dx, yy, h, scale=scale, parens=n.parens)
-        dot_x = cx + 1.9 * SP
+        dot_x = cx + half + 0.6 * SP
         for _ in range(n0.dots):
             for yy in ys:
                 _dot(pdf, dot_x, yy + (0 if (round(yy - top) % round(SP))
                                        else 0.5 * SP))
             dot_x += 3.4
-        stem_x = cx + (1.15 * SP if up else -1.15 * SP) * scale
+        stem_x = cx + (half - 0.55 * scale) * (1 if up else -1)
         if n0.ntype != 'whole':
             lo, hi = min(ys), max(ys)
             tip = (hi + 3.4 * SP * scale) if up else (lo - 3.4 * SP * scale)

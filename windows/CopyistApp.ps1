@@ -313,7 +313,8 @@ $settingGroups = [ordered]@{
     'What a build makes'                 = @('exports', 'braille_page')
     'Where finished files go'            = @('pages_to', 'listens_to',
                                              'spoken_to', 'braille_to')
-    'MIDI and demos'                     = @('midi', 'quant', 'countin')
+    'MIDI and demos'                     = @('midi', 'quant', 'countin',
+                                             'read_bars')
     'Sounds - the sample shelf'          = @('use_samples', 'sounds',
                                              'sounds_dir')
     'What the listen makes up'           = @('listen_grooves',
@@ -342,7 +343,11 @@ function Do-Settings {
         $c = Choose-FromList (($shown -join "`n") +
             "`nChange which one?") ($keys + @('Back'))
         if (-not $c -or $c -eq 'Back') { continue }
-        if ($c -eq 'listen_take') {
+        if ($c -eq 'read_bars') {
+            # the DAW's numbers, or the printed page's from one
+            $v = Choose-FromList "Set $c to:" @('daw', 'page', 'Back')
+            if (-not $v -or $v -eq 'Back') { continue }
+        } elseif ($c -eq 'listen_take') {
             # a fresh take every build, or one take kept
             $v = Choose-FromList "Set $c to:" @('new', 'same', 'Back')
             if (-not $v -or $v -eq 'Back') { continue }

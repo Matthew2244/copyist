@@ -7908,6 +7908,53 @@ def check_odd_meter_downbeats():
               "the trip of 1", "the let of 1"])
 
 
+def check_stems_and_page_bars():
+    """2026-10-28, his Fresh Air part: stems spaced for the fallback
+    oval floated half a space off Leland's narrower heads; and a
+    read-aloud can say the printed bar numbers when he asks."""
+    import io
+    import tempfile
+    from contextlib import redirect_stdout
+    import smf
+    import chartengrave
+    import chartread
+    print("\n== stems on the heads; read-alouds by the page ==")
+    font = chartengrave.music_font()
+    if font:
+        pdf = chartengrave.Pdf(music=font)
+        half = chartengrave.head_half(pdf)
+        width = font.width('blackHead', 4 * chartengrave.SP)
+        check("a stem sits on the edge of the head Leland draws",
+              abs(2 * half - width) < 0.01
+              and half - 0.55 < width / 2 <= half + 0.01, (half, width))
+    tmp = tempfile.mkdtemp()
+    div = 480
+    smf.write(os.path.join(tmp, "d.mid"),
+              [(8 * div + i * div, 8 * div + i * div + 400, 67 + i, 90)
+               for i in range(4)], div, 120)
+    with open(os.path.join(tmp, "p.chart"), "w") as f:
+        f.write("title: P\nkey: C\nmeter: 4/4\ntempo: 120\n"
+                "demo: d.mid\ncountin: 2\n\nband:\n  trumpet\n\n"
+                "section A, 1 bars\n  chords: C\n"
+                "  trumpet: from demo bars 3\n")
+    said = {}
+    for mode in ('daw', 'page'):
+        buf = io.StringIO()
+        sys.argv = ['chartread', os.path.join(tmp, "p.chart"),
+                    '--part', 'trumpet', '--bars', mode]
+        with redirect_stdout(buf):
+            chartread.main()
+        said[mode] = buf.getvalue()
+    check("read_bars daw says the DAW's bar 3",
+          "Your line, bar 3," in said['daw']
+          and "Bar 3:" in said['daw'] and "DAW's" in said['daw'],
+          said['daw'])
+    check("read_bars page says the printed bar 1",
+          "Your line, bar 1," in said['page']
+          and "Bar 1:" in said['page'] and "Bar 3:" not in said['page']
+          and "printed page's" in said['page'], said['page'])
+
+
 def check_lead_sheet_from_markers():
     """2026-10-27, his ask: a lead sheet from a played chord track, the
     form and what each section does said in the DAW's markers. Chords
@@ -8466,6 +8513,7 @@ if __name__ == "__main__":
     check_streamline()
     check_lead_sheet_from_markers()
     check_odd_meter_downbeats()
+    check_stems_and_page_bars()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
