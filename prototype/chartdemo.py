@@ -941,6 +941,22 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     named_art = {(max(0, on - lag - lo_t), g): a
                  for (on, g), a in named_art.items()}
 
+    # ---- a bar that is not a whole number of quarters (7/8, 5/8, 5/16)
+    # would leave the beats counting from the lift's first bar, so every
+    # later downbeat reads as an off-beat and the same stab prints two
+    # ways. Beats restart at every barline: each bar is stretched to
+    # whole beats while the grid is chosen and the notes snap, and the
+    # stretch comes out again before anything is spoken or drawn.
+    pad_demo = -(-tick_bar // beat) * beat
+    pad = -(-bar_ticks // DIV) * DIV
+
+    def _pad(t):
+        return t if t < 0 else (t // tick_bar) * pad_demo + t % tick_bar
+
+    if pad != bar_ticks:
+        moved = [(_pad(on), _pad(off), p, v) for on, off, p, v in moved]
+        named_art = {(_pad(on), g): a for (on, g), a in named_art.items()}
+
     # ---- keyswitches: keys pressed to change the patch's articulation
     # are not music. They leave the notes here (a C0 must never print
     # as a note folded up four octaves) and say what they meant.
@@ -975,7 +991,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                      + ("; " + "; ".join(named) if named else ""))
             for sp, ons in sorted(ks_unmapped.items()):
                 bars_ = sorted({bar_lo + spoken_shift
-                                + int(max(o, 0) // tick_bar) for o in ons})
+                                + int(max(o, 0) // pad_demo) for o in ons})
                 find.add(f"{part_label}: keyswitch {midi_name(sp)} (MIDI "
                          f"{sp}) governs bars "
                          + ", ".join(str(b) for b in bars_[:8])
@@ -991,7 +1007,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         moved, found = find_trills(sorted(moved), beat)
         for on, _off, main, aux, _v, count, kind in found:
             trill_on[on] = (main, aux, kind)
-            fb = bar_lo + int(max(on, 0) // tick_bar) + spoken_shift
+            fb = bar_lo + int(max(on, 0) // pad_demo) + spoken_shift
             gap_w = INTERVAL_WORD.get(aux - main,
                                       f"{aux - main} semitones")
             find.add(f"{part_label}: bar {fb}: " + (
@@ -1037,7 +1053,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         find.add(f"{part_label}: bars {bar_lo}-{bar_hi} use tuplet beats "
                  f"({tupl})")
 
-    n_units = (bar_hi - bar_lo + 1) * bar_ticks
+    n_units = (bar_hi - bar_lo + 1) * pad
     scale = DIV / beat                     # demo ticks -> chart ticks
     default_sub = {'quarters': 1, 'eighths': 2, 'grid8': 2, 'triplet8': 3,
                    'triplet16': 6}.get(quant, 4)
@@ -1045,6 +1061,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     ks_notes = {}        # (chart onset, sounding pitch) -> keyswitch word
     trill_map = {}       # (chart onset, sounding pitch) -> trill target
     trem_map = {}        # (chart onset, sounding pitch) -> strokes
+    past_end = []        # bars a note was played just ahead of
     events = {}          # chart-tick onset -> [(pitch, q_off, raw_on,
                          #                        raw_off, velocity)]
     for on, off, p, v in moved:
@@ -1059,6 +1076,9 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
         q_on = int(round((b * beat + round((on % beat) / step) * step)
                          * scale))
         if q_on >= n_units:
+            # played a hair before the next barline: it is that bar's
+            # downbeat, and that bar is not in this lift
+            past_end.append(on)
             continue
 
         # The ending snaps to the grid of the beat it falls in, so a
@@ -1093,7 +1113,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                 folded -= 12
             if folded != p:
                 find.add(f"{part_label}: bar "
-                         f"{at_bar + spoken_shift + q_on // bar_ticks} "
+                         f"{at_bar + spoken_shift + q_on // pad} "
                          f"note moved {'up' if folded > p else 'down'} "
                          f"{abs(folded - p) // 12} octave(s) into range")
                 p = folded
@@ -1126,15 +1146,61 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             if tgt >= 0 and tgt not in events:
                 events[tgt] = [(mv[0], min(mv[1], q_on)) + tuple(mv[2:])]
                 find.add(f"{part_label}: bar "
-                         f"{at_bar + spoken_shift + q_on // bar_ticks}: "
+                         f"{at_bar + spoken_shift + q_on // pad}: "
                          "two played notes landed on one slot — moved "
                          "the earlier one back a step")
             else:
                 find.add(f"{part_label}: bar "
-                         f"{at_bar + spoken_shift + q_on // bar_ticks}: "
+                         f"{at_bar + spoken_shift + q_on // pad}: "
                          "two played notes landed on one slot with no "
                          "room — dropped the earlier one; proofread "
                          "this bar")
+
+    # the stretched bars come back to their real length
+    if pad != bar_ticks:
+        def _unpad(t):
+            return (t // pad) * bar_ticks + min(t % pad, bar_ticks)
+
+        def _unpad_demo(t):
+            return t if t < 0 else ((t // pad_demo) * tick_bar
+                                    + min(t % pad_demo, tick_bar))
+
+        real = {}
+        real_units = (bar_hi - bar_lo + 1) * bar_ticks
+        for q in sorted(events):
+            rq = _unpad(q)
+            if rq >= real_units:
+                past_end.extend(t[2] for t in events[q])
+                continue
+            for t in events[q]:
+                real.setdefault(rq, []).append(
+                    (t[0], max(rq + 1, _unpad(t[1])), _unpad_demo(t[2]),
+                     _unpad_demo(t[3])) + tuple(t[4:]))
+        if not (poly or drums):
+            # a release rounded into the stretch can meet the next
+            # bar's downbeat: one voice, the later-played note keeps it
+            real = {q: [max(lst, key=lambda t: t[2])]
+                    for q, lst in real.items()}
+        events = real
+        ks_notes = {(_unpad(q), p): w for (q, p), w in ks_notes.items()}
+        trill_map = {(_unpad(q), p): w for (q, p), w in trill_map.items()}
+        trem_map = {(_unpad(q), p): w for (q, p), w in trem_map.items()}
+        named_art = {(_unpad_demo(on), g): a
+                     for (on, g), a in named_art.items()}
+        n_units = (bar_hi - bar_lo + 1) * bar_ticks
+
+    if past_end:
+        if not events:
+            raise SystemExit(
+                f"chart: {part_label}: demo bars {bar_lo}-{bar_hi} of "
+                f"'{track_name or os.path.basename(demo.path)}' hold no "
+                f"notes of their own — what is there is played a hair "
+                f"ahead of bar {bar_hi + 1}'s downbeat, so it belongs "
+                f"to bar {bar_hi + 1}; lift that bar instead")
+        find.add(f"{part_label}: the last note of demo bars "
+                 f"{bar_lo}-{bar_hi} is played a hair ahead of bar "
+                 f"{bar_hi + 1}'s downbeat, so it is that bar's note, not "
+                 f"this lift's — lift bar {bar_hi + 1} to keep it")
 
     # what the fingers actually did, keyed by quantized onset — the slur
     # and ghost passes read this after the page's rhythm is settled
@@ -2077,8 +2143,14 @@ def _say_beat(pos, bar=BAR, pulse=DIV):
     beat = pos % bar / pulse + 1
     if beat == int(beat):
         return f"beat {int(beat)}"
-    if (pos % pulse) % (pulse // 2 or 1) == 0:
+    off = pos % pulse
+    if off % (pulse // 2 or 1) == 0:
         return f"the and of {int(beat)}"
+    # counted the way players count: 1 e and a, 1 trip let
+    if pulse % 4 == 0 and off % (pulse // 4) == 0:
+        return f"the {'e' if off == pulse // 4 else 'a'} of {int(beat)}"
+    if pulse % 3 == 0 and off % (pulse // 3) == 0:
+        return f"the {'trip' if off == pulse // 3 else 'let'} of {int(beat)}"
     return f"inside beat {int(beat)}"
 
 

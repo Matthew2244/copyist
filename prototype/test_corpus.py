@@ -7856,6 +7856,58 @@ def _tmpchart(body):
     return p
 
 
+def check_odd_meter_downbeats():
+    """2026-10-28, his Fresh Air sax solo: in 5/16 the same stab on two
+    downbeats printed a bar and a sixteenth, because the beats counted
+    from the lift's first bar and the second downbeat read as an
+    off-beat. Beats restart at every barline. And a lone note played a
+    hair ahead of the next barline belongs to that bar: a lift of the
+    bar before it says so instead of printing an empty bar."""
+    import tempfile
+    import smf
+    import chartdemo
+    print("\n== odd meters: every downbeat is a downbeat ==")
+    tmp = tempfile.mkdtemp()
+    div = 960
+    for num, den in ((5, 16), (7, 8), (5, 8)):
+        bar = div * 4 * num // den
+        notes = [(k * bar, k * bar + 290 + 5 * k, 70, 100)
+                 for k in range(3)]
+        path = os.path.join(tmp, f"odd{num}{den}.mid")
+        smf.write(path, notes, div, 127, ts=(num, den))
+        d = chartdemo.load_demo(path)
+        res = chartdemo.resolve_range(
+            d, None, 1, 3, 1, meter=(num, den),
+            window=(d.bar_tick(1), d.bar_tick(4)),
+            part_label="alto", findings=chartdemo.Findings())
+        bt = res['bar_ticks']
+        tl = res['timeline']
+        check(f"{num}/{den}: the same stab on three downbeats prints "
+              "three times the same",
+              len(tl) == 3 and [s for s, _e, _p in tl]
+              == [0, bt, 2 * bt]
+              and len({e - s for s, e, _p in tl}) == 1, tl)
+    # a note a hair ahead of bar 2, lifted as bar 1 alone
+    path = os.path.join(tmp, "early.mid")
+    smf.write(path, [(3358, 3600, 70, 100)], div, 127, ts=(7, 8))
+    d = chartdemo.load_demo(path)
+    try:
+        chartdemo.resolve_range(d, None, 1, 1, 1, meter=(7, 8),
+                                window=(d.bar_tick(1), d.bar_tick(2)),
+                                part_label="alto",
+                                findings=chartdemo.Findings())
+        said = ""
+    except SystemExit as e:
+        said = str(e)
+    check("a note played just ahead of the next bar is that bar's, "
+          "and the lift says so", "belongs to bar 2" in said, said)
+    say = chartdemo._say_beat
+    check("the read-aloud counts 1 e and a, 1 trip let",
+          [say(x) for x in (6, 12, 18, 8, 16)]
+          == ["the e of 1", "the and of 1", "the a of 1",
+              "the trip of 1", "the let of 1"])
+
+
 def check_lead_sheet_from_markers():
     """2026-10-27, his ask: a lead sheet from a played chord track, the
     form and what each section does said in the DAW's markers. Chords
@@ -8413,6 +8465,7 @@ if __name__ == "__main__":
     check_cues_and_cuts()
     check_streamline()
     check_lead_sheet_from_markers()
+    check_odd_meter_downbeats()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
