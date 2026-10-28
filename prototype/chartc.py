@@ -292,6 +292,14 @@ DYN_WORDS = [('sforzando', 'sfz'), ('fortissimo', 'ff'),
 # The bell cabinet, the world section and the effects rack: every one
 # an unpitched percussion chair (clef, channel 10, grooves/kicks/words),
 # added in one sweep so the aux table never has to ask permission.
+def _family(inst):
+    sid = (SOUNDS.get(inst) or ('', ''))[1]
+    return ('voice' if sid.startswith('voice') else
+            'brass' if sid.startswith('brass') else
+            'reed' if sid.startswith('wind') else
+            'strings' if sid.startswith('strings') else 'other')
+
+
 _MORE_PERC = {
     'cha-cha bell':  ('Cha-cha Bell', 'metal.cowbell'),
     'mambo bell':    ('Mambo Bell', 'metal.cowbell'),
@@ -857,10 +865,13 @@ def parse_notes(text, loc):
                 'a': 9, 'b': 11}[m.group(1).lower()]
         alt = {'b': -1, '#': 1, '': 0}[m.group(2)]
         midi = base + alt + (int(m.group(3)) + 1) * 12
+        # the letter the writer chose rides along: Gb4 prints Gb, never
+        # F# (the page had respelled every written note by the key)
+        spelled = (m.group(1).upper(), alt)
         if m.group(5):
             return (dur_of(m.group(4), sn, sd), midi,
-                    trill_spec(m.group(5), midi, loc))
-        return (dur_of(m.group(4), sn, sd), midi)
+                    trill_spec(m.group(5), midi, loc), spelled)
+        return (dur_of(m.group(4), sn, sd), midi, None, spelled)
 
     items, grids, pos = [], [], 0
     for tok in re.split(r',(?![^(]*\))', text):
@@ -877,9 +888,11 @@ def parse_notes(text, loc):
             sub = 3 if letters == {'e'} else 6
             start = pos
             for t in inner:
-                ticks, midi = one(t, 2, 3)
-                items.append((ticks, midi))
-                pos += ticks
+                # a trilled note inside a triplet keeps its trill (the
+                # extra field had crashed the unpacking)
+                item = one(t, 2, 3)
+                items.append(item)
+                pos += item[0]
             if (pos - start) % 24:
                 fail(f"{loc}: a triplet group must fill whole beats")
             # where the beats fall depends on the bar it lands in, so
@@ -2893,16 +2906,36 @@ def compile_chart(chart_path, outdir):
                     wf))
             s_, a_, o_ = chartdemo.convert.spell(p + tr, table)
             return f"{s_}{'b' if a_ == -1 else '#' if a_ == 1 else ''}{o_}"
+        inst_ = canonical_instrument(next(
+            b_['instrument'] for b_ in band if b_['label'] == l))
+        sung = _family(inst_) == 'voice'
+        reed_brass = _family(inst_) in ('brass', 'reed')
+        fold = h['fold']
         edge = ""
-        if hi[0] > comf[1]:
-            edge = (" — lead territory; know whose chops are on the "
-                    "chair")
+        # past the instrument's own ends nobody plays it: said as that,
+        # not as "lead territory" (a trumpet written F#3, a violin
+        # below its open G, a bass voice below E2 had all passed)
+        if hi[0] > fold[1]:
+            edge = (f" — {wname(*hi)} is past the top of the {inst_}; "
+                    "no one can play it")
+        elif hi[0] > comf[1]:
+            edge = (f" — high for a {inst_}; check it suits the singer"
+                    if sung else
+                    " — lead territory; know whose chops are on the chair"
+                    if reed_brass else
+                    " — above the usual range; check the player")
         elif hi[0] >= comf[1] - 2:
             edge = " — right at the top of the comfortable range"
-        if lo[0] < comf[0]:
-            edge += (" — and the low end sits in pedal territory"
-                     if l == 'trombone' or 'trombone' in l
-                     else " — and the low end is below the standard horn")
+        if lo[0] < fold[0]:
+            edge += (f" — and {wname(*lo)} is below the {inst_}'s "
+                     "lowest note; it can't be played")
+        elif lo[0] < comf[0]:
+            edge += (f" — and the low end is low for a {inst_}" if sung
+                     else " — and the low end sits in pedal territory"
+                     if 'trombone' in inst_
+                     else " — and the low end is below the standard horn"
+                     if reed_brass else
+                     " — and the low end is below the usual range")
         findings.add(f"{l}: written peak {wname(*hi)} at bar {hi[1]}, "
                      f"lowest {wname(*lo)} at bar {lo[1]}{edge}")
     return _compile_rest(chart, band, groups, labels, plans, total,
@@ -3727,6 +3760,14 @@ def build_plans(chart, band, groups, labels):
                         and re.fullmatch(r'(?:[\d.+]+|and-of-\d+)'
                                          r'(?: push(?:ed)?)?', p)):
                     pieces_merged[-1] += ' ' + p
+                elif (pieces_merged
+                        and re.match(r'(?:soli on|harmoni[sz]e) ',
+                                     pieces_merged[-1])
+                        and re.fullmatch(r'(?:close|drop ?2|open)', p)):
+                    # "soli on trumpet, drop 2" as CHART-FORMAT writes
+                    # it: the voicing belongs to the soli (the comma had
+                    # made it an instruction of its own, refused)
+                    pieces_merged[-1] += ', ' + p
                 else:
                     pieces_merged.append(p)
             for piece in pieces_merged:

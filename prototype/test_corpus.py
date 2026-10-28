@@ -6190,7 +6190,8 @@ def check_bandleader_round():
     said = buf.getvalue()
     check("read-aloud: marks at printed bars, a first-bar key change "
           "says here", "At bar 3: \"rit.\"" in said
-          and "the key changes to G here" in said
+          # the alto hears its own written key: concert G is its E
+          and "the key changes to E here" in said
           and "You double the flugel a third below" in said, said)
 
     def refusal(body):
@@ -8149,6 +8150,76 @@ def check_rhythm_section_round():
           '<beat-unit>half</beat-unit>' in x and 'tempo="160"' in x)
 
 
+def check_horn_stand_round():
+    """2026-10-28, a horn and string player's review: the read-aloud
+    spoke concert changes to a transposing part; unplayable notes
+    passed as "lead territory"; a trill in a triplet crashed; the
+    documented "soli on trumpet, drop 2" was refused."""
+    import io
+    import tempfile
+    from contextlib import redirect_stdout
+    import chartc
+    import chartread
+    print("\n== on the stand: written changes, real ranges ==")
+    tmp = tempfile.mkdtemp()
+    cp = os.path.join(tmp, "h.chart")
+    with open(cp, "w") as f:
+        f.write("title: H\nkey: B\nmeter: 4/4\ntempo: 100\n\nband:\n"
+                "  trumpet\n  alto = alto sax\n  tenor = tenor sax\n"
+                "  bari = baritone sax\n  violin\n\n"
+                "group saxes: alto, tenor, bari\n\n"
+                "figure low, 1 bars:\n  notes: E3 q, F3 q, A3 q, C4 q\n\n"
+                "figure trip, 1 bars:\n"
+                "  notes: triplet( C5 e tr, D5 e, E5 e ), rest q, rest h\n\n"
+                "section A, 2 bars\n  chords: Bmaj7, G#m7 C#7\n"
+                "  trumpet: figure trip\n  saxes: soli on trumpet, drop 2\n"
+                "  violin: figure low\n  at bar 2: key Ab\n"
+                "  trumpet: cresc bars 1-2\n")
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        chartc.compile_chart(cp, os.path.join(tmp, "o"))
+    out = buf.getvalue() + open(os.path.join(tmp, "o", "H — findings.txt"),
+                                encoding="utf-8").read()
+    check("a trill inside a triplet builds, and soli with ', drop 2' reads",
+          "Wrote" in out, out[-300:])
+    check("a violin below its open G is said to be unplayable",
+          "below the violin's lowest note" in out, out[-600:])
+    sys.argv = ['chartread', cp, '--part', 'alto']
+    b2 = io.StringIO()
+    with redirect_stdout(b2):
+        chartread.main()
+    said = b2.getvalue()
+    cp2 = os.path.join(tmp, "acc.chart")
+    with open(cp2, "w") as f:
+        f.write("title: A\nkey: Db\nmeter: 4/4\ntempo: 100\n\nband:\n"
+                "  bone = trombone\n  trumpet\n  horn = french horn\n\n"
+                "figure f, 1 bars:\n  notes: Ab3 q, A3 q, Ab3 q, Db4 q\n\n"
+                "figure d, 2 bars:\n  notes: E5 q, Eb5 q, D5 q, Db5 q, "
+                "C5 q, B4 q, Bb4 q, A4 q\n\n"
+                "figure g, 1 bars:\n  notes: G4 e, Gb4 e, F4 q, A4 h\n\n"
+                "section A, 2 bars\n  chords: Db, Db\n  bone: figure f\n"
+                "  horn: figure d\n  trumpet: figure g\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(cp2, os.path.join(tmp, "a"))
+    x = open(os.path.join(tmp, "a", "A — bone.musicxml")).read()
+    accs = re.findall(r'<accidental>(\w+)</accidental>', x)
+    check("MusicXML marks only what the key and bar don't: Ab in D flat "
+          "bare, the A natural and the flat after it shown",
+          accs == ['natural', 'flat'], accs)
+    x = open(os.path.join(tmp, "a", "A — horn.musicxml")).read()
+    steps = re.findall(r'<step>(\w)</step>(?:<alter>(-?\d)</alter>)?', x)
+    check("a descending chromatic line takes flats",
+          [s_ + a_ for s_, a_ in steps][:4] == ['B', 'B-1', 'A', 'A-1'],
+          steps)
+    x = open(os.path.join(tmp, "a", "A — trumpet.musicxml")).read()
+    steps = re.findall(r'<step>(\w)</step>(?:<alter>(-?\d)</alter>)?', x)
+    check("the writer's Gb stays a flat, transposed for the trumpet (Ab)",
+          [s_ + a_ for s_, a_ in steps][:2] == ['A', 'A-1'], steps)
+    check("the alto hears its written key: concert A flat is its F, at "
+          "the printed bar", "the key changes to F at bar 2" in said,
+          said[:400])
+
+
 def check_lead_sheet_from_markers():
     """2026-10-27, his ask: a lead sheet from a played chord track, the
     form and what each section does said in the DAW's markers. Chords
@@ -8710,6 +8781,7 @@ if __name__ == "__main__":
     check_stems_and_page_bars()
     check_pickups_play()
     check_rhythm_section_round()
+    check_horn_stand_round()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

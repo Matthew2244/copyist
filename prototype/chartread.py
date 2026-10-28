@@ -27,7 +27,7 @@ import sys
 import chartc
 import chartdemo
 
-ACC = {-1: ' flat', 0: '', 1: ' sharp'}
+ACC = {-2: ' double flat', -1: ' flat', 0: '', 1: ' sharp', 2: ' double sharp'}
 QUAL = {
     '7': ' seven', '9': ' nine', '11': ' eleven', '13': ' thirteen',
     'maj': '', 'maj7': ' major seven', 'm': ' minor', 'm7': ' minor seven',
@@ -101,9 +101,33 @@ def say_quality(qual):
     return (' ' + ' '.join(out)) if out else ''
 
 
+# a transposing part hears its own written changes and keys, the ones
+# its page prints (an alto had heard "B major seven" over Abmaj7)
+_PART = {'tr': 0, 'foff': 0, 'fifths': 0, 'keys': None}
+
+_MAJ = ['Cb', 'Gb', 'Db', 'Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E',
+        'B', 'F#', 'C#']
+_MIN = ['Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#',
+        'G#', 'D#', 'A#']
+
+
+def _written_key(k):
+    if not _PART['tr']:
+        return k
+    cf, mode = chartc.parse_key(k)
+    wf = cf + chartc.written_foff(_PART['foff'], cf)
+    if not -7 <= wf <= 7:
+        return k
+    return _MIN[wf + 7] + 'm' if mode == 'minor' else _MAJ[wf + 7]
+
+
 def say_chord(chord):
     if chord is None:
         return "no chord"
+    if _PART['tr']:
+        chord = chartc.transpose_chord(
+            chord, _PART['tr'],
+            chartc.written_foff(_PART['foff'], _PART['fifths']))
     step, alter, qual, bass = chord
     s = step + ACC[alter] + say_quality(qual)
     if bass:
@@ -192,7 +216,13 @@ def say_bars(bars):
     return "; ".join(out) + "."
 
 
-def section_heading(sec):
+def section_heading(sec, start=None):
+    """`start` is the section's first printed bar: marks inside it are
+    said in printed bars, the numbers on the page (a meter change said
+    'at bar 3' of its section, next to To Coda 'at bar 14')."""
+    def at(bar):
+        return (f"at bar {start + bar - 1}" if start is not None
+                else f"at its bar {bar}")
     name = sec['name']
     h = f"Letter {name}" if len(name) == 1 and name.isupper() else \
         f"Bar-{name}" if name.isdigit() else name.capitalize()
@@ -214,22 +244,21 @@ def section_heading(sec):
     for bar, kind, val in sec.get('events', ()):
         if kind == 'meter':
             bits.append(f"in {val}" if bar == 1 else
-                        f"the meter changes to {val} at bar {bar}")
+                        f"the meter changes to {val} {at(bar)}")
         elif kind == 'key':
-            bits.append(f"the key changes to {say_key(val)} here"
-                        if bar == 1 else
-                        f"the key changes to {say_key(val)} at its bar "
-                        f"{bar}")
+            kv = say_key(_written_key(val))
+            bits.append(f"the key changes to {kv} here" if bar == 1 else
+                        f"the key changes to {kv} {at(bar)}")
         elif kind == 'fermata':
             # a hold is a road-map mark: a listener gets it nowhere else
-            bits.append(f"a fermata, hold, on its bar {bar}'s last note"
+            bits.append(f"a fermata, hold, on the last note {at(bar)}"
                         if bar > 0 else "a fermata on its last bar")
         elif kind == 'break':
-            bits.append(f"a break at its bar {bar}: the band hits the one "
+            bits.append(f"a break {at(bar)}: the band hits the one "
                         "and stops")
         elif kind == 'fill':
             bits.append("a drum fill into the next section" if bar < 0
-                        else f"a drum fill into its bar {bar + 1}")
+                        else f"a drum fill into the bar {at(bar + 1)[3:]}")
     return ", ".join(bits) + "."
 
 
@@ -240,7 +269,11 @@ def part_section(plan, label, chord_parts, figures=None):
     default_groove = label in plan['rhythm_labels']
     if kind == 'default':
         kind, arg = ('groove', '') if default_groove else ('tacet', None)
-    lines = [section_heading(sec)]
+    if _PART['tr'] and _PART['keys']:
+        # spelled in the key this section is in (a later key change had
+        # spelled Abmaj7 against the opening B major: G double flat)
+        _PART['fifths'] = chartc.key_at(_PART['keys'], plan['start'])[0]
+    lines = [section_heading(sec, plan['start'])]
     cuer, role = sec.get('_cuer'), sec.get('_cue_role')
     if sec.get('open') and cuer == label:
         lines.append("It goes round till you cue the band out: on the "
@@ -413,15 +446,28 @@ def part_section(plan, label, chord_parts, figures=None):
                          f"{ROAD_SPOKEN[text[1]]}")
             roads += 1
             continue
+        # what the page asks for is said before the notes, the way a
+        # player reads a mark before playing under it (the mute had
+        # come after the whole section's notes)
         if isinstance(text, tuple) and text[0] == 'tempo':
-            lines.append(f"At bar {printed}: tempo changes to {text[1]}.")
+            lines.insert(1 + roads, f"At bar {printed}: tempo changes to "
+                         f"{text[1]}.")
         else:
             # a technique word says what it means, for anyone who has
             # never held a bow
             said = f'"{text}"' + TECHNIQUE_SAID.get(
                 str(text).strip().lower(), "")
-            lines.append(f'At bar {printed}: {said}.'
+            lines.insert(1 + roads, f'At bar {printed}: {said}.'
                          if bar > 1 else f'Marked: {said}.')
+        roads += 1
+    # hairpins: printed under the staff, said with their bars
+    for wtype, wa, wb in plan.get('wedges', {}).get(label, ()):
+        word = 'crescendo' if wtype.startswith('cresc') else 'diminuendo'
+        a_, b_ = wa + plan['start'] - 1, wb + plan['start'] - 1
+        lines.insert(1 + roads, f"{word.capitalize()} "
+                     + (f"through bar {a_}." if a_ == b_ else
+                        f"from bar {a_} to bar {b_}."))
+        roads += 1
     return ("\n".join(lines) if figures else " ".join(lines))
 
 
@@ -475,7 +521,7 @@ def main():
             if written:
                 tr, foff = h['transpose'], h['foff']
                 res = item['res']
-                item['res'] = dict(res, timeline=[
+                item['res'] = dict(res, spell_tr=tr, timeline=[
                     (st, en, [p + tr if isinstance(p, int) else p
                               for p in ps])
                     for st, en, ps in res['timeline']])
@@ -527,6 +573,12 @@ def main():
             sys.exit(f'chart: no band part called "{a.part}"'
                      + (f' — did you mean {low[near[0]]}?' if near else
                         '.') + f' Parts: {", ".join(labels)}.')
+        h_ = horn_of.get(label) or {}
+        _PART.update(tr=0)
+        if h_.get('transpose') and h_.get('clef') != 'percussion':
+            _PART.update(tr=h_['transpose'], foff=h_['foff'],
+                         fifths=key[0],
+                         keys=chart.get('keys') or [(1, key)])
         out.append(f"{title} — the {label} part. "
                    f"{len(plans)} {'section' if len(plans) == 1 else 'sections'}, "
                    f"{total} bars.")
@@ -584,7 +636,8 @@ def main():
             road = sorted({(b_, t_[1]) for lab in plan['texts']
                            for b_, t_ in plan['texts'][lab]
                            if isinstance(t_, tuple) and t_[0] == 'road'})
-            out.append(section_heading(sec) + " " + say_changes(sec) +
+            out.append(section_heading(sec, plan['start']) + " "
+                       + say_changes(sec) +
                        "".join(f" At bar {b_ + plan['start'] - 1}: "
                                f"{ROAD_SPOKEN[k_][0].upper()}"
                                f"{ROAD_SPOKEN[k_][1:]}" for b_, k_ in road))

@@ -852,15 +852,18 @@ def inline_res(ref, meter, spoken_shift, fifths=0):
             f"chart: {ref['loc']}: the figure's notes fill "
             f"{ref['ticks'] / DIV:g} beats but {bars} bar(s) of "
             f"{m_num}/{m_den} hold {n_units / DIV:g}")
-    timeline, pos, trills, trems = [], 0, {}, {}
+    timeline, pos, trills, trems, spell = [], 0, {}, {}, {}
     for item in ref['inline']:
         ticks, midi = item[0], item[1]
         if midi is not None:
             timeline.append((pos, pos + ticks, [midi]))
-            if len(item) > 2 and item[2][0] == 'trem':
+            orn = item[2] if len(item) > 2 else None
+            if orn and orn[0] == 'trem':
                 trems[(pos, midi)] = 3
-            elif len(item) > 2:
-                trills[(pos, midi)] = trill_target(midi, item[2], fifths)
+            elif orn:
+                trills[(pos, midi)] = trill_target(midi, orn, fifths)
+            if len(item) > 3 and item[3]:
+                spell[(pos, midi)] = item[3]
         pos += ticks
     if ref.get('short') and timeline:
         s, e, ps = timeline[-1]
@@ -884,6 +887,7 @@ def inline_res(ref, meter, spoken_shift, fifths=0):
             b += 1
     raw = {s: (s, e, 90) for s, e, _ in timeline}
     return ({'timeline': timeline, 'grids': grids, 'n_units': n_units,
+             'spell': spell,
              'at': ref['at'], 'bars': (1, bars), 'dyns': [],
              'slurs': [], 'ghosts': set(), 'staves': None,
              'spoken_shift': spoken_shift, 'trills': trills,
@@ -1506,12 +1510,89 @@ class KeyedTable:
         return self._t().get(k, d)
 
 
+_HINTS = {}      # (note start, written pitch) -> (step, alter), per render
+_EMIT_FIFTHS = [0]   # the written key of the range being rendered
+_BAR_ACC = {}        # (id(out), bar) -> {(step, octave): alter in force}
+
+
+def _shows_acc(out, bar_no, table, step, octave, alter):
+    f = (table.fifths_at(bar_no) if isinstance(table, KeyedTable)
+         else _EMIT_FIFTHS[0])
+    seen = _BAR_ACC.setdefault((id(out), bar_no), {})
+    now = seen.get((step, octave), _sig_alter(step, f))
+    seen[(step, octave)] = alter
+    return alter != now
+
+
+def _sig_alter(step, fifths):
+    i = 'FCGDAEB'.index(step)
+    return 1 if fifths > 0 and i < fifths else \
+        -1 if fifths < 0 and i >= 7 + fifths else 0
+
+
+def _spelling_hints(res, timeline, table, transpose, at_bar, bar_ticks,
+                    fifths_written):
+    """Spellings the key table cannot know: the letter the writer typed
+    (moved to the written key along the circle of fifths), and for a
+    chromatic step outside the chord, the line's direction: sharps going
+    up, flats coming down (a descending line in E had printed C# B# B
+    A#, a horn E# E)."""
+    out = {}
+    # a read-aloud of a transposing part hands over pitches already
+    # written up; its typed spellings are still concert (spell_tr)
+    extra = res.get('spell_tr', 0)
+    shift = (((transpose + extra) * 7) % 12)
+    shift = shift - 12 if shift > 6 else shift
+    for (s, p), (st, al) in (res.get('spell') or {}).items():
+        f = 'FCGDAEB'.index(st) + 7 * al + shift
+        out[(s, p + transpose + extra)] = ('FCGDAEB'[f % 7], f // 7)
+    mono = [(s, ps[0]) for s, e, ps in timeline
+            if len(ps) == 1 and isinstance(ps[0], int)]
+    for i, (s, p) in enumerate(mono):
+        w = p + transpose
+        if (s, w) in out or i + 1 >= len(mono):
+            continue
+        nxt = mono[i + 1][1] + transpose
+        step_ = nxt - w
+        if not 1 <= abs(step_) <= 2:
+            continue
+        if isinstance(table, KeyedTable):
+            table.at = at_bar + s // bar_ticks
+            fw = table.fifths_at(table.at)
+            if table.chords_at and table.at is not None and \
+                    (w % 12) in (table.chords_at(table.at) or {}):
+                continue        # a chord tone keeps the chord's letter
+        else:
+            fw = fifths_written
+        st, al, _o = convert.spell(w, table)
+        sig = _sig_alter(st, fw)
+        if al == sig:
+            continue            # in the key: nothing to choose
+        letters = 'CDEFGAB'
+        base = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+        if step_ < 0 and al > sig:
+            # coming down: the letter above, lowered
+            n2 = letters[(letters.index(st) + 1) % 7]
+        elif step_ > 0 and al < sig:
+            # going up: the letter below, raised
+            n2 = letters[(letters.index(st) - 1) % 7]
+        else:
+            continue
+        a2 = ((w % 12) - base[n2] + 6) % 12 - 6
+        if abs(a2) <= 1 and a2 != _sig_alter(n2, fw):
+            out[(s, w)] = (n2, a2)
+    return out
+
+
 def render_range(res, fifths_written, transpose_to_written, fall,
                  findings=None, short=False, every=None, doit=False,
                  scoops=None, cue=False, fifths_at=None, minor_at=None,
                  chords_at=None):
     """Resolved timeline -> {abs_bar: MusicXML measure content}."""
     find = findings if findings is not None else Findings()
+    _EMIT_FIFTHS[0] = fifths_written
+    _BAR_ACC.clear()
+    _HINTS.clear()
     at_bar = res['at']
     n_units = res['n_units']
     timeline = res['timeline']
@@ -1657,6 +1738,11 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     slur_b = {j for _, j in res.get('slurs', ())}
     ghosts = res.get('ghosts') or set()
     lyr = res.get('lyrics')
+    _HINTS.clear()
+    if not drums and not slash:
+        _HINTS.update(_spelling_hints(res, timeline, table,
+                                      transpose_to_written, at_bar,
+                                      bar_ticks, fifths_written))
     pos = 0
     for ti, (start, end, pitches) in enumerate(timeline):
         if start > pos:
@@ -1938,6 +2024,13 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                 else:
                     w = p + transpose
                     step, alter, octave = convert.spell(w, table)
+                    hint = _HINTS.get((start, w))
+                    if hint:
+                        # the writer's letter, or the line's direction
+                        step, alter = hint
+                        base = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7,
+                                "A": 9, "B": 11}[step]
+                        octave = (w - alter - base) // 12 - 1
                 if slash:
                     step, alter, octave = 'B', 0, 4
                 lines = ['      <note>']
@@ -1966,7 +2059,11 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                 lines.append(f'        <voice>{voice}</voice>')
                 lines.append(f'        <type>{ptype}</type>')
                 lines += ['        <dot/>'] * dots
-                if alter and not slash:
+                if not slash and not drums and pfirst and _shows_acc(
+                        out, bar_no, table, step, octave, alter):
+                    # only where the key and the bar so far don't say
+                    # it already (Ab in D flat had carried a flat sign
+                    # for other programs, A natural none)
                     lines.append(
                         f'        <accidental>{ACC_NAME[alter]}</accidental>')
                 if slash:
@@ -2185,12 +2282,18 @@ DUR_WORD = {96: 'whole note', 84: 'double-dotted half', 72: 'dotted half',
             4: 'triplet sixteenth', 2: 'sextuplet thirty-second'}
 
 
-def _say_pitch(p, table):
+def _say_pitch(p, table, start=None):
     if p == 'slash':
         return "slash"
     if table is None:
         return instruments.drum_name(p)
     step, alter, octave = convert.spell(p, table)
+    hint = _HINTS.get((start, p))
+    if hint:
+        # spoken the way the page prints it
+        step, alter = hint
+        base = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+        octave = (p - alter - base[step]) // 12 - 1
     return f"{step}{ACC_WORD[alter]} {octave}"
 
 
@@ -2261,12 +2364,13 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
             t = lyrics[k]
             return " (held)" if t is None else f" '{t[1]}'"
         if j > i:
-            names = ", ".join(_say_pitch(t[2][0], table) + word(i + o)
+            names = ", ".join(_say_pitch(t[2][0], table, t[0])
+                              + word(i + o)
                               for o, t in enumerate(tl[i:j + 1]))
             clauses.append(f"from {where}, {_say_dur(dur)}s: {names}")
         else:
             what = (" and ".join(dict.fromkeys(
-                        _say_pitch(p, table) for p in pitches))
+                        _say_pitch(p, table, start) for p in pitches))
                     + word(i))
             if len(pitches) > 1:
                 what = (("together, " if table is None else "chord ")
@@ -2353,6 +2457,11 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
              else spelling_table(concert_fifths, find))
     if isinstance(table, KeyedTable):
         table.shift = res.get('spoken_shift', 0)
+    _HINTS.clear()
+    if table is not None and res.get('detail') != 'rhythmic-slashes':
+        _HINTS.update(_spelling_hints(
+            res, res['timeline'], table, 0, res['at'],
+            res.get('bar_ticks', BAR), concert_fifths))
     orn = say_ornaments(res, table, concert_fifths)
     for q, got in (res.get('named_strokes') or {}).items():
         # the strokes the drummer named, said the way a drummer says them
