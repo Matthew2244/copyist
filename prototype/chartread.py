@@ -335,7 +335,12 @@ def part_section(plan, label, chord_parts, figures=None):
                 (f"Your line, {f'bar {lo}' if lo == hi else f'bars {lo} to {hi}'}, "
                  f"spoken at {pitch}:{extra}"))
             if item['res'].get('lyrics_text'):
-                lines.append(f"Words: {item['res']['lyrics_text']}")
+                # the words as said, not as typed: no underscores,
+                # phrase slashes or syllable hyphens read aloud
+                w = item['res']['lyrics_text']
+                w = re.sub(r'\s+-+\s+|(?<=\w)-(?=\w)', '', w)
+                w = re.sub(r'\s+', ' ', w.replace('_', '').replace('/', ' '))
+                lines.append(f"Words: {w.strip()}")
             prose = chartdemo.say_range(item['res'], item['concert_fifths'],
                                         item['fall'],
                                         short=item.get('short', False),

@@ -899,6 +899,14 @@ def parse_notes(text, loc):
             # the span is kept and inline_res checks it against the meter
             grids.append((start, pos, sub))
             continue
+        if tok.lower() in ('breath', 'breathe', "'"):
+            # a breath after the note before it: the comma over the
+            # staff, air taken off the note in the listen
+            if not items or items[-1][1] is None:
+                fail(f"{loc}: a breath follows a note")
+            last = items[-1]
+            items[-1] = tuple(last) + (None,) * (4 - len(last)) + (True,)
+            continue
         item = one(tok)
         items.append(item)
         pos += item[0]
@@ -3402,8 +3410,12 @@ def breath_report(band, labels, resolved, chart, findings):
             bt = 24 * 4 * num // den
             run_start, prev_end = tl[0][0], tl[0][1]
             worst = (0, 0, 0)
+            marked = r.get('breaths') or set()
+            starts = {a: b_ for a, b_ in tl}
+            ends_at_breath = {starts[p_] for p_ in marked if p_ in starts}
             for a, b_ in tl[1:] + [(10 ** 9, 10 ** 9)]:
-                if a - prev_end >= 12:              # an eighth of air
+                if a - prev_end >= 12 or prev_end in ends_at_breath:
+                    # an eighth of air, or a breath the writer marked
                     if prev_end - run_start > worst[0]:
                         worst = (prev_end - run_start, run_start, prev_end)
                     run_start = a

@@ -8220,6 +8220,62 @@ def check_horn_stand_round():
           said[:400])
 
 
+def check_singers_round():
+    """2026-10-28, a singer and choir director's review: an SATB band
+    became saxes, the tenor read plain treble, common words split
+    wrong, hymnal hyphens vanished, slurs ran across syllables and the
+    braille closed every quote with a question mark."""
+    import io
+    import tempfile
+    from contextlib import redirect_stdout
+    import chartc
+    import chartbraille
+    import chartdemo
+    print("\n== singers: the choir, the clef, the words ==")
+    sy = lambda w: len(chartdemo.syllabify(w))
+    check("syllables: loved, walked, times, smiles sing as one",
+          [sy(w) for w in ("loved", "walked", "times", "smiles")]
+          == [1, 1, 1, 1])
+    check("syllables: wanted, roses, places sing as two",
+          [sy(w) for w in ("wanted", "roses", "places")] == [2, 2, 2])
+    check("syllables: beyond, player, lying, going, poem, lion as two",
+          [sy(w) for w in ("beyond", "player", "lying", "going", "poem",
+                           "lion")] == [2] * 6)
+    check("syllables: a consonant plus le starts the last one",
+          [chartdemo.syllabify(w) for w in ("table", "rattle", "people")]
+          == [['ta', 'ble'], ['rat', 'tle'], ['peo', 'ple']])
+    ph, _a = chartdemo.parse_lyrics("Glo - ri - a")
+    check("hymnal hyphens join syllables",
+          [t[1] for t in ph[0]] == ['Glo', 'ri', 'a']
+          and ph[0][0][0] == 'begin')
+    br = chartbraille.literary('"Hello"')
+    check("braille: a quote opens 2-3-6 and closes 3-5-6",
+          br.startswith(chartbraille.cell(2, 3, 6))
+          and br.endswith(chartbraille.cell(3, 5, 6)), br)
+    tmp = tempfile.mkdtemp()
+    cp = os.path.join(tmp, "v.chart")
+    with open(cp, "w") as f:
+        f.write("title: V\nkey: G\nmeter: 4/4\ntempo: 80\n\nband:\n"
+                "  soprano\n  alto\n  tenor\n  bass\n\n"
+                "figure t, 2 bars:\n  notes: G3 q, A3 q, B3 h, C4 w\n"
+                "  lyrics: see a-men_\n\n"
+                "section A, 2 bars\n  chords: G, C\n  tenor: figure t\n"
+                "  alto: figure t\n")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(cp, os.path.join(tmp, "o"))
+    x = open(os.path.join(tmp, "o", "V — tenor.musicxml")).read()
+    check("a choir: the tenor sings, treble-8 at sounding pitch",
+          '<clef-octave-change>-1</clef-octave-change>' in x
+          and '<step>G</step><octave>3</octave>' in x
+          and '<transpose>' not in x, x[:0])
+    x = open(os.path.join(tmp, "o", "V — alto.musicxml")).read()
+    check("a choir: the alto sings at pitch (not an E-flat sax)",
+          '<transpose>' not in x and 'saxophone' not in x.lower())
+    x = open(os.path.join(tmp, "o", "V — tenor.musicxml")).read()
+    check("the melisma is slurred, the syllables are not",
+          x.count('<slur number="1" type="start"/>') == 1, x.count('<slur'))
+
+
 def check_lead_sheet_from_markers():
     """2026-10-27, his ask: a lead sheet from a played chord track, the
     form and what each section does said in the DAW's markers. Chords
@@ -8782,6 +8838,7 @@ if __name__ == "__main__":
     check_pickups_play()
     check_rhythm_section_round()
     check_horn_stand_round()
+    check_singers_round()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

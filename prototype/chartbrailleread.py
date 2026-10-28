@@ -643,6 +643,10 @@ def back_translate(text):
         num = False
         if c.isalpha():
             out.append(c.upper() if word_caps else c.lower())
+        elif c == '8' and (i == 0 or text[i - 1] in ' ('):
+            out.append('"')             # an opening quote, not a ?
+        elif c == '0':
+            out.append('"')             # the closing quote
         elif c in _PUNCT_BACK:
             out.append(_PUNCT_BACK[c])
         else:

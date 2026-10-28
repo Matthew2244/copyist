@@ -671,17 +671,56 @@ def syllabify(word):
     if not letters:
         return [word]
     lows = ''.join(c for _, c in letters)
-    groups = [m.span() for m in re.finditer(r'[aeiouy]+', lows)]
+    n = len(lows)
+    # y is a consonant between vowels (play-er, be-yond), a vowel
+    # elsewhere (ly-ing, cry-ing)
+    vow = [c in 'aeiou' or (c == 'y' and not (
+        0 < i < n - 1 and lows[i - 1] in 'aeiou' and lows[i + 1] in 'aeiou'))
+        for i, c in enumerate(lows)]
+    groups, i = [], 0
+    while i < n:
+        if vow[i]:
+            j = i
+            while j + 1 < n and vow[j + 1]:
+                j += 1
+            # two vowels that sing as two: li-on, po-em, go-ing, be-ing,
+            # al-le-lu-ia (one group had sung as one syllable)
+            k = i
+            while k < j:
+                pair = lows[k:k + 2]
+                hiatus = (pair in ('ia', 'io', 'iu', 'uo')
+                          or (pair == 'ua' and (k == 0 or
+                                                lows[k - 1] not in 'qg'))
+                          or (pair == 'oe' and k + 2 < n)
+                          or (lows[k + 1] == 'i' and lows[k + 2:] == 'ng'
+                              and k + 2 <= n))
+                if hiatus:
+                    groups.append((i, k + 1))
+                    i = k + 1
+                k += 1
+            groups.append((i, j + 1))
+            i = j + 1
+        else:
+            i += 1
     if len(groups) > 1 and lows.endswith('e') \
-            and groups[-1] == (len(lows) - 1, len(lows)) \
-            and not lows.endswith('le'):
+            and groups[-1] == (n - 1, n) \
+            and not (lows.endswith('le') and n > 2
+                     and not vow[n - 3]):
         groups = groups[:-1]           # a final silent e does not sing
+    if len(groups) > 1 and n > 3 and groups[-1] == (n - 2, n - 1) \
+            and ((lows.endswith('ed') and lows[-3] not in 'td')
+                 or (lows.endswith('es') and lows[-3] not in 'sxzcg'
+                     and not lows.endswith(('ches', 'shes')))):
+        groups = groups[:-1]           # loved, walked, times, smiles
     if len(groups) <= 1:
         return [word]
     cuts = []
-    for (_, a_e), (b_s, _) in zip(groups, groups[1:]):
+    for gi, ((_, a_e), (b_s, _)) in enumerate(zip(groups, groups[1:])):
         if a_e >= b_s:                 # adjacent vowels: split between
             cut = b_s
+        elif gi == len(groups) - 2 and lows.endswith('le') and \
+                b_s == n - 1 and n > 2 and not vow[n - 3]:
+            cut = n - 3                # a consonant + le: ta-ble, rat-tle
         else:
             cut = b_s - 1              # one consonant starts the syllable
             if cut - 1 >= a_e and lows[cut - 1:cut + 1] in DIGRAPHS:
@@ -704,6 +743,9 @@ def parse_lyrics(text):
     Returns (phrases, autos): phrases as lists of aligned tokens, autos
     as the words split automatically."""
     phrases, autos = [], []
+    # "Glo - ri - a", hymnal style: a hyphen standing between spaces
+    # joins the syllables (it had printed three words, no hyphens)
+    text = re.sub(r'(?<=\S)\s+-+\s+(?=\S)', '-', text)
     for group in text.split('/'):
         toks = []
         for word in group.split():
@@ -810,6 +852,20 @@ def attach_lyrics(res, text, part_label, loc, find=None):
             toks[i - 1][2] = True        # the syllable keeps sounding
     res['lyrics'] = toks
     res['lyrics_text'] = text
+    # a singer reads a slur as one syllable over several notes: the
+    # slurs are the melismas, exactly (a played legato's slurs had run
+    # across "Green-line rol-ling", and "see_" had none)
+    runs, i = [], 0
+    while i < len(toks):
+        if toks[i] is not None and i + 1 < len(toks) and toks[i + 1] is None:
+            j = i + 1
+            while j + 1 < len(toks) and toks[j + 1] is None:
+                j += 1
+            runs.append((i, j))
+            i = j + 1
+        else:
+            i += 1
+    res['slurs'] = runs
 
 
 def trill_target(midi, spec, fifths):
@@ -853,6 +909,7 @@ def inline_res(ref, meter, spoken_shift, fifths=0):
             f"{ref['ticks'] / DIV:g} beats but {bars} bar(s) of "
             f"{m_num}/{m_den} hold {n_units / DIV:g}")
     timeline, pos, trills, trems, spell = [], 0, {}, {}, {}
+    breaths = set()
     for item in ref['inline']:
         ticks, midi = item[0], item[1]
         if midi is not None:
@@ -864,6 +921,8 @@ def inline_res(ref, meter, spoken_shift, fifths=0):
                 trills[(pos, midi)] = trill_target(midi, orn, fifths)
             if len(item) > 3 and item[3]:
                 spell[(pos, midi)] = item[3]
+            if len(item) > 4 and item[4]:
+                breaths.add(pos)
         pos += ticks
     if ref.get('short') and timeline:
         s, e, ps = timeline[-1]
@@ -887,7 +946,7 @@ def inline_res(ref, meter, spoken_shift, fifths=0):
             b += 1
     raw = {s: (s, e, 90) for s, e, _ in timeline}
     return ({'timeline': timeline, 'grids': grids, 'n_units': n_units,
-             'spell': spell,
+             'spell': spell, 'breaths': breaths,
              'at': ref['at'], 'bars': (1, bars), 'dyns': [],
              'slurs': [], 'ghosts': set(), 'staves': None,
              'spoken_shift': spoken_shift, 'trills': trills,
@@ -1512,6 +1571,7 @@ class KeyedTable:
 
 _HINTS = {}      # (note start, written pitch) -> (step, alter), per render
 _EMIT_FIFTHS = [0]   # the written key of the range being rendered
+_BREATHS = set()     # note starts the writer marked "breath" after
 _BAR_ACC = {}        # (id(out), bar) -> {(step, octave): alter in force}
 
 
@@ -1593,6 +1653,8 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     _EMIT_FIFTHS[0] = fifths_written
     _BAR_ACC.clear()
     _HINTS.clear()
+    _BREATHS.clear()
+    _BREATHS.update(res.get('breaths') or ())
     at_bar = res['at']
     n_units = res['n_units']
     timeline = res['timeline']
@@ -2096,6 +2158,9 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                     arts.append(f'<{artic}/>')
                 if drums and strokes.get(p) == 'choke':
                     arts.append('<breath-mark/>')   # the choke comma
+                elif start in _BREATHS and plast and \
+                        ni == len(pitches) - 1:
+                    arts.append('<breath-mark/>')   # the writer's breath
                 if arts:
                     notations.append('<articulations>' + ''.join(arts)
                                      + '</articulations>')

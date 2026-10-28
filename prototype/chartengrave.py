@@ -2158,6 +2158,19 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
     return x0 + width
 
 
+_EXT_CARRY = set()   # streams whose melisma line runs on into the next bar
+
+
+def _melisma_end(events, ei, xat, half):
+    """(x where a held syllable's line ends, does it run past the bar)."""
+    last = None
+    for p2, ns2 in events[ei + 1:]:
+        if ns2[0].rest or ns2[0].lyric:
+            return (xat(last) + half if last is not None else -1e9), False
+        last = p2
+    return (xat(last) + half if last is not None else -1e9), True
+
+
 def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                 forced, bottom_y, opens=None):
     """One voice on one staff: heads, stems, beams, ties, words.
@@ -2169,6 +2182,16 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
     gliss_open = []
     slur_open = opens if opens is not None else []
     drawn = []
+    if opens is not None and id(opens) in _EXT_CARRY:
+        # a melisma held over the barline: its line goes on here
+        _EXT_CARRY.discard(id(opens))
+        end_x, more = _melisma_end(events, -1, xat, head_half(pdf))
+        if more:
+            end_x = x0 + width - 0.6 * SP
+            _EXT_CARRY.add(id(opens))
+        if end_x > x0:
+            pdf.line(x0 + 0.5 * SP, bottom_y - 4.6 * SP, end_x,
+                     bottom_y - 4.6 * SP, w=0.8)
     # notes that will beam together share one stem direction, decided
     # by the whole group — a lone dissenter would get its stem drawn
     # from the wrong side of the beam, a pole through the staff
@@ -2432,10 +2455,17 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             lx = pdf.text(cx, bottom_y - 4.6 * SP, shown, size=8.5,
                           font='H', center=True)
             if ext:
+                # the line runs under every note the vowel is held
+                # through, to the last one (it had stopped at the
+                # syllable's own note), on into the next bar if need be
+                end_x, more = _melisma_end(events, ei, xat, half)
+                if more:
+                    end_x = x0 + width - 0.6 * SP
+                    _EXT_CARRY.add(id(slur_open))
                 pdf.line(lx + max(0.55 * 8.5 * len(shown),
                                   pdf.tw(shown, 8.5, 'H')) + 2,
                          bottom_y - 4.6 * SP,
-                         xat(pos + n0.dur * 0.9),
+                         max(end_x, xat(pos + n0.dur * 0.9)),
                          bottom_y - 4.6 * SP, w=0.8)
         if n0.trill or n0.wavy:
             draw_trill(pdf, n0, cx, ys, top, clef,
@@ -2539,6 +2569,10 @@ def drain_ties(pdf, carry, edge):
                 (1 if sup else -1)
             draw_arc(pdf, sx, sy + 0.3 * arc, edge, sy + 0.3 * arc, arc)
             fresh.append((None, None, sup))
+        if id(opens) in _EXT_CARRY:
+            # a held syllable's line carries to the next system too
+            _EXT_CARRY.discard(id(opens))
+            _EXT_CARRY.add(id(fresh))
         carry[key] = fresh
 
 

@@ -177,6 +177,13 @@ def literary(text, caps=True, music=False):
         in_num = False
         if ch == ' ':
             out.append(' ')
+        elif ch == '"':
+            # UEB: an opening quote is dots 2-3-6, a closing one 3-5-6
+            # (every quote had opened, so a closing one read as "?")
+            opening = k == 0 or text[k - 1] in ' ([' or (
+                k + 1 < len(text) and text[k + 1].isalnum()
+                and not text[k - 1].isalnum())
+            out.append(cell(2, 3, 6) if opening else cell(3, 5, 6))
         elif music and ch == '.':
             out.append(cell(3))
         elif music and ch in '()':
