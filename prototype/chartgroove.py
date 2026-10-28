@@ -292,7 +292,12 @@ class Bar:
         self.num, self.den = bmeter
         self.barlen = div * 4 * self.num // self.den
         self.meter = tuple(bmeter)        # as printed
-        if self.den >= 8 and self.num % 3 and self.barlen % div:
+        if self.den == 2:
+            # cut time: the grooves play the bar's four quarters, the
+            # way a cut-time chart is written (a 2/2 bossa had been
+            # whole-note pads and one bass note a bar)
+            self.num, self.den = self.num * 2, 4
+        elif self.den >= 8 and self.num % 3 and self.barlen % div:
             # 7/8, 5/8, 7/16: the band feels quarters from the barline
             # and the bar's real length cuts the last one short. Read
             # as eighth beats, every pattern written for four pulses ran
@@ -2023,8 +2028,12 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
             prev = put(beat, beat - beat // 8, mid)
             prev = put(2 * beat, beat - beat // 8, tone(3, 'appr'))
         else:                            # the oom, on 1
-            prev = put(0, beat - beat // 8, tone(1, 'r' if absbar % 2
-                                               else 'f'))
+            # root and fifth trade only over a held chord: a new chord's
+            # downbeat is its root (Dm7 had opened on A)
+            new = any(c is not None and abs(b_ - 1.0) < 1e-6
+                      for b_, c in sec['content'][off])
+            prev = put(0, beat - beat // 8,
+                       tone(1, 'r' if new or absbar % 2 else 'f'))
         state['bass'] = prev
         return
     if style == 'swing' and 'double' in traits:
@@ -2055,6 +2064,15 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
                 what = 'appr'
             else:
                 what = 'f'
+            if what == 'appr' and end - b >= 2:
+                # the step into the next chord is beat 4's, short: held
+                # from 3 it sat two beats against the piano
+                prev = put(int(round((b - 1) * beat)),
+                           int(round((end - b - 1) * beat)) - beat // 6,
+                           tone(b, 'f'), 58)
+                prev = put(int(round((end - 2) * beat)),
+                           beat - beat // 4, tone(end - 1, 'appr'), 54)
+                continue
             prev = put(int(round((b - 1) * beat)),
                        int(round((end - b) * beat)) - beat // 6,
                        tone(b, what), 66 if b == 1.0 else 58)
@@ -2114,11 +2132,16 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
                                                    (4.5, .5, 'appr')]
         elif r_ < 0.55:
             pat = [x for x in pat if x[0] < 4.5] + [(4.5, .5, 'next')]
+    changes = [cb for cb, c in chords if c is not None and cb > 1.0]
     for item in pat:
         b, ln, what = item[:3]
         vel = item[3] if len(item) > 3 else None
         if b > n + 0.99:
             continue
+        if what != 'r' and any(abs(b - cb) < 1e-6 for cb in changes):
+            # a new chord starts on this note: its root, whatever the
+            # pattern's step (the bossa's fifth on 3 had hidden a D7)
+            what = 'r'
         got = put(int(round((b - 1) * beat)),
                   max(1, int(round(ln * beat)) - beat // 8),
                   tone(b, what), vel)
@@ -2549,24 +2572,25 @@ def _bass(bar, state, sec, off, absbar, feel, chords):
             prev = put(p * pulse, pulse, _near(pc, prev))
         return
     nxt_pc = _next_root(sec, off, chords)
+    approach = False
     for b in range(bar.num):
         c = _chord_at(chords, b + 1.0)
         if b % 2 == 0:
-            # a two-feel: the root, then the fifth — or, with a new
-            # chord coming, a step into it (never the root twice)
+            # a two-feel: the root, then the fifth; with a new chord
+            # coming, the step into it waits for the last eighth (held
+            # from 3 it sat a beat and a half against the chord: an F#
+            # under the piano's F on a Dm7)
             pc = _bass_pc(c)
             if b > 0 and _chord_at(chords, float(b)) == c:
                 if b + 2 >= bar.num and nxt_pc != _bass_pc(c):
-                    tgt = _fold_bass(_near(nxt_pc, prev), 28, 55)
-                    m = tgt - 1 if (absbar + b) % 3 else tgt + 2
-                    prev = put(b * beat, beat * 2 - bar.div // 2, m)
-                    continue
+                    approach = True
                 pc = (_root_pc(c) + 7) % 12
             prev = put(b * beat, beat * 2 - bar.div // 2,
                        _fold_bass(_near(pc, prev),
                                   33 if 'electric' in state.get('sound', '')
                                   else 28, 55))
-        elif bar.num >= 4 and b == bar.num - 1 and absbar % 2 == 0:
+        elif bar.num >= 4 and b == bar.num - 1 and (absbar % 2 == 0
+                                                      or approach):
             # the pickup approaches the next downbeat the way a bassist
             # does: a half step under or over, a step above, or a fifth;
             # chosen near the last note it could leap a ninth into it
@@ -2848,8 +2872,22 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
     state['hits'] = None
     if kind == 'hits':
         hmap, _words = arg
-        state['hits'] = hmap.get(off + 1, hmap.get(None)) or []
+        if off + 1 in hmap or None in hmap:
+            state['hits'] = hmap.get(off + 1, hmap.get(None)) or []
+        # else: hits on other bars only — this bar is slashes, and the
+        # band plays time in it (the whole section had gone silent)
     bar = Bar(div, bmeter, fifths, staves, shift=written_shift)
+    f = bar.den / bar.meter[1]
+    if f != 1:
+        # a 7/8 bar grooves in quarters: chords and kicks written in
+        # eighths move to the same clock (the bar's second chord had
+        # never sounded, and kicks landed twice as late)
+        chords = [(1 + (b_ - 1) * f, c) for b_, c in chords]
+        if state['hits']:
+            hs = state['hits']
+            moved = type(hs)(1 + (h - 1) * f for h in hs)
+            moved.__dict__.update(getattr(hs, '__dict__', {}))  # push
+            state['hits'] = moved
     if role is None:
         # a horn with kicks: the kicks play
         _horn_hits(bar, state, chords, state['hits'], bmeter)
@@ -3037,7 +3075,37 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         # the tune's build too now, the way swing already did — a vamp
         # climbs, a shout digs in (the bass sat at 0.8 start to finish)
         _with_heat(bar, heat)
+    if role == 'drums':
+        _odd_backbeat(bar)
     return bar.xml()
+
+
+def _odd_backbeat(bar):
+    """A 7/8 bar grooves in quarters cut short, so a 4/4 kit pattern
+    put its backbeat on the weak last eighth, right before the next
+    downbeat. The snare there moves to the eighth before: 7/8 as
+    kick 1, snare 3, kick 5, snare 6 — the 2+2+3 feel."""
+    if bar.barlen % bar.div == 0 or bar.meter[1] < 8:
+        return
+    last = (bar.barlen // bar.div) * bar.div     # the short beat
+    if last not in bar.onsets or last == 0:
+        return
+    ticks, notes = bar.onsets[last]
+    sn = [n for n in notes if n[0] == 'u' and n[1] == _SNARE]
+    if not sn:
+        return
+    to = last - bar.div // 2
+    keep = [n for n in notes if n not in sn]
+    if keep:
+        bar.onsets[last] = (ticks, keep)
+    else:
+        del bar.onsets[last]
+    if to in bar.onsets:
+        t2, n2 = bar.onsets[to]
+        if not any(n[0] == 'u' and n[1] == _SNARE for n in n2):
+            n2.extend(sn)
+    else:
+        bar.onsets[to] = (bar.div // 2, sn)
 
 
 def _with_heat(bar, heat):

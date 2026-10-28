@@ -391,8 +391,8 @@ def check_meter_charts():
     r = ET.parse(os.path.join(out, "T — piano.musicxml")).getroot()
     bar3 = next(m for m in r.iter("measure") if m.get("number") == "3")
     offs = [h.findtext("offset") for h in bar3.iter("harmony")]
-    check("two chords in a 5/4 bar split at beat 3.5",
-          offs == [None, "60"], f"got {offs}")
+    check("two chords in a 5/4 bar split 3+2, on beat 4",
+          offs == [None, "72"], f"got {offs}")
     r = ET.parse(os.path.join(out, "T — trumpet.musicxml")).getroot()
     multi = [m.get("number") for m in r.iter("measure")
              if m.find(".//multiple-rest") is not None]
@@ -4792,7 +4792,7 @@ def check_feels_and_technique_for_every_part():
               for i in range(len(feels))]
     check("feel: the bass walks 4 in swing, 2 in two feel, 2 in a ballad "
           "(in two, with passing tones), and the latin tumbao is 2",
-          counts[0] in (4, 5) and counts[1] == 2 and counts[2] == 2
+          counts[0] in (4, 5) and counts[1] == 2 and counts[2] in (2, 3)
           and counts[4] == 2, repr(dict(zip(feels, counts))))
     check("feel: bossa, afro-cuban and funk each play their own bass",
           len({counts[3], counts[4], counts[5]}) == 3,
@@ -5048,7 +5048,9 @@ def check_band_hears_the_lead():
         return out
     got = bass_counts("swing")
     check("on a head the bassist chooses in the moment: some takes in two, "
-          "some walking", 2 in got and max(got) >= 4, str(got))
+          # in two: root, fifth, and the skip into a new chord (the
+          # step waits for the last eighth now, short)
+          "some walking", min(got) <= 3 and max(got) >= 4, str(got))
     got = bass_counts("swing, walking")
     check("the chart says walk: every take walks", min(got) >= 4, str(got))
     b = chartgroove.Bar(24, (4, 4), 0, 1)
@@ -7952,6 +7954,15 @@ def check_odd_meter_downbeats():
     check("7/8 chords change on the beat groups, 4+3 and 2+2+3",
           [b_ for b_, _c in bars[0]] == [1.0, 5.0]
           and [b_ for b_, _c in bars[1]] == [1.0, 3.0, 5.0], bars)
+    for mtr, want in (("3/4", 3.0), ("5/4", 4.0)):
+        cp = os.path.join(tmp, "s34.chart")
+        with open(cp, "w") as f:
+            f.write(f"title: S\nkey: C\nmeter: {mtr}\ntempo: 120\n\n"
+                    "band:\n  piano\n\nsection A, 1 bars\n"
+                    "  chords: Am7 D7\n  piano: groove\n")
+        bars = chartc.parse_chart(cp)['sections'][0]['content']
+        check(f"{mtr}: two chords split on a beat, the longer half first",
+              [b_ for b_, _c in bars[0]] == [1.0, want], bars)
     say = chartdemo._say_beat
     check("the read-aloud counts 1 e and a, 1 trip let",
           [say(x) for x in (6, 12, 18, 8, 16)]
@@ -8085,6 +8096,57 @@ def check_pickups_play():
     check("the read-aloud says the pickup from beat 2, at written pitch",
           "You play it: from the and of 2, eighths: D 5" in buf.getvalue(),
           buf.getvalue()[:300])
+
+
+def check_rhythm_section_round():
+    """2026-10-28, a rhythm-section player's review: hits on one bar
+    silenced the band in the others; a 7/8 bar's second chord never
+    sounded; cut time had no feels."""
+    import io
+    import tempfile
+    from contextlib import redirect_stdout
+    import chartc
+    import chartaudio
+    print("\n== the rhythm section: hits, 7/8 changes, cut time ==")
+    tmp = tempfile.mkdtemp()
+
+    def bass_of(text, name):
+        cp = os.path.join(tmp, name + ".chart")
+        with open(cp, "w") as f:
+            f.write(text)
+        out = os.path.join(tmp, name)
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(cp, out)
+        plan = chartaudio.parse_score(os.path.join(
+            out, [f for f in os.listdir(out)
+                  if f.endswith("for listening.musicxml")][0]))
+        part = next(p for p in plan['parts'] if p['name'] == 'bass')
+        return plan, part['events']
+    plan, ev = bass_of(
+        "title: H\nkey: F\nmeter: 4/4\ntempo: 160\nfeel: swing\n\n"
+        "band:\n  piano\n  bass\n  drums\n\nsection A, 4 bars\n"
+        "  chords: F7, Bb7, F7, Bb7\n"
+        "  rhythm: groove, hits bar 3 on 1, 2+\n", "hits")
+    b2 = plan['bars'][2]
+    check("groove plus hits on one bar: the band plays time in the others",
+          any(b2 <= e[0] < b2 + 4 for e in ev), ev[:6])
+    plan, ev = bass_of(
+        "title: S\nkey: F\nmeter: 7/8\ntempo: 120\nfeel: funk\n\n"
+        "band:\n  piano\n  bass\n  drums\n\nsection A, 2 bars\n"
+        "  chords: Am7 D7, Am7 D7\n  rhythm: groove\n", "seven")
+    check("7/8: the bar's second chord sounds in the bass",
+          any(e[2] % 12 == 2 for e in ev), [e[2] for e in ev])
+    plan, ev = bass_of(
+        "title: C\nkey: F\nmeter: 2/2\ntempo: 80\nfeel: bossa nova\n\n"
+        "band:\n  piano\n  bass\n  drums\n\nsection A, 2 bars\n"
+        "  chords: Am7 D7, Gm7\n  rhythm: groove\n", "cut")
+    check("cut time: a 2/2 bossa plays more than one bass note a bar, "
+          "and the mid-bar chord sounds",
+          len([e for e in ev if e[0] < plan['bars'][2]]) >= 3
+          and any(e[2] % 12 == 2 for e in ev), ev[:6])
+    x = open(os.path.join(tmp, "cut", "C — score.musicxml")).read()
+    check("cut time: tempo 80 is a half note, 160 quarters a minute",
+          '<beat-unit>half</beat-unit>' in x and 'tempo="160"' in x)
 
 
 def check_lead_sheet_from_markers():
@@ -8647,6 +8709,7 @@ if __name__ == "__main__":
     check_odd_meter_downbeats()
     check_stems_and_page_bars()
     check_pickups_play()
+    check_rhythm_section_round()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

@@ -53,7 +53,8 @@ def step_pos(step, octave, clef):
 # this use.
 SMUFL = {
     'gClef': 0xE050, 'gClef8vb': 0xE052, 'cClef': 0xE05C, 'fClef': 0xE062, 'percClef': 0xE069,
-    'metNoteQuarterUp': 0xECA5, 'metAugmentationDot': 0xECB7,
+    'metNoteQuarterUp': 0xECA5, 'metNoteHalfUp': 0xECA3,
+    'metNote8thUp': 0xECA7, 'metNote16thUp': 0xECA9, 'metAugmentationDot': 0xECB7,
     'flat': 0xE260, 'natural': 0xE261, 'sharp': 0xE262,
     'dblSharp': 0xE263, 'dblFlat': 0xE264,
     'wholeHead': 0xE0A2, 'halfHead': 0xE0A3, 'blackHead': 0xE0A4,
@@ -1037,11 +1038,12 @@ def parse_part(xml, pid):
                     meas['dyn'].append(
                         (pos + (int(off.group(1)) if off else 0),
                          dyn.group(1)))
-                met = re.search(r'<beat-unit>quarter</beat-unit>\s*'
+                met = re.search(r'<beat-unit>(\w+)</beat-unit>\s*'
                                 r'(<beat-unit-dot/>)?\s*'
                                 r'<per-minute>([\d.]+)</per-minute>', t)
                 if met:
-                    meas['metronome'] = (bool(met.group(1)), met.group(2))
+                    meas['metronome'] = (bool(met.group(2)), met.group(3),
+                                         met.group(1))
                 continue
             n = _parse_note(t)
             sv = re.search(r'<staff>(\d+)</staff>', t)
@@ -1958,14 +1960,15 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
                  w=0.9)
         tx = bx + est + 7
     if meas['metronome']:
-        dot, per = meas['metronome']
+        dot, per, unit = (tuple(meas['metronome']) + ('quarter',))[:3]
+        gname = {'half': 'metNoteHalfUp', 'eighth': 'metNote8thUp',
+                 '16th': 'metNote16thUp'}.get(unit, 'metNoteQuarterUp')
         # the font's own metronome note: one shape, head and stem
         # joined (the hand-drawn one came apart at small sizes), and it
         # reads as a quarter note to a screen reader
         msize = 4 * SP * 0.62
-        if pdf.glyph(tx + 0.4 * SP, ht + 4.8 * SP, 'metNoteQuarterUp',
-                     msize):
-            nx = tx + 0.4 * SP + pdf.gw('metNoteQuarterUp', msize)
+        if pdf.glyph(tx + 0.4 * SP, ht + 4.8 * SP, gname, msize):
+            nx = tx + 0.4 * SP + pdf.gw(gname, msize)
             if dot:
                 pdf.glyph(nx + 0.6, ht + 4.8 * SP, 'metAugmentationDot',
                           msize)

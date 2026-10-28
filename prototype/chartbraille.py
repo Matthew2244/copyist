@@ -974,8 +974,12 @@ def _heading(measures, xml):
                      + cell(2, 5, 6))
     met = first.get('metronome')
     if met:
-        dotted, per = met
-        parts.append(cell(1, 4, 5, 6) + (DOT if dotted else '') +
+        dotted, per, unit = (tuple(met) + ('quarter',))[:3]
+        # the beat note as a C of that value (half in cut time, dotted
+        # eighth in 12/16)
+        note = {'half': cell(1, 3, 4, 5), 'eighth': cell(1, 4, 5),
+                '16th': cell(1, 3, 4, 5, 6)}.get(unit, cell(1, 4, 5, 6))
+        parts.append(note + (DOT if dotted else '') +
                      cell(2, 3, 5, 6) + number(int(float(per))))
     st = first['state']
     parts.append(_key_sign(st['fifths']) + _time_sign(st['time'])

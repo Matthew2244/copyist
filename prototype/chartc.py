@@ -980,7 +980,7 @@ def seconds_before(chart, printed_bar):
     meters = chart['meters']
 
     def qbpm_of(t, m):
-        return t * (1.5 if m[1] == 8 and m[0] % 3 == 0 else 1.0)
+        return t * tempo_beat(*m)[2]
 
     qbpm = qbpm_of(tempo, meter_at(meters, 1))
     tempo_at = {}
@@ -1506,6 +1506,12 @@ def parse_chart(path):
                 if 1 < n <= len(starts):
                     at = [starts[round(i * len(starts) / n)]
                           for i in range(n)]
+            elif n == 2 and mt[0] % 2 and mt[0] >= 3 and not (
+                    mt[1] == 8 and mt[0] % 3 == 0):
+                # two chords in 3/4 split 2+1, in 5/4 3+2, in 7/4 4+3:
+                # on a beat, the longer half first (D7 had landed on
+                # the and of 2)
+                at = [1.0, 1.0 + (mt[0] + 1) // 2]
             content.append([
                 (b, c) if b is not None else
                 (at[i] if n > 1 else 1.0, c)
@@ -2549,6 +2555,31 @@ def build_pickup(chart, groups, labels, horn_of, key, meter, findings):
     chart['_pickup_xml'] = pickup_xml
 
 
+def tempo_beat(m_num, m_den):
+    """The note a tempo number counts in this meter, as (MusicXML
+    beat-unit, dotted, quarters in one): the dotted quarter in 6/8,
+    the dotted eighth in 12/16, the half note in cut time (2/2 at 80
+    had played quarter = 80, half speed)."""
+    if m_num % 3 == 0 and m_den >= 8:
+        return ('quarter' if m_den == 8 else 'eighth' if m_den == 16
+                else '16th'), True, 1.5 * 8 / m_den
+    if m_den == 2:
+        return 'half', False, 2.0
+    return 'quarter', False, 1.0
+
+
+def metronome(tempo, m_num, m_den):
+    unit, dotted, q = tempo_beat(m_num, m_den)
+    return ('      <direction placement="above">'
+            '<direction-type><metronome>'
+            f'<beat-unit>{unit}</beat-unit>'
+            + ('<beat-unit-dot/>' if dotted else '') +
+            f'<per-minute>{tempo}</per-minute>'
+            '</metronome></direction-type>'
+            f'<sound tempo="{float(tempo) * q:g}"/>'
+            '</direction>\n')
+
+
 def opening_marks(hdr, m_num, m_den):
     """The feel and the tempo over the first bar a player reads — the
     pickup bar when there is one (a chart with a pickup had printed no
@@ -2561,20 +2592,9 @@ def opening_marks(hdr, m_num, m_den):
         # (Lush Life says "Slow, freely")
         pieces.append(direction(hdr['tempo']))
     elif hdr.get('tempo'):
-        # a compound meter's tempo is a dotted-quarter figure — that
-        # is how a 6/8 player reads it
-        compound = m_den == 8 and m_num % 3 == 0
-        dot = '<beat-unit-dot/>' if compound else ''
-        sound = (float(hdr['tempo']) * 1.5 if compound
-                 else float(hdr['tempo']))
-        pieces.append(
-            '      <direction placement="above">'
-            '<direction-type><metronome>'
-            f'<beat-unit>quarter</beat-unit>{dot}'
-            f'<per-minute>{hdr["tempo"]}</per-minute>'
-            '</metronome></direction-type>'
-            f'<sound tempo="{sound:g}"/>'
-            '</direction>\n')
+        # the number counts the meter's beat: a dotted quarter in 6/8,
+        # a half note in cut time
+        pieces.append(metronome(hdr['tempo'], m_num, m_den))
     return pieces
 
 
@@ -5954,19 +5974,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         # in a compound bar the mark is a dotted
                         # quarter, and it sounds half again as fast —
                         # the same convention the header tempo keeps
-                        bcompound = (bmeter[1] == 8
-                                     and bmeter[0] % 3 == 0)
-                        bdot = '<beat-unit-dot/>' if bcompound else ''
-                        bsound = (float(text[1]) * 1.5 if bcompound
-                                  else float(text[1]))
-                        pieces.append(
-                            '      <direction placement="above">'
-                            '<direction-type><metronome>'
-                            f'<beat-unit>quarter</beat-unit>{bdot}'
-                            f'<per-minute>{text[1]}</per-minute>'
-                            '</metronome></direction-type>'
-                            f'<sound tempo="{bsound:g}"/>'
-                            '</direction>\n')
+                        pieces.append(metronome(text[1], *bmeter))
                     else:
                         pieces.append(direction(text, 'above'))
                 for wtype, wa, wb in plan.get('wedges', {}).get(label, ()):
