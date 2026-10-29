@@ -8150,6 +8150,391 @@ def check_rhythm_section_round():
           '<beat-unit>half</beat-unit>' in x and 'tempo="160"' in x)
 
 
+def check_open_list_round():
+    """The open list and the bug hunt (2026-10-29): what a reader, a
+    player and the band each caught."""
+    import chartaudio
+    import chartc
+    import chartlead
+    import re as re_
+    tmp = tempfile.mkdtemp()
+
+    def build(text, name="t", extra=()):
+        d = os.path.join(tmp, name)
+        os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, "t.chart"), "w").write(text)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            chartc.compile_chart(os.path.join(d, "t.chart"),
+                                 os.path.join(d, "b"), *extra)
+        return d, buf.getvalue()
+
+    def xml(d, title, part):
+        return open(os.path.join(d, "b", f"{title} — {part}.musicxml"),
+                    encoding="utf-8").read()
+
+    def pitches(x):
+        return re_.findall(r'<step>(\w)</step>(?:<alter>(-?\d)</alter>)?'
+                           r'<octave>(\d)', x)
+
+    # a busy last bar the band chose the ending for plays as written
+    d, _ = build("title: L\nkey: F\nmeter: 4/4\ntempo: 120\nfeel: swing\n\n"
+                 "band:\n  piano\n  bass\n  drums\n\nsection A, 4 bars\n"
+                 "  chords: F7, Bb7, F7, Gm7 C7\n", "land")
+    pl = chartaudio.parse_score(os.path.join(d, "b",
+                                             "L — for listening.musicxml"))
+    pn = next(p for p in pl["parts"] if p["name"] == "piano")["events"]
+    check("a turnaround last bar is played, then the band lands home",
+          any(12 <= e[0] < 16 and e[2] % 12 == 7 for e in pn)
+          and any(14 <= e[0] < 16 and e[2] % 12 == 4 for e in pn)
+          and any(e[0] >= 16 and e[2] % 12 == 9 for e in pn))
+
+    # transposing parts name their key; sharp concert keys respell
+    d, _ = build("title: N\nkey: E\nmeter: 4/4\ntempo: 120\n\nband:\n"
+                 "  alto = alto sax\n  trumpet\n  bass\n\n"
+                 "figure m, 1 bars:\n  notes: E4 q, F#4 q, G#4 q, B4 q\n\n"
+                 "section A, 1 bars\n  chords: E\n  alto: figure m\n"
+                 "  trumpet: figure m\n", "names")
+    import chartengrave as ce
+    ax = xml(d, "N", "alto")
+    check("an alto's part name says it's in Eb",
+          ce.keyed_name("alto", ax, "P1") == "alto in Eb"
+          and ce.keyed_name("bass", xml(d, "N", "bass"), "P1") == "bass")
+    check("concert E on alto reads Db Eb F Ab, no accidentals",
+          pitches(ax) == [("D", "-1", "5"), ("E", "-1", "5"),
+                          ("F", "", "5"), ("A", "-1", "5")]
+          and "<accidental" not in ax)
+
+    # a trumpet cue in a bone part reads on the bass staff
+    d, _ = build("title: C\nkey: F\nmeter: 4/4\ntempo: 120\n\nband:\n"
+                 "  trumpet\n  trombone\n\nfigure line, 2 bars:\n"
+                 "  notes: C5 h, D5 h, F5 w\n\nfigure bone, 1 bars:\n"
+                 "  notes: F3 w\n\nsection A, 2 bars\n  chords: F7, Bb7\n"
+                 "  trumpet: figure line\n  trombone: cue trumpet\n\n"
+                 "section B, 1 bars\n  chords: F7\n  trombone: figure bone\n",
+                 "cue")
+    octs = [int(o) for _s, _a, o in pitches(xml(d, "C", "trombone"))]
+    check("a trumpet cue in the trombone part sits on its staff",
+          octs and max(octs) <= 4, octs)
+
+    # courtesy natural after a sharp in the bar before
+    d, _ = build("title: K\nkey: C\nmeter: 4/4\ntempo: 120\n\nband:\n"
+                 "  violin\n\nfigure m, 2 bars:\n"
+                 "  notes: F#4 h, G4 h, F4 h, F4 h\n\nsection A, 2 bars\n"
+                 "  chords: D7, G7\n  violin: figure m\n", "court")
+    vx = xml(d, "K", "violin")
+    check("the first F after an F# bar carries a courtesy natural",
+          vx.count('cautionary="yes">natural') == 1)
+    ms, _ = ce.parse_part(vx, "P1")
+    shown = [n.show_acc for m in ms for _p, ns, _s, _v in m["events"]
+             for n in ns if not n.rest]
+    check("the page prints it: sharp, then the courtesy, then nothing",
+          shown == [1, None, 0, None], shown)
+
+    # a repeat goes back to the top's own meter
+    d, _ = build("title: R\nkey: C\nmeter: 4/4\ntempo: 120\n\nband:\n"
+                 "  piano\n  bass\n\nsection intro, 1 bars\n  chords: C\n\n"
+                 "section A, 4 bars, repeat 2x\n  at bar 3: meter 3/4\n"
+                 "  chords: F, G, C, C\n  ending: as written\n", "rep")
+    pl = chartaudio.parse_score(os.path.join(d, "b",
+                                             "R — for listening.musicxml"))
+    check("the second time through starts back in 4/4",
+          pl["bar_starts"][:8] == [0, 4, 8, 12, 15, 18, 22, 26],
+          pl["bar_starts"])
+
+    # N.C. prints, and the chord players lay out
+    d, _ = build("title: NC\nkey: C\nmeter: 4/4\ntempo: 120\nfeel: swing\n\n"
+                 "band:\n  guitar\n  bass\n  drums\n\nsection A, 4 bars\n"
+                 "  chords: C, nc, F, G7\n  ending: as written\n", "nc")
+    check("N.C. prints on the part",
+          '<kind text="N.C.">none</kind>' in xml(d, "NC", "guitar"))
+    pl = chartaudio.parse_score(os.path.join(d, "b",
+                                             "NC — for listening.musicxml"))
+    quiet = [p["name"] for p in pl["parts"] if p["name"] != "drums"
+             and not any(4 <= e[0] < 8 for e in p["events"])]
+    check("guitar and bass lay out under N.C.",
+          sorted(quiet) == ["bass", "guitar"], quiet)
+
+    # three chords in a 4/4 bar go 2+1+1
+    d, _ = build("title: T\nkey: C\nmeter: 4/4\ntempo: 120\n\nband:\n"
+                 "  piano\n\nsection A, 1 bars\n  chords: C Am F\n", "three")
+    check("three chords in 4/4 land on beats 1, 3 and 4",
+          re_.findall(r'<offset>(\d+)</offset>', xml(d, "T", "piano"))
+          == ["48", "72"])
+
+    # a horn on groove gets the changes and a word
+    d, out = build("title: G\nkey: C\nmeter: 4/4\ntempo: 120\n\nband:\n"
+                   "  trombone\n\nsection A, 2 bars\n  chords: C7, F7\n"
+                   "  trombone: groove\n", "hgroove")
+    check("slashes on a horn carry the changes, and the findings say "
+          "the listen leaves them out",
+          xml(d, "G", "trombone").count("<harmony") == 2
+          and "listen leaves it out" in out)
+
+    # half time in a swing tune stays swung
+    d, _ = build("title: H\nkey: C\nmeter: 4/4\ntempo: 120\nfeel: swing\n\n"
+                 "band:\n  piano\n  bass\n  drums\n\nsection A, 2 bars\n"
+                 "  chords: C7, F7\n\nsection B, 2 bars\n  feel: half time\n"
+                 "  chords: C7, G7\n  ending: as written\n", "half")
+    pl = chartaudio.parse_score(os.path.join(d, "b",
+                                             "H — for listening.musicxml"))
+    check("a section marked half time keeps the tune's swing",
+          all(sw is not None for _q, sw in pl["swings"]), pl["swings"])
+
+    # double sharps and combined endings
+    d, _ = build("title: D\nkey: E\nmeter: 4/4\ntempo: 100\n\nband:\n"
+                 "  violin\n\nfigure m, 1 bars:\n"
+                 "  notes: C#5 q, Cx5 q, D#5 q, Ebb5 q\n\nsection A, 1 bars\n"
+                 "  chords: E\n  violin: figure m\n", "dbl")
+    check("Cx and Ebb print as double sharp and double flat",
+          ("C", "2", "5") in pitches(xml(d, "D", "violin"))
+          and ("E", "-2", "5") in pitches(xml(d, "D", "violin")))
+    d, _ = build("title: V\nkey: C\nmeter: 4/4\ntempo: 160\n\nband:\n"
+                 "  piano\n  bass\n\nsection A, 3 bars, repeat 3x\n"
+                 "  chords: C, F\n  ending 1-2, 1 bars: chords: G7\n"
+                 "  ending 3, 1 bars: chords: C\n\nsection B, 2 bars\n"
+                 "  chords: F, C\n", "volta")
+    pl = chartaudio.parse_score(os.path.join(d, "b", "V — score.musicxml"))
+    check("a 1-2 ending is taken twice, then the third",
+          len(pl["bar_starts"]) == 11
+          and '<ending number="1, 2" type="start"/>' in xml(d, "V",
+                                                            "piano"))
+
+    check("13sus exports as a 13th with no third",
+          "<degree-value>3</degree-value><degree-alter>0</degree-alter>"
+          "<degree-type>subtract" in chartc.harmony_xml(
+              chartc.split_chord("F13sus"), 1.0, 24))
+    check("the lead sheet names altered dominants and a 7b5",
+          [chartlead.name_chord(p) for p in (
+              [48, 52, 58, 61, 63], [48, 52, 54, 58], [48, 52, 56, 59])]
+          == ["C7b9#9", "C7b5", "Cmaj7#5"])
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_playback_round():
+    """A working musician's listen through the band (2026-10-29): roots
+    where chords arrive, chord tones on the strong beats, the ride never
+    losing the pulse, kicks voiced and caught, slash chords and pop
+    chords voiced as written, endings at the band's own level."""
+    import chartaudio
+    import chartc
+    import chartgroove as G
+    tmp = tempfile.mkdtemp()
+
+    def listen(text, name):
+        d = os.path.join(tmp, name)
+        os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, "t.chart"), "w").write(text)
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(os.path.join(d, "t.chart"),
+                                 os.path.join(d, "b"))
+        f = [x for x in os.listdir(os.path.join(d, "b"))
+             if "for listening" in x][0]
+        return chartaudio.parse_score(os.path.join(d, "b", f))
+
+    def part(pl, name):
+        return next(p for p in pl["parts"] if p["name"] == name)["events"]
+
+    def at(evs, q):
+        return {e[2] for e in evs if abs(e[0] - q) < 0.1}
+
+    head = "key: C\nmeter: 4/4\ntempo: 110\n"
+    pl = listen("title: S\n" + head + "feel: shuffle\n\nband:\n  piano\n"
+                "  bass\n  drums\n\nsection A, 4 bars\n"
+                "  chords: C7, Fmaj7, Am7b5, Dm7 G7\n  ending: as written\n",
+                "shuffle")
+    b = part(pl, "bass")
+    check("the shuffle bass starts each chord on its root, G on 3 too",
+          {m % 12 for m in at(b, 4)} == {5} and {m % 12 for m in at(b, 14)}
+          == {7} and {m % 12 for m in at(b, 10)} == {3},
+          [(round(e[0], 2), e[2]) for e in b[:16]])
+
+    pl = listen("title: W\nkey: F\nmeter: 3/4\ntempo: 150\n"
+                "feel: jazz waltz\n\nband:\n  piano\n  bass\n  drums\n\n"
+                "section A, 2 bars\n  chords: Am7 D7@3, Gm7\n"
+                "  ending: as written\n", "waltz")
+    check("a jazz waltz bass plays D on 3 under D7, and the piano "
+          "pushes the D7",
+          {m % 12 for m in at(part(pl, "bass"), 2)} == {2}
+          and 6 in {m % 12 for m in at(part(pl, "piano"), 1.5)})
+
+    pl = listen("title: T\n" + head + "feel: two feel\n\nband:\n  bass\n\n"
+                "section A, 2 bars\n  chords: Dm7 G7, C\n"
+                "  ending: as written\n", "two")
+    check("a two-feel bass plays the new chord's root on 3",
+          {m % 12 for m in at(part(pl, "bass"), 2)} == {7})
+
+    tones_ok = True
+    for take in range(1, 4):
+        chartc.TAKE = str(take)
+        pl = listen("title: L\n" + head.replace("110", "160")
+                    + "feel: swing\n\nband:\n  bass\n\nsection A, 8 bars, "
+                    "repeat 2x\n  chords: Fmaj7, Bbmaj7, Am7, D7, Gm7, C7, "
+                    "Bbm7, Eb7\n  ending: as written\n", f"walk{take}")
+        for e in part(pl, "bass"):
+            if abs(e[0] % 4 - 2) < 0.05 and e[0] < 32:
+                c = chartc.split_chord(["Fmaj7", "Bbmaj7", "Am7", "D7",
+                                        "Gm7", "C7", "Bbm7",
+                                        "Eb7"][int(e[0] // 4) % 8])
+                r = G._root_pc(c)
+                tn = {(r + t) % 12 for t in G._tones(c)}
+                sc = {(r + t) % 12 for t in G._scale(c)}
+                av = {x for x in sc - tn if (x - 1) % 12 in tn}
+                if e[2] % 12 not in tn and (e[2] % 12 not in sc
+                                            or e[2] % 12 in av):
+                    tones_ok = False
+    chartc.TAKE = ''
+    check("the walking bass never lands a chromatic or avoid note on 3",
+          tones_ok)
+
+    lost = 0
+    for ab in range(64):
+        bb = G.Bar(24, (4, 4), 0, 1)
+        G._swing_time(bb, ab, 0.6, 0.3)
+        ride = {t for t, (_l, ns) in bb.onsets.items()
+                if any(n[1] in (G._RIDE, G._BELL) for n in ns)}
+        lost += not {0, 24, 48, 72} <= ride
+    check("the ride keeps all four quarters in every time bar", lost == 0,
+          lost)
+    check("plain 'double time' is the jazz one, swinging sixteenths",
+          G.style_of("double time")[0] == "swing")
+
+    pl = listen("title: K\nkey: Bb\nmeter: 4/4\ntempo: 160\nfeel: swing\n\n"
+                "band:\n  alto\n  tenor\n  trumpet\n  trombone\n  piano\n"
+                "  bass\n  drums\n\nsection A, 4 bars\n"
+                "  chords: Bb7, Eb7, Bb7, F7\n"
+                "  alto: hits bar 2 on 2+\n  tenor: hits bar 2 on 2+\n"
+                "  trumpet: hits bar 2 on 2+\n  trombone: hits bar 2 on 2+\n"
+                "  ending: as written\n", "kicks")
+    notes = [next(iter(at(part(pl, h), 5.5)), None)
+             for h in ("trumpet", "alto", "tenor", "trombone")]
+    check("four horns' kick is a section voicing, top down",
+          None not in notes and len(set(notes)) == 4
+          and notes == sorted(notes, reverse=True), notes)
+    check("the drummer catches the kick with the horns",
+          {G.GM_KICK if hasattr(G, 'GM_KICK') else 36} & at(
+              part(pl, "drums"), 5.5) or 49 in at(part(pl, "drums"), 5.5))
+
+    pl = listen("title: P\n" + head + "feel: swing\n\nband:\n  piano\n"
+                "  bass\n\nsection A, 2 bars\n  chords: Bb/C, Fmaj7/G\n"
+                "  ending: as written\n", "slash")
+    pn = part(pl, "piano")
+    check("Bb/C and Fmaj7/G keep their sus: no E, no B in the piano",
+          not any(e[2] % 12 == 4 for e in pn if e[0] < 4)
+          and not any(e[2] % 12 == 11 for e in pn if 4 <= e[0] < 8))
+
+    pl = listen("title: R\n" + head + "feel: rock\n\nband:\n  piano\n"
+                "  bass\n  drums\n\nsection A, 2 bars\n  chords: Dm7, G7\n"
+                "  ending: as written\n", "rock")
+    pn = part(pl, "piano")
+    check("rock piano plays the chord as written",
+          {e[2] % 12 for e in pn if e[0] < 4} <= {2, 5, 9, 0}
+          and {e[2] % 12 for e in pn if 4 <= e[0] < 8} <= {7, 11, 2, 5})
+
+    pl = listen("title: Q\nkey: F\nmeter: 4/4\ntempo: 60\nfeel: ballad\n\n"
+                "band:\n  piano\n  bass\n  drums\n\nsection A, 2 bars\n"
+                "  chords: Fmaj7, Gm7 C7\n  all: groove, dyn pp\n", "soft")
+    end_hits = [e[3] for e in part(pl, "drums") if e[0] >= 8 and
+                e[2] in (36, 49)]
+    check("a pp ballad's last hit stays soft",
+          end_hits and max(end_hits) < 0.75, end_hits)
+
+    pl = listen("title: Y\n" + head.replace("110", "75")
+                + "feel: one drop\n\nband:\n  piano\n  bass\n  drums\n\n"
+                "section A, 4 bars\n  chords: Am, D, Am, E7\n", "reggae")
+    check("a reggae tune ends within a few bars of its form",
+          pl["end_q"] <= 16 + 12, pl["end_q"])
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_groove_open_list():
+    """2026-10-29, four suspected groove bugs: the tumbao skipped a
+    bar's second chord; guitar comping past its ceiling; half-time swing
+    going straight; the 7/8 snare splitting the three-group."""
+    import io
+    import tempfile
+    from contextlib import redirect_stdout
+    import chartc
+    import chartaudio
+    print("\n== the groove list: tumbao changes, guitar range, "
+          "half-time swing, 7/8 groups ==")
+    tmp = tempfile.mkdtemp()
+
+    def listen(text, name):
+        cp = os.path.join(tmp, name + ".chart")
+        with open(cp, "w") as f:
+            f.write(text)
+        out = os.path.join(tmp, name)
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(cp, out)
+        plan = chartaudio.parse_score(os.path.join(
+            out, [f for f in os.listdir(out)
+                  if f.endswith("for listening.musicxml")][0]))
+        return plan, {p['name']: p['events'] for p in plan['parts']}
+
+    # 1. the tumbao states the second chord: anticipated on the and of 2
+    for feel in ("latin", "salsa", "mambo"):
+        plan, P = listen(
+            "title: L\nkey: C\nmeter: 4/4\ntempo: 180\nfeel: " + feel +
+            "\n\nband:\n  piano\n  bass\n  drums\n\nsection A, 2 bars\n"
+            "  chords: Cm7 F7, Bbmaj7 Eb7\n  rhythm: groove\n",
+            "tumbao-" + feel)
+        got = []
+        for bar, pc in ((1, 5), (2, 3)):
+            b = plan['bars'][bar]
+            got.append(any(b + 1.5 - 1e-6 <= e[0] <= b + 2.0 + 1e-6
+                           and e[2] % 12 == pc for e in P['bass']))
+        check(f"{feel}: the tumbao pushes the bar's second chord on the "
+              "and of 2", all(got),
+              [(e[0], e[2] % 12) for e in P['bass']])
+
+    # 2. guitar comping stays under the ceiling chartgroove sets (E5)
+    chs = ("Bmaj7#11, Ab13, F#m11, Ebmaj9, C#7#9, Gbmaj7#11 B13, "
+           "E9sus4, Dbmaj9 A7b13, F#13, G#m9, Bb13#11, Emaj9")
+    top = 0
+    for feel in ("swing", "latin", "bossa nova", "funk", "gypsy jazz",
+                 "ballad", "gospel"):
+        plan, P = listen(
+            "title: G\nkey: E\nmeter: 4/4\ntempo: 140\nfeel: " + feel +
+            "\n\nband:\n  guitar\n  bass\n  drums\n\nsection A, 12 bars\n"
+            "  chords: " + chs + "\n  rhythm: groove\n",
+            "gtr-" + feel.replace(" ", "-"))
+        g = next(v for k, v in P.items() if 'guitar' in k.lower())
+        top = max([top] + [e[2] for e in g])
+    check("guitar comping never above E5 in any feel or key", 0 < top <= 76,
+          top)
+
+    # 3. half-time swing still swings its offbeats in the listen
+    plan, P = listen(
+        "title: H\nkey: F\nmeter: 4/4\ntempo: 120\n"
+        "feel: half-time swing\n\nband:\n  piano\n  bass\n  drums\n\n"
+        "section A, 2 bars\n  chords: F7, Bb7\n  rhythm: groove\n", "half")
+    offs = [chartaudio._warp(e[0], plan['swings'], plan.get('bar_starts'))
+            % 1 for e in P['drums'] if abs(e[0] % 1 - 0.5) < 1e-6]
+    check("half-time swing: the ride's ands land late, swung",
+          offs and all(0.6 <= f <= 0.75 for f in offs), offs)
+
+    # 4. 7/8 as 2+2+3: snare on 3, kick opening the three, nothing
+    # accented inside it
+    for feel in ("straight", "rock", "funk"):
+        plan, P = listen(
+            "title: S\nkey: A\nmeter: 7/8\ntempo: 120\nfeel: " + feel +
+            "\n\nband:\n  bass\n  drums\n\nsection A, 4 bars\n"
+            "  chords: Am7, D7, Am7, D7\n  rhythm: groove\n",
+            "seven-" + feel)
+        ok = True
+        for bar in (2, 3):
+            b = plan['bars'][bar]
+            ev = [e for e in P['drums'] if b <= e[0] < b + 3.5]
+            snare = {round((e[0] - b) * 2 + 1, 2) for e in ev
+                     if e[2] == 38 and e[3] >= 0.45}
+            kick = {round((e[0] - b) * 2 + 1, 2) for e in ev
+                    if e[2] == 36}
+            ok = ok and snare == {3.0} and 5.0 in kick
+        check(f"7/8 {feel}: kick 1, snare 3, kick 5 (2+2+3), no backbeat "
+              "inside the three", ok, (snare, kick))
+
+
 def check_horn_stand_round():
     """2026-10-28, a horn and string player's review: the read-aloud
     spoke concert changes to a transposing part; unplayable notes
@@ -8874,6 +9259,9 @@ if __name__ == "__main__":
     check_horn_stand_round()
     check_singers_round()
     check_form_and_time_round()
+    check_groove_open_list()
+    check_open_list_round()
+    check_playback_round()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",

@@ -521,6 +521,18 @@ def _slur_plan(meas_list, staff=1):
 
 
 def measure_units(meas, slurs, staff=1, down=None, words=True):
+    """measure_units_, with a tempo change said where it happens: the
+    new metronome mark before the bar, the way the heading says the
+    first one (a mid-chart tempo had been left out of the braille)."""
+    units, slashed = measure_units_(meas, slurs, staff, down, words)
+    if words and staff == 1 and meas.get('metronome') and \
+            not meas.get('_met_in_heading'):
+        tok = metronome_cells(meas['metronome']) + ' '
+        units.insert(0, (lambda voice, t=tok: (voice.fresh(), t)[1], None))
+    return units, slashed
+
+
+def measure_units_(meas, slurs, staff=1, down=None, words=True):
     """One measure -> units in time order: (render, chord). render(voice)
     writes the unit's braille against the running voice, so a unit that
     has to move to a new line can be written again there with the octave
@@ -970,6 +982,23 @@ class Pager:
                          '\r\n' for page in self.pages)
 
 
+def metronome_cells(met):
+    """A metronome mark: the beat note as a C of that value (half in cut
+    time, dotted eighth in 12/16), the equals sign, the number."""
+    dotted, per, unit = (tuple(met) + ('quarter',))[:3]
+    note = {'half': cell(1, 3, 4, 5), 'eighth': cell(1, 4, 5),
+            '16th': cell(1, 3, 4, 5, 6)}.get(unit, cell(1, 4, 5, 6))
+    return (note + (DOT if dotted else '') + cell(2, 3, 5, 6)
+            + number(int(float(per))))
+
+
+def _volta(enum):
+    """An ending's number (table 17); a bracket taken twice ("1, 2")
+    writes each number in turn."""
+    return ''.join(NUM + ''.join(LOWER[d] for d in x)
+                   for x in re.findall(r'\d+', str(enum)))
+
+
 def _heading(measures, xml):
     """The music heading (1.7): the style and pace words, the metronome,
     then key and time — centered."""
@@ -981,13 +1010,7 @@ def _heading(measures, xml):
                      + cell(2, 5, 6))
     met = first.get('metronome')
     if met:
-        dotted, per, unit = (tuple(met) + ('quarter',))[:3]
-        # the beat note as a C of that value (half in cut time, dotted
-        # eighth in 12/16)
-        note = {'half': cell(1, 3, 4, 5), 'eighth': cell(1, 4, 5),
-                '16th': cell(1, 3, 4, 5, 6)}.get(unit, cell(1, 4, 5, 6))
-        parts.append(note + (DOT if dotted else '') +
-                     cell(2, 3, 5, 6) + number(int(float(per))))
+        parts.append(metronome_cells(met))
     st = first['state']
     parts.append(_key_sign(st['fifths']) + _time_sign(st['time'])
                  if st['fifths'] else _time_sign(st['time']))
@@ -1131,6 +1154,7 @@ def _part_to_brf(xml, pid, title, part_name, chords=True):
                 pager.add(ln)
     pager.add('')
     head, extra_words = _heading(measures, xml)
+    measures[0]['_met_in_heading'] = True
     for ln in head:
         pager.add(ln)
     # the first measure's words that went into the heading are spent
@@ -1241,7 +1265,7 @@ def _measure_frame(m, i, slurs, in_slash):
         attach += REPEAT_FWD
     for enum, etype, _left in m.get('ending') or []:
         if etype == 'start':                         # table 17
-            attach += NUM + ''.join(LOWER[d] for d in str(enum))
+            attach += _volta(enum)
             volta = True
     # 20.2: the road map follows the measure it closes — "To Coda"
     # as the coda sign and its words after the music, D.S., D.C.
@@ -1726,7 +1750,7 @@ def _keyboard(pager, measures, tied, chords_on):
             attach += REPEAT_FWD
         for enum, etype, _left in m.get('ending') or []:
             if etype == 'start':
-                attach += NUM + ''.join(LOWER[d] for d in str(enum))
+                attach += _volta(enum)
         road = [t for _p, t in m['texts'] if _is_road(t)]
         m['texts'] = [(p_, t) for p_, t in m['texts'] if not _is_road(t)]
         post = ''
@@ -2376,7 +2400,7 @@ def _perc_score(pager, measures, comps, of, tied, chords_on):
             attach += REPEAT_FWD
         for enum, etype, _l in m.get('ending') or []:
             if etype == 'start':
-                attach += NUM + ''.join(LOWER[d] for d in str(enum))
+                attach += _volta(enum)
         st_ = m['state']
         sig = ''
         if i > 0 and 'key' in m['show']:

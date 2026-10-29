@@ -137,9 +137,28 @@ def say_chord(chord):
     return s
 
 
+def _solo_turn(texts, sec, tail):
+    """Your solo, as the page has it: a turn among several soloists
+    ("Solo, 2nd time", "Solo, bars 5 to 8") is said as that turn, never
+    as the whole section."""
+    turn = next((t[1] for t in texts if isinstance(t[1], str)
+                 and t[1].lower().startswith('solo,')), None)
+    if turn:
+        return (f"You solo {turn[len('Solo, '):]}, over the changes; "
+                "the others take the rest.")
+    return f"You solo — {sec['bars']} {tail}"
+
+
 def say_beat(beat):
     whole = int(beat)
-    return f"the and of {whole}" if beat != whole else f"beat {whole}"
+    frac = beat - whole
+    if abs(frac) < 1e-6:
+        return f"beat {whole}"
+    for f_, word in ((0.5, 'and'), (0.25, 'e'), (0.75, 'a'),
+                     (1 / 3, 'trip'), (2 / 3, 'let')):
+        if abs(frac - f_) < 0.02:
+            return f"the {word} of {whole}"
+    return f"beat {round(beat, 2)}"
 
 
 def say_bar(bar):
@@ -162,7 +181,9 @@ def say_changes(sec):
     bits = ["Changes: " + say_bars(sec['content'][:body])]
     pos = body
     for e in ends:
-        bits.append(f"{ORD.get(e['num'], str(e['num']))} ending: "
+        said_ = " and ".join(ORD.get(x, str(x)).lower()
+                             for x in e.get('nums', [e['num']]))
+        bits.append(f"{said_[0].upper() + said_[1:]} ending: "
                     + say_bars(sec['content'][pos:pos + e['bars']]))
         pos += e['bars']
     return " ".join(bits)
@@ -236,7 +257,7 @@ def section_heading(sec, start=None, form=False):
     else:
         bits.append(f"{sec['bars']} bars")
     if sec['feel']:
-        bits.append(sec['feel'])
+        bits.append(sec.get('feel_said') or sec['feel'])
     if sec['repeat']:
         bits.append(f"repeated, play {sec['repeat']} times")
     if sec['open']:
@@ -413,8 +434,8 @@ def part_section(plan, label, chord_parts, figures=None):
                       and t[1].lower().startswith('solo')
                       for t in texts)
         if is_solo and not arg:
-            lines.append(f"You solo — {sec['bars']} bars of slashes "
-                         "over the changes.")
+            lines.append(_solo_turn(texts, sec,
+                                    "bars of slashes over the changes."))
         else:
             g = f'Groove, "{arg}"' if arg else "Groove"
             what = ("slashes with the changes" if shows_chords
@@ -427,8 +448,9 @@ def part_section(plan, label, chord_parts, figures=None):
                 lines.append(f"{g} — {what}.")
     elif any(isinstance(t[1], str) and t[1].lower().startswith('solo')
              for t in texts):
-        lines.append(f"You solo — {sec['bars']} bars over the changes, "
-                     "nothing written out.")
+        lines.append(_solo_turn(texts, sec,
+                                "bars over the changes, nothing written "
+                                "out."))
     else:
         lines.append("Rest until the last time round, then the cue."
                      if sec.get('open') and sec.get('_cuer') == label

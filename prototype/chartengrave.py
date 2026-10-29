@@ -871,6 +871,10 @@ def mark_accidentals(meas, state):
         base = {}
     cur = {}                     # (staff, step, octave) -> alter in force
     held = {}                    # tied in from the last bar: its alter
+    # the last bar's departures from the key: the first plain F after a
+    # bar with F# in it prints its natural anyway, a courtesy every
+    # player expects across the barline
+    was = state.get('_acc_prev') or {}
     for pos, notes, staff, voice in sorted(
             meas['events'], key=lambda e: (e[0], e[2], e[3])):
         perc = state['clefs'].get(staff) == 'percussion'
@@ -890,8 +894,13 @@ def mark_accidentals(meas, state):
             if (want != cur.get(k, base.get(n.step, 0)) or
                     (k in held and want != held[k])) and not n.tie_stop:
                 n.show_acc = want
+            elif k not in cur and k in was and was[k] != want \
+                    and not n.tie_stop:
+                n.show_acc = want        # the courtesy
             held.pop(k, None)
             cur[k] = want
+    state['_acc_prev'] = {k: a for k, a in cur.items()
+                          if a != base.get(k[1], 0)}
 
 
 def parse_part(xml, pid):
@@ -975,7 +984,10 @@ def parse_part(xml, pid):
                 off = re.search(r'<offset>(-?\d+)</offset>', t)
                 bs = re.search(r'<bass-step>(\w)</bass-step>', t)
                 ba = re.search(r'<bass-alter>(-?\d+)</bass-alter>', t)
-                if r:
+                if kd and re.search(r'>none</kind>', t):
+                    meas['chords'].append(
+                        (pos + (int(off.group(1)) if off else 0), 'N.C.'))
+                elif r:
                     sym = r.group(1) + acc_text(a) + (
                         kd.group(1) if kd else '')
                     if bs:
@@ -987,12 +999,12 @@ def parse_part(xml, pid):
                 left = 'location="left"' in t
                 style = re.search(r'<bar-style>([\w-]+)</bar-style>', t)
                 rep = re.search(r'<repeat direction="(\w+)"', t)
-                end = re.search(r'<ending number="(\d+)" type="(\w+)"', t)
+                end = re.search(r'<ending number="([\d, ]+)" type="(\w+)"', t)
                 d = {'style': style.group(1) if style else None,
                      'repeat': rep.group(1) if rep else None}
                 if end:
-                    meas['ending'].append((int(end.group(1)), end.group(2),
-                                           left))
+                    meas['ending'].append((end.group(1).strip(),
+                                           end.group(2), left))
                 if d['style'] or d['repeat']:
                     meas['left' if left else 'right'] = d
                 continue
@@ -1423,7 +1435,7 @@ def engrave(xml_path, pdf_path, look=None):
         systems.append(cur)
 
     y = under_credits(top_y, title_block(pdf, xml, PAGE_W, PAGE_H, MARGIN))
-    pname = names.get(pids[0], '')
+    pname = keyed_name(names.get(pids[0], ''), xml, pids[0])
     staves = measures[0]['state']['staves'] if measures else 1
     ph = part_height(staves)
 
@@ -1506,7 +1518,7 @@ def _abbrev(name):
     score prints them."""
     out = []
     for w in name.split():
-        if w.isdigit():
+        if w.isdigit() or w == 'in':      # "Alto in Eb", never "In"
             out.append(w)
         elif len(w) > 4:
             out.append(w[:4].capitalize() + '.')
@@ -1526,7 +1538,8 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
         if measures is None:
             return False, f"{names.get(pid, pid)} needs {why}"
         staves = measures[0]['state']['staves'] if measures else 1
-        parts.append((names.get(pid, pid), measures, staves))
+        parts.append((keyed_name(names.get(pid, pid), xml, pid), measures,
+                      staves))
     sounds = {}
     for pid, body in re.findall(r'<score-part id="([^"]+)">(.*?)'
                                 r'</score-part>', xml, re.S):
@@ -1727,6 +1740,32 @@ def part_height(staves):
 
 def staff_tops(y, staves):
     return [y - i * (STAFF + GRAND_GAP) for i in range(staves)]
+
+
+_IN_KEY = {10: 'Bb', 3: 'Eb', 5: 'F', 9: 'A', 2: 'D', 7: 'G', 8: 'Ab',
+           1: 'Db', 4: 'E', 11: 'B', 6: 'Gb'}
+
+
+def keyed_name(name, xml, pid):
+    """A transposing part's name says what it's in, the way every part
+    on a stand does: "alto in Eb", "horn in F". Read from the part's own
+    <transpose> (the interval from written to sounding), so the score and
+    the parts agree; octave instruments (guitar, bass, piccolo) and
+    concert-pitch parts say nothing extra, nor does a name that already
+    says it."""
+    if not name or re.search(r'\bin [A-G][b#♭♯]?\b', name, re.I):
+        return name
+    part = re.search(r'<part id="%s">(.*?)</part>' % re.escape(pid), xml,
+                     re.S)
+    tr = re.search(r'<transpose>(.*?)</transpose>', part.group(1) if part
+                   else '', re.S)
+    if not tr:
+        return name
+    c = re.search(r'<chromatic>(-?\d+)</chromatic>', tr.group(1))
+    o = re.search(r'<octave-change>(-?\d+)</octave-change>', tr.group(1))
+    pc = (int(c.group(1)) if c else 0) + 12 * (int(o.group(1)) if o else 0)
+    key = _IN_KEY.get(pc % 12)
+    return f"{name} in {key}" if key else name
 
 
 def draw_part_name(pdf, right_x, mid_y, name, size=9.0):
@@ -2050,6 +2089,11 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
 
     last_cx = None
     bar_end = x0 + width - 1.5
+    for num, etype, _l in meas['ending']:
+        if etype == 'start':
+            # an ending's number sits on the chord line: the bar's
+            # first change starts after it ("1, 2" had printed over G7)
+            last_cx = x0 + 6 + pdf.tw(str(num), 8.5, 'HB') + 3 - 7
     for pos, sym in meas['chords']:
         cxs = xat(pos)
         if last_cx is not None:      # two changes never print on top

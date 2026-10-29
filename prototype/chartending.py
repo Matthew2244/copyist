@@ -707,7 +707,9 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
         r = dm()
         order = [x[0] for x in sh.get('voices', ())]
         if role in ('comp', 'bass'):
-            if r < 0.55:
+            if r < 0.55 or sh.get('trash'):
+                # a trash can is the whole band going for it: nobody
+                # sits on a whole note under it
                 _trash_pitched(b, beat, vs, role, stop)
             else:
                 for p in vs:
@@ -1779,9 +1781,17 @@ def band_choice(feel, song, has_keys, has_horns, written=None,
                  + ([('count', None)] + ([('unison', None)] if d() < 0.6
                                          else []) if d() < 0.5 else [])
                  + [('hit', 'cue')])
-    if not has_drums:
-        steps = [s_ for s_ in steps if s_[0] != 'dictate'] or \
+    if not has_drums or style in ('reggae', 'hiphop', 'bossa', 'samba',
+                                  'baiao'):
+        # a one drop, a boom bap or a bossa ends short and in its own
+        # groove, never a drum solo trading band chords (a reggae tune
+        # of 8 bars had ended 19 bars later)
+        steps = [s_ for s_ in steps if s_[0] not in ('dictate', 'count',
+                                                      'unison')] or \
             [('hold', None), ('hit', 'cue')]
+        if not any(k in ('hold', 'hit', 'stop', 'button', 'trash')
+                   for k, _ in steps):
+            steps = [('hold', None), ('hit', 'cue')]
     held = any(k in ('hold', 'roll', 'trash') for k, _ in steps)
     hit = any(k in ('hit', 'button') for k, _ in steps)
     if held and hit:

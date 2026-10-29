@@ -81,7 +81,7 @@ HORNS = {
     # strings
     'violin':            _inst(0,  (55, 105), 'G', 0, (55, 96)),
     'viola':             _inst(0,  (48, 88),  'C', 0, (48, 81)),
-    'cello':             _inst(0,  (36, 81),  'F', 0, (36, 69)),
+    'cello':             _inst(0,  (36, 84),  'F', 0, (36, 76)),
     'double bass':       _inst(12, (28, 60),  'F', 0, (28, 50)),
     # rhythm
     'guitar':            _inst(12, (40, 88),  'G', 0, (40, 76), poly=True),
@@ -661,7 +661,8 @@ CHORD_KINDS = {
     '7#9#11': ('dominant', '7#9#11', [(9, 1, 'add'), (11, 1, 'add')]),
     '7#11': ('dominant', '7#11', [(11, 1, 'add')]),
     '13#11': ('dominant-13th', '13#11', [(11, 1, 'add')]),
-    '13sus': ('dominant-13th', '13sus', [(4, -1, 'subtract')]),
+    # a 13th chord already stacks the 11th (the 4): only the 3rd goes
+    '13sus': ('dominant-13th', '13sus', [(3, 0, 'subtract')]),
     '7#9b13': ('dominant', '7#9b13', [(9, 1, 'add'), (13, -1, 'add')]),
     '69': ('major-sixth', '69', [(9, 0, 'add')]),
     'm69': ('minor-sixth', 'm69', [(9, 0, 'add')]),
@@ -680,6 +681,8 @@ CHORD_KINDS = {
     '9sus4': ('dominant-ninth', '9sus4', [(3, 0, 'subtract'),
                                           (4, 0, 'add')]),
     '7b9b13': ('dominant', '7b9b13', [(9, -1, 'add'), (13, -1, 'add')]),
+    # both ninths, the altered dominant every player knows
+    '7b9#9': ('dominant', '7b9#9', [(9, -1, 'add'), (9, 1, 'add')]),
     '7b9#11': ('dominant', '7b9#11', [(9, -1, 'add'), (11, 1, 'add')]),
     '9#11': ('dominant-ninth', '9#11', [(11, 1, 'add')]),
     '13#9': ('dominant-13th', '13#9', [(9, 1, 'alter')]),
@@ -855,15 +858,18 @@ def parse_notes(text, loc):
         m = re.fullmatch(r'rest ([whqes.+]+)', tok)
         if m:
             return (dur_of(m.group(1), sn, sd), None)
-        m = re.fullmatch(r'([A-Ga-g])([b#]?)(-?\d)\s+([whqes.+]+)'
+        m = re.fullmatch(r'([A-Ga-g])(bb|##|x|b|#|)(-?\d)\s+([whqes.+]+)'
                          r'(?:\s+((?:tr|trill|trem|tremolo|roll)\b.*))?',
                          tok)
         if not m:
             fail(f"{loc}: cannot read note '{tok}' — like Bb4 q, "
-                 "rest e, C5 q+e, or E5 h tr")
+                 "rest e, C5 q+e, Cx5 q (a double sharp), or E5 h tr")
         base = {'c': 0, 'd': 2, 'e': 4, 'f': 5, 'g': 7,
                 'a': 9, 'b': 11}[m.group(1).lower()]
-        alt = {'b': -1, '#': 1, '': 0}[m.group(2)]
+        # Cx or C## a double sharp, Ebb a double flat: a line that
+        # moves by step in a sharp key needs them
+        alt = {'bb': -2, '##': 2, 'x': 2, 'b': -1, '#': 1, '': 0}[
+            m.group(2)]
         midi = base + alt + (int(m.group(3)) + 1) * 12
         # the letter the writer chose rides along: Gb4 prints Gb, never
         # F# (the page had respelled every written note by the key)
@@ -1244,10 +1250,17 @@ def parse_chart(path):
                 pass
             cur['use'] = (name, int(m.group(2) or 1))
             continue
-        m = re.match(r'ending (\d+),\s*(\d+) bars?:\s*chords:\s*(.+)$', s)
+        # "ending 1-2" (or 1, 2 / 1 & 2 / 1 and 2): one bracket taken on
+        # more than one pass, the routine 1.-2. bracket
+        m = re.match(r'ending (\d+(?:\s*(?:-|,|&|and)\s*\d+)*),\s*(\d+) '
+                     r'bars?:\s*chords:\s*(.+)$', s)
         if m:
+            ns_ = [int(x) for x in re.findall(r'\d+', m.group(1))]
+            if re.search(r'-', m.group(1)) and len(ns_) == 2:
+                ns_ = list(range(ns_[0], ns_[1] + 1))
             cur['endings'].append(
-                {'num': int(m.group(1)), 'bars': int(m.group(2)),
+                {'num': min(ns_), 'nums': sorted(set(ns_)),
+                 'bars': int(m.group(2)),
                  'content': parse_bars(m.group(3),
                                        f"section {cur['name']} ending "
                                        f"{m.group(1)}")})
@@ -1401,11 +1414,15 @@ def parse_chart(path):
             if not sec['repeat']:
                 fail(f"section {sec['name']} has endings but no repeat — "
                      "say how many times it plays (repeat 2x)")
-            if [e['num'] for e in es] != list(range(1, sec['repeat'] + 1)):
+            if [n_ for e in es for n_ in e.get('nums', [e['num']])] != \
+                    list(range(1, sec['repeat'] + 1)):
                 fail(f"section {sec['name']} plays {sec['repeat']} times "
                      "but its ending numbers are "
-                     + ", ".join(str(e['num']) for e in es)
-                     + " — one ending per pass, numbered from 1")
+                     + ", ".join("-".join(str(x) for x in
+                                          e.get('nums', [e['num']]))
+                                 for e in es)
+                     + " — every pass needs an ending, numbered from 1 "
+                     "(ending 1-2 takes one bracket twice)")
             if len({e['bars'] for e in es}) != 1:
                 fail(f"section {sec['name']}: endings must all be the "
                      "same length, so the declared bars mean one pass")
@@ -1515,6 +1532,15 @@ def parse_chart(path):
                          f"beats 1 to {beats}")
             n = len(bar)
             at = [1.0 + i * (beats / n) for i in range(n)]
+            if n > 1 and (beats / n) % 1:
+                # chords that don't divide the bar evenly land on beats,
+                # the longer ones first (three in 4/4 go 2+1+1, never on
+                # triplet thirds); more chords than beats split the
+                # beat in half the same way
+                units, scale = (beats, 1) if n <= beats else (beats * 2, 2)
+                lens = [units // n + (1 if i < units % n else 0)
+                        for i in range(n)]
+                at = [1.0 + sum(lens[:i]) / scale for i in range(n)]
             per_q = mt[1] / 4             # bottom notes in a quarter
             if mt[1] >= 8 and mt[0] % 3 and (mt[0] / per_q) % 1:
                 # 7/8 or 5/8: chords change where the beat groups start
@@ -2072,6 +2098,13 @@ def transpose_chord(chord, t, foff=None):
 
 
 def harmony_xml(chord, beat, pulse_div):
+    if chord is None:
+        # N.C.: the band stops comping here; every program prints it
+        off = int(round((beat - 1.0) * pulse_div))
+        return ('      <harmony><root><root-step text="">C</root-step>'
+                '</root><kind text="N.C.">none</kind>'
+                + (f'<offset>{off}</offset>' if off else '')
+                + '</harmony>\n')
     step, alter, qual, bass = chord
     entry = CHORD_KINDS[qual]
     kind, ktext = entry[0], entry[1]
@@ -2637,6 +2670,19 @@ def compile_chart(chart_path, outdir):
              "writes them, or add a line like 'section A, 8 bars' with "
              "its chords under it")
     hdr = chart['header']
+    # a section that only says how the time moves ("half time", "double
+    # time", "two feel") keeps the tune's own style: half time in a
+    # swing tune is half-time swing, not a straight rock beat
+    _mods = r'\b(?:half[- ]?time|double[- ]?time|two[- ]?feel|in (?:2|two)|' \
+            r'half|double|feel)\b'
+    tune_style = re.sub(_mods, ' ', (hdr.get('feel') or ''), flags=re.I)
+    tune_style = ' '.join(tune_style.split())
+    for sec in chart['sections']:
+        f_ = (sec.get('feel') or '').strip()
+        if f_ and tune_style and not re.sub(_mods, '', f_,
+                                            flags=re.I).strip(' ,-'):
+            sec['feel_said'] = f_          # the page keeps the words
+            sec['feel'] = f"{f_} {tune_style}"
     meter = parse_meter(hdr.get('meter', '4/4'))
     src_path = hdr.get('source')
     if src_path and not os.path.isabs(src_path):
@@ -2671,6 +2717,18 @@ def compile_chart(chart_path, outdir):
 
     # ---- the from-demo door
     findings = chartdemo.Findings()
+    for l in labels:
+        if l in groups['rhythm']:
+            continue
+        secs = [pl['sec']['name'] for pl in plans
+                if pl['content'][l][0] == 'groove']
+        if secs:
+            # slashes on a horn: the changes print over them, but
+            # nobody makes up a horn part in the listen
+            findings.add(f"{l}: 'groove' in {', '.join(dict.fromkeys(secs))}"
+                         " prints slashes with the changes for the player "
+                         "to make up a part; the listen leaves it out — "
+                         "notes, a figure or backgrounds play")
     if chart.get('_bass_said'):
         up = chart['_bass_said'] == 'double bass'
         feel_ = (hdr.get('feel') or '').strip()
@@ -3220,6 +3278,8 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                 f"{'down' if moved < 0 else 'up'}, where "
                                 f"a {target} sits; say 'double {srcl} at "
                                 "pitch' to keep it in unison")
+                    if is_cue and not shift:
+                        shift = cue_octaves(r, horn_of.get(target))
                     if shift:
                         r = shift_res(r, shift)
                     if steps:
@@ -3545,8 +3605,14 @@ def auto_cues(plans, band, labels, resolved, chart, findings):
                                   dyns=[], staves=None, trills={},
                                   trems={}, ks={}, lyrics=None,
                                   lyrics_text=None)
+                        moved = cue_octaves(r2, HORNS.get(canonical_instrument(
+                            next(b_ for b_ in band if b_['label'] == l)[
+                                'instrument'])))
+                        if moved:
+                            r2 = shift_res(r2, moved)
                         resolved[l].append(dict(it, res=r2, cue=True,
-                                                src_label=best, octaves=0,
+                                                src_label=best,
+                                                octaves=moved // 12,
                                                 harm=0))
                         prev['texts'][l].append((first - prev['start'] + 1,
                                                  f"({best} cue)"))
@@ -3666,6 +3732,18 @@ def shift_res(res, semis):
     keyswitch marks) and any grand-staff voices. Rhythm, marks and
     words are untouched."""
     return map_res(res, lambda p: p + semis)
+
+
+def cue_octaves(res, horn):
+    """A cue reads in the part it's printed in: the cued line moved by
+    whole octaves until its middle sits in the middle of this player's
+    range — a trumpet's phrase in a trombone's bass clef drops an octave
+    or two instead of riding eight ledger lines up. Semitones."""
+    ps = sorted(p for _a, _b, pp in res.get('timeline') or [] for p in pp)
+    if not ps or not horn or not horn.get('comf'):
+        return 0
+    lo, hi = horn['comf']
+    return 12 * round(((lo + hi) / 2 - ps[len(ps) // 2]) / 12)
 
 
 def map_res(res, f):
@@ -4317,7 +4395,8 @@ def solo_turn_words(plans, labels):
             else:
                 lo = k * each + 1
                 hi = walk if k == len(who) - 1 else lo + each - 1
-                note = (f"Solo, bars {lo} to {hi}" +
+                note = ((f"Solo, bar {lo}" if lo == hi else
+                         f"Solo, bars {lo} to {hi}") +
                         (" through the repeats" if passes > 1 else ""))
             texts = plan['texts'][l]
             texts[texts.index((1, 'Solo'))] = (1, note)
@@ -5641,6 +5720,18 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             # four horns or more is a big band: its guitar plays four
             'big_band': sum(1 for x in band if x['label'] not in
                             groups['rhythm']) >= 4}
+        # this horn's place in the section, top down by range, so its
+        # kicks take one note of a section voicing, not the same guide
+        # tone as every other horn
+        _sect = sorted(
+            [(l_, (horn_of.get(l_) or {}).get('comf', (55, 79)))
+             for l_ in labels if l_ not in groups['rhythm']
+             and horn_of.get(l_)
+             and horn_of[l_].get('clef') != 'percussion'],
+            key=lambda x: -x[1][1])
+        for k_, (l_, comf_) in enumerate(_sect):
+            if l_ == label:
+                groove_state['section'] = (k_, len(_sect), comf_)
         active_chord = [None]   # harmony carried bar to bar, all parts
 
         def attributes():
@@ -5921,7 +6012,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     # book's groove — and a flip between units re-emits.
                     # Swung funk swings its sixteenths, which in half
                     # time ARE the written eighths
-                    unit16 = want and ('16' in feel_now
+                    unit16 = want and ((style_now == 'swing'
+                                        and 'double' in traits_now)
+                                       or '16' in feel_now
                                        or 'sixteen' in feel_now
                                        or ((swung_funk
                                             or style_now == 'hiphop')
@@ -5937,6 +6030,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         bpm_now = float(hdr.get('tempo', 140))
                     except (TypeError, ValueError):
                         bpm_now = 140.0
+                    # the tempo in force here: a ballad section at 70
+                    # swings wider than the opening at 120 did
+                    for pl_ in plans:
+                        for eb_, ek_, et_ in pl_['sec']['events']:
+                            if ek_ == 'tempo' and \
+                                    pl_['start'] + eb_ - 1 <= absbar and \
+                                    re.fullmatch(r'[\d.]+', str(et_)):
+                                bpm_now = float(et_)
                     if unit16:
                         bpm_now *= 2          # sixteenths swing like fast
                     swing_first = int(round(
@@ -6006,7 +6107,8 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     if sec['label']:
                         pieces.append(direction(sec['label']))
                     if sec['feel']:
-                        pieces.append(direction(sec['feel']))
+                        pieces.append(direction(sec.get('feel_said')
+                                                or sec['feel']))
                     if kind == 'groove' and arg:
                         pieces.append(direction(arg))
                     if kind == 'hits' and arg[1]:
@@ -6080,13 +6182,19 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     # restated
                     governing[0] = None
                 elif with_harmony and clef != 'percussion' and (
-                        label in chord_parts
+                        label in chord_parts or kind in ('groove', 'hits')
                         or plan.get('bg', {}).get(label) or any(
                             isinstance(t[1], str) and
                             t[1].lower().startswith('solo') for t in
                             plan['texts'][label])):
                     for beat, chord in sec['content'][off]:
                         if chord is None:
+                            # no chord: printed once where it starts, so
+                            # the slashes never read as the last chord
+                            if governing[0] != 'NC':
+                                pieces.append(harmony_xml(
+                                    None, beat, div * 4 // bmeter[1]))
+                            governing[0] = 'NC'
                             continue
                         if chord != governing[0] or off == 0:
                             pc = chord
@@ -6326,14 +6434,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     body = sec['body']
                     elen = ends[0]['bars']
                     k = (off - body) // elen + 1 if off >= body else 0
+                    knum = ', '.join(str(x) for x in ends[k - 1].get(
+                        'nums', [k])) if k >= 1 else ''
                     if k >= 1 and (off - body) % elen == 0:
                         open_bl += ('      <barline location="left">'
-                                    f'<ending number="{k}" type="start"/>'
+                                    f'<ending number="{knum}" type="start"/>'
                                     '</barline>\n')
                     if k >= 1 and (off - body) % elen == elen - 1:
                         if k < len(ends):
                             barline = ('      <barline location="right">'
-                                       f'<ending number="{k}" '
+                                       f'<ending number="{knum}" '
                                        'type="stop"/>'
                                        '<repeat direction="backward"/>'
                                        '</barline>\n')
@@ -6342,7 +6452,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                      else 'light-light')
                             barline = ('      <barline location="right">'
                                        f'<bar-style>{style}</bar-style>'
-                                       f'<ending number="{k}" '
+                                       f'<ending number="{knum}" '
                                        'type="discontinue"/></barline>\n')
                 elif sec['repeat'] and not solo_rep and \
                         off == sec['bars'] - 1:
@@ -6436,7 +6546,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 if listen and LEAD['collect'] is not None and (
                         absbar in demo_measures[label]
                         or kind == 'engraved' or soloing
-                        or label in LEAD['compers']):
+                        or label in LEAD['compers']
+                        # a horn's kicks: the drummer and the comping
+                        # hear the section hit and catch it with them
+                        or (kind == 'hits' and label not in
+                            groups['rhythm'])):
                     # the lead in this bar: a written line, a lifted
                     # part, the soloist — what the others listen to
                     LEAD['collect'].setdefault(str(mnum), []).extend(
@@ -6466,6 +6580,19 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                 and last_pl['sec']['name'] not in played_written.get(
                     label, ())
             xml0 = out[-1][0]
+            # a busy last bar the band chose the ending for (two chords,
+            # hits, or a turnaround the band resolves home) is played as
+            # written; the band lands on the next downbeat instead of
+            # holding over it — a turnaround heard, then home. Not when
+            # written parts end the tune: the band ends with them there.
+            last_row = last_pl['sec']['content'][-1] \
+                if last_pl['sec']['content'] else []
+            last_cs = [c_ for _b, c_ in last_row if c_]
+            land_after = bool(
+                endsh.get('auto') and realized
+                and last_pl.get('_written_end') is None and last_cs
+                and (len(last_cs) > 1 or kind_l == 'hits'
+                     or ending_chord(last_cs[-1]) is not last_cs[-1]))
             # the band's own call never rewrites a written ending: only
             # the chairs that were making it up end it their way
             got = None if (endsh.get('auto') and not realized) else \
@@ -6476,6 +6603,26 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     horn['transpose'] if horn else 0, fifths, staves,
                     endsh, label, not realized, label,
                     song=endsh.get('song', ''))
+            if got:
+                # the ending is played at the level the band was at: a
+                # pp brush ballad doesn't end on a full crash. Each
+                # player's ending scales to their own last bar's touch
+                # (a groove at its normal level, about 72, plays the
+                # ending as written)
+                vs_ = [int(v_) for v_ in re.findall(r' dynamics="(\d+)"',
+                                                    xml0)]
+                if vs_:
+                    k_ = max(0.45, min(1.15, sum(vs_) / len(vs_) / 72.0))
+                    if abs(k_ - 1) > 0.05:
+                        def soften(x_):
+                            return None if x_ is None else re.sub(
+                                r' dynamics="(\d+)"', lambda m_:
+                                f' dynamics="{max(8, min(127, round(int(m_.group(1)) * k_)))}"',
+                                x_)
+                        got = (soften(got[0]), [soften(e_) for e_ in got[1]])
+            if got and land_after and got[0] is not None:
+                # the written last bar stays; the ending's bar follows it
+                got = (None, [got[0]] + list(got[1]))
             if got:
                 body, extras = got
                 bl = re.search(r'<barline location="right">.*?</barline>\n?',
@@ -6497,6 +6644,42 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     out.append((f'    <measure number="{last_abs}e{k}">\n'
                                 + ex + (bl if k == len(extras) else '')
                                 + '    </measure>\n', False, False))
+
+        # ---- a cello, bassoon or trombone line that climbs reads in
+        # treble clef while it's up there and comes back down after —
+        # never seven ledger lines over the bass staff. Bar by bar, the
+        # clef with fewer ledger lines, changing only when it saves a
+        # real handful, so the part doesn't flicker between clefs.
+        if not listen and staves == 1 and clef == 'F' and horn and \
+                chartgroove.role_of(SOUNDS.get(canonical_instrument(
+                    b['instrument']), ('', '', 0))[1], 'F') != 'bass':
+            def ledgers(m_, in_treble):
+                n_ = 0
+                for st_, oc_ in re.findall(r'<step>(\w)</step>(?:<alter>'
+                                           r'-?\d</alter>)?<octave>(\d)',
+                                           m_):
+                    d_ = int(oc_) * 7 + 'CDEFGAB'.index(st_)
+                    lo_, hi_ = (30, 38) if in_treble else (18, 26)
+                    n_ += max(0, (d_ - hi_) // 2) + max(0, (lo_ - d_) // 2)
+                return n_
+            treble = False
+            for i_, (mx, pr_, hk_) in enumerate(out):
+                if '<note' not in mx or '<rest' in mx and '<pitch' not in mx:
+                    continue
+                here, there = ledgers(mx, treble), ledgers(mx, not treble)
+                if here - there >= 4:
+                    treble = not treble
+                    sign = ('<sign>G</sign><line>2</line>' if treble
+                            else '<sign>F</sign><line>4</line>')
+                    head = re.match(r'\s*<measure[^>]*>\n', mx)
+                    at_ = head.end() if head else 0
+                    ex_ = re.search(r'<attributes>.*?</attributes>\n?',
+                                    mx[at_:], re.S)
+                    if ex_ and ex_.start() < 40:
+                        at_ += ex_.end()
+                    out[i_] = (mx[:at_] + '      <attributes><clef>'
+                               + sign + '</clef></attributes>\n'
+                               + mx[at_:], False, False)
 
         # ---- multirests, parts only: a stretch of waiting prints as one
         # bar carrying its count. Runs break naturally at anything a

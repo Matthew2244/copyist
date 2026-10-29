@@ -57,6 +57,7 @@ _QUAL = {
     'dim': (0, 3, 6), 'dim7': (0, 3, 6, 9), 'm7b5': (0, 3, 6, 10),
     'aug': (0, 4, 8),
     '9sus4': (0, 5, 7, 10, 14), '7b9b13': (0, 4, 10, 13, 20),
+    '7b9#9': (0, 4, 10, 13, 15),
     '7b9#11': (0, 4, 10, 13, 18), '9#11': (0, 4, 7, 10, 14, 18),
     '13#11': (0, 4, 7, 10, 14, 18, 21), 'maj13#11': (0, 4, 7, 11, 14, 18, 21),
     '13#9': (0, 4, 7, 10, 15, 21),
@@ -320,6 +321,15 @@ class Bar:
         if tick >= self.barlen or tick < 0:
             return
         ticks = min(ticks, self.barlen - tick)
+        if note[0] == 'u' and note[1] == _CRASH:
+            # one crash cymbal can't be struck twice inside about three
+            # quarters of a beat: it's still swinging (a drum solo's
+            # ending had crashed six times a bar, 0.11 beats apart)
+            gap = self.div * 3 // 4
+            if any(abs(t - tick) < gap and t != tick for t, (_l, ns) in
+                   self.onsets.items() for n in ns
+                   if n[0] == 'u' and n[1] == _CRASH):
+                return
         if tick in self.onsets:
             ns = self.onsets[tick][1]
             if note[0] == 'p':
@@ -791,7 +801,9 @@ def style_of(feel):
         # a shuffle is not swing: the triplet pattern on the hats and
         # snare, the bass rocking root-3-5-6. Its eighths swing.
         style = 'shuffle'
-    elif _is_swing(f) or traits & {'two', 'ballad'}:
+    elif _is_swing(f) or traits & {'two', 'ballad', 'double'}:
+        # "double time" with no other word is the jazz one: the walk and
+        # the ride doubled (it had come out a straight rock beat)
         style = 'swing'
     else:
         style = 'straight'
@@ -830,7 +842,11 @@ def _pattern(bar, beat, pat, sound):
 
 def _chords_in(sec, off, governing):
     listed = [(b, c) for b, c in sec['content'][off] if c is not None]
-    if (not listed or listed[0][0] > 1.0) and governing is not None:
+    # N.C. from the top of the bar: nothing carries into it
+    nc_top = any(c is None and (b is None or b <= 1.0)
+                 for b, c in sec['content'][off])
+    if (not listed or listed[0][0] > 1.0) and governing is not None \
+            and not nc_top:
         listed = [(1.0, governing)] + listed
     return listed
 
@@ -918,8 +934,12 @@ def _swing_time(bar, absbar, heat, busy, feather=True):
     d = _Dice('ride', absbar)
     heat = 0.55 if heat is None else heat
     stats = _DRUM or {}
+    # time is kept on the ride: every pattern has all four quarters.
+    # The learned set also holds fill and break bars (0, 2, 3; 0, 3, 5,
+    # 6) that lost the pulse for whole phrases when one became home
     pats = [(tuple(p['slots']), p['share']) for p in
-            stats.get('ride_patterns', []) if 0 in p['slots']]
+            stats.get('ride_patterns', [])
+            if {0, 3, 6, 9} <= set(p['slots'])]
     if not pats:
         pats = [((0, 3, 5, 6, 9, 11), 0.5), ((0, 3, 6, 9), 0.1)]
     weights = []
@@ -1266,6 +1286,8 @@ def _drums(bar, absbar, feel, hits, heat=None, busy=None):
         return
     if _new_style(feel, bar):
         _styled_drums(bar, absbar, *_new_style(feel, bar))
+        if style_of(feel or '')[0] not in ('swing', 'shuffle'):
+            _odd_groups(bar)
         return
     if bar.den == 8 and bar.num % 3 == 0 and \
             style_of(feel or '')[0] == 'latin':
@@ -1327,6 +1349,39 @@ def _drums(bar, absbar, feel, hits, heat=None, busy=None):
     if bar.num >= 4 and d() < 0.25 + 0.3 * heat:
         k = [1.5, 2.5, 3.5][int(d() * 3) % 3]
         bar.add(int(k * beat), half, ('u', _KICK, 68))
+    _odd_groups(bar)
+
+
+def _odd_groups(bar):
+    """7/8 (and 11/8) grooves 2+2+3: the band counts quarters from the
+    barline, and the short last beat closes a group of three eighths. A
+    4/4 backbeat on that last eighth sits inside the group, not on a
+    pulse (moved an eighth earlier it still split the three, snare on
+    6). It goes, and the three opens on the kick: kick 1, snare 3, kick
+    5, one-two, one-two, one-two-three. Ghost notes stay; they're
+    texture, not the backbeat."""
+    if bar.meter[1] != 8 or bar.barlen % bar.div == 0:
+        return
+    last = (bar.barlen // bar.div) * bar.div     # the short beat
+    if bar.barlen - last != bar.div // 2 or last < bar.div or \
+            last not in bar.onsets:
+        return
+    ticks, notes = bar.onsets[last]
+    keep = [n for n in notes if not (n[0] == 'u' and n[1] == _SNARE
+                                     and (n[2] is None or n[2] >= 50))]
+    if len(keep) == len(notes):
+        return
+    if keep:
+        bar.onsets[last] = (ticks, keep)
+    else:
+        del bar.onsets[last]
+    start = last - bar.div                      # the three's first eighth
+    there = bar.onsets.get(start, (0, []))[1]
+    if not any(n[0] == 'u' and n[1] in (_KICK, _SNARE) for n in there):
+        one = [n[2] for n in bar.onsets.get(0, (0, []))[1]
+               if n[0] == 'u' and n[1] == _KICK and n[2]]
+        bar.add(start, bar.div // 2, ('u', _KICK, int(0.9 * one[0])
+                                      if one else 76))
 
 
 def _styled_drums(bar, absbar, style, traits):
@@ -2002,17 +2057,39 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
                      gospel_way(traits, bar), tone, put)
         return
     if style == 'shuffle':
-        # the boogie: root, 3, 5, 6 up one bar, b7, 6, 5, 3 down the next
-        c = _chord_at(chords, 1)
-        root = _near(_bass_pc(c), prev)
-        if root > 43:
-            root -= 12
-        third = 3 if 3 in _tones(c) and 4 not in _tones(c) else 4
-        up = [0, third, 7, 9]
-        line = up if absbar % 2 else [10, 9, 7, third]
-        for i, iv in enumerate(line[:n]):
-            put(int(i * beat), beat - beat // 8, root + iv)
-        state['bass'] = root
+        # the boogie, built from each chord's own notes: root, 3, 5, 6
+        # going up; coming down (b7 or the octave, 6, 5, 3) only over a
+        # chord held from the bar before. A chord that arrives — on 1 or
+        # on 3 — gets its root on that beat (an Fmaj7 had opened on Eb,
+        # a G7 on 3 had no G at all)
+        held_from = state.get('shuffle_chord')
+        root = None
+        seg_at, seg_c = 1, None
+        for i in range(n):
+            bt = 1 + i
+            c = _chord_at(chords, bt)
+            if c is None:
+                continue
+            if c is not seg_c:
+                seg_at, seg_c = bt, c
+                root = _near(_bass_pc(c), prev)
+                if root > 43:
+                    root -= 12
+            ts = {t % 12 for t in _tones(c)}
+            third = 3 if 3 in ts and 4 not in ts else 4
+            fifth = 6 if 6 in ts and 7 not in ts else \
+                8 if 8 in ts and 7 not in ts else 7
+            six = 9 if fifth == 7 else (10 if 10 in ts else 9)
+            top = 10 if 10 in ts and six != 10 else 12
+            down = (seg_at == 1 and held_from is not None
+                    and held_from == c and absbar % 2 == 0)
+            line = [top, six, fifth, third] if down else \
+                [0, third, fifth, six]
+            k = bt - seg_at
+            prev = put(int(i * beat), beat - beat // 8,
+                       root + line[k % 4])
+        state['shuffle_chord'] = _chord_at(chords, n)
+        state['bass'] = root if root is not None else prev
         return
     if style == 'waltz':
         if 'swung' in traits:            # walking in three
@@ -2026,7 +2103,12 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
             prev = got
             mid = _near(ts[(absbar % (len(ts) - 1)) + 1], prev)
             prev = put(beat, beat - beat // 8, mid)
-            prev = put(2 * beat, beat - beat // 8, tone(3, 'appr'))
+            # a chord on 3 (Am7 D7@3) is a root there, not a step into
+            # the next bar — the tritone had landed under the D7
+            on3 = any(c_ is not None and abs(cb - 3) < 1e-6
+                      for cb, c_ in chords)
+            prev = put(2 * beat, beat - beat // 8,
+                       tone(3, 'r' if on3 else 'appr'))
         else:                            # the oom, on 1
             # root and fifth trade only over a held chord: a new chord's
             # downbeat is its root (Dm7 had opened on A)
@@ -2037,14 +2119,18 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
         state['bass'] = prev
         return
     if style == 'swing' and 'double' in traits:
-        for i in range(2 * n):           # walking in eighths
-            b = 1 + i / 2
-            c = _chord_at(chords, b)
-            ts = [(_root_pc(c) + t) % 12
-                  for t in sorted({t % 12 for t in _tones(c)})]
-            pc = _bass_pc(c) if i % 4 == 0 else ts[(i // 1) % len(ts)]
-            prev = put(int(round((b - 1) * beat)), beat // 2,
-                       _near(pc, prev))
+        # walking in eighths: the same walking line a bassist plays, at
+        # twice the rate — steps, chord tones on the strong eighths, a
+        # lead-in to the next chord (it had arpeggiated the same shape
+        # up every bar)
+        halves = [_chord_at(chords, 1 + i / 2) for i in range(2 * n)]
+        if any(c is None for c in halves):
+            return
+        line = walk_bar(halves, prev, _Dice('double walk', absbar),
+                        _bass_pc(halves[0]), _next_root(sec, off, chords))
+        for i, m in enumerate(line):
+            prev = put(int(round(i * beat / 2)), beat // 2 - beat // 12, m)
+        state['bass'] = prev
         return
     if style == 'swing' and 'ballad' in traits:
         # a ballad bassist plays in two, with passing tones: the root on
@@ -2080,7 +2166,13 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
     if style == 'swing':                  # two feel: 1 and 3
         for b in range(1, n + 1, 2):
             last = b + 2 > n
-            if last and absbar % 2 == 0 and n >= 4:
+            # a chord arriving on 3 gets its root there; the step into
+            # the next bar waits for a beat that has no new chord
+            arrives = any(c is not None and abs(cb - b) < 1e-6
+                          for cb, c in chords)
+            if arrives:
+                midi = tone(b, 'r')
+            elif last and absbar % 2 == 0 and n >= 4:
                 tgt = tone(b, 'next')
                 midi = tgt + (1 if absbar % 4 else -1)
             else:
@@ -2142,9 +2234,17 @@ def _styled_bass(bar, state, sec, off, absbar, chords, style, traits,
             # a new chord starts on this note: its root, whatever the
             # pattern's step (the bossa's fifth on 3 had hidden a D7)
             what = 'r'
+        at = b
+        if style == 'latin':
+            # the tumbao pushes: a note held into a chord change is that
+            # chord's root, anticipated (the and of 2 had sat on Cm7's
+            # fifth over F7, which never sounded)
+            ahead = [cb for cb in changes if b < cb < b + ln - 1e-6]
+            if ahead:
+                what, at = 'r', ahead[0]
         got = put(int(round((b - 1) * beat)),
                   max(1, int(round(ln * beat)) - beat // 8),
-                  tone(b, what), vel)
+                  tone(at, what), vel)
         # the octave pop is a pop: the line stays anchored on the root,
         # or every bar starts an octave higher until the bass pins at
         # the top of its range (Matt's Blues, 2026-09-28: stuck on G)
@@ -2368,7 +2468,9 @@ def walk_bar(beats, prev, d, arrive, next_arrive, home=None):
             goal = _fold_bass(_near(goal_pc, cur), lo_h, hi_h)
             # beat 3 of four is the other strong beat: a bassist lands a
             # chord tone there and passes on 2 and 4
-            strong = n == 4 and b + len(seg) == 2
+            # (in double time, eight to the bar, every quarter is strong)
+            strong = (n == 4 and b + len(seg) == 2) or \
+                (n == 8 and (b + len(seg)) % 2 == 0)
             opts = []
             for m in range(max(28, cur - 9), min(55, cur + 9) + 1):
                 if m == cur or (len(seg) > 1 and m == seg[-2]
@@ -2396,6 +2498,14 @@ def walk_bar(beats, prev, d, arrive, next_arrive, home=None):
                         w *= 1.35
                 w *= 1.0 / (1.0 + ((m - centre) / 11.0) ** 4)
                 opts.append((m, w))
+            if strong:
+                # beat 3 is a chord tone, now and then a clean scale
+                # tone — never a chromatic or an avoid note (1 in 13
+                # had landed an Eb under Fmaj7)
+                clean = [(m, w) for m, w in opts
+                         if m % 12 in tones
+                         or (m % 12 in sc and m % 12 not in avoid)]
+                opts = clean or opts
             cur = _roll(opts, d) if opts else cur + 1
             seg.append(cur)
         if len(seg) < want:
@@ -2631,8 +2741,27 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
     # everything in all at once ... same for the comping")
     heat = 0.6 if heat is None else heat
     d = _Dice(sound_id, absbar, 'comp')
+    pop = style_of(feel or '')[0] in ('straight', 'motown', 'reggae',
+                                      'secondline', 'hiphop')
 
     def voicing(c, guides_only=False):
+        if pop and not guides_only:
+            # rock, pop, soul and reggae players play the chord as
+            # written — the triad, its 7th if written, the root on top
+            # or under — not a jazz pianist's rootless cluster (Dm7 had
+            # come out C E F)
+            root = _root_pc(c)
+            pcs = []
+            for i in sorted({i % 12 for i in _tones(c)}):
+                if (root + i) % 12 not in pcs:
+                    pcs.append((root + i) % 12)
+            pcs = pcs[:4]
+            v = sorted(_near(pc, anchor) for pc in pcs)
+            while v and max(v) > ceiling:
+                v = sorted(m - 12 if m > ceiling else m for m in v)
+            v = sorted(m + 12 if m < max(floor, 52) else m for m in v)
+            state['comp'] = sum(v) // len(v)
+            return v
         if not guides_only:
             root = _root_pc(c)
             iv = _tones(c)
@@ -2698,8 +2827,9 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
         piano_comp(bar, state, absbar, chords, state.get('next_chord'),
                    heat, sound_id, feel, state.get('busy'))
         return
-    if pianist:
+    if pianist and not pop:
         # every other style keeps its pattern, voiced like a pianist
+        # (rock, pop, soul and reggae keep the plain chord voicing)
         _plain_voicing = voicing
 
         def voicing(c, guides_only=False):
@@ -2756,13 +2886,29 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
             rhythm = [x for x in rhythm if x[0] < 4.5] + [(4.5, .5)]
             push = True
         if rhythm:
+            # every change in the bar is played: a hit up to half a beat
+            # before a new chord anticipates it (the push every comper
+            # makes), and a change no hit reaches gets its own (the
+            # waltz's D7 on 3 had never sounded)
+            rhythm = list(rhythm)
+            antic = {}
+            for cb, cc in chords:
+                if cc is None or cb <= 1.0:
+                    continue
+                near = [b for b, _ln in rhythm if cb - 0.5 <= b < cb + 1]
+                if not near:
+                    rhythm.append((cb, .5))
+                for b in near:
+                    if b < cb:
+                        antic[b] = cb
+            rhythm.sort()
             for b, ln in rhythm:
                 if b > bar.num + 0.99:
                     continue
                 put(int(round((b - 1) * beat)),
                     max(1, int(round(ln * beat))),
                     voicing(nxt_c if push and b >= 4.5 else
-                            _chord_at(chords, b)),
+                            _chord_at(chords, antic.get(b, b))),
                     vel=80 if style in ('funk', 'gospel') else 70,
                     may_rest=style == 'swing')   # an ostinato IS the groove
             return
@@ -2797,6 +2943,24 @@ def _comp(bar, state, absbar, feel, chords, sound_id, heat=None):
             put(b * beat, beat,
                 voicing(_chord_at(chords, b + 1.0), guides_only=True),
                 vel=int((76 if b % 2 else 66) * lift), may_rest=False)
+        return
+    st_, tr_ = style_of(feel or '')
+    if 'organ' not in s and st_ == 'straight' and bar.den == 4 and \
+            not (tr_ & {'ballad', 'half'}) and \
+            'ballad' not in (feel or '').lower():
+        # rock and pop keys and guitar drive the time: quarters when the
+        # band is up, half notes when it's quiet, every change on its
+        # beat (whole-note pads had sat under every rock tune)
+        step_ = 1 if heat >= 0.5 else 2
+        hits_ = sorted(set(range(1, bar.num + 1, step_)) |
+                       {int(b_) for b_, c_ in chords
+                        if c_ is not None and float(b_).is_integer()})
+        for i, b in enumerate(hits_):
+            nxt_ = hits_[i + 1] if i + 1 < len(hits_) else bar.num + 1
+            put(int(round((b - 1) * beat)),
+                int(round((nxt_ - b) * beat * 0.9)),
+                voicing(_chord_at(chords, b)),
+                vel=(74 if (b - 1) % 2 else 80), may_rest=False)
         return
     if 'organ' in s or not _is_swing(feel):
         marks = sorted({max(1.0, b) for b, c in chords})
@@ -2848,13 +3012,29 @@ def _horn_hits(bar, state, chords, hits, bmeter):
         return
     beat = bar.div * 4 // bar.den
     anchor = state.get('horn', 65)          # around F4, mid-horn
+    k, n, (lo, hi) = state.get('section') or (0, 1, (55, 79))
     for b in hits:
         c = _chord_at(chords, b)
-        midi = _near(_guide(c)[0], anchor)
-        midi = min(max(midi, 55), 79)
-        bar.add(int(round((b - 1) * beat)), beat // 2,
-                ('p', midi, 90))
-        state['horn'] = anchor = midi
+        if c is None:
+            continue
+        if n > 1:
+            # a section voicing, the way the shout is written: the four
+            # rootless notes lifted so the lead sits high, one a chair
+            # top down, the lower chairs doubling an octave under (four
+            # horns had all hit one G4)
+            base = sorted(rootless_voicing(c, None))
+            while max(base) < 76:
+                base = [m + 12 for m in base]
+            stack = sorted(base, reverse=True)
+            m = stack[k] if k < len(stack) else stack[k % len(stack)] - 12
+        else:
+            m = _near(_guide(c)[0], anchor)
+        while m > hi:
+            m -= 12
+        while m < lo:
+            m += 12
+        bar.add(int(round((b - 1) * beat)), beat // 2, ('p', m, 90))
+        state['horn'] = anchor = m
 
 
 def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
@@ -4381,7 +4561,19 @@ def backgrounds(bar, state, chords, voice, voices, lo, hi, style, off,
 
 def _colors(chord):
     """The extensions a player reaches for over this chord, as
-    semitones above the root."""
+    semitones above the root. Over a slash bass that isn't in the chord
+    (Fmaj7/G, Bb/C: the sus sounds) nothing a major third or a half
+    step over the bass: B over G turned G13sus into a G triad."""
+    out = _colors_(chord)
+    if chord and chord[3]:
+        root, bass = _root_pc(chord), _bass_pc(chord)
+        if bass not in {(root + t) % 12 for t in _tones(chord)}:
+            out = tuple(i for i in out
+                        if (root + i - bass) % 12 not in (1, 4))
+    return out
+
+
+def _colors_(chord):
     q = (chord[2] if chord else '') or 'maj'
     if q in ('m7b5', 'm9b5'):
         return (5, 8)                    # 11, b13
@@ -4401,7 +4593,11 @@ def _colors(chord):
         return (1, 3, 8)                 # b9, #9, b13
     if q[0].isdigit() or 'sus' in q:
         return (2, 9) + ((6,) if '#11' in q else ())   # 9, 13
-    return (2, 6, 9)                     # maj: 9, #11, 13
+    if q == 'maj':
+        # a plain triad (C, C/E) takes the 9 and the 6, never a #11
+        # nobody wrote: a tonic triad is a pop or a church chord
+        return (2, 9)
+    return (2, 6, 9)                     # maj7: 9, #11, 13
 
 
 _VOICES = {

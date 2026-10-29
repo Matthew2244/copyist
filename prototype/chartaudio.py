@@ -191,12 +191,14 @@ def _expand_repeats(ms):
         num, m = ms[i]
         if '<repeat direction="forward"' in m and i != seg_start:
             seg_start, seg_out, pass_no = i, len(out), 1
-        endm = re.search(r'<ending number="(\d+)" type="start"/>', m)
-        if endm and int(endm.group(1)) != pass_no:
-            k = int(endm.group(1))       # not this pass's bracket: skip it
+        endm = re.search(r'<ending number="([\d, ]+)" type="start"/>', m)
+        if endm and pass_no not in [int(x) for x in
+                                    re.findall(r'\d+', endm.group(1))]:
+            k = endm.group(1)            # not this pass's bracket: skip it
             while i < len(ms):
-                if re.search(r'<ending number="%d" '
-                             r'type="(?:stop|discontinue)"' % k, ms[i][1]):
+                if re.search(r'<ending number="%s" '
+                             r'type="(?:stop|discontinue)"' % re.escape(k),
+                             ms[i][1]):
                     i += 1
                     break
                 i += 1
@@ -268,16 +270,18 @@ def _final_pass(ms):
     out, i = [], 0
     last = {}
     for _n, m in ms:
-        for k in re.findall(r'<ending number="(\d+)" type="start"', m):
-            last[0] = max(last.get(0, 0), int(k))
+        for k in re.findall(r'<ending number="([\d, ]+)" type="start"', m):
+            last[0] = max([last.get(0, 0)] + [int(x) for x in
+                                              re.findall(r'\d+', k)])
     while i < len(ms):
         num, m = ms[i]
-        em = re.search(r'<ending number="(\d+)" type="start"', m)
-        if em and last and int(em.group(1)) < last[0]:
-            k = int(em.group(1))
+        em = re.search(r'<ending number="([\d, ]+)" type="start"', m)
+        if em and last and max(int(x) for x in re.findall(
+                r'\d+', em.group(1))) < last[0]:
+            k = em.group(1)
             while i < len(ms) and not re.search(
-                    r'<ending number="%d" type="(?:stop|discontinue)"' % k,
-                    ms[i][1]):
+                    r'<ending number="%s" type="(?:stop|discontinue)"'
+                    % re.escape(k), ms[i][1]):
                 i += 1
             i += 1
             continue
@@ -504,10 +508,32 @@ def parse_score(path, only=None):
                                         # two-note tremolo's first note
         fifths = 0
         _ms = _measures(body)
+        # what's in force at each bar as PRINTED: a repeat or a D.S.
+        # jumps back to a bar that says no meter, and it takes the
+        # page's meter there, not the one the band jumped from (a 3/4
+        # bar before the repeat sign had made the top of it 3/4)
+        printed, st_ = {}, (24, 4, 4, 0)
+        for _n, m_ in _ms:
+            dv_ = re.search(r'<divisions>(\d+)</divisions>', m_)
+            ts_ = re.search(r'<beats>(\d+)</beats>\s*'
+                            r'<beat-type>(\d+)</beat-type>', m_)
+            kf_ = re.search(r'<fifths>(-?\d+)</fifths>', m_)
+            st_ = (int(dv_.group(1)) if dv_ else st_[0],
+                   int(ts_.group(1)) if ts_ else st_[1],
+                   int(ts_.group(2)) if ts_ else st_[2],
+                   int(kf_.group(1)) if kf_ else st_[3])
+            # the listen writes a repeat out bar by bar ("2x1"): the
+            # second time through takes bar 2's own state
+            printed.setdefault(str(_n).split('x')[0].split('e')[0], st_)
         for num, meas in walk_cuts(expand_roadmap(_ms, road), _ms, road):
             if num.isdigit():
                 bars.setdefault(int(num), q0)
             bar_q.append(q0)
+            got_ = printed.get(str(num).split('x')[0].split('e')[0])
+            if got_:
+                div, tnum, tden, fifths = got_
+                if meter0 is None:
+                    meter0 = (tnum, tden)
             dv = re.search(r'<divisions>(\d+)</divisions>', meas)
             if dv:
                 div = int(dv.group(1))

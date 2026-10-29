@@ -688,12 +688,38 @@ def syllabify(word):
             k = i
             while k < j:
                 pair = lows[k:k + 2]
-                hiatus = (pair in ('ia', 'io', 'iu', 'uo')
+                # -tion, -sion, -gion, -cious, mil-lion, on-ion sing
+                # io as one (na-tion had sung na-ti-on)
+                one_io = pair == 'io' and k > 0 and (
+                    lows[k - 1] in 'tscxg'
+                    or lows[k - 2:k] in ('ll', 'ni') or lows[k - 1] == 'n')
+                hiatus = ((pair in ('ia', 'io', 'iu', 'uo') and not one_io)
                           or (pair == 'ua' and (k == 0 or
                                                 lows[k - 1] not in 'qg'))
                           or (pair == 'oe' and k + 2 < n)
                           or (lows[k + 1] == 'i' and lows[k + 2:] == 'ng'
-                              and k + 2 <= n))
+                              and k + 2 <= n)
+                          # qui-et, di-et, cli-ent, sci-ence; never
+                          # pa-tient or an-cient, nor field or friend
+                          or (pair == 'ie' and k > 0
+                              and lows[k + 2:] in ('t', 'ts', 'tly', 'ty',
+                                                   'nt', 'nts', 'nce',
+                                                   'nces')
+                              and (lows[k - 1] not in 'tc' or
+                                   lows[k - 2:k] == 'sc'))
+                          # cre-ate, re-act, de-al-er... and i-de-a,
+                          # a-re-a; never great, bread, tea
+                          or (pair == 'ea' and (
+                              (lows[:k + 1] in ('re', 'cre', 'pre', 'de')
+                               and lows[k + 2:k + 4] in ('ct', 'te', 'ti',
+                                                         'tu', 'to'))
+                              or (k + 2 == n and n >= 4
+                                  and lows[0] in 'aeiou')))
+                          or pair == 'ao'                 # cha-os
+                          # vi-de-o, ne-on; never people or pigeon
+                          or (pair == 'eo' and k > 0
+                              and lows[k - 1] not in 'gc'
+                              and lows[k + 2:k + 3] != 'p'))
                 if hiatus:
                     groups.append((i, k + 1))
                     i = k + 1
@@ -1585,9 +1611,19 @@ def _shows_acc(out, bar_no, table, step, octave, alter):
     f = (table.fifths_at(bar_no) if isinstance(table, KeyedTable)
          else _EMIT_FIFTHS[0])
     seen = _BAR_ACC.setdefault((id(out), bar_no), {})
+    first = (step, octave) not in seen
     now = seen.get((step, octave), _sig_alter(step, f))
     seen[(step, octave)] = alter
-    return alter != now
+    if alter != now:
+        return True
+    # a courtesy across the barline: the last bar left this note altered
+    # away from its key, so the first plain one here says so
+    prev = _BAR_ACC.get((id(out), bar_no - 1), {}).get((step, octave))
+    if first and prev is not None and prev != alter:
+        fp = (table.fifths_at(bar_no - 1) if isinstance(table, KeyedTable)
+              else _EMIT_FIFTHS[0])
+        return 'courtesy' if prev != _sig_alter(step, fp) else False
+    return False
 
 
 def _sig_alter(step, fifths):
@@ -1610,7 +1646,14 @@ def _spelling_hints(res, timeline, table, transpose, at_bar, bar_ticks,
     shift = (((transpose + extra) * 7) % 12)
     shift = shift - 12 if shift > 6 else shift
     for (s, p), (st, al) in (res.get('spell') or {}).items():
-        f = 'FCGDAEB'.index(st) + 7 * al + shift
+        fw = (table.fifths_at(at_bar + s // bar_ticks)
+              if isinstance(table, KeyedTable) else fifths_written)
+        # the written key may be respelled (E concert on alto is Db, not
+        # C#): the typed letter moves the same way, so it reads in the
+        # signature the part prints, never sharps under five flats
+        sh = min((shift, shift - 12, shift + 12),
+                 key=lambda c: abs(fw - c)) if fw is not None else shift
+        f = 'FCGDAEB'.index(st) + 7 * al + sh
         out[(s, p + transpose + extra)] = ('FCGDAEB'[f % 7], f // 7)
     mono = [(s, ps[0]) for s, e, ps in timeline
             if len(ps) == 1 and isinstance(ps[0], int)]
@@ -2127,13 +2170,16 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                 lines.append(f'        <voice>{voice}</voice>')
                 lines.append(f'        <type>{ptype}</type>')
                 lines += ['        <dot/>'] * dots
-                if not slash and not drums and pfirst and _shows_acc(
-                        out, bar_no, table, step, octave, alter):
+                shown = not slash and not drums and pfirst and \
+                    _shows_acc(out, bar_no, table, step, octave, alter)
+                if shown:
                     # only where the key and the bar so far don't say
                     # it already (Ab in D flat had carried a flat sign
                     # for other programs, A natural none)
                     lines.append(
-                        f'        <accidental>{ACC_NAME[alter]}</accidental>')
+                        '        <accidental%s>%s</accidental>' % (
+                            ' cautionary="yes"' if shown == 'courtesy'
+                            else '', ACC_NAME[alter]))
                 if slash:
                     lines.append('        <notehead>slash</notehead>')
                 if mod:

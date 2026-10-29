@@ -195,6 +195,7 @@ recording convention, not a voicing.
       figure bass break, 1 bars:
         notes: rest q, triplet( F2 e, A2 e, C3 e ), Eb3 q, E3 q
 
+  A double sharp is `Cx5` (or `C##5`), a double flat `Ebb5`.
   Durations are w h q e s, a dot for dotted, + for tied, `rest <dur>`,
   and `triplet( ... )` for the triplet figures. The notes must fill the
   declared bars exactly, or the build tells you both counts. Define a
@@ -238,6 +239,9 @@ recording convention, not a voicing.
   ending's changes, and the listen MP3 takes the first ending, jumps
   back, and takes the second. A trimmed listen lands where the band
   actually reaches that bar, not where the printed number sits.
+  One bracket taken more than once is `ending 1-2` (or `1, 2`): in a
+  `repeat 3x` section, `ending 1-2` and `ending 3` print "1, 2" over
+  the first bracket and play it twice before the third.
 - **Fills and breaks** are said the way you'd call them on the stand:
 
       section A, 8 bars

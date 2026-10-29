@@ -115,6 +115,40 @@ def _who(labels):
             if len(labels) > 1 else labels[0])
 
 
+def chart_edits(before_path, now_path):
+    """The chart's own lines edited since a build, in plain words and
+    by section: "In section B: chords: F, C became chords: F7, C"."""
+    import difflib
+    try:
+        old = open(before_path, encoding='utf-8').read().splitlines()
+        new = open(now_path, encoding='utf-8').read().splitlines()
+    except OSError:
+        return []
+
+    def where(lines, i):
+        for j in range(min(i, len(lines) - 1), -1, -1):
+            m = re.match(r'\s*section\s+([^,]+)', lines[j])
+            if m:
+                return f"In section {m.group(1).strip()}: "
+        return "In the header: " if lines else ""
+    out = []
+    sm = difflib.SequenceMatcher(None, old, new, autojunk=False)
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == 'equal':
+            continue
+        olds = [(k, old[k].strip()) for k in range(i1, i2)
+                if old[k].strip()]
+        news = [(k, new[k].strip()) for k in range(j1, j2)
+                if new[k].strip()]
+        if op == 'replace' and len(olds) == len(news):
+            out += [f"{where(new, k)}{a_} became {b_}"
+                    for (_i, a_), (k, b_) in zip(olds, news)]
+        else:
+            out += [f"{where(old, k)}took out {a_}" for k, a_ in olds]
+            out += [f"{where(new, k)}added {b_}" for k, b_ in news]
+    return out
+
+
 def diff_readalouds(prev_dir, cur_dir, title, labels):
     """Compare the previous build's read-alouds with the current ones.
     Returns (sentences, had_previous). Spoken style: the writer's own
@@ -1635,7 +1669,24 @@ def main():
     prev_dir = os.path.join(title_dir, "previous read-alouds")
 
     if args.command == 'diff':
+        # first, what's been edited since the last build: the chart now
+        # against the text that build was made from — what a rebuild
+        # would change, said before you make it
+        edits = chart_edits(os.path.join(title_dir, "built from.chart"),
+                            path)
+        if edits:
+            say(f"Since the last build you've changed {len(edits)} "
+                f"{'line' if len(edits) == 1 else 'lines'} of the chart; "
+                "build to hear and see them:")
+            for e_ in edits:
+                say(e_)
         sentences, had = diff_readalouds(prev_dir, base_dir, title, labels)
+        if edits:
+            if had and sentences:
+                say("And between the last two builds:")
+                for s_ in sentences:
+                    say(s_)
+            return
         if not had:
             say("Nothing to compare yet — the diff needs two builds.")
         elif not sentences:

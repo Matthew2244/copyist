@@ -298,6 +298,14 @@ def read_line(r, s):
     while i < n:
         c = s[i]
         two = s[i:i + 2]
+        if i == 0 or s[i - 1] == ' ':
+            # a metronome mark before a bar (a tempo change): the beat
+            # note, equals, the number — not a note of the music
+            met = re.match(r"[?NDY]'?7#[A-J]+ ?", s[i:])
+            if met:
+                i += met.end()
+                r.fresh()
+                continue
         if two == '" ':                            # a gap inside a bar
             i += 2                                 # (27.4), all its spaces
             while s[i:i + 1] == ' ':
@@ -432,7 +440,9 @@ def read_line(r, s):
             i += 1
             continue
         if c in ACCS:
-            acc = ACCS[c]
+            # two sharps or two flats running: a double sharp or flat
+            acc = 2 * ACCS[c] if acc == ACCS[c] and acc and \
+                i > 0 and s[i - 1] == c else ACCS[c]
             i += 1
             continue
         if c in OCT:
