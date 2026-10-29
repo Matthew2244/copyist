@@ -719,7 +719,8 @@ def syllabify(word):
                           # vi-de-o, ne-on; never people or pigeon
                           or (pair == 'eo' and k > 0
                               and lows[k - 1] not in 'gc'
-                              and lows[k + 2:k + 3] != 'p'))
+                              and lows[k + 2:k + 3] != 'p'
+                              and lows[k + 2:k + 4] != 'ne'))  # someone
                 if hiatus:
                     groups.append((i, k + 1))
                     i = k + 1

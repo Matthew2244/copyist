@@ -8300,6 +8300,11 @@ def check_open_list_round():
           and '<ending number="1, 2" type="start"/>' in xml(d, "V",
                                                             "piano"))
 
+    import chartdemo
+    check("syllables as sung: qui-et, cre-ate, na-tion, some-one in two",
+          [len(chartdemo.syllabify(w)) for w in (
+              "quiet", "create", "nation", "someone", "reach", "video")]
+          == [2, 2, 2, 2, 1, 3])
     check("13sus exports as a 13th with no third",
           "<degree-value>3</degree-value><degree-alter>0</degree-alter>"
           "<degree-type>subtract" in chartc.harmony_xml(
