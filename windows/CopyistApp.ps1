@@ -9,6 +9,11 @@
 # machine. The controls are plain WinForms - buttons, a list box, the
 # standard file dialog - chosen because NVDA and JAWS read them well.
 # If something misbehaves, that is a bug worth reporting.
+#
+# -SelfTest checks an installed copy without opening a window: the
+# engine answers and WinSparkle loads. CI runs it on the installed app.
+
+param([switch]$SelfTest)
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -36,6 +41,112 @@ if (-not (Test-Path $chartPy)) {
     exit 1
 }
 
+# ---- Updates -------------------------------------------------------
+# An installed copy (Copyist-Setup.exe, which leaves unins000.exe beside
+# it) updates through WinSparkle, Sparkle's Windows twin. WinSparkle
+# never looks or opens a window by itself here: a window popping up
+# mid-build is one a screen reader lands in with no idea why. Copyist
+# reads the update list itself 20 seconds after opening and every four
+# hours, and says once per version that a new one is out, only while
+# its window is in front. WinSparkle's own window opens when asked:
+# Settings tab, Check for updates. A copy run from a folder (Copyist.bat
+# in a checkout) has no updater: git pull updates it.
+
+$version = '0.0.0'
+$versionFile = Join-Path $root 'VERSION'
+if (Test-Path $versionFile) { $version = (Get-Content $versionFile -Raw).Trim() }
+$installed = Test-Path (Join-Path $root 'unins000.exe')
+$feed = 'https://github.com/Matthew2244/copyist/releases/latest/download/appcast-windows.xml'
+$updateKey = 'TJlHNK3idLU77+cj97Pwh4xeuvFhhIVm32CLFwN5Dz0='
+$toldFile = Join-Path $env:APPDATA 'copyist-told-update.txt'
+$script:sparkle = $false
+$script:untold = $null
+$script:newer = $null
+
+Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+public static class CopyistSparkle {
+    [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr LoadLibraryW(string path);
+    [DllImport("WinSparkle.dll", CallingConvention = CallingConvention.Cdecl)]
+    static extern void win_sparkle_set_appcast_url(
+        [MarshalAs(UnmanagedType.LPStr)] string url);
+    [DllImport("WinSparkle.dll", CallingConvention = CallingConvention.Cdecl)]
+    static extern int win_sparkle_set_eddsa_public_key(
+        [MarshalAs(UnmanagedType.LPStr)] string key);
+    [DllImport("WinSparkle.dll", CallingConvention = CallingConvention.Cdecl,
+               CharSet = CharSet.Unicode)]
+    static extern void win_sparkle_set_app_details(string company,
+        string app, string version);
+    [DllImport("WinSparkle.dll", CallingConvention = CallingConvention.Cdecl)]
+    static extern void win_sparkle_set_automatic_check_for_updates(int on);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate int CanShutdown();
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void Shutdown();
+    [DllImport("WinSparkle.dll", CallingConvention = CallingConvention.Cdecl)]
+    static extern void win_sparkle_set_can_shutdown_callback(CanShutdown cb);
+    [DllImport("WinSparkle.dll", CallingConvention = CallingConvention.Cdecl)]
+    static extern void win_sparkle_set_shutdown_request_callback(Shutdown cb);
+    [DllImport("WinSparkle.dll", CallingConvention = CallingConvention.Cdecl)]
+    static extern void win_sparkle_init();
+    [DllImport("WinSparkle.dll", CallingConvention = CallingConvention.Cdecl)]
+    static extern void win_sparkle_cleanup();
+    [DllImport("WinSparkle.dll", CallingConvention = CallingConvention.Cdecl)]
+    static extern void win_sparkle_check_update_with_ui();
+
+    // kept here for as long as WinSparkle may call them
+    static CanShutdown can = () => 1;
+    static Shutdown shut = OnShutdown;
+    static Form window;
+    static bool started;
+
+    // the right WinSparkle.dll for this process, by full path: once it
+    // is loaded, the DllImports above find it by name
+    public static bool Load(string dll) {
+        return System.IO.File.Exists(dll) && LoadLibraryW(dll) != IntPtr.Zero;
+    }
+    public static bool Start(Form w, string feed, string key, string version) {
+        window = w;
+        win_sparkle_set_appcast_url(feed);
+        if (win_sparkle_set_eddsa_public_key(key) == 0) return false;
+        win_sparkle_set_app_details("Matthew Whitaker", "Copyist", version);
+        win_sparkle_set_automatic_check_for_updates(0);
+        win_sparkle_set_can_shutdown_callback(can);
+        win_sparkle_set_shutdown_request_callback(shut);
+        win_sparkle_init();
+        started = true;
+        return true;
+    }
+    public static void Check() { if (started) win_sparkle_check_update_with_ui(); }
+    public static void Stop() { if (started) { started = false; win_sparkle_cleanup(); } }
+    // the new installer is downloaded and ready: close, so it can run
+    static void OnShutdown() {
+        Form w = window;
+        if (w != null && w.IsHandleCreated)
+            w.BeginInvoke((MethodInvoker)delegate { w.Close(); });
+    }
+}
+'@
+
+function Sparkle-Dll {
+    $arch = 'x64'
+    try {
+        if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq 'Arm64') {
+            $arch = 'ARM64'
+        }
+    } catch {
+        if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'ARM64' }
+    }
+    return Join-Path $PSScriptRoot "$arch\WinSparkle.dll"
+}
+
+function Newer-Than([string]$a, [string]$b) {
+    try { return ([version]$a) -gt ([version]$b) } catch { return $false }
+}
+
 function Run-Chart([string]$argline) {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $py
@@ -55,6 +166,21 @@ function Run-Chart([string]$argline) {
     $err = $errTask.Result
     $p.WaitForExit()
     return ($out + $err).Trim()
+}
+
+if ($SelfTest) {
+    $problems = @()
+    $desk = Run-Chart 'settings'
+    if (-not $desk -or $desk -match 'Traceback') {
+        $problems += "the engine didn't answer: $desk"
+    }
+    $dll = Sparkle-Dll
+    if (-not [CopyistSparkle]::Load($dll)) {
+        $problems += "WinSparkle didn't load from $dll"
+    }
+    if ($problems.Count) { $problems | ForEach-Object { "FAIL: $_" }; exit 1 }
+    "OK: Copyist $version, engine answers, WinSparkle loads ($dll)"
+    exit 0
 }
 
 function Tail([string]$text, [int]$n) {
@@ -508,8 +634,10 @@ function Update-Working {
             $n = [System.IO.Path]::GetFileNameWithoutExtension($last)
         }
     }
-    $working.Text = "Working on: $n"
-    $working.AccessibleName = "Working on: $n"
+    $t = "Working on: $n"
+    if ($script:newer) { $t += "   (Copyist $($script:newer) is out: Settings, Check for updates)" }
+    $working.Text = $t
+    $working.AccessibleName = $t
 }
 
 $tabs = New-Object System.Windows.Forms.TabControl
@@ -607,6 +735,8 @@ Add-Action $setFlow 'The settings desk' 'Your name, the look, where files go, ho
     Do-Settings }
 Add-Action $setFlow 'The sound shelf' 'Install the band''s recorded instruments; where they go is in the settings desk.' '' {
     Do-Sounds }
+Add-Action $setFlow 'Check for updates' "This is Copyist $version. Shows what's new and installs it." '' {
+    Check-Updates }
 Add-Action $setFlow 'Help - what this is' 'Copyist in a paragraph.' 'F1' {
     Show-Info ('Copyist turns a chart file - plain words and a ' +
         'played demo - into engraved parts, a conductor score, ' +
@@ -659,8 +789,82 @@ $form.Add_KeyDown({
     }
 })
 
+function Say([string]$text) {
+    # a screen reader speaks this without moving focus (UI Automation
+    # notification; .NET Framework 4.8 and later). Older: the label
+    # still shows it.
+    try {
+        [void]$working.AccessibilityObject.RaiseAutomationNotification(
+            [System.Windows.Forms.Automation.AutomationNotificationKind]::Other,
+            [System.Windows.Forms.Automation.AutomationNotificationProcessing]::ImportantAll,
+            $text)
+    } catch { }
+}
+
+function Check-Updates {
+    if (-not $installed) {
+        Show-Info ("This is Copyist $version, run from a folder rather " +
+            "than installed. A git pull updates it; the installer " +
+            "(Copyist-Setup.exe on the releases page) updates itself.")
+        return
+    }
+    if (-not $script:sparkle) {
+        Show-Info "Copyist's updater didn't start. Download the newest Copyist-Setup.exe from github.com/Matthew2244/copyist/releases."
+        return
+    }
+    [CopyistSparkle]::Check()
+}
+
+function Tell-Update {
+    $v = $script:untold
+    if (-not $v -or [System.Windows.Forms.Form]::ActiveForm -ne $form) { return }
+    $script:untold = $null
+    try { Set-Content $toldFile $v } catch { }
+    Update-Working
+    Say "Copyist $v is out. Settings tab, Check for updates, gets it."
+}
+
+function Look-ForUpdate {
+    # reads WinSparkle's own list: the version is all this needs
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers['User-Agent'] = "Copyist/$version"
+    $wc.Add_DownloadStringCompleted({
+        param($s, $e)
+        if ($e.Error -or $e.Cancelled) { return }
+        $m = [regex]::Match($e.Result, '<sparkle:shortVersionString>([^<]+)<')
+        if (-not $m.Success) { return }
+        $v = $m.Groups[1].Value.Trim()
+        if (-not (Newer-Than $v $version)) { return }
+        $script:newer = $v
+        $told = ''
+        if (Test-Path $toldFile) { $told = (Get-Content $toldFile -Raw).Trim() }
+        if ($told -eq $v) { Update-Working; return }
+        $script:untold = $v
+        Tell-Update
+    })
+    try { $wc.DownloadStringAsync([uri]$feed) } catch { }
+}
+
 $form.Controls.Add($tabs)
 $form.Controls.Add($working)
 Update-Working
 $form.Add_Shown({ [void]$tabs.Focus() })
+if ($installed) {
+    try {
+        [Net.ServicePointManager]::SecurityProtocol =
+            [Net.ServicePointManager]::SecurityProtocol -bor 'Tls12'
+    } catch { }
+    $form.Add_Shown({
+        if ([CopyistSparkle]::Load((Sparkle-Dll))) {
+            $script:sparkle = [CopyistSparkle]::Start($form, $feed,
+                $updateKey, $version)
+        }
+    })
+    $look = New-Object System.Windows.Forms.Timer
+    $look.Interval = 20000          # first look 20 seconds in
+    $look.Add_Tick({ $look.Interval = 4 * 3600 * 1000; Look-ForUpdate })
+    $look.Start()
+    $form.Add_Activated({ Tell-Update })
+    $form.Add_FormClosed({ $look.Stop(); [CopyistSparkle]::Stop() })
+}
 [void]$form.ShowDialog()

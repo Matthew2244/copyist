@@ -63,3 +63,25 @@ jobs:
             "$PWD/windows/CopyistApp.ps1", [ref]$null, [ref]$e) | Out-Null
           if ($e.Count) { $e | ForEach-Object { $_.ToString() }; exit 1 }
           "parses clean"
+      - name: Inno Setup, for the installer
+        shell: pwsh
+        run: if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Build Copyist-Setup.exe
+        shell: pwsh
+        run: windows/build-installer.ps1
+      - name: Install quietly, self-test the installed copy, uninstall
+        shell: pwsh
+        run: |
+          $p = Start-Process app\build\Copyist-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "installer exit $($p.ExitCode)" }
+          $app = "$env:LOCALAPPDATA\Programs\Copyist"
+          if (-not (Test-Path "$app\windows\CopyistApp.ps1")) { throw "not installed where expected" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Copyist.lnk")) { throw "no Start menu entry" }
+          # Windows PowerShell 5.1, what the Start menu entry runs
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$app\windows\CopyistApp.ps1" -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw "installed self-test failed" }
+          $u = Get-ChildItem "$app\unins*.exe" | Select-Object -First 1
+          $p = Start-Process $u.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          Start-Sleep -Seconds 3
+          if (Test-Path "$app\windows\CopyistApp.ps1") { throw "uninstall left the app behind" }
+          "Installed, self-tested and uninstalled cleanly."

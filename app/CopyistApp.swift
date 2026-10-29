@@ -16,6 +16,7 @@ import SwiftUI
 import PDFKit
 import AppKit
 import UniformTypeIdentifiers
+import Sparkle
 
 // MARK: - Colors and vibes
 
@@ -210,6 +211,98 @@ func announce(_ text: String, queued: Bool = false) {
         // (the tab heading it just landed on); the rest speak now
         a.accessibilitySpeechAnnouncementPriority = queued ? .default : .high
         AccessibilityNotification.Announcement(a).post()
+    }
+}
+
+// MARK: - App updates
+
+/// Sparkle never looks or opens a window by itself here
+/// (SUEnableAutomaticChecks is off in Info.plist): a window popping up
+/// mid-build is a window VoiceOver lands in with no idea why. Copyist
+/// looks quietly 20 seconds after it opens and every four hours after,
+/// and says once per version that a new one is out, only while Copyist
+/// is in front and no sheet is up. Sparkle's own window opens when
+/// asked: Copyist > Check for Updates, or the button in Settings.
+final class Updates: NSObject, ObservableObject, SPUUpdaterDelegate {
+    static let shared = Updates()
+    /// the newer version found, shown in Settings; nil when current
+    @Published var newer: String?
+    let current = Bundle.main.object(
+        forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+    private var controller: SPUStandardUpdaterController?
+    private var asked = false       // the person pressed Check: no speech
+    private var untold: String?
+    private var timer: Timer?
+
+    private override init() {
+        super.init()
+        // only a bundled build has a feed to read; a bare swiftc test
+        // binary has none, and Sparkle would complain at launch
+        guard Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil
+        else { return }
+        let c = SPUStandardUpdaterController(
+            startingUpdater: true, updaterDelegate: self,
+            userDriverDelegate: nil)
+        c.updater.automaticallyChecksForUpdates = false
+        controller = c
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { self.look() }
+        timer = Timer.scheduledTimer(withTimeInterval: 4 * 3600,
+                                     repeats: true) { _ in self.look() }
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil, queue: .main) { _ in self.tell() }
+    }
+
+    var available: Bool { controller != nil }
+
+    private func look() {
+        guard let u = controller?.updater, u.canCheckForUpdates,
+              !u.sessionInProgress else { return }
+        u.checkForUpdateInformation()
+    }
+
+    /// Sparkle's window: what's new, and Install
+    func check() {
+        guard let c = controller else {
+            announce("This copy of Copyist was built without updates. "
+                     + "Rebuild it with app/build.sh.")
+            return
+        }
+        asked = true
+        c.checkForUpdates(nil)
+    }
+
+    func updater(_ updater: SPUUpdater,
+                 didFindValidUpdate item: SUAppcastItem) {
+        DispatchQueue.main.async {
+            self.newer = item.displayVersionString
+            if self.asked { return }
+            let key = "toldUpdateVersion"
+            if UserDefaults.standard.string(forKey: key)
+                == item.displayVersionString { return }
+            self.untold = item.displayVersionString
+            self.tell()
+        }
+    }
+
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        DispatchQueue.main.async { self.newer = nil }
+    }
+
+    func updater(_ updater: SPUUpdater,
+                 didFinishUpdateCycleFor kind: SPUUpdateCheck,
+                 error: Error?) {
+        DispatchQueue.main.async { self.asked = false }
+    }
+
+    private func tell() {
+        guard let v = untold, NSApp.isActive,
+              NSApp.keyWindow?.attachedSheet == nil,
+              NSApp.modalWindow == nil else { return }
+        untold = nil
+        UserDefaults.standard.set(v, forKey: "toldUpdateVersion")
+        announce("Copyist \(v) is out. Copyist menu, Check for Updates, "
+                 + "gets it.", queued: true)
     }
 }
 
@@ -1233,6 +1326,7 @@ struct CopyistApp: App {
         // Copyist's own tabs are the tabs; the system's window tabs
         // would put a second "Show Tab Bar" in View beside them
         NSWindow.allowsAutomaticWindowTabbing = false
+        _ = Updates.shared      // starts the quiet look for updates
     }
 
     var body: some Scene {
@@ -1272,6 +1366,9 @@ struct DeskCommands: Commands {
             }
             .keyboardShortcut("i", modifiers: [.command, .shift])
             .disabled(model == nil)
+        }
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { Updates.shared.check() }
         }
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") { model?.go(.settings) }
@@ -2837,6 +2934,7 @@ struct TalkView: View {
 
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
+    @ObservedObject private var updates = Updates.shared
     let pal: Palette
     @State private var cfg: [String: String] = [:]
     @State private var status = "Every setting says what it is set to."
@@ -2885,6 +2983,17 @@ struct SettingsView: View {
                     Toggle("Say what a tab holds when you switch to it",
                            isOn: $model.speakTabs)
                         .accessibilityHint("The tab's name is always said")
+                    HStack {
+                        Text(updates.newer.map {
+                            "This is Copyist \(updates.current). "
+                            + "Copyist \($0) is out."
+                        } ?? "This is Copyist \(updates.current).")
+                        Button("Check for Updates…") {
+                            Updates.shared.check()
+                        }
+                        .accessibilityHint("Shows what's new and "
+                                           + "installs it")
+                    }
                 }
                 group("Your charts") {
                     Text("The name on every new chart, and how the "

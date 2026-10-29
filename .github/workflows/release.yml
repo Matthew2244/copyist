@@ -1,0 +1,49 @@
+name: release
+
+# A published release gets its Windows installer here. The Mac zip and
+# both signed update lists come from tools/release_mac.py on the Studio,
+# run after this attaches Copyist-Setup.exe: the signing keys never
+# leave that Mac.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: the release to attach to, for example v2.102.0
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Inno Setup
+        shell: pwsh
+        run: if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Build Copyist-Setup.exe
+        shell: pwsh
+        run: windows/build-installer.ps1
+      - name: Install, self-test, uninstall
+        shell: pwsh
+        run: |
+          $p = Start-Process app\build\Copyist-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "installer exit $($p.ExitCode)" }
+          $app = "$env:LOCALAPPDATA\Programs\Copyist"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$app\windows\CopyistApp.ps1" -SelfTest
+          if ($LASTEXITCODE -ne 0) { throw "installed self-test failed" }
+          $u = Get-ChildItem "$app\unins*.exe" | Select-Object -First 1
+          Start-Process $u.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+      - name: Attach to the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name || inputs.tag }}" app\build\Copyist-Setup.exe --clobber -R ${{ github.repository }}

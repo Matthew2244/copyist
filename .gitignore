@@ -18,3 +18,6 @@ corpus/*/*.notated.mid
 # Session working notes — private, never commit
 HANDOFF.md
 app/build/
+
+# WinSparkle DLLs fetched by windows/build-installer.ps1
+windows/winsparkle/
