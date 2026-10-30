@@ -1124,7 +1124,7 @@ def parse_chart(path):
                                     'meter', 'tempo', 'feel', 'source',
                                     'demo', 'countin', 'dynamics', 'look',
                                     'lyricist', 'from', 'rev', 'number',
-                                    'cues', 'countoff'):
+                                    'cues', 'countoff', 'choir'):
                 chart['header'][m.group(1)] = m.group(2).strip().strip('"')
                 continue
             fail(f"{loc}: cannot read '{s}'")
@@ -2220,6 +2220,224 @@ _TYPE_BEATS = {'maxima': 32, 'long': 16, 'breve': 8, 'whole': 4,
                '32nd': 0.125, '64th': 0.0625, '128th': 0.03125}
 
 
+# ---- a choir in closed score: soprano and alto on a treble staff,
+# tenor and bass on a bass staff, the way a hymnal and most choral
+# octavos print it (`choir: two staves` in the header)
+CHOIR_ROLES = ('soprano', 'alto voice', 'tenor voice', 'bass voice')
+_CHOIR_STAFF = (1, 1, 2, 2)
+_CHOIR_STEM = ('up', 'down', 'up', 'down')
+_CHOIR_NAMES = ('soprano', 'alto', 'tenor', 'bass')
+
+
+def choir_word(text):
+    """'two staves' -> True, 'four staves' -> False, '' -> None; a word
+    the header does not know fails with what it takes."""
+    w = re.sub(r'\s+', ' ', str(text or '').strip().lower())
+    if not w:
+        return None
+    if w in ('two staves', '2 staves', 'closed', 'closed score',
+             'short score', 'satb on two staves', 'hymn style',
+             'hymnal'):
+        return True
+    if w in ('four staves', '4 staves', 'open', 'open score',
+             'a staff each', 'one staff each'):
+        return False
+    fail(f"choir: '{text}' — say 'choir: two staves' for soprano and "
+         "alto on one staff and tenor and bass on the other, or 'choir: "
+         "four staves' for a staff per voice (the default)")
+
+
+def _stream_len(body):
+    """Where a voice's cursor ends in a measure, in divisions."""
+    pos = end = 0
+    for el in re.finditer(r'<note\b.*?</note>|<forward>.*?</forward>|'
+                          r'<backup>.*?</backup>', body, re.S):
+        t = el.group(0)
+        d = re.search(r'<duration>(\d+)</duration>', t)
+        d = int(d.group(1)) if d else 0
+        if t.startswith('<backup'):
+            pos -= d
+        elif t.startswith('<forward') or (
+                '<chord/>' not in t and '<grace' not in t):
+            pos += d
+        end = max(end, pos)
+    return end
+
+
+def _lyric_marks(body):
+    """[(onset, syllabic, text)] of a voice's sung syllables in a
+    measure, and whether it sings (has a pitched note) at all."""
+    pos = onset = 0
+    out, sings = [], False
+    for el in re.finditer(r'<note\b.*?</note>|<forward>.*?</forward>',
+                          body, re.S):
+        t = el.group(0)
+        d = re.search(r'<duration>(\d+)</duration>', t)
+        d = int(d.group(1)) if d else 0
+        if '<chord/>' not in t:
+            onset = pos
+            if '<grace' not in t:
+                pos += d
+        if '<pitch>' in t:
+            sings = True
+        ly = re.search(r'<lyric[^>]*>\s*<syllabic>(\w+)</syllabic>\s*'
+                       r'<text[^>]*>([^<]*)</text>', t)
+        if ly:
+            out.append((onset, ly.group(1), ly.group(2).strip().lower()))
+    return out, sings
+
+
+def _word_ends(body):
+    """Does the measure end between words (nothing carried over)?"""
+    syl = re.findall(r'<syllabic>(\w+)</syllabic>', body)
+    return not syl or syl[-1] in ('single', 'end')
+
+
+def close_choir(parts):
+    """Four voice parts' measures (soprano, alto, tenor, bass, as the
+    compiler wrote them) -> one two-staff part's measures, voices 1 to 4
+    with backups between them, or None when the voices can't share
+    staves (different bar counts, or a voice already in two voices).
+    Where every singing voice has the soprano's words on the soprano's
+    rhythm, the words print once, under the upper staff; elsewhere each
+    voice keeps its own, named for it."""
+    split = [re.findall(r'(\s*<measure\b[^>]*>)(.*?)(\s*</measure>\n?)',
+                        p, re.S) for p in parts]
+    if len({len(x) for x in split}) != 1 or not split[0]:
+        return None
+    if any('<backup>' in body for x in split for _h, body, _t in x):
+        return None
+    n = len(split[0])
+    # shared words go by stretches between word boundaries, so a word
+    # held over a barline is never half shared, half not
+    runs, cur = [], []
+    for k in range(n):
+        cur.append(k)
+        if all(_word_ends(split[v][k][1]) for v in range(4)):
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    def same(v, w, run):
+        """Does voice v sing voice w's words on w's rhythm all through
+        the run (resting is fine; singing while w rests is not)?"""
+        for k in run:
+            w_marks, w_sings = _lyric_marks(split[w][k][1])
+            marks, sings = _lyric_marks(split[v][k][1])
+            if sings and (marks != w_marks or not w_sings):
+                return False
+        return True
+    shared, keep = {}, {}
+    for run in runs:
+        any_words = any(_lyric_marks(split[0][k][1])[0] for k in run)
+        whole = any_words and all(same(v, 0, run) for v in (1, 2, 3))
+        for k in run:
+            shared[k] = whole
+            # otherwise a staff's lower voice drops words it shares
+            # with the voice above it: one line per staff where it can
+            keep[k] = [True,
+                       not same(1, 0, run),
+                       True,
+                       not same(3, 2, run)]
+    out = []
+    for k in range(n):
+        head, _b, tail = split[0][k]
+        attrs, left, right, streams = '', '', '', []
+        for v in range(4):
+            body = split[v][k][1]
+            staff, stem = _CHOIR_STAFF[v], _CHOIR_STEM[v]
+            for at in re.findall(r'\s*<attributes>.*?</attributes>', body,
+                                 re.S):
+                if v == 0:
+                    attrs += at
+            body = re.sub(r'\s*<attributes>.*?</attributes>', '', body,
+                          flags=re.S)
+            for bl in re.findall(r'\s*<barline\b[^>]*>.*?</barline>', body,
+                                 re.S):
+                if v == 0:
+                    if 'location="left"' in bl:
+                        left += bl
+                    else:
+                        right += bl
+            body = re.sub(r'\s*<barline\b[^>]*>.*?</barline>', '', body,
+                          flags=re.S)
+            if v:
+                # chord symbols and system breaks are the soprano's
+                body = re.sub(r'\s*<harmony\b.*?</harmony>', '', body,
+                              flags=re.S)
+                body = re.sub(r'\s*<print\b[^>]*/>|\s*<print\b.*?</print>',
+                              '', body, flags=re.S)
+
+            def note(m_, v=v, staff=staff, stem=stem):
+                t = m_.group(0)
+                t = re.sub(r'<voice>\d+</voice>', f'<voice>{v + 1}</voice>',
+                           t)
+                t = re.sub(r'\s*<stem>[^<]*</stem>|\s*<staff>\d+</staff>',
+                           '', t)
+                if '<rest' not in t:
+                    t = re.sub(r'(\s*)(<notehead\b|<beam\b|<notations\b|'
+                               r'<lyric\b|<play\b|</note>)',
+                               lambda g: f'{g.group(1)}<stem>{stem}</stem>'
+                               + g.group(1) + g.group(2), t, count=1)
+                t = re.sub(r'(\s*)(<beam\b|<notations\b|<lyric\b|<play\b|'
+                           r'</note>)',
+                           lambda g: f'{g.group(1)}<staff>{staff}</staff>'
+                           + g.group(1) + g.group(2), t, count=1)
+                # slurs and tuplets numbered per voice, so the four
+                # voices' arcs never close each other's
+                t = re.sub(r'<(slur|tuplet)([^>]*?)number="(\d+)"',
+                           lambda g: f'<{g.group(1)}{g.group(2)}number='
+                           f'"{(int(g.group(3)) - 1) % 4 + 1 + 4 * v}"', t)
+                if v and (shared.get(k) or not keep[k][v]):
+                    t = re.sub(r'\s*<lyric\b.*?</lyric>', '', t,
+                               flags=re.S)
+                elif not shared.get(k):
+                    t = re.sub(r'<lyric(?![^>]*\bname=)',
+                               f'<lyric name="{_CHOIR_NAMES[v]}"', t)
+                return t
+            body = re.sub(r'<note\b.*?</note>', note, body, flags=re.S)
+
+            def direction(m_, staff=staff):
+                t = m_.group(0)
+                if '<staff>' in t:
+                    return t
+                at_ = t.find('<sound') if '<sound' in t else \
+                    t.rfind('</direction>')
+                return t[:at_] + f'<staff>{staff}</staff>' + t[at_:]
+            body = re.sub(r'<direction\b.*?</direction>', direction, body,
+                          flags=re.S)
+            streams.append(body)
+        # a dynamic or a word every voice on a staff says prints once
+        # on that staff: the alto's echo of the soprano's mf goes
+        for v in (1, 3):
+            mine = streams[v]
+            seen = {re.sub(r'\s+', '', d)
+                    for d in re.findall(r'<direction\b.*?</direction>',
+                                        streams[v - 1], re.S)}
+            streams[v] = re.sub(
+                r'\s*<direction\b.*?</direction>',
+                lambda m_: '' if re.sub(r'\s+', '', m_.group(0)) in seen
+                else m_.group(0), mine, flags=re.S)
+        if '<clef' in attrs:
+            attrs = re.sub(
+                r'<clef\b[^>]*>.*?</clef>',
+                '<staves>2</staves>'
+                '<clef number="1"><sign>G</sign><line>2</line></clef>'
+                '<clef number="2"><sign>F</sign><line>4</line></clef>',
+                attrs, count=1, flags=re.S)
+        merged = [attrs, left]
+        for v, body in enumerate(streams):
+            merged.append(body.rstrip())
+            if v < 3:
+                back = _stream_len(body)
+                if back:
+                    merged.append(f'\n      <backup><duration>{back}'
+                                  '</duration></backup>')
+        merged.append(right)
+        out.append(head + ''.join(merged) + tail)
+    return ''.join(out)
+
+
 def portable(xml):
     """Every note's written value says how long it lasts, so any program
     plays what Copyist plays (2026-10-27: MuseScore read a 2.5-beat chord
@@ -2742,6 +2960,22 @@ def compile_chart(chart_path, outdir):
 
     # ---- the from-demo door
     findings = chartdemo.Findings()
+    # a choir in closed score: the score's four voices on two staves
+    # (the parts, the braille and the listen stay a voice each)
+    choir = None
+    if choir_word(hdr.get('choir')):
+        roles = {}
+        for b in band:
+            r_ = canonical_instrument(b['instrument'])
+            if r_ in CHOIR_ROLES:
+                roles.setdefault(r_, []).append(b['label'])
+        if all(len(roles.get(r_, ())) == 1 for r_ in CHOIR_ROLES):
+            choir = [roles[r_][0] for r_ in CHOIR_ROLES]
+        else:
+            findings.add("choir: two staves needs one soprano, one alto, "
+                         "one tenor and one bass on the band list; this "
+                         "score keeps a staff for each voice")
+    chart['_choir'] = choir
     for l in labels:
         if l in groups['rhythm']:
             continue
@@ -4457,11 +4691,17 @@ TRANSPOSE_XML = {
     -24: ('0', '0', '2'),        # glockenspiel
 }
 
+# the bass-clef players whose books go to tenor clef up high
+TENOR_READERS = ('trombone', 'bassoon', 'euphonium', 'cello')
+
 CLEF_XML = {'G': '<sign>G</sign><line>2</line>',
             'F': '<sign>F</sign><line>4</line>',
             'G8': '<sign>G</sign><line>2</line>'
                   '<clef-octave-change>-1</clef-octave-change>',
             'C': '<sign>C</sign><line>3</line>',
+            # tenor clef: the C on the fourth line, where a trombone,
+            # bassoon, euphonium or cello reads its high passages
+            'C4': '<sign>C</sign><line>4</line>',
             'percussion': '<sign>percussion</sign><line>2</line>'}
 
 SOUND_DYN = {'pp': 40, 'p': 54, 'mp': 71, 'mf': 89, 'f': 106, 'ff': 123,
@@ -6718,32 +6958,57 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                 + ex + (bl if k == len(extras) else '')
                                 + '    </measure>\n', False, False))
 
-        # ---- a cello, bassoon or trombone line that climbs reads in
-        # treble clef while it's up there and comes back down after —
-        # never seven ledger lines over the bass staff. Bar by bar, the
-        # clef with fewer ledger lines, changing only when it saves a
-        # real handful, so the part doesn't flicker between clefs.
+        # ---- a cello, bassoon or trombone line that climbs changes
+        # clef while it's up there and comes back down after — never
+        # seven ledger lines over the bass staff. Bar by bar, the clef
+        # with fewer ledger lines, changing only when it saves a real
+        # handful, so the part doesn't flicker between clefs. The
+        # players who read tenor clef (trombone, bassoon, euphonium,
+        # cello) take it for a moderately high passage, the way their
+        # books print it; treble only where tenor would still leave
+        # them on ledger lines. A singer never changes clef.
+        inst_ = canonical_instrument(b['instrument']) if horn else ''
         if not listen and staves == 1 and clef == 'F' and horn and \
-                chartgroove.role_of(SOUNDS.get(canonical_instrument(
-                    b['instrument']), ('', '', 0))[1], 'F') != 'bass':
-            def ledgers(m_, in_treble):
-                n_ = 0
+                not inst_.endswith('voice') and \
+                chartgroove.role_of(SOUNDS.get(inst_, ('', '', 0))[1],
+                                    'F') != 'bass':
+            # the staff's bottom and top lines as diatonic steps
+            # (octave * 7 + step): bass G2-A3, tenor D3-E4, treble E4-F5
+            spans_ = {'F': (18, 26), 'C4': (22, 30), 'G': (30, 38)}
+            choices_ = (('F', 'C4', 'G') if inst_ in TENOR_READERS
+                        else ('F', 'G'))
+
+            def ledgers(m_, c_):
+                """(ledger lines in all, the most under one note)"""
+                n_ = top_ = 0
+                lo_, hi_ = spans_[c_]
                 for st_, oc_ in re.findall(r'<step>(\w)</step>(?:<alter>'
                                            r'-?\d</alter>)?<octave>(\d)',
                                            m_):
                     d_ = int(oc_) * 7 + 'CDEFGAB'.index(st_)
-                    lo_, hi_ = (30, 38) if in_treble else (18, 26)
-                    n_ += max(0, (d_ - hi_) // 2) + max(0, (lo_ - d_) // 2)
-                return n_
-            treble = False
+                    k_ = max(0, (d_ - hi_) // 2) + max(0, (lo_ - d_) // 2)
+                    n_ += k_
+                    top_ = max(top_, k_)
+                return n_, top_
+            now_ = 'F'
             for i_, (mx, pr_, hk_) in enumerate(out):
                 if '<note' not in mx or '<rest' in mx and '<pitch' not in mx:
                     continue
-                here, there = ledgers(mx, treble), ledgers(mx, not treble)
-                if here - there >= 4:
-                    treble = not treble
-                    sign = ('<sign>G</sign><line>2</line>' if treble
-                            else '<sign>F</sign><line>4</line>')
+                got_ = {c_: ledgers(mx, c_) for c_ in choices_}
+                cnt_ = {c_: got_[c_][0] for c_ in choices_}
+                # treble only where tenor would leave a note on two or
+                # more ledger lines; otherwise fewest ledger lines, and
+                # on a tie the bass clef, then tenor
+                pool_ = [c_ for c_ in choices_ if not (
+                    c_ == 'G' and 'C4' in choices_
+                    and got_['C4'][1] <= 1)]
+                best_ = min(pool_, key=lambda c_: (
+                    cnt_[c_], {'F': 0, 'C4': 1, 'G': 2}[c_]))
+                if now_ != 'F' and cnt_['F'] == 0:
+                    best_ = 'F'      # home again once the bass staff holds it
+                if best_ != now_ and (cnt_[now_] - cnt_[best_] >= 4
+                                      or best_ == 'F' and cnt_['F'] == 0):
+                    now_ = best_
                     head = re.match(r'\s*<measure[^>]*>\n', mx)
                     at_ = head.end() if head else 0
                     ex_ = re.search(r'<attributes>.*?</attributes>\n?',
@@ -6751,7 +7016,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     if ex_ and ex_.start() < 40:
                         at_ += ex_.end()
                     out[i_] = (mx[:at_] + '      <attributes><clef>'
-                               + sign + '</clef></attributes>\n'
+                               + CLEF_XML[now_] + '</clef></attributes>\n'
                                + mx[at_:], False, False)
 
         # ---- multirests, parts only: a stretch of waiting prints as one
@@ -6792,6 +7057,24 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     # ---- whole documents
     def document(part_labels, directions_on, harmony_on, listen=False,
                  part_mode=False):
+        # the score's choir on two staves, sitting where its soprano sits
+        choir = chart.get('_choir')
+        closed = (choir if choir and not listen and not part_mode
+                  and all(l in part_labels for l in choir) else None)
+        made_ = {}
+        if closed:
+            merged = close_choir([part_measures(l, directions_on(l),
+                                                harmony_on(l))
+                                  for l in closed])
+            if merged is None:
+                findings.add("choir: the voices could not share two "
+                             "staves (one of them already divides), so "
+                             "the score keeps a staff for each voice")
+                closed = None
+            else:
+                made_[closed[0]] = merged
+                part_labels = [l for l in part_labels
+                               if l == closed[0] or l not in closed]
         L = [XMLHEAD, '<score-partwise version="3.1">\n',
              '  <work>'
              + ('<work-number>%s</work-number>' % xml_text(hdr['number'])
@@ -6821,6 +7104,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             inst = canonical_instrument(next(
                 x for x in band if x['label'] == l)['instrument'])
             sound = SOUNDS.get(inst)
+            if closed and l == closed[0]:
+                name = 'Choir'
+                sound = ('Choir', 'voice.vocals', 53)
             L.append(f'    <score-part id="P{i}">'
                      f'<part-name>{xml_text(name)}</part-name>')
             if sound:
@@ -6839,7 +7125,6 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                          f'</midi-instrument>')
             L.append('</score-part>\n')
         L.append('  </part-list>\n')
-        made_ = {}
         if listen and LEAD['heard'] is not None:
             # the band plays in its listening order, each chair hearing
             # the ones before it; the score keeps its own order

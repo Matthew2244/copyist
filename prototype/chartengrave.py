@@ -36,7 +36,7 @@ STEPS = {'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6}
 
 # staff position (line/space index from bottom line, in half-spaces) of
 # middle C for each clef
-CLEF_C4 = {'G': -2, 'G8': 5, 'F': 10, 'C': 4, 'percussion': -2}
+CLEF_C4 = {'G': -2, 'G8': 5, 'F': 10, 'C': 4, 'C4': 6, 'percussion': -2}
 
 DUR_HEADS = {'whole': 'whole', 'half': 'half'}
 FLAGS = {'eighth': 1, '16th': 2, '32nd': 3, '64th': 4}
@@ -603,16 +603,21 @@ def draw_clef(pdf, x, top, clef):
         pdf.text(x + 0.2 * SP, top - STAFF - 2.6 * SP, '8', size=7,
                  font='TI', center=True)
         return
+    if clef == 'C4':
+        # the tenor clef is the alto clef a line higher: its centre on
+        # the fourth line, which is middle C
+        mid = top - SP
     if pdf.music:
         name, yy = {'G': ('gClef', top - 3 * SP),
                     'G8': ('gClef8vb', top - 3 * SP),
                     'F': ('fClef', top - SP),
                     'C': ('cClef', mid),
+                    'C4': ('cClef', mid),
                     'percussion': ('percClef', mid)}.get(
             clef, ('gClef', top - 3 * SP))
         if name and pdf.glyph(x - SP, yy, name, 4 * SP):
             return
-    if clef == 'C':                     # plain alto clef: bars + wings
+    if clef in ('C', 'C4'):             # plain C clef: bars + wings
         pdf.line(x - SP, top, x - SP, top - STAFF, w=2.4)
         pdf.line(x + 0.1 * SP, top, x + 0.1 * SP, top - STAFF, w=0.9)
         for d in (1, -1):
@@ -761,7 +766,7 @@ class Note:
                  'slur_stop', 'artic', 'slash', 'kick', 'head', 'parens',
                  'cue',
                  'lyric', 'lyrics', 'vfirst', 'ext_stop', 'fermata',
-                 'tmod', 'measure_rest',
+                 'tmod', 'tnorm', 'measure_rest',
                  'grace', 'grace_slash', 'graces',
                  'trill', 'trill_acc', 'trill_to', 'wavy', 'trem',
                  'trem2', 'marks', 'arp', 'gliss', 'gliss_to', 'ott')
@@ -827,6 +832,8 @@ def _parse_note(t):
     n.vfirst = ()
     m = re.search(r'<actual-notes>(\d+)</actual-notes>', t)
     n.tmod = int(m.group(1)) if m else None
+    m = re.search(r'<normal-notes>(\d+)</normal-notes>', t)
+    n.tnorm = int(m.group(1)) if m else None
     nt = re.search(r'<notations>(.*?)</notations>', t, re.S)
     body = nt.group(1) if nt else ''
     n.marks = [m for m in re.findall(r'<([a-z-]+)[ />]', body)
@@ -973,6 +980,10 @@ def parse_part(xml, pid):
             if sign == 'G' and re.search(
                     r'<clef-octave-change>-1</clef-octave-change>', body_):
                 sign = 'G8'
+            # a C clef on the fourth line is the tenor clef; on the
+            # third (or unsaid) the alto
+            if sign == 'C' and re.search(r'<line>4</line>', body_):
+                sign = 'C4'
             state['clefs'][int(cnum or 1)] = (
                 'percussion' if sign == 'percussion' else sign)
             meas['show']['clef'] = dict(state['clefs'])
@@ -1474,7 +1485,8 @@ def engrave(xml_path, pdf_path, look=None):
     y = under_credits(top_y, title_block(pdf, xml, PAGE_W, PAGE_H, MARGIN))
     pname = keyed_name(names.get(pids[0], ''), xml, pids[0])
     staves = measures[0]['state']['staves'] if measures else 1
-    ph = part_height(staves)
+    gap = staff_gap(measures)
+    ph = part_height(staves, gap, words_below(measures))
 
     for si, system in enumerate(systems):
         # a bar whose changes climb over a high note lifts its header
@@ -1490,7 +1502,7 @@ def engrave(xml_path, pdf_path, look=None):
             y = PAGE_H - MARGIN - 2 * SP
             first_page = False
         y -= lift
-        tops = staff_tops(y, staves)
+        tops = staff_tops(y, staves, gap)
         if staves > 1:
             draw_brace(pdf, MARGIN - 2, tops[0], tops[-1] - STAFF)
             pdf.line(MARGIN, tops[0], MARGIN, tops[-1] - STAFF, w=1.2)
@@ -1605,10 +1617,14 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
     widths = [max(measure_width(m[j]) for _, m, _ in parts)
               for j in range(nmeas)]
 
-    # a part singing more than one verse needs a lyric line per verse
-    vgap = [(verse_count(m) - 1) * VERSE_STEP for _, m, _ in parts]
-    sys_h = (sum(part_height(s) for _, _, s in parts)
-             + (len(parts) - 1) * SCORE_GAP + sum(vgap))
+    gaps = [staff_gap(m) for _, m, _ in parts]
+    # a part singing more than one verse needs a lyric line per verse,
+    # beside any room a closed score's own lines of words take
+    belows = [words_below(m) + (verse_count(m) - 1) * VERSE_STEP
+              for _, m, _ in parts]
+    sys_h = (sum(part_height(s, g, b) for (_, _, s), g, b
+                 in zip(parts, gaps, belows))
+             + (len(parts) - 1) * SCORE_GAP)
     per_sys = sys_h + SYS_HEAD + 4 * SP
     want = 2 if len(parts) > 3 else 3
     # a conductor's page is landscape — every working score is
@@ -1650,8 +1666,8 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
         py = y
         for pi, (pname, measures, staves) in enumerate(parts):
             py -= lifts[pi]
-            part_tops.append(staff_tops(py, staves))
-            py -= part_height(staves) + SCORE_GAP + vgap[pi]
+            part_tops.append(staff_tops(py, staves, gaps[pi]))
+            py -= part_height(staves, gaps[pi], belows[pi]) + SCORE_GAP
         for (pname, measures, staves), tops in zip(parts, part_tops):
             if staves > 1:
                 draw_brace(pdf, M - 2, tops[0], tops[-1] - STAFF)
@@ -1727,7 +1743,7 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
                            ptops[-1] - STAFF - 2.6 * SP + 3, wk,
                            open_left=res, open_right=True)
                 wr['open'] = (None, wk, True)
-        y = part_tops[-1][-1] - STAFF - SYS_HEAD - 2 * SP - vgap[-1]
+        y = part_tops[-1][-1] - STAFF - SYS_HEAD - 2 * SP - belows[-1]
     pdf.save(pdf_path)
     return True, None
 
@@ -1750,23 +1766,39 @@ def key_width(meas):
     return w
 
 
+# the tenor clef's signature is its own shape, not the treble's moved:
+# moved down a seventh the sharps would climb off the staff, so the F
+# sharp sits low, on the second line, and the rest zigzag up from it
+KEY_SHARPS_TENOR = [2, 6, 3, 7, 4, 8, 5]
+KEY_FLATS_TENOR = [5, 8, 4, 7, 3, 6, 2]
+
+
+def key_positions(clef, sharps):
+    """Staff positions of a signature's sharps (or flats), in order,
+    or None for a staff that carries no key."""
+    if clef == 'C4':
+        return KEY_SHARPS_TENOR if sharps else KEY_FLATS_TENOR
+    base = {'G': 0, 'G8': 0, 'F': -2, 'C': -1}.get(clef)
+    if base is None:
+        return None
+    return [p + base for p in (KEY_SHARPS if sharps else KEY_FLATS)]
+
+
 def draw_key(pdf, x, top, fifths, clef, meas):
-    order = KEY_SHARPS if fifths > 0 else KEY_FLATS
-    base = {'G': 0, 'G8': 0, 'F': -2, 'C': -1, 'percussion': None}[
-        clef if clef in ('G', 'G8', 'F', 'C') else 'percussion']
+    order = key_positions(clef, fifths > 0)
     cancel = (meas or {}).get('show', {}).get('cancel')
-    if base is not None and cancel:
+    if order is not None and cancel:
         # the naturals first, on the very lines the old signature used
         old, gone = cancel
-        corder = KEY_SHARPS if old > 0 else KEY_FLATS
+        corder = key_positions(clef, old > 0)
         for i in range(abs(old) - gone, abs(old)):
-            yy = top - STAFF + (corder[i] + base) * SP / 2
+            yy = top - STAFF + corder[i] * SP / 2
             draw_accidental(pdf, x, yy, 0, scale=0.9)
             x += 2 * SP
-    if base is None or fifths == 0:
+    if order is None or fifths == 0:
         return x + SP
     for i in range(abs(fifths)):
-        p = order[i] + base
+        p = order[i]
         yy = top - STAFF + p * SP / 2
         draw_accidental(pdf, x, yy, 1 if fifths > 0 else -1, scale=0.9)
         x += 2 * SP
@@ -1774,14 +1806,51 @@ def draw_key(pdf, x, top, fifths, clef, meas):
 
 
 GRAND_GAP = 6.5 * SP
+# a choir's two staves keep room between them for the words sung on
+# the upper one, and for a second line where alto and soprano differ
+CHOIR_GAP = 11 * SP
 
 
-def part_height(staves):
-    return staves * STAFF + (staves - 1) * GRAND_GAP
+def lyric_lines(measures, staff):
+    """The most lines of words any bar sings on this staff (a voice
+    each)."""
+    most = 0
+    for m in measures:
+        most = max(most, len({v for _p, ns, st, v in m['events']
+                              if st == staff and any(n.lyric for n in ns)}))
+    return most
 
 
-def staff_tops(y, staves):
-    return [y - i * (STAFF + GRAND_GAP) for i in range(staves)]
+def staff_gap(measures):
+    """The room between a part's staves: a grand staff's, or a
+    choir's when words are sung on its upper staff, a line more for
+    each voice singing its own."""
+    if measures and measures[0]['state'].get('staves', 1) > 1:
+        lines = lyric_lines(measures, 1)
+        if lines:
+            # and its barlines stop at each staff, leaving the words
+            # between them clear, the way vocal music is barred
+            for m in measures:
+                m['_choir'] = True
+            return CHOIR_GAP + (lines - 1) * 2.2 * SP
+    return GRAND_GAP
+
+
+def words_below(measures):
+    """Room a part needs under its last staff for second and later
+    lines of words (the first already fits the gap below)."""
+    if not measures:
+        return 0.0
+    last = measures[0]['state'].get('staves', 1)
+    return max(0, lyric_lines(measures, last) - 1) * 2.2 * SP
+
+
+def part_height(staves, gap=GRAND_GAP, below=0.0):
+    return staves * STAFF + (staves - 1) * gap + below
+
+
+def staff_tops(y, staves, gap=GRAND_GAP):
+    return [y - i * (STAFF + gap) for i in range(staves)]
 
 
 _IN_KEY = {10: 'Bb', 3: 'Eb', 5: 'F', 9: 'A', 2: 'D', 7: 'G', 8: 'Ab',
@@ -2229,14 +2298,31 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
         voices_of.setdefault(staff, set()).add(voice)
     if carry is None:
         carry = {}
+    shifts = voice_shifts(pdf, streams, voices_of, state)
     for (staff, voice), evs in streams.items():
         stop = tops[min(staff, len(tops)) - 1]
         two = len(voices_of[staff]) > 1
         forced = (voice == min(voices_of[staff])) if two else None
+        if two and all(all(ns[0].rest for _p, ns in streams[(staff, v)])
+                       for v in voices_of[staff]):
+            # every voice on the staff rests: one rest, where a rest
+            # sits, not one per voice pushed apart
+            if voice != min(voices_of[staff]):
+                continue
+            forced = None
         clef = state['clefs'].get(staff, 'G')
+        # words sit under the staff they are sung on: on a choir's
+        # two staves the soprano and alto's under the upper staff,
+        # stacked a line per voice where they sing different words
+        sung = sorted(v for v in voices_of[staff]
+                      if any(n.lyric for _p, ns in streams[(staff, v)]
+                             for n in ns))
+        words_y = (bottom_y if staff >= len(tops) else stop - STAFF) - (
+            sung.index(voice) * 2.2 * SP if voice in sung else 0)
         draw_stream(pdf, evs, stop, clef, beat_len, xat, x0, width,
-                    forced, bottom_y,
-                    carry.setdefault((staff, voice), []))
+                    forced, words_y,
+                    carry.setdefault((staff, voice), []),
+                    shift=shifts.get((staff, voice)))
 
     draw_barline(pdf, meas, x0, tops, width)
     draw_ending(pdf, meas, x0, top, width)
@@ -2264,11 +2350,52 @@ def _melisma_end(events, ei, xat, half, v=1):
     return (xat(last) + half if last is not None else -1e9), True
 
 
+def voice_shifts(pdf, streams, voices_of, state):
+    """{(staff, voice): {pos: dx}}: where two voices share a staff
+    (a choir's soprano and alto) and their heads would collide, the
+    stem-up voice steps a head to the right — a second apart, or the
+    voices crossed. A unison of like heads is one head with two stems
+    and stays put; a unison of a half and a black head, or one dotted
+    and one not, sits side by side."""
+    out = {}
+    half = head_half(pdf)
+    for staff, vs in voices_of.items():
+        if len(vs) != 2:
+            continue
+        upv, dnv = sorted(vs)
+        clef = state['clefs'].get(staff, 'G')
+        at_dn = {p: ns for p, ns in streams[(staff, dnv)]
+                 if not ns[0].rest}
+        for p, ns in streams[(staff, upv)]:
+            if ns[0].rest or p not in at_dn:
+                continue
+            dn = at_dn[p]
+            ups = [step_pos(n.step, n.octave, clef) for n in ns]
+            dns = [step_pos(n.step, n.octave, clef) for n in dn]
+            gap = min(ups) - max(dns)
+            if gap >= 2:
+                continue
+            if gap == 0 and len(ups) == len(dns) == 1:
+                kind = (lambda n: (DUR_HEADS.get(n.ntype, 'black'),
+                                   n.dots))
+                if kind(ns[0]) == kind(dn[0]):
+                    continue             # one head, two stems
+            out.setdefault((staff, upv), {})[p] = 2 * half + 0.2 * SP
+    return out
+
+
 def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
-                forced, bottom_y, opens=None):
+                forced, bottom_y, opens=None, shift=None):
     """One voice on one staff: heads, stems, beams, ties, words.
     `opens` carries unclosed ties and slurs between measures, so an
-    arc across a barline is one true curve, not a hint."""
+    arc across a barline is one true curve, not a hint. `shift` moves
+    a head sideways where another voice's head is in the way;
+    `bottom_y` is the line the words hang from."""
+    if shift:
+        xat0 = xat
+
+        def xat(p, extra=0.0, _x=xat0, _s=shift):
+            return _x(p, extra) + _s.get(p, 0.0)
     mid = top - STAFF / 2
     pend_beam = []
     trem_open = []
@@ -2294,6 +2421,32 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
         group_of, tup_len = beat_len
     else:
         group_of, tup_len = (lambda p, _b=beat_len: p // _b), beat_len
+    # the tuplets as groups: a run of notes under one ratio closes when
+    # it has filled its count (three of its first note's value for a
+    # triplet, six for a sextuplet), so two half-beat triplets in one
+    # beat are two threes, each over its own notes, and a quarter-note
+    # triplet across the beat is one
+    tup_groups = []
+    run_, filled_, want_ = [], 0.0, 0.0
+    for ei_, (p_, ns_) in enumerate(events):
+        t_ = ns_[0]
+        tm_ = getattr(t_, 'tmod', None)
+        key_ = (tm_, getattr(t_, 'tnorm', None))
+        if run_ and (not tm_ or key_ != run_key_ or filled_ >= want_ - 1e-6
+                     or p_ != events[run_[-1]][0]
+                     + events[run_[-1]][1][0].dur):
+            tup_groups.append(run_)
+            run_ = []
+        if not tm_:
+            continue
+        nominal_ = t_.dur * tm_ / (getattr(t_, 'tnorm', None) or 1)
+        if not run_:
+            run_key_, filled_, want_ = key_, 0.0, tm_ * nominal_
+        run_.append(ei_)
+        filled_ += nominal_
+    if run_:
+        tup_groups.append(run_)
+    tup_of = {i_: g_ for g_ in tup_groups for i_ in g_}
     beat_ps = {}
     for pos, notes in events:
         n0 = notes[0]
@@ -2535,7 +2688,9 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             lift = 0.27 * arc if not slur else 0
             draw_arc(pdf, sx, sy + lift, ex, ey + lift, arc)
         if n0.tie_start or n0.slur_start:
-            sup = not up
+            # two voices on a staff: each one's ties and slurs bow away
+            # from the other, on its own stem side
+            sup = up if forced is not None else not up
             if n0.slur_start and not n0.tie_start:
                 slur_open.append([cx, (max(ys) + 0.9 * SP if sup
                                        else min(ys) - 0.9 * SP), sup,
@@ -2611,17 +2766,21 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                     pdf.poly([(xa, y1 + dy), (xb, ym + dy),
                               (xb, ym + dy - 0.5 * SP),
                               (xa, y1 + dy - 0.5 * SP)], fill=True)
-        if n0.tmod and not n0.trem2 \
-                and (not drawn or drawn[-1] != pos // tup_len):
-            # centred over the tuplet's own notes: one that fills only
-            # part of the beat had its number pushed off to the left
-            grp = [e[0] for e in events
-                   if e[0] // tup_len == pos // tup_len
-                   and getattr(e[1][0], 'tmod', None) == n0.tmod]
-            pdf.text((xat(min(grp)) + xat(max(grp))) / 2,
+        grp = tup_of.get(ei)
+        if n0.tmod and not n0.trem2 and grp and id(grp) not in drawn:
+            # centred over the tuplet's own notes, from its first stem
+            # to its last (the beam's own middle): a number set over
+            # the heads sat half a head off, left over up stems and
+            # right under down ones
+            xs = [xat(events[g][0]) for g in grp]
+            stemmed = n0.ntype != 'whole' and any(
+                not events[g][1][0].rest for g in grp)
+            off = (half - 0.55 * scale) * (1 if up else -1) \
+                if stemmed else 0.0
+            pdf.text((min(xs) + max(xs)) / 2 + off,
                      (tip + (1.6 * SP if up else -2.6 * SP)),
                      str(n0.tmod), size=8, font='HO', center=True)
-            drawn.append(pos // tup_len)
+            drawn.append(id(grp))
     flush_beam(pdf, pend_beam)
     ott = [(xat(pos), pos, notes[0].ott) for pos, notes in events
            if not notes[0].rest and notes[0].ott]
@@ -2854,16 +3013,26 @@ def flush_beam(pdf, group):
 def draw_barline(pdf, meas, x0, tops, width):
     xr = x0 + width
     top, bottom_y = tops[0], tops[-1] - STAFF
+    spans = ([(t, t - STAFF) for t in tops] if meas.get('_choir')
+             else [(top, bottom_y)])
+
+    class _Bars:
+        # each barline stroke, through every staff (or each alone)
+        @staticmethod
+        def line(x1, _y1, x2, _y2, w):
+            for a, b in spans:
+                pdf.line(x1, a, x2, b, w=w)
     right = meas.get('right') or {}
     style = right.get('style')
+    bars = _Bars
     if style == 'light-heavy':
-        pdf.line(xr - 4, top, xr - 4, bottom_y, w=0.9)
-        pdf.line(xr - 1, top, xr - 1, bottom_y, w=2.6)
+        bars.line(xr - 4, top, xr - 4, bottom_y, w=0.9)
+        bars.line(xr - 1, top, xr - 1, bottom_y, w=2.6)
     elif style == 'light-light':
-        pdf.line(xr - 4, top, xr - 4, bottom_y, w=0.9)
-        pdf.line(xr - 1, top, xr - 1, bottom_y, w=0.9)
+        bars.line(xr - 4, top, xr - 4, bottom_y, w=0.9)
+        bars.line(xr - 1, top, xr - 1, bottom_y, w=0.9)
     else:
-        pdf.line(xr - 1, top, xr - 1, bottom_y, w=0.9)
+        bars.line(xr - 1, top, xr - 1, bottom_y, w=0.9)
     if right.get('repeat') == 'backward':
         for stop in tops:
             for dy in (1.5 * SP, 2.5 * SP):
@@ -2871,8 +3040,8 @@ def draw_barline(pdf, meas, x0, tops, width):
     left = meas.get('left') or {}
     if left.get('repeat') == 'forward':
         rx = meas.get('_repx', x0)     # past any clef/key/time block
-        pdf.line(rx + 1, top, rx + 1, bottom_y, w=2.6)
-        pdf.line(rx + 4.5, top, rx + 4.5, bottom_y, w=0.9)
+        bars.line(rx + 1, top, rx + 1, bottom_y, w=2.6)
+        bars.line(rx + 4.5, top, rx + 4.5, bottom_y, w=0.9)
         for stop in tops:
             for dy in (1.5 * SP, 2.5 * SP):
                 _dot(pdf, rx + 8, stop - dy)

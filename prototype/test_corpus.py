@@ -8961,6 +8961,278 @@ def check_form_and_time_round():
           "band chose one: hold" in f, f[-300:])
 
 
+def _build_chart(text, name):
+    """Compile chart text in a scratch folder: (outdir, {file: text})."""
+    import io
+    import tempfile
+    from contextlib import redirect_stdout
+    import chartc
+    tmp = tempfile.mkdtemp()
+    cp = os.path.join(tmp, name + ".chart")
+    with open(cp, "w") as f:
+        f.write(text)
+    out = os.path.join(tmp, "o")
+    with redirect_stdout(io.StringIO()):
+        chartc.compile_chart(cp, out)
+    return out, {fn: open(os.path.join(out, fn), encoding="utf-8").read()
+                 for fn in os.listdir(out)}
+
+
+_CHOIR = ("title: H\nkey: G\nmeter: 4/4\ntempo: 80\n{hdr}\nband:\n"
+          "  soprano\n  alto\n  tenor\n  bass\n{more}\n"
+          "figure s, 2 bars:\n  notes: D5 q, E5 q, D5 h, D5 w\n"
+          "  lyrics: see a-men_\n\n"
+          "figure a, 2 bars:\n  notes: C5 q, C5 q, B4 h, B4 w\n"
+          "  lyrics: see a-men_\n\n"
+          "figure t, 2 bars:\n  notes: G3 q, A3 q, B3 h, C4 w\n"
+          "  lyrics: {tw}\n\n"
+          "figure b, 2 bars:\n  notes: G2 q, C3 q, G2 h, G2 w\n"
+          "  lyrics: see a-men_\n\n"
+          "section A, 2 bars\n  chords: G, C\n  soprano: figure s\n"
+          "  alto: figure a\n  tenor: figure t\n  bass: figure b\n")
+
+
+def check_choir_on_two_staves():
+    """2026-10-30, the open list: SATB on two staves. `choir: two
+    staves` puts the score's soprano and alto on a treble staff and
+    tenor and bass on a bass staff, voices 1 to 4; the parts, the listen
+    and the braille stay a voice each."""
+    import chartengrave as ce
+    import chartbraille
+    import chartc
+    print("\n== a choir on two staves ==")
+    out, f = _build_chart(_CHOIR.format(hdr="choir: two staves", more="",
+                                        tw="see a-men_"), "h")
+    sc = f["H — score.musicxml"]
+    check("closed score: one Choir part on two staves",
+          sc.count("<score-part ") == 1 and "<part-name>Choir" in sc
+          and "<staves>2</staves>" in sc
+          and '<clef number="1"><sign>G</sign>' in sc
+          and '<clef number="2"><sign>F</sign>' in sc, sc[:600])
+    notes = re.findall(r"<note>.*?</note>", sc, re.S)
+    vs = {(re.search(r"<voice>(\d)</voice>", n).group(1),
+           re.search(r"<staff>(\d)</staff>", n).group(1),
+           (re.search(r"<stem>(\w+)</stem>", n) or [0, "-"])[1])
+          for n in notes}
+    check("soprano and tenor stem up, alto and bass down, by staff",
+          vs == {("1", "1", "up"), ("2", "1", "down"), ("3", "2", "up"),
+                 ("4", "2", "down")}, vs)
+    check("the voices are laid with backups, three a bar",
+          sc.count("<backup>") == 6)
+    sung = [n for n in notes if "<lyric" in n]
+    check("shared words print once, on the soprano",
+          len(sung) == 3 and all("<voice>1</voice>" in n for n in sung)
+          and 'name="' not in sc, len(sung))
+    check("the slurs are numbered per voice",
+          '<slur number="5" type="start"/>' in sc
+          and '<slur number="13" type="start"/>' in sc)
+    check("the voice parts stay a staff each",
+          "<staves>" not in f["H — alto.musicxml"]
+          and "<clef-octave-change>-1" in f["H — tenor.musicxml"])
+    check("the listen keeps four voices",
+          f["H — for listening.musicxml"].count("<score-part ") == 4)
+    # the default: four staves, as before
+    _o, f0 = _build_chart(_CHOIR.format(hdr="", more="", tw="see a-men_"),
+                          "h")
+    check("without the header the score keeps a staff per voice",
+          f0["H — score.musicxml"].count("<score-part ") == 4
+          and "<staves>" not in f0["H — score.musicxml"])
+    # the tenor sings other words: each staff keeps its own line, and
+    # the alto (same as the soprano) and bass (not the tenor's) sort out
+    _o, f2 = _build_chart(_CHOIR.format(hdr="choir: two staves", more="",
+                                        tw="O my God_"), "h")
+    sc2 = f2["H — score.musicxml"]
+    names = re.findall(r'<lyric name="(\w+)"', sc2)
+    check("different words: soprano, tenor and bass each named, the "
+          "alto's echo of the soprano dropped",
+          set(names) == {"soprano", "tenor", "bass"}, names)
+    # a band without all four voices: said, and the score is open
+    _o, f3 = _build_chart(
+        "title: H\nkey: C\nchoir: two staves\nband:\n  soprano\n  alto\n"
+        "\nsection A, 1 bar\n  chords: C\n", "h")
+    check("choir: two staves without four voices is said, not guessed",
+          "needs one soprano" in f3["H — findings.txt"]
+          and f3["H — score.musicxml"].count("<score-part ") == 2)
+    try:
+        chartc.choir_word("three staves")
+        bad = False
+    except SystemExit:
+        bad = True
+    check("an unknown choir layout fails with what it takes", bad)
+    # the engraver: two voices a staff, words between the staves
+    ms, _ = ce.parse_part(sc, "P1")
+    check("engraver reads four voices on two staves",
+          {(st, v) for m in ms for _p, _n, st, v in m["events"]}
+          == {(1, 1), (1, 2), (2, 3), (2, 4)})
+    check("a choir's staves are spread for the words",
+          ce.staff_gap(ms) == ce.CHOIR_GAP and ms[0].get("_choir"))
+    # bar 1: soprano D5/alto C5 is a second (the soprano steps right);
+    # beat 3 D5 over B4 is a third (nothing moves)
+    st_ = {}
+    for p_, ns, staff, v in ms[0]["events"]:
+        st_.setdefault((staff, v), []).append((p_, ns))
+    vo = {}
+    for staff, v in st_:
+        vo.setdefault(staff, set()).add(v)
+    from types import SimpleNamespace
+    sh = ce.voice_shifts(SimpleNamespace(music=None), st_, vo,
+                         ms[0]["state"])
+    check("a second between the voices moves the stem-up head over",
+          sorted(sh.get((1, 1), {})) == [0], sh)
+    lines, words = [], []
+    pdf_text, pdf_line = ce.Pdf.text, ce.Pdf.line
+
+    def t_(self, x, y, s_, *a, **k):
+        if s_ in ("see", "a -", "men"):
+            words.append(y)
+        return pdf_text(self, x, y, s_, *a, **k)
+
+    def l_(self, x1, y1, x2, y2, *a, **k):
+        if abs(y1 - y2) < 0.01 and abs(x2 - x1) > 150:
+            lines.append(round(y1, 2))
+        return pdf_line(self, x1, y1, x2, y2, *a, **k)
+    ce.Pdf.text, ce.Pdf.line = t_, l_
+    try:
+        ok = ce.engrave(os.path.join(out, "H — score.musicxml"),
+                        os.path.join(out, "H — score.pdf"))
+    finally:
+        ce.Pdf.text, ce.Pdf.line = pdf_text, pdf_line
+    ys = sorted(set(lines), reverse=True)
+    check("the closed score engraves", ok == (True, None), ok)
+    check("the shared words sit between the two staves",
+          len(ys) >= 10 and words and all(ys[4] > w > ys[5] for w in words),
+          (ys[:10], words))
+    # braille: a voice at a time, read back clean
+    brf, why = chartbraille.part_to_brf(sc, "P1", "H", "Choir")
+    pieces = chartbraille.split_voices(brf)
+    check("braille takes the closed score apart, soprano to bass",
+          len(pieces) == 4 and "IN PRINT1 THIS CHOIR" in brf
+          and all("SEE AMEN" in p_ for p_ in pieces), brf[:400])
+    check("each voice's braille reads back against its own line",
+          chartbraille.proofread(sc, "P1", brf) == [],
+          chartbraille.proofread(sc, "P1", brf))
+    import subprocess
+    cp = os.path.join(os.path.dirname(out), "h.chart")
+    said = subprocess.run([sys.executable, os.path.join(HERE, "chartread.py"),
+                           cp], capture_output=True, text=True).stdout
+    check("the read-aloud says the score's choir is on two staves",
+          "choir on two staves" in said, said[:300])
+
+
+def check_tenor_clef():
+    """2026-10-30, the open list: tenor clef. A trombone, bassoon,
+    euphonium or cello going up reads tenor clef; treble only where
+    tenor would still leave ledger lines."""
+    import chartengrave as ce
+    import chartbraille
+    print("\n== tenor clef for the high passages ==")
+    out, f = _build_chart(
+        "title: T\nkey: E\nmeter: 4/4\ntempo: 100\n\nband:\n  trombone\n"
+        "  bassoon\n  cello\n  tuba\n\n"
+        "figure lo, 2 bars:\n  notes: C3 q, D3 q, E3 q, F#3 q, G#3 w\n\n"
+        "figure mid, 2 bars:\n  notes: F#4 q, G#4 q, A4 q, G#4 q, F#4 w\n\n"
+        "figure hi, 2 bars:\n  notes: C#6 q, D#6 q, E6 q, D#6 q, C#6 w\n\n"
+        "section A, 6 bars\n  chords: E, A, E, A, E, A\n"
+        "  trombone: figure lo, figure mid at bar 3, figure lo at bar 5\n"
+        "  bassoon: figure lo, figure mid at bar 3, figure lo at bar 5\n"
+        "  cello: figure lo, figure hi at bar 3, figure lo at bar 5\n"
+        "  tuba: figure lo, figure mid at bar 3, figure lo at bar 5\n",
+        "t")
+
+    def clefs(x):
+        return re.findall(r"<clef><sign>(\w)</sign><line>(\d)</line>", x)
+    tb = f["T — trombone.musicxml"]
+    check("a trombone's high passage reads tenor clef, then back to bass",
+          clefs(tb) == [("F", "4"), ("C", "4"), ("F", "4")], clefs(tb))
+    check("a bassoon reads tenor clef too",
+          ("C", "4") in clefs(f["T — bassoon.musicxml"]))
+    check("a cello up in the stratosphere goes to treble",
+          clefs(f["T — cello.musicxml"]) == [("F", "4"), ("G", "2"),
+                                             ("F", "4")],
+          clefs(f["T — cello.musicxml"]))
+    check("a tuba never reads tenor clef",
+          ("C", "4") not in clefs(f["T — tuba.musicxml"]))
+    ms, _ = ce.parse_part(tb, "P1")
+    check("the engraver knows the C clef on the fourth line",
+          [m["state"]["clefs"][1] for m in ms][2] == "C4"
+          and ce.step_pos("C", 4, "C4") == 6
+          and ce.step_pos("D", 3, "C4") == 0)
+    check("tenor-clef sharps start low: F sharp on the second line",
+          ce.key_positions("C4", True) == [2, 6, 3, 7, 4, 8, 5]
+          and ce.key_positions("C4", False) == [5, 8, 4, 7, 3, 6, 2]
+          and ce.key_positions("C", True)[0] == 7)
+    ok = ce.engrave(os.path.join(out, "T — trombone.musicxml"),
+                    os.path.join(out, "T — trombone.pdf"))
+    check("a part in tenor clef engraves", ok == (True, None), ok)
+    brf, _why = chartbraille.part_to_brf(tb, "P1", "T", "trombone")
+    check("braille says the clef change with its sign",
+          '>+"L' in brf and ">#L" in brf and "CLEF SIGN" in brf, brf)
+    check("the proofreader reads past clef signs",
+          chartbraille.proofread(tb, "P1", brf) == [],
+          chartbraille.proofread(tb, "P1", brf))
+
+
+def check_sextuplet_numbers():
+    """2026-10-30, the open list: a tuplet number sits over the middle
+    of its own group, first stem to last, beamed up or down; two
+    half-beat triplets in one beat are two threes."""
+    import chartengrave as ce
+    import tempfile
+    print("\n== tuplet numbers centred over their groups ==")
+
+    def note(st, oc, dur, typ, an=None, nn=None):
+        tm = (f"<time-modification><actual-notes>{an}</actual-notes>"
+              f"<normal-notes>{nn}</normal-notes></time-modification>"
+              if an else "")
+        return (f"<note><pitch><step>{st}</step><octave>{oc}</octave>"
+                f"</pitch><duration>{dur}</duration><voice>1</voice>"
+                f"<type>{typ}</type>{tm}</note>")
+    for where, (st, oc) in (("up", ("E", 4)), ("down", ("C", 6))):
+        body = ("".join(note(st, oc, 4, "16th", 6, 4) for _ in range(6))
+                + "".join(note(st, oc, 4, "16th", 3, 2) for _ in range(6))
+                + "".join(note(st, oc, 8, "eighth", 3, 2)
+                          for _ in range(3))
+                + note(st, oc, 24, "quarter"))
+        xml = ('<?xml version="1.0"?><score-partwise><part-list>'
+               '<score-part id="P1"><part-name>x</part-name></score-part>'
+               '</part-list><part id="P1"><measure number="1"><attributes>'
+               '<divisions>24</divisions><key><fifths>0</fifths></key>'
+               '<time><beats>4</beats><beat-type>4</beat-type></time>'
+               '<clef><sign>G</sign><line>2</line></clef></attributes>'
+               + body + "</measure></part></score-partwise>")
+        d = tempfile.mkdtemp()
+        src = os.path.join(d, "t.musicxml")
+        with open(src, "w") as fh:
+            fh.write(xml)
+        nums, stems = [], []
+        pdf_text, pdf_line = ce.Pdf.text, ce.Pdf.line
+
+        def t_(self, x, y, s_, *a, **k):
+            if s_ in ("3", "6"):
+                nums.append((s_, x))
+            return pdf_text(self, x, y, s_, *a, **k)
+
+        def l_(self, x1, y1, x2, y2, *a, **k):
+            if abs(x1 - x2) < 0.01 and 15 < abs(y1 - y2) < 40:
+                stems.append(x1)
+            return pdf_line(self, x1, y1, x2, y2, *a, **k)
+        ce.Pdf.text, ce.Pdf.line = t_, l_
+        try:
+            ce.engrave(src, os.path.join(d, "t.pdf"))
+        finally:
+            ce.Pdf.text, ce.Pdf.line = pdf_text, pdf_line
+        stems = sorted(set(round(x, 2) for x in stems))[:15]
+        want = [("6", (stems[0] + stems[5]) / 2),
+                ("3", (stems[6] + stems[8]) / 2),
+                ("3", (stems[9] + stems[11]) / 2),
+                ("3", (stems[12] + stems[14]) / 2)]
+        check(f"sextuplet and triplet numbers centred over stems {where}",
+              len(stems) == 15 and len(nums) == 4
+              and all(a == c and abs(b - e) < 0.5
+                      for (a, b), (c, e) in zip(nums, want)),
+              (nums, want))
+
+
 def check_lead_sheet_from_markers():
     """2026-10-27, his ask: a lead sheet from a played chord track, the
     form and what each section does said in the DAW's markers. Chords
@@ -9530,6 +9802,9 @@ if __name__ == "__main__":
     check_open_list_round()
     check_playback_round()
     check_band_hears_the_push()
+    check_choir_on_two_staves()
+    check_tenor_clef()
+    check_sextuplet_numbers()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
