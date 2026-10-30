@@ -539,8 +539,62 @@ def _keyboard(lines, head):
 
 
 
+_CHORD_REST = re.compile(
+    r'(?:maj|ma|min|mi|m|dim|aug|sus|add|alt|o|\+|-|\(|\)|[b#]?\d+)*')
+
+
+def chord_print(tok):
+    """A braille chord symbol (23.1, as chartbraille.chord_braille writes
+    it) back in print, or None when the token is not one: a capital
+    note name and its accidental, numerals under the numeric indicator,
+    the quality in lowercase letters, a slash bass. A leading dots-36
+    marks a chord that falls during a syllable (36.2)."""
+    if tok.startswith('-'):
+        tok = tok[1:]
+    if '/' in tok:
+        tok, bass = tok.split('/', 1)
+        mb = re.fullmatch(r',([A-G])([<%]?)', bass)
+        if not mb:
+            return None
+        bass = '/' + mb.group(1) + {'<': 'b', '%': '#', '': ''}[mb.group(2)]
+    else:
+        bass = ''
+    m = re.match(r',([A-G])([<%]?)', tok)
+    if not m:
+        return None
+    out = m.group(1) + {'<': 'b', '%': '#', '': ''}[m.group(2)]
+    rest, i, num = tok[m.end():], 0, False
+    while i < len(rest):
+        c = rest[i]
+        if c == '#':
+            num = True
+        elif num and c in UPPER:
+            out += str(UPPER.index(c))
+        elif c in '<%' and i + 1 < len(rest) and rest[i + 1] == '#':
+            out += 'b' if c == '<' else '#'
+            num = False
+        elif c == ';':                       # letter sign after a numeral
+            num = False
+        elif c.isalpha():
+            out += c.lower()
+            num = False
+        elif c in '76-':
+            out += {'7': '(', '6': '+', '-': '-'}[c]
+            num = False
+        else:
+            return None
+        i += 1
+    q = out[1:].lstrip('b#')
+    if not _CHORD_REST.fullmatch(q):
+        return None
+    return out + bass
+
+
 def _chordline(t):
-    return all(re.match(r'-?,[A-Z]', w) for w in t.split())
+    """A chord-symbol line over the words: every token reads back as a
+    chord symbol. Capitals alone do not make one ("Holy Holy Lord")."""
+    toks = t.split()
+    return bool(toks) and all(chord_print(w) for w in toks)
 
 
 def _is_vocal(raw):
