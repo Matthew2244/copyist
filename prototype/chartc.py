@@ -4441,10 +4441,13 @@ LISTEN_OPTS = {'grooves': True, 'solos': True, 'backgrounds': True,
 _STEPS_PC = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
 
 
-def bar_notes(xml, div, transpose=0):
+def bar_notes(xml, div, transpose=0, ties=None):
     """One measure's pitched notes as [(start, end, midi)] in quarters
     from the bar's start, concert pitch (the written pitch less the
-    part's transposition)."""
+    part's transposition). Given a dict, ties gets {(start, midi):
+    {'in', 'out'}} for notes tied from the bar before or into the next:
+    a push on the and of 4 is one note, not a hit there and another on
+    the next downbeat."""
     out, pos, last = [], 0, 0
     for el in re.finditer(r'<(note|backup|forward|attributes)\b.*?</\1>',
                           xml, re.S):
@@ -4472,6 +4475,11 @@ def bar_notes(xml, div, transpose=0):
             p = (12 * (int(m.group(3)) + 1) + _STEPS_PC[m.group(1)]
                  + int(m.group(2) or 0) - transpose)
             out.append((st / div, (st + dur) / div, p))
+            if ties is not None:
+                tt = set(re.findall(r'<tie type="(start|stop)"', e))
+                if tt:
+                    ties.setdefault((round(st / div, 3), p), set()).update(
+                        {'start': 'out', 'stop': 'in'}[x] for x in tt)
         if not chorded:
             last = pos
             pos += dur
@@ -4585,12 +4593,15 @@ def tune_shape(plans, labels):
         d = chartgroove._Dice('shape', sec['name'], i)
         words = ' '.join(filter(None, [sec['name'], sec.get('label') or '',
                                        sec.get('feel') or ''])).lower()
-        if last_solo is None or i < (solo_at[0] if solo_at else n):
+        if re.search(r'\bshout|\bsoli\b|\bclimax|\bbig\b', words):
+            # the shout is the peak whether or not anyone soloed first
+            # (a chart with no solos had its shout played like a head:
+            # the bass never heard the kicks)
+            e = 0.92
+        elif last_solo is None or i < (solo_at[0] if solo_at else n):
             e = 0.34 + 0.08 * min(i, 3)            # the heads warm up
         elif soloing(pl):
             e = 0.55
-        elif re.search(r'\bshout|\bsoli\b|\bclimax|\bbig\b', words):
-            e = 0.92
         elif i >= n - 1 or sec.get('open'):
             e = 0.82 if d() < 0.7 else 0.45        # out strong, or down
         else:
@@ -5424,19 +5435,28 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             chartgroove.comp_shells(bar, state, chords, absbar, nxt)
         return bar.xml()
 
-    def ensemble_hits(entries, bmeter):
+    def ensemble_hits(entries, bmeter, ties=None):
         """The section's written hits in a bar: onsets where two or more
-        horns or voices strike together, with the longest note there and
-        the air before the next hit."""
+        horns or voices strike together, with the longest note there,
+        the air before the next hit, the top note, and whether it is a
+        push (tied over the barline, the next downbeat anticipated). The
+        tied-over half in the next bar is no hit at all: the drummer had
+        caught it on 1 and never the push."""
+        ties = ties or {}
         by = {}
         for l_, s_, e_, _m in entries:
             if l_ in groups['rhythm']:
                 continue
+            tf = ties.get((l_, round(s_, 3), _m), ())
+            if 'in' in tf:
+                continue
             k_ = round(s_ * 12) / 12
-            got = by.setdefault(k_, [set(), 0.0, 0])
+            got = by.setdefault(k_, [set(), 0.0, 0, False])
             got[0].add(l_)
             got[1] = max(got[1], e_ - s_)
             got[2] = max(got[2], _m)
+            if 'out' in tf and abs(s_ - round(s_)) > 0.01:
+                got[3] = True
         ons = sorted(k for k, v in by.items() if len(v[0]) >= 2)
         if not ons:
             return None
@@ -5444,8 +5464,9 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         out = []
         for i_, k in enumerate(ons):
             nxt = ons[i_ + 1] if i_ + 1 < len(ons) else end
-            out.append((k, by[k][1], max(nxt - (k + by[k][1]), 0.0),
-                        by[k][2]))
+            push = by[k][3] and len(by[k][0]) >= 2
+            out.append((k, by[k][1] + (1.0 if push else 0.0),
+                        max(nxt - (k + by[k][1]), 0.0), by[k][2], push))
         return out
 
     def strolling_now(sec, plan, label):
@@ -5521,7 +5542,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     # first keyboard comping is the one the other chord players (a
     # guitar beside a piano) voice around, as they would on the stand.
     LEAD = {'collect': None, 'map': None, 'compers': set(),
-            'hears_comp': set(), 'heard': None}
+            'hears_comp': set(), 'heard': None, 'ties': {}}
 
     # ---- who comps: one chord player at a time unless the chart says
     sid_of = {}
@@ -5915,14 +5936,22 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     and 'organ' not in sound_id and any(
                         plan['content'][bl][0] != 'tacet'
                         for bl in bass_labels)) else None
+                key_ = str(absbar if not cur_pass
+                           else f'{absbar}x{cur_pass}')
+                together = my_role in ('comp', 'bass') and \
+                    sec.get('_energy', 0) >= 0.8 and \
+                    plays_kicks(label, sec, cur_pass)
+                # in a shout the bassist always hears the band's hits:
+                # it either lays out between them with the horns
+                # (together) or walks and lands the pushes and the big
+                # ones with everybody
+                chartgroove.KICKS_TOGETHER = together
                 chartgroove.ENSEMBLE_NOW = ensemble_hits(
-                    LEAD['map'].get(str(absbar if not cur_pass
-                                        else f'{absbar}x{cur_pass}'), ()),
-                    bmeter) if listen and LEAD['map'] and (
-                        my_role == 'drums' or (
-                            my_role in ('comp', 'bass')
-                            and sec.get('_energy', 0) >= 0.8
-                            and plays_kicks(label, sec, cur_pass))) \
+                    LEAD['map'].get(key_, ()), bmeter,
+                    LEAD['ties'].get(key_)) if listen and LEAD['map'] and (
+                        my_role == 'drums' or together or (
+                            my_role == 'bass'
+                            and sec.get('_energy', 0) >= 0.8)) \
                     else None
                 resumed = None
                 if resume_div is not None:
@@ -6553,10 +6582,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             groups['rhythm'])):
                     # the lead in this bar: a written line, a lifted
                     # part, the soloist — what the others listen to
+                    tied_ = {}
                     LEAD['collect'].setdefault(str(mnum), []).extend(
                         (label,) + n for n in bar_notes(
                             "".join(pieces), bar_div0,
-                            horn['transpose'] if horn else 0))
+                            horn['transpose'] if horn else 0, tied_))
+                    for (s_, m_), f_ in tied_.items():
+                        LEAD['tie_collect'].setdefault(str(mnum), {})[
+                            (label, s_, m_)] = f_
                 out.append((f'    <measure number="{mnum}">\n' + open_bl +
                             "".join(pieces) + barline + '    </measure>\n',
                             pure_rest, head_ok))
@@ -6796,10 +6829,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     # bar; the second is the band, each chair hearing it
     import copy as _copy
     kept = _copy.deepcopy((realized_bars, played_written, strolled))
-    LEAD['collect'] = {}
+    LEAD['collect'], LEAD['tie_collect'] = {}, {}
     document(labels, directions_on=lambda l: l == labels[0],
              harmony_on=lambda l: l in chord_parts, listen=True)
     LEAD['map'], LEAD['collect'] = LEAD['collect'], None
+    LEAD['ties'] = LEAD.pop('tie_collect')
     for live, was in zip((realized_bars, played_written, strolled), kept):
         live.clear()
         live.update(was)

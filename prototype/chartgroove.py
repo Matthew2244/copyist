@@ -142,6 +142,10 @@ LEAD_NOW = None
 # drummer: [(start, length, air after)] in quarters from the bar's start,
 # only where two or more horns or voices strike together.
 ENSEMBLE_NOW = None
+# in a shout: whether this chord player or bassist plays the kicks with
+# the horns and lays out between them (else it keeps time and lands
+# the pushes and the big ones with everybody)
+KICKS_TOGETHER = True
 # The lowest a chord player makes up in this bar: set when the bass is
 # playing, so the piano's left hand stays out of its register (below
 # C3 a piano under a walking bass is mud).
@@ -197,11 +201,15 @@ def _catch(bar, hits, heat, d, choke_ok=True):
     marks, pe = [], 0.0
     for h in sorted(hits):
         if (h[1] <= 0.75 and h[2] >= 0.5) or (h[1] >= 1.5 and h[0] - pe
-                                               >= 1.0):
+                                               >= 1.0) or _push(h):
             marks.append(h)
         pe = h[0] + h[1]
     if len(marks) > 4:
-        marks = [marks[0], marks[-1]]
+        # a busy figure is caught at its first hit and its last, and at
+        # every push: the band anticipating the downbeat is the one
+        # thing a drummer never lets go by
+        marks = [h for h in marks if h in (marks[0], marks[-1])
+                 or _push(h)]
     # some bars the drummer plays the figure's shape on the toms: high
     # tom for its highest notes, the floor for its lowest
     melodic = len(marks) >= 2 and d() < 0.35 and all(
@@ -219,9 +227,9 @@ def _catch(bar, hits, heat, d, choke_ok=True):
             prev_end = s + ln
             continue
         t = int(round(s * beat))
-        big = ln >= 1.5 or s - prev_end >= 1.5 or air >= 1.5
+        big = ln >= 1.5 or s - prev_end >= 1.5 or air >= 1.5 or _push(hit)
         vel = int(92 + 12 * min(heat, 1.0))
-        if melodic:
+        if melodic and not _push(hit):
             f = (hit[3] - lo_p) / max(hi_p - lo_p, 1)
             drum = _HI_TOM if f > 0.66 else _MID_TOM if f > 0.33 \
                 else _FLOOR_TOM
@@ -239,9 +247,17 @@ def _catch(bar, hits, heat, d, choke_ok=True):
         else:
             bar.add(t, half, ('u', _SNARE, vel if not big else vel + 6))
             bar.add(t, half, ('u', _KICK, vel))
-        if s - prev_end >= 1.0 and t >= half and d() < 0.55:
+        if t >= half and ((s - prev_end >= 1.0 and d() < 0.55)
+                          or (_push(hit) and s - prev_end >= 0.5
+                              and d() < 0.7)):
             bar.add(t - half, half, ('u', _SNARE, vel - 14))   # set-up
         prev_end = s + ln
+
+
+def _push(h):
+    """A band hit tied over the barline off the beat: the and of 4
+    anticipating the next downbeat."""
+    return len(h) > 4 and bool(h[4])
 
 
 def _heard(s, e):
@@ -656,6 +672,18 @@ class Bar:
 
     def xml(self):
         had = bool(self.onsets)
+        # a note tied over the barline is already decided (it's half of
+        # one held note): the ears below never move or drop it, or the
+        # tie lands on a different pitch and nothing holds over
+        tied = {}
+        for t, (ln, ns) in list(self.onsets.items()):
+            keep = [n for n in ns if not (len(n) > 4 and n[4])]
+            if len(keep) < len(ns):
+                tied[t] = (ln, [n for n in ns if len(n) > 4 and n[4]])
+                if keep:
+                    self.onsets[t] = (ln, keep)
+                else:
+                    del self.onsets[t]
         self._two_hands()
         hands_can_play(self)
         if FLOOR_NOW:
@@ -665,6 +693,11 @@ class Bar:
             self._in_the_holes(LEAD_NOW)
         if BAND_NOW:
             self._hear_the_band(BAND_NOW)
+        for t, (ln, ns) in tied.items():
+            if t in self.onsets:
+                self.onsets[t] = (self.onsets[t][0], self.onsets[t][1] + ns)
+            else:
+                self.onsets[t] = (ln, ns)
         if not self.onsets:
             # the filters can empty a bar; it is then a rest, never None
             # to a caller that already saw notes in it
@@ -1194,28 +1227,108 @@ def unison_strokes(bar, fig, beat, d, end_beats):
         prev_end = a + ln
 
 
-def _with_the_kicks(bar, state, chords, hits, who):
+def _with_the_kicks(bar, state, chords, hits, who, nxt=None):
     """The rhythm section on the horns' kicks, the band as one: on each
     hit the piano punches a voicing, the bass the root, held as long as
-    the hit, nothing in between, so the kicks have air."""
+    the hit, nothing in between, so the kicks have air. A push plays
+    the next bar's chord and ties over into it."""
     beat = bar.div * 4 // bar.den
     hits = _kicks_of(hits)
     if not hits:
         return False                  # a line, not kicks: play as usual
-    for s0, ln, _air, *_r in hits:
-        c = _chord_at(chords, s0 + 1.0)
+    for h in hits:
+        s0, ln = h[:2]
+        push = _push(h)
+        c = (nxt or _chord_at(chords, s0 + 1.0)) if push else \
+            _chord_at(chords, s0 + 1.0)
         if c is None:
             continue
         t = int(round(s0 * beat))
-        dur = max(int(round(min(ln, 2.0) * beat)) - beat // 8, beat // 4)
+        dur = bar.barlen - t if push else \
+            max(int(round(min(ln, 2.0) * beat)) - beat // 8, beat // 4)
+        tie = ('start',) if push else ()
         if who == 'bass':
-            m = _fold_bass(_near(_bass_pc(c), state.get('bass', 38)), 28, 55)
-            bar.add(t, dur, ('p', m, 104))
+            # a push lands mid-neck, where the walk picks up after it
+            m = _fold_bass(_near(_bass_pc(c), 40 if push else
+                                 state.get('bass', 38)), 28, 55)
+            bar.add(t, dur, ('p', m, 104, (), tie))
             state['bass'] = m
+            if push:
+                state['land_at'] = m
+            ms = [m]
         else:
-            for m in rootless_voicing(c, None):
-                bar.add(t, dur, ('p', m, 100, ('accent',)))
+            ms = rootless_voicing(c, None)
+            for m in ms:
+                bar.add(t, dur, ('p', m, 100, ('accent',), tie))
+        if push:
+            state['push_tie'] = ms
     return True
+
+
+def _bass_catch(bar, state, chords, hits, nxt=None):
+    """Walking through a shout, the bassist still lands the band's big
+    moments with everybody: a push takes the next chord's root on the
+    and of 4 and ties it over the barline; a stab with space after is
+    played short and the space left open; a long note out of space gets
+    the root held under it. The rest of the bar keeps walking."""
+    beat = bar.div * 4 // bar.den
+    pe = 0.0
+    for h in sorted(hits):
+        s0, ln, air = h[:3]
+        push = _push(h)
+        stab = ln <= 0.75 and air >= 1.5
+        held = ln >= 1.5 and s0 - pe >= 1.0
+        pe = s0 + ln
+        if not (push or stab or held):
+            continue
+        t = int(round(s0 * beat))
+        c = (nxt or _chord_at(chords, s0 + 1.0)) if push else \
+            _chord_at(chords, s0 + 1.0)
+        if c is None:
+            continue
+        end = bar.barlen if push else min(
+            bar.barlen, int(round((s0 + ln + (air if stab else 0)) * beat)))
+        # whatever the walk had sounding into the hit stops at it
+        before = [k for k in bar.onsets if k < t]
+        if before:
+            k = max(before)
+            ln_, ns = bar.onsets[k]
+            if k + ln_ > t:
+                bar.onsets[k] = (t - k, ns)
+        prev = state.get('bass', 38)
+        for k in [k for k in bar.onsets if t <= k < end]:
+            prev = next((n[1] for n in bar.onsets[k][1] if n[0] == 'p'),
+                        prev)
+            del bar.onsets[k]
+        m = _fold_bass(_near(_bass_pc(c), (prev + 40) // 2 if push
+                             else prev), 28, 55)
+        if push:
+            bar.add(t, end - t, ('p', m, 104, (), ('start',)))
+            state['push_tie'] = [m]
+            state['land_at'] = m
+        else:
+            hold = int(round(min(ln, 2.0) * beat)) - beat // 8 if held \
+                else beat // 2
+            bar.add(t, max(hold, beat // 4), ('p', m, 104))
+        state['bass'] = m
+
+
+def _tie_in(bar, held):
+    """The bar after a push: the pushed notes hold through the downbeat
+    (tied), and nothing else of this part strikes on 1."""
+    if not held:
+        return
+    beat = bar.div * 4 // bar.den
+    if 0 in bar.onsets:
+        ln, ns = bar.onsets[0]
+        ns = [n for n in ns if n[0] != 'p']
+        if ns:
+            bar.onsets[0] = (ln, ns)
+        else:
+            del bar.onsets[0]
+    nxt = min([k for k in bar.onsets if k > 0], default=bar.barlen)
+    for m in held:
+        bar.add(0, max(min(beat, nxt), 1), ('p', m, 96, (), ('stop',)))
 
 
 def _kicks_of(hits):
@@ -1225,7 +1338,7 @@ def _kicks_of(hits):
     out, pe = [], 0.0
     for h in sorted(hits):
         if (h[1] <= 0.75 and h[2] >= 0.5) or (h[1] >= 1.5 and h[0] - pe
-                                               >= 1.0):
+                                               >= 1.0) or _push(h):
             out.append(h)
         pe = h[0] + h[1]
     return out if len(out) <= 4 and len(out) * 2 >= len(hits) else []
@@ -3004,17 +3117,22 @@ def la_pompe(bar, chords, heat, busy, put, voicing):
                 may_rest=False)
 
 
-def _horn_hits(bar, state, chords, hits, bmeter):
+def _horn_hits(bar, state, chords, hits, bmeter, nxt=None, tie_ok=False):
     """A horn's kicks, sounding: short guide tones on the named
     beats — a shout chorus must never be silent in the listen
-    (Matthew's ear, 2026-09-22: 'do not hear any horns')."""
+    (Matthew's ear, 2026-09-22: 'do not hear any horns'). A push (the
+    last hit, `4+ push`) is the next bar's chord, held over the
+    barline the way the page ties it (it had played a short eighth of
+    this bar's chord, so nobody heard a push to catch)."""
     if not chords or not hits:
         return
+    push_at = max(hits) if getattr(hits, 'push', False) else None
     beat = bar.div * 4 // bar.den
     anchor = state.get('horn', 65)          # around F4, mid-horn
     k, n, (lo, hi) = state.get('section') or (0, 1, (55, 79))
     for b in hits:
-        c = _chord_at(chords, b)
+        push = b == push_at
+        c = (nxt or _chord_at(chords, b)) if push else _chord_at(chords, b)
         if c is None:
             continue
         if n > 1:
@@ -3033,7 +3151,14 @@ def _horn_hits(bar, state, chords, hits, bmeter):
             m -= 12
         while m < lo:
             m += 12
-        bar.add(int(round((b - 1) * beat)), beat // 2, ('p', m, 90))
+        t = int(round((b - 1) * beat))
+        if push:
+            tie = ('start',) if tie_ok else ()
+            bar.add(t, bar.barlen - t, ('p', m, 96, ('accent',), tie))
+            if tie_ok:
+                state['push_tie'] = [m]
+        else:
+            bar.add(t, beat // 2, ('p', m, 90))
         state['horn'] = anchor = m
 
 
@@ -3046,8 +3171,14 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
     written_shift is the part's transposition: the groove thinks in
     sounding pitches, the bar is written for the part's player."""
     role = role_of(sound_id, clef)
+    # last bar's push, held over into this one (whatever this bar is)
+    tied = state.pop('push_tie', None)
     if role is None and kind != 'hits':
-        return None
+        if not tied:
+            return None
+        bar = Bar(div, bmeter, fifths, staves, shift=written_shift)
+        _tie_in(bar, tied)
+        return bar.xml()
     chords = _chords_in(sec, off, governing)
     state['hits'] = None
     if kind == 'hits':
@@ -3069,10 +3200,28 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
             moved.__dict__.update(getattr(hs, '__dict__', {}))  # push
             state['hits'] = moved
     if role is None:
-        # a horn with kicks: the kicks play
-        _horn_hits(bar, state, chords, state['hits'], bmeter)
+        # a horn with kicks: the kicks play, a push held over the
+        # barline into a bar that doesn't strike on 1
+        nh = hmap.get(off + 2) if kind == 'hits' else None
+        tie_ok = off + 1 < sec['bars'] and (
+            nh is None or getattr(nh, 'held', False)
+            or (len(nh) > 0 and min(nh) > 1.0))
+        _horn_hits(bar, state, chords, state['hits'], bmeter,
+                   _next_chord(sec, off, chords), tie_ok)
+        _tie_in(bar, tied)
         state['hits'] = None
-        return bar.xml() if bar.onsets else None
+        if not bar.onsets:
+            return None
+        # the section's kicks are one voicing, chair by chair: the other
+        # horns aren't a lead to dodge (the trumpet and trombone had
+        # dropped the downbeat hit, heard as clashing with the saxes)
+        g = globals()
+        keep = g['LEAD_NOW'], g['BAND_NOW']
+        g['LEAD_NOW'] = g['BAND_NOW'] = None
+        try:
+            return bar.xml()
+        finally:
+            g['LEAD_NOW'], g['BAND_NOW'] = keep
     heat = _heat(sec, off)
     evs = sec.get('events') or []
     brk = {b: t for b, k, t in evs if k == 'break'}
@@ -3232,14 +3381,19 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
                 bar.onsets[tick] = (ln, [('u', _XSTICK, n[2])
                                          if n[0] == 'u' and n[1] == _SNARE
                                          else n for n in ns])
-    elif role == 'bass' and ENSEMBLE_NOW and _with_the_kicks(
-            bar, state, chords, ENSEMBLE_NOW, 'bass'):
+    elif role == 'bass' and ENSEMBLE_NOW and KICKS_TOGETHER and \
+            _with_the_kicks(bar, state, chords, ENSEMBLE_NOW, 'bass',
+                            _next_chord(sec, off, chords)):
         state['sound'] = sound_id
     elif role == 'bass':
         state['sound'] = sound_id
         _bass(bar, state, sec, off, absbar, feel, chords)
+        if ENSEMBLE_NOW:
+            _bass_catch(bar, state, chords, ENSEMBLE_NOW,
+                        _next_chord(sec, off, chords))
     elif ENSEMBLE_NOW and _with_the_kicks(bar, state, chords,
-                                          ENSEMBLE_NOW, 'comp'):
+                                          ENSEMBLE_NOW, 'comp',
+                                          _next_chord(sec, off, chords)):
         pass
     else:
         state['next_chord'] = None
@@ -3257,6 +3411,8 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         _with_heat(bar, heat)
     if role == 'drums':
         _odd_backbeat(bar)
+    elif role in ('bass', 'comp'):
+        _tie_in(bar, tied)
     return bar.xml()
 
 
@@ -3269,6 +3425,9 @@ def _odd_backbeat(bar):
         return
     last = (bar.barlen // bar.div) * bar.div     # the short beat
     if last not in bar.onsets or last == 0:
+        return
+    _odd_kick(bar, last)
+    if last not in bar.onsets:
         return
     ticks, notes = bar.onsets[last]
     sn = [n for n in notes if n[0] == 'u' and n[1] == _SNARE]
@@ -3286,6 +3445,30 @@ def _odd_backbeat(bar):
             n2.extend(sn)
     else:
         bar.onsets[to] = (bar.div // 2, sn)
+
+
+def _odd_kick(bar, last):
+    """A full kick on the short last eighth of a 5/8 or 7/8 bar lands
+    one eighth before the next downbeat and stumbles into it (5/8 had
+    played kick 1, snare 3, kick 5). It moves an eighth earlier, inside
+    the group of three: kick 1, snare 3, kick 4 in 5/8. A feathered
+    kick stays; it's time, not a hit."""
+    ticks, notes = bar.onsets[last]
+    kk = [n for n in notes if n[0] == 'u' and n[1] == _KICK
+          and (n[2] is None or n[2] > 50)]
+    if not kk:
+        return
+    keep = [n for n in notes if n not in kk]
+    if keep:
+        bar.onsets[last] = (ticks, keep)
+    else:
+        del bar.onsets[last]
+    to = last - bar.div // 2
+    there = bar.onsets.get(to, (0, []))[1]
+    if any(n[0] == 'u' and n[1] == _KICK for n in there):
+        return
+    v = kk[0][2]
+    bar.add(to, bar.div // 2, ('u', _KICK, int(v * 0.92) if v else 80))
 
 
 def _with_heat(bar, heat):

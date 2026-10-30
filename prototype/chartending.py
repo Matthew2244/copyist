@@ -710,7 +710,7 @@ def listen_bars(measure, role, sound_id, chord, meter, shift, fifths,
             if r < 0.55 or sh.get('trash'):
                 # a trash can is the whole band going for it: nobody
                 # sits on a whole note under it
-                _trash_pitched(b, beat, vs, role, stop)
+                _trash_pitched(b, beat, vs, role, stop, chord, shift)
             else:
                 for p in vs:
                     b.add(land, max(1, stop - land), ('p', p, 100))
@@ -1661,23 +1661,83 @@ def upper_in_chord(p, shift, chord, lo=1, hi=2, prefer_tones=False):
 
 def _trash_pitched(bar, beat, pitches, role, t1, chord=None, shift=0):
     """Over a trash can the band doesn't sit still: keys tremolo the
-    chord, the bass shakes the root, a horn shakes its note (to a note
-    of the chord above it)."""
-    step = beat // 4
+    chord, the bass goes for it on the root, a horn shakes its note (to
+    a note of the chord above it). Played, not sequenced: the strokes
+    rush a little as the band builds, never two exactly alike, and the
+    bassist moves between ideas a beat at a time (it had been a root
+    and fifth on an even sixteenth grid, start to finish)."""
+    d = G._Dice('trash pitched', role, tuple(pitches), t1)
     lo = min(pitches)
     bar_on = sorted(pitches)
-    for t in range(0, t1, step):
-        k = (t // step) % 2
+    if role == 'bass':
+        _trash_bass(bar, beat, lo, t1, d, chord, shift)
+        return
+    t, k = 0.0, 0
+    while t < t1:
+        f = t / max(t1, 1)
+        # the shake or tremolo speeds up as the wall of sound builds
+        step = beat / 4 * (1.12 - 0.3 * f) * (0.9 + 0.2 * d())
         if role == 'comp':
-            group = bar_on[k::2] or bar_on
-        elif role == 'bass':
-            group = [lo if k == 0 else lo + 7]
+            group = bar_on[k % 2::2] or bar_on
         else:
-            group = [upper_in_chord(p, shift, chord, 2, 5, True) if k else p
-                     for p in pitches]
-        v = int(78 + 28 * t / max(t1, 1))
+            group = [upper_in_chord(p, shift, chord, 2, 5, True) if k % 2
+                     else p for p in pitches]
+        v = int(74 + 30 * f + 6 * d())
         for p in group:
-            bar.add(t, step, ('p', p, v))
+            bar.add(int(t), max(int(step), 1), ('p', p, min(v, 120)))
+        t += step
+        k += 1
+
+
+def _trash_bass(bar, beat, lo, t1, d, chord=None, shift=0):
+    """The bassist on a trash can: the root hit with the band and let
+    ring, then a beat at a time it rumbles root and octave, tremolos the
+    low root, climbs to the octave or arpeggiates the chord's frame,
+    rushing as it builds, and comes home to the root for the cue."""
+    hi = lo + 12 if lo + 12 - shift <= 55 else lo
+    low = lo if hi != lo else max(lo - 12, 28 + shift)
+    if hi == lo:
+        lo, hi = low, lo
+    bar.add(0, beat, ('p', lo, 104))
+    t, last = float(beat), None
+    while t < t1 - beat // 2:
+        f = t / max(t1, 1)
+        span = min(float(beat), t1 - t)
+        ideas = ['rumble', 'tremolo', 'climb', 'frame']
+        if last in ideas and d() < 0.7:
+            ideas.remove(last)          # don't play the same thing twice
+        idea = ideas[int(d() * len(ideas)) % len(ideas)]
+        last = idea
+        if idea == 'climb':
+            # up the chord's own scale (a major third under a minor
+            # last chord would be a wrong note at full volume)
+            sc = sorted({x % 12 for x in G._scale(chord)}) if chord \
+                else [0, 2, 4, 5, 7, 9, 10]
+            run = [lo + x for x in sc] + [hi]
+            notes = run[int(d() * 3):][:int(4 + 3 * d())]
+            if d() < 0.4:
+                notes = notes[::-1]
+        elif idea == 'frame':
+            fifth = lo + 7 if not chord or 7 in {
+                x % 12 for x in G._tones(chord)} else lo + 6
+            notes = [lo, fifth, hi, fifth] if d() < 0.6 else \
+                [hi, fifth, lo, fifth]
+        elif idea == 'rumble':
+            notes = [lo, hi] * 3
+        else:
+            notes = [lo] * int(5 + 3 * f + 2 * d())
+        n = len(notes)
+        for i, m in enumerate(notes):
+            # each stroke a hair early or late, the run rushing in
+            at = t + span * i / n * (1 - 0.08 * f) + beat * 0.04 * (d() - 0.5)
+            if at >= t1:
+                break
+            v = int(80 + 26 * f + (8 if i == 0 else 0) + 6 * d())
+            bar.add(int(max(at, t)), max(int(span / n), 1),
+                    ('p', m, min(v, 122)))
+        t += span
+    if t < t1:
+        bar.add(int(t), max(int(t1 - t), 1), ('p', lo, 112))
 
 
 def _gliss(bar, beat, land, pitches, me, t1):

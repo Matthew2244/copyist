@@ -8452,6 +8452,77 @@ def check_playback_round():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_band_hears_the_push():
+    """2026-10-30, the last playback list: a push on the and of 4 held
+    over the barline in the listen and caught by the band; the bass in
+    a shout landing it; a trash-can bass played, not sequenced; no
+    loud kick on 5/8's last eighth."""
+    import chartaudio
+    import chartc
+    print("\n== the push, the shout bass, the trash can, 5/8 ==")
+    tmp = tempfile.mkdtemp()
+
+    def listen(text, name):
+        d = os.path.join(tmp, name)
+        os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, "t.chart"), "w").write(text)
+        with redirect_stdout(io.StringIO()):
+            chartc.compile_chart(os.path.join(d, "t.chart"),
+                                 os.path.join(d, "b"))
+        f = [x for x in os.listdir(os.path.join(d, "b"))
+             if "for listening" in x][0]
+        pl = chartaudio.parse_score(os.path.join(d, "b", f))
+        return {p["name"]: p["events"] for p in pl["parts"]}
+
+    hits = "hits bar 1 on 1 2+, hits bar 2 on 4+ push"
+    pp = listen("title: Push\nkey: Bb\nmeter: 4/4\ntempo: 170\n"
+                "feel: swing\n\nband:\n  alto\n  tenor\n  trumpet\n"
+                "  trombone\n  piano\n  bass\n  drums\n\n"
+                "section shout, 4 bars\n  chords: Bb7, Eb7, F7, Bb7\n"
+                + "".join(f"  {h}: {hits}\n" for h in
+                          ("alto", "tenor", "trumpet", "trombone"))
+                + "  ending: as written\n", "push")
+    held = [next((e[1] for e in pp[h] if abs(e[0] - 7.5) < 0.05), 0)
+            for h in ("alto", "tenor", "trumpet", "trombone")]
+    check("a 4+ push holds over the barline in every horn", min(held)
+          >= 1.4, held)
+    check("every horn strikes the downbeat kick (none dodges another)",
+          all(any(abs(e[0]) < 0.05 for e in pp[h])
+              for h in ("alto", "tenor", "trumpet", "trombone")))
+    b75 = [e for e in pp["bass"] if abs(e[0] - 7.5) < 0.05]
+    check("the bass anticipates F on the and of 4 and ties through 1",
+          b75 and b75[0][2] % 12 == 5 and b75[0][1] >= 1.4
+          and not any(abs(e[0] - 8.0) < 0.05 for e in pp["bass"]), b75)
+    check("the drummer catches the push itself",
+          any(abs(e[0] - 7.5) < 0.05 and e[2] == 36 for e in pp["drums"]))
+    pn = {e[2] for e in pp["piano"] if abs(e[0] - 7.5) < 0.05}
+    check("the piano pushes the F7 (its third, A, on the and of 4)",
+          9 in {m % 12 for m in pn}, sorted(pn))
+
+    tr = listen("title: Trash\nkey: F\nmeter: 4/4\ntempo: 140\n"
+                "feel: rock\n\nband:\n  piano\n  bass = electric bass\n"
+                "  drums\n\nsection A, 4 bars\n  chords: F, Bb, C7, F\n"
+                "  ending: trash can\n", "trash")
+    shake = [e for e in tr["bass"] if e[0] > 13]
+    gaps = {round(b[0] - a[0], 2) for a, b in zip(shake, shake[1:])}
+    check("a trash-can bass is played, not a root-fifth grid",
+          len(shake) > 12 and len(gaps) > 6
+          and len({e[2] % 12 for e in shake}) >= 4, (len(shake), gaps))
+
+    ok = True
+    for feel in ("rock", "funk"):
+        fv = listen(f"title: Five {feel}\nkey: D\nmeter: 5/8\ntempo: 140\n"
+                    f"feel: {feel}\n\nband:\n  bass\n  drums\n\n"
+                    "section A, 4 bars\n  chords: Dm7, G7, Dm7, A7\n"
+                    "  ending: as written\n", "five" + feel)
+        for b in range(4):
+            if any(e[2] == 36 and e[3] > 0.5 and
+                   abs(e[0] - (2.5 * b + 2.0)) < 0.05 for e in fv["drums"]):
+                ok = False
+    check("no loud kick on 5/8's last eighth", ok)
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_groove_open_list():
     """2026-10-29, four suspected groove bugs: the tumbao skipped a
     bar's second chord; guitar comping past its ceiling; half-time swing
@@ -9267,6 +9338,7 @@ if __name__ == "__main__":
     check_groove_open_list()
     check_open_list_round()
     check_playback_round()
+    check_band_hears_the_push()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
