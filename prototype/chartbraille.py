@@ -642,7 +642,8 @@ class _Gap:
     __slots__ = ('rest', 'ntype', 'dots', 'dur', 'tmod', 'slash', 'cue',
                  'fermata', 'marks', 'artic', 'added', 'tie_start',
                  'tie_stop', 'step', 'octave', 'alter', 'measure_rest',
-                 'lyric', 'grace', 'head', 'slur_start', 'slur_stop')
+                 'lyric', 'lyrics', 'grace', 'head', 'slur_start',
+                 'slur_stop')
 
     def __init__(self, ntype, dur):
         self.rest, self.ntype, self.dots, self.dur = True, ntype, 0, dur
@@ -653,6 +654,7 @@ class _Gap:
         self.step, self.octave, self.alter = 'B', 4, 0
         self.measure_rest = False
         self.lyric = self.grace = self.head = None
+        self.lyrics = {}
         self.slur_start = self.slur_stop = False
 
 
@@ -1112,6 +1114,14 @@ def _part_to_brf(xml, pid, title, part_name, chords=True):
                      "follow are print kicks: hit the chord symbols in "
                      "that rhythm, ties and holds as written; their pitch "
                      "is only where the print places them.")
+    if len(_verses(measures)) > 1:
+        # 35.7: more than one verse in line-by-line format
+        notes.append("Each verse's words take a line of their own above "
+                     "the music, opening with the verse number"
+                     + ("; the chord symbols are placed against the "
+                        "first verse's words."
+                        if chords and any(m['chords'] for m in measures)
+                        else "."))
     paras = [' '.join(notes)] if notes else []
     legend = [c for c in comps if c['legend']]
     if legend:
@@ -1176,11 +1186,7 @@ def _part_to_brf(xml, pid, title, part_name, chords=True):
         return pager.text(), []
     if _sings(measures):
         _vocal(pager, measures, tied, chords)
-        body = re.search(r'<part id="%s">(.*?)</part>' % re.escape(pid),
-                         xml, re.S)
-        more = body and re.search(r'<lyric[^>]*number="[2-9]"', body.group(1))
-        return pager.text(), (["verses after the first are still to come"]
-                              if more else [])
+        return pager.text(), []
     voice = Voice()
     voice.tied = tied
     voice.loose_ties = _loose_ties(measures)
@@ -1618,6 +1624,44 @@ def proofread(xml, pid, brf_text):
             out.append(f"note {k + 1} is paired with the wrong syllable "
                        "(a slur or tie where the words need a new one, or "
                        "the other way round)")
+        out += _proof_verses(ms, brf_text)
+    return out
+
+
+def _proof_verses(ms, brf_text):
+    """Verses after the first: each verse's words read back whole, and
+    parallel by parallel the words over each run of notes must be the
+    syllables the score gives those very notes in that verse."""
+    import chartbrailleread
+    later = [v for v in _verses(ms) if v != 1]
+    if not later:
+        return []
+    out = []
+    read, spans = chartbrailleread.decode_verses(brf_text)
+    sung = [n for n in _lead_seq(ms) if not n.rest and not _groove(n)]
+    for v in later:
+        want = score_words(ms, v)
+        got = read.get(v, '')
+        if got != want:
+            k = next((i for i, (a, b) in enumerate(zip(want, got))
+                      if a != b), min(len(want), len(got)))
+            out.append(f"verse {v} reads '{got[max(0, k - 12):k + 12]}' "
+                       f"where the score sings "
+                       f"'{want[max(0, k - 12):k + 12]}'")
+            continue
+        for a, b, words in spans:
+            syl = [n.lyrics[v] for n in sung[a:b] if v in (n.lyrics or {})]
+            text = ''
+            for kind, t, _e in syl:
+                text += t + (' ' if kind in ('single', 'end') else '')
+            text = ' '.join(text.split())
+            if syl and syl[-1][0] in ('begin', 'middle'):
+                text += '-'
+            if text != words.get(v, ''):
+                out.append(f"verse {v}: the words over notes {a + 1} to "
+                           f"{b} read '{words.get(v, '')}' where the "
+                           f"score sings '{text}' on them")
+                break
     return out
 
 
@@ -1637,11 +1681,11 @@ def score_joins(measures):
     return out
 
 
-def score_words(measures):
+def score_words(measures, verse=1):
     """The sung text, syllables joined into words."""
     out = ''
     for m in measures:
-        for text, joins in _syllables(m):
+        for text, joins in _syllables(m, verse):
             out += text + ('' if joins else ' ')
     return ' '.join(out.split())
 
@@ -1859,6 +1903,18 @@ def _split_music(text, first, rest):
 
 # ------------------------------------------------------------ voice
 
+def _verses(measures):
+    """The verse numbers a vocal part sings, in order."""
+    return sorted({v for m in measures for _p, ns, st, _v in m['events']
+                   if st == 1 for v in (ns[0].lyrics or {})})
+
+
+def _verse_mark(v):
+    """A verse's number at the start of its word line: "2." in
+    literary braille, then a space."""
+    return literary(f"{v}.") + ' '
+
+
 def _sings(measures):
     return any(n.lyric for m in measures for _p, ns, st, _v in m['events']
                if st == 1 for n in ns[:1])
@@ -1901,13 +1957,14 @@ def _syllabic_slurs(measures):
     return plan
 
 
-def _syllables(m):
+def _syllables(m, verse=1):
     """The measure's sung syllables in time order: (text, joins on)."""
     out = []
     for _p, ns, st, _v in sorted(m['events'], key=lambda e: e[0]):
         n = ns[0]
-        if st == 1 and n.lyric:
-            kind, text, _ext = n.lyric
+        lyr = n.lyric if verse == 1 else (n.lyrics or {}).get(verse)
+        if st == 1 and lyr:
+            kind, text, _ext = lyr
             out.append((text, kind in ('begin', 'middle')))
     return out
 
@@ -1955,16 +2012,32 @@ def _vocal(pager, measures, tied, chords_on=True):
     for m in measures:
         starts.append(at)
         at += max(m.get('len') or 0, 1) or _bar_length(m)
-    par = {'syl': [], 'ch': [], 'm': '', 'first': None}
+    # 35.7: every verse past the first takes a word line of its own,
+    # each opening with its number (verse 1's too, once there are two)
+    later = [v for v in _verses(measures) if v != 1]
+    mark1 = _verse_mark(1) if later else ''
+    par = {'syl': [], 'ch': [], 'm': '', 'first': None,
+           'vs': {v: [] for v in later}}
     pending = []
 
     def layout(syl, chs, split):
         if chs:
-            return _lay_words(syl, chs, split, number(par['first'] or 1))
+            words, chord = _lay_words(syl, chs, split,
+                                      number(par['first'] or 1))
+            if syl and mark1:
+                words = [mark1 + words[0]] + words[1:]
+                chord = ' ' * len(mark1) + chord if chord else chord
+            return words, chord
         if not syl:
             return [number(par['first'] or 1)], None
-        text = words_line(syl, split)
+        text = mark1 + words_line(syl, split)
         return _prose_lines(text, LINE, 4), None
+
+    def verse_lines(v, syl):
+        if not syl:
+            return []
+        return _prose_lines(_verse_mark(v) + words_line(
+            syl, syl[-1]['joins']), LINE, 4)
 
     def flush():
         if par['first'] is None:
@@ -1972,10 +2045,13 @@ def _vocal(pager, measures, tied, chords_on=True):
         syl = par['syl']
         split = bool(syl) and syl[-1]['joins']
         words, chord = layout(syl, par['ch'], split)
+        more = [ln for v in later for ln in verse_lines(v, par['vs'][v])]
         music = _music_lines(par['m'].rstrip())
-        pager.add(*(pending + words + ([chord] if chord else []) + music))
+        pager.add(*(pending + words + ([chord] if chord else []) + more
+                    + music))
         pending.clear()
-        par.update(syl=[], ch=[], m='', first=None)
+        par.update(syl=[], ch=[], m='', first=None,
+                   vs={v: [] for v in later})
 
     in_slash = False
     skip = 0
@@ -1998,6 +2074,16 @@ def _vocal(pager, measures, tied, chords_on=True):
                 a, b = spans.get(id(n), (starts[i] + pos, starts[i] + pos))
                 syl.append({'t': text, 'joins': kind in ('begin', 'middle'),
                             'start': a, 'end': b})
+        vsyl = {v: [] for v in later}
+        for pos, ns, st, _v in sorted(m['events'], key=lambda e: e[0]):
+            n = ns[0]
+            if st != 1 or n.rest:
+                continue
+            for v in later:
+                if v in (n.lyrics or {}):
+                    kind, text, _ext = n.lyrics[v]
+                    vsyl[v].append({'t': text,
+                                    'joins': kind in ('begin', 'middle')})
         chs = ([(starts[i] + p_, c) for p_, c in sorted(m['chords'])]
                if chords_on else [])
         trial = copy.deepcopy(voice)
@@ -2008,7 +2094,9 @@ def _vocal(pager, measures, tied, chords_on=True):
         if par['first'] is not None:
             w, c = layout(par['syl'] + syl, par['ch'] + chs, False)
             too_wide = (len(w) > 1 or max(len(x) for x in w) > LINE or
-                        (c is not None and len(c) > LINE))
+                        (c is not None and len(c) > LINE) or
+                        any(len(verse_lines(v, par['vs'][v] + vsyl[v])) > 1
+                            for v in later))
             if too_wide or len(mtext) > room_m:
                 flush()
         if par['first'] is None:
@@ -2023,6 +2111,8 @@ def _vocal(pager, measures, tied, chords_on=True):
         par['m'] += (' ' if par['m'] and par['m'] != TIE else '') + text
         par['syl'] += syl
         par['ch'] += chs
+        for v in later:
+            par['vs'][v] += vsyl[v]
         # a phrase ends here: words that end with punctuation, or the
         # bar ends in a rest after singing — break if the line is full
         # enough to be worth it

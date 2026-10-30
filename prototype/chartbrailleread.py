@@ -181,6 +181,18 @@ class Reader:
         self.cprev = (step, octave)
 
 
+def _tn_open(lines):
+    """Does a transcriber's note opened among these lines stay open?"""
+    open_ = False
+    for l in lines:
+        t = l.strip()
+        if t.startswith('@.<'):
+            open_ = True
+        if open_ and t.endswith('@.>'):
+            open_ = False
+    return open_
+
+
 def decode(brf):
     """BRF text -> (notes, errors): notes as (pitch, value pair, dots),
     pitch like 'Bb4'; the value pair a letter: W (whole or 16th),
@@ -190,7 +202,11 @@ def decode(brf):
     for pi, page in enumerate(pages):
         ls = page.split('\n')[1:]
         if pi == 0:
-            ls = ls[ls.index('') + 1:] if '' in ls else ls
+            k = ls.index('') if '' in ls else -1
+            # a transcriber's note too long for the first page runs on
+            # past the page break: its tail there is still the note
+            in_tn = _tn_open(ls[:k + 1])
+            ls = ls[k + 1:]
         for l in ls:
             t = l.strip()
             if not t:
@@ -534,46 +550,71 @@ def _is_vocal(raw):
     return False
 
 
+_VERSE = re.compile(r'#([A-J]+)4 ')
+
+
 def _vocal(raw, head):
     """Words and music in parallels: the music read line by line, each
-    line's first note needing its mark; the words gathered whole."""
+    line's first note needing its mark; the words gathered whole. A
+    word line opening with a number and a period ("2.") belongs to that
+    verse (35.7); an unnumbered one is verse 1. Each parallel remembers
+    which notes it holds and every verse's words over them, so a
+    checker can pair a later verse's words with their notes."""
     km = re.match(r'(#[A-J][%<]|[%<*]*)#', head or '')
     r = Reader(parse_key(km.group(1)) if km else 0)
     r.down = 'READING UPWARD' not in ' '.join(raw)
-    words, kind, music = [], None, []
+    pars, kind, verse = [], None, 1
     for l in raw:
         if re.fullmatch(r'>,.*>', l) or (l.strip() and _chordline(l)):
             continue
         if not l.startswith(' '):
+            if kind != 'w':
+                pars.append({'w': [], 'm': []})
             kind = 'w'
-            words.append(('new', l))
+            m = _VERSE.match(l)
+            verse = (int(''.join(str('JABCDEFGHI'.index(c))
+                                 for c in m.group(1))) if m else 1)
+            pars[-1]['w'].append((verse, 'new', l[m.end():] if m else l))
         elif l.startswith('    '):
             if kind == 'w':
-                words.append(('run', l.strip()))
-            elif music[-1].endswith('"'):
-                music[-1] = music[-1][:-1] + l.strip()   # 1.11 hyphen
+                pars[-1]['w'].append((verse, 'run', l.strip()))
+            elif pars[-1]['m'][-1].endswith('"'):
+                pars[-1]['m'][-1] = (pars[-1]['m'][-1][:-1]
+                                     + l.strip())     # 1.11 hyphen
             else:
-                music[-1] += ' ' + l.strip()
+                pars[-1]['m'][-1] += ' ' + l.strip()
         else:
+            if kind is None:
+                pars.append({'w': [], 'm': []})
             kind = 'm'
-            music.append(l.strip())
-    for li, line in enumerate(music):
-        r.fresh()                                  # 35.1.2
-        r.bar()
-        if line.startswith('@C'):                  # 35.3.2 restated tie
-            line = line[2:]
-        read_line(r, line)
-    text = ''
-    for how, w in words:
-        if re.fullmatch(r'#[A-J]+', w):
-            continue                               # a bar number
-        if text.endswith('-'):
-            text = text[:-1] + w                   # a word carried over
-        else:
-            text += (' ' if text else '') + w
+            pars[-1]['m'].append(l.strip())
+    texts, spans = {}, []
+    for par in pars:
+        a = len(r.joins)
+        for line in par['m']:
+            r.fresh()                              # 35.1.2
+            r.bar()
+            if line.startswith('@C'):              # 35.3.2 restated tie
+                line = line[2:]
+            read_line(r, line)
+        here = {}
+        for v, how, w in par['w']:
+            if re.fullmatch(r'#[A-J]+', w):
+                continue                           # a bar number
+            here[v] = (here[v] + ' ' + w) if v in here else w
+            text = texts.get(v, '')
+            if text.endswith('-'):
+                text = text[:-1] + w               # a word carried over
+            else:
+                text += (' ' if text else '') + w
+            texts[v] = text
+        spans.append((a, len(r.joins),
+                      {v: back_translate(t) for v, t in here.items()}))
     r.errors += []
     _vocal.joins = r.joins
-    return r.notes, r.errors, back_translate(text)
+    _vocal.verses = {v: back_translate(t) for v, t in texts.items()}
+    _vocal.spans = spans
+    return r.notes, r.errors, _vocal.verses.get(1, '')
 
 
 def decode_words(brf):
@@ -583,7 +624,11 @@ def decode_words(brf):
     for pi, page in enumerate(pages):
         ls = page.split('\n')[1:]
         if pi == 0:
-            ls = ls[ls.index('') + 1:] if '' in ls else ls
+            k = ls.index('') if '' in ls else -1
+            # a transcriber's note too long for the first page runs on
+            # past the page break: its tail there is still the note
+            in_tn = _tn_open(ls[:k + 1])
+            ls = ls[k + 1:]
         for l in ls:
             t = l.strip()
             if not t:
@@ -600,7 +645,17 @@ def decode_words(brf):
                     head = ''
                 continue
             raw.append(l.rstrip())
+    _vocal.verses, _vocal.spans = {}, []
     return _vocal(raw, head)[2] if _is_vocal(raw) else ''
+
+
+def decode_verses(brf):
+    """Every verse of a vocal part: ({verse: its words in print},
+    [(first note, end note, {verse: words over those notes})] per
+    parallel). Notes count as decode_joins counts them."""
+    decode_words(brf)
+    return (dict(getattr(_vocal, 'verses', {})),
+            list(getattr(_vocal, 'spans', [])))
 
 
 def decode_joins(brf):

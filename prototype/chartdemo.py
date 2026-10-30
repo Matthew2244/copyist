@@ -762,13 +762,14 @@ def syllabify(word):
     return [s for s in out if s]
 
 
-def parse_lyrics(text):
+def parse_lyrics(text, keep_empty=False):
     """CHART-FORMAT.md 3.4: write the words the way you'd say them.
     Hyphens split syllables (and always win); an unhyphenated word is
     split by syllabify() and reported; underscores hold a melisma;
     slashes group words into phrases that anchor to the melody's own.
     Returns (phrases, autos): phrases as lists of aligned tokens, autos
-    as the words split automatically."""
+    as the words split automatically. `keep_empty` keeps an empty
+    phrase (a later verse silent for one phrase of the melody)."""
     phrases, autos = [], []
     # "Glo - ri - a", hymnal style: a hyphen standing between spaces
     # joins the syllables (it had printed three words, no hyphens)
@@ -794,16 +795,26 @@ def parse_lyrics(text):
                     toks.append([syllabic, s, False])
             for _ in range(tail):
                 toks.append(None)
-        if toks:
+        if toks or (keep_empty and '/' in text):
             phrases.append(toks)
     return phrases, autos
 
 
-def attach_lyrics(res, text, part_label, loc, find=None):
+def attach_lyrics(res, text, part_label, loc, find=None, verses=None):
     """Align the writer's words to the resolved notes — by phrase when
     the words carry slashes, one syllable per note either way, or refuse
     NAMING THE PHRASE AND THE BAR. Words silently misaligned to notes
-    are the one failure a singer cannot proofread past."""
+    are the one failure a singer cannot proofread past. `verses` holds
+    the later verses, {2: text, 3: text}: each aligns the same way but
+    may run out before verse 1 does (the notes after it carry nothing
+    in that verse); one with more syllables than notes is refused."""
+    verses = {int(k): v for k, v in (verses or {}).items()
+              if int(k) != 1 and v is not None}
+    if verses and not text:
+        raise SystemExit(
+            f"chart: {loc}: '{part_label}' has verse "
+            f"{min(verses)} but no first verse — write verse 1 with "
+            "lyrics first")
     if not text:
         return
     if res.get('staves'):
@@ -879,6 +890,13 @@ def attach_lyrics(res, text, part_label, loc, find=None):
             toks[i - 1][2] = True        # the syllable keeps sounding
     res['lyrics'] = toks
     res['lyrics_text'] = text
+    if verses:
+        res['verses'] = {}
+        res['verses_text'] = {}
+        for v in sorted(verses):
+            res['verses'][v] = _align_verse(verses[v], v, tl, mel, bar_of,
+                                            part_label, loc, find)
+            res['verses_text'][v] = verses[v]
     # a singer reads a slur as one syllable over several notes: the
     # slurs are the melismas, exactly (a played legato's slurs had run
     # across "Green-line rol-ling", and "see_" had none)
@@ -893,6 +911,84 @@ def attach_lyrics(res, text, part_label, loc, find=None):
         else:
             i += 1
     res['slurs'] = runs
+
+
+def _align_verse(text, v, tl, mel, bar_of, part_label, loc, find):
+    """A later verse on the notes verse 1 already sings: one token per
+    note — a syllable, None where the syllable before is held (an
+    underscore), False where this verse sings nothing."""
+    if not text.strip(' /'):
+        raise SystemExit(f"chart: {loc}: '{part_label}' verse {v} has "
+                         "no words")
+    phrases, autos = parse_lyrics(text, keep_empty=True)
+    if autos and find is not None:
+        find.add(f"{part_label}: in verse {v} I split these words myself "
+                 "— " + ", ".join(autos) + " — hyphenate any I got wrong")
+    if len(phrases) > 1:
+        if len(phrases) != len(mel):
+            shape = "; ".join(
+                f"bar {bar_of(r[0])}: {len(r)} note(s)" for r in mel)
+            raise SystemExit(
+                f"chart: {loc}: '{part_label}' sings {len(mel)} "
+                f"phrase(s) but verse {v} gives {len(phrases)} — the "
+                f"melody's phrases are: {shape}")
+        bad, toks = [], []
+        for r, ph in zip(mel, phrases):
+            if len(ph) > len(r):
+                bad.append(f"the phrase at bar {bar_of(r[0])} has "
+                           f"{len(r)} note(s) but verse {v} gives it "
+                           f"{len(ph)} syllable(s)")
+            toks += ph + [False] * (len(r) - len(ph))
+        if bad:
+            raise SystemExit(
+                f"chart: {loc}: '{part_label}': " + "; ".join(bad[:3])
+                + " — a later verse may sing fewer syllables than notes, "
+                "never more")
+    else:
+        toks = list(phrases[0]) if phrases else []
+        if len(toks) > len(tl):
+            raise SystemExit(
+                f"chart: {loc}: '{part_label}' sings {len(tl)} note(s) "
+                f"here but verse {v} carries {len(toks)} syllable(s) — "
+                "a later verse may sing fewer syllables than notes, "
+                "never more")
+        toks += [False] * (len(tl) - len(toks))
+    for i, t in enumerate(toks):
+        if t is None and i and isinstance(toks[i - 1], list):
+            toks[i - 1][2] = True        # the syllable keeps sounding
+    return toks
+
+
+def lyric_xml(tok, number=None):
+    """One <lyric> element for a syllable token, or '' for none. 'stop'
+    ends a later verse's melisma line on a held note that the verse
+    then falls silent after (left alone, the line would run on to the
+    verse's next word or rest, which may be bars away)."""
+    if tok == 'stop':
+        return (f'        <lyric number="{number}">'
+                '<extend type="stop"/></lyric>')
+    if not isinstance(tok, list):
+        return ''
+    syl, txt, ext = tok
+    num = f' number="{number}"' if number else ''
+    return (f'        <lyric{num}>'
+            f'<syllabic>{syl}</syllabic>'
+            f'<text>{_xt(txt)}</text>'
+            + ('<extend/>' if ext else '') + '</lyric>')
+
+
+def lyrics_xml(lyric, verses):
+    """Verse 1's syllable then each later verse's, numbered when there
+    is more than one verse."""
+    out = []
+    first = lyric_xml(lyric, 1 if verses else None)
+    if first:
+        out.append(first)
+    for v, tok in verses or ():
+        x = lyric_xml(tok, v)
+        if x:
+            out.append(x)
+    return out
 
 
 def trill_target(midi, spec, fifths):
@@ -1850,6 +1946,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     slur_b = {j for _, j in res.get('slurs', ())}
     ghosts = res.get('ghosts') or set()
     lyr = res.get('lyrics')
+    vers = sorted((res.get('verses') or {}).items()) if lyr else []
     _HINTS.clear()
     if not drums and not slash:
         _HINTS.update(_spelling_hints(res, timeline, table,
@@ -1872,7 +1969,11 @@ def render_range(res, fifths_written, transpose_to_written, fall,
               ghost=ti in ghosts,
               strokes=((res.get('named_strokes') or {}).get(start)
                        if drums else None),
-              lyric=lyr[ti] if lyr else None, cue=cue, slash=slash,
+              lyric=lyr[ti] if lyr else None,
+              verses=[(v, 'stop' if t[ti] is None and ti + 1 < len(t)
+                       and t[ti + 1] is False else t[ti])
+                      for v, t in vers] if vers else None,
+              cue=cue, slash=slash,
               drums=drums, trill=trill_of(start, pitches),
               trem=trem_of(start, pitches))
         pos = end
@@ -2041,7 +2142,7 @@ def _name(ticks, sub):
 def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
           bend=None, bar=BAR, voice=1, staff=0, slur=(False, False),
           ghost=False, lyric=None, cue=False, slash=False, drums=False,
-          trill=None, trem=None, strokes=None):
+          trill=None, trem=None, strokes=None, verses=None):
     staff_xml = f'        <staff>{staff}</staff>\n' if staff else ''
     strokes = strokes or {}
     pieces = _pieces(start, end, grids, bar)
@@ -2049,7 +2150,7 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
             and len(pitches) == 1 and not (slash or drums or cue):
         if _emit_ftrem(out, at_bar, pieces, grids, bar, pitches[0],
                        trill, table, transpose, voice, staff_xml, artic,
-                       lyric):
+                       lyric, verses):
             return
         trill = dict(trill, form='auto')   # tied or odd: tr to (note)
     for pi, (a, b) in enumerate(pieces):
@@ -2238,19 +2339,14 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                 if notations:
                     lines.append('        <notations>' + ''.join(notations)
                                  + '</notations>')
-                if lyric and pfirst and ni == 0:
-                    syl, txt, ext = lyric
-                    lines.append('        <lyric>'
-                                 f'<syllabic>{syl}</syllabic>'
-                                 f'<text>{_xt(txt)}</text>'
-                                 + ('<extend/>' if ext else '')
-                                 + '</lyric>')
+                if pfirst and ni == 0:
+                    lines += lyrics_xml(lyric, verses)
                 lines.append('      </note>')
                 out[bar_no].append("\n".join(lines) + "\n")
 
 
 def _emit_ftrem(out, at_bar, pieces, grids, bar, main, trill, table,
-                transpose, voice, staff_xml, artic, lyric):
+                transpose, voice, staff_xml, artic, lyric, verses=None):
     """A fingered tremolo: the note's time shared by two notes, each
     printed at the full value (a half-note tremolo shows two half
     notes), 2:1 in the time, three floating beams between them — how
@@ -2294,11 +2390,8 @@ def _emit_ftrem(out, at_bar, pieces, grids, bar, main, trill, table,
             nots.append(f'<articulations><{artic}/></articulations>')
         lines.append('        <notations>' + ''.join(nots)
                      + '</notations>')
-        if lyric and k == 0:
-            syl, txt, ext = lyric
-            lines.append('        <lyric>'
-                         f'<syllabic>{syl}</syllabic><text>{_xt(txt)}</text>'
-                         + ('<extend/>' if ext else '') + '</lyric>')
+        if k == 0:
+            lines += lyrics_xml(lyric, verses)
         lines.append('      </note>')
         out[bar_no].append("\n".join(lines) + "\n")
     return True
@@ -2445,9 +2538,11 @@ def _say_dur(ticks):
 
 def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
             fall=False, doit=False, short=False, slurs=(), ghosts=(),
-            lyrics=None, orn=None):
+            lyrics=None, orn=None, verses=None):
     """One voice's timeline -> {abs_bar: [clauses]} — the run-grouping
-    prose, shared by the flat path and each voice of a polyphonic part."""
+    prose, shared by the flat path and each voice of a polyphonic part.
+    `verses` lists the later verses' tokens: a note sung in them says
+    every verse's word in turn, "'Green' / 'Blue'"."""
     out = {}
     slur_a = {a for a, _ in slurs}
     slur_end = {a: b for a, b in slurs}
@@ -2476,11 +2571,18 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
             table.at = bar - getattr(table, 'shift', 0)
         clauses = out.setdefault(bar, [])
         where = _say_beat(start, bar_ticks, pulse)
+        def one(t):
+            return ("(held)" if t is None else
+                    f"'{t[1]}'" if isinstance(t, list) else "(none)")
+
         def word(k):
             if not lyrics or k >= len(lyrics):
                 return ""
-            t = lyrics[k]
-            return " (held)" if t is None else f" '{t[1]}'"
+            more = [v[k] for v in verses or () if k < len(v)]
+            if not any(t is not False for t in more):
+                return " " + one(lyrics[k])
+            return " " + " / ".join([one(lyrics[k])] + [one(t)
+                                                        for t in more])
         if j > i:
             names = ", ".join(_say_pitch(t[2][0], table, t[0])
                               + word(i + o)
@@ -2641,7 +2743,9 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
                   bends, fall, doit, short,
                   slurs=res.get('slurs', ()),
                   ghosts=res.get('ghosts', ()),
-                  lyrics=res.get('lyrics'), orn=orn)
+                  lyrics=res.get('lyrics'), orn=orn,
+                  verses=[t for _v, t in sorted(
+                      (res.get('verses') or {}).items())])
     DYN_WORD = {'p': 'piano', 'mp': 'mezzo piano', 'mf': 'mezzo forte',
                 'f': 'forte', 'ff': 'fortissimo'}
     for t, k in res.get('dyns', []):

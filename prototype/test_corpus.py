@@ -1133,6 +1133,190 @@ def check_lyrics():
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_verses():
+    """
+    Verses after the first: `lyrics 2:` under a figure, `lyrics 2 "..."`
+    on a part's line, each aligned like verse 1 but free to run out
+    early, never to carry more syllables than notes. Every surface
+    carries them: MusicXML <lyric number="2">, a lyric line per verse on
+    the page with "1." "2." on each verse's first syllable, a numbered
+    word line per verse in braille (35.7) that the separate reader pairs
+    back with its notes, and the read-aloud saying each verse's word on
+    its note.
+    """
+    import chartbraille as cb
+    import chartbrailleread as rd
+    import chartc
+    import chartdemo
+    import chartengrave as ce
+    import chartread
+    from chart import verify_measures
+    tmp = tempfile.mkdtemp()
+
+    phrases, _a = chartdemo.parse_lyrics("Blue / / skies", keep_empty=True)
+    check("a later verse keeps an empty phrase",
+          [len(p) for p in phrases] == [1, 0, 1], str(phrases))
+
+    HEAD = ('title: V\nkey: F\nmeter: 4/4\ntempo: 90\n\n'
+            'band:\n  singer = voice\n  piano\n\n'
+            'figure tune, 8 bars:\n'
+            '  notes: F4 q, A4 q, C5 h, rest w, D5 q, C5 q, A4 h, rest w, '
+            'F4 q, G4 q, A4 q, Bb4 q, C5 w, A4 h, G4 h, F4 w\n'
+            '  lyrics: Green-line roll / steel song home / '
+            'slow-ly roll-ing down to-night_\n')
+    BODY = ('\nsection A, 8 bars\n  chords: F, F, Bb, F, F, C7, F, F\n'
+            '  singer: figure tune{line}\n  piano: groove\n')
+
+    def build(verse2, line="", name="v"):
+        p = os.path.join(tmp, name + ".chart")
+        open(p, "w").write(HEAD + verse2 + BODY.format(line=line))
+        out = os.path.join(tmp, name)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            files = chartc.compile_chart(p, out)
+        return p, out, files, buf.getvalue()
+
+    def refused(verse2, line=""):
+        try:
+            build(verse2, line, "bad")
+        except SystemExit as e:
+            return str(e)
+        return ""
+
+    path, out, files, log = build(
+        '  lyrics 2: Blue skies come / / ev-ery-where_\n',
+        ', lyrics 3 "Third time / round we go / and"')
+    check("verses: a three-verse part sums", not verify_measures(files))
+    xml = open(os.path.join(out, "V — singer.musicxml")).read()
+    v2 = re.findall(r'<lyric number="2">(.*?)</lyric>', xml, re.S)
+    v3 = re.findall(r'<lyric number="3">(.*?)</lyric>', xml, re.S)
+    check("verses: each verse carries its number in MusicXML",
+          '<lyric number="1"><syllabic>begin</syllabic><text>Green' in xml
+          and len(v2) == 7 and '<text>Blue</text>' in v2[0]
+          and len(v3) == 6 and '<text>Third</text>' in v3[0],
+          f"v2 {v2} v3 {v3}")
+    check("verses: a later verse's melisma extends, then stops where "
+          "the verse falls silent",
+          '<text>where</text><extend/>' in xml
+          and '<lyric number="2"><extend type="stop"/></lyric>' in xml)
+    _p, _o, _f, log2 = build('  lyrics 2: Blue skies come / / windows\n',
+                             name="auto")
+    check("verses: auto-splits in a later verse say which verse",
+          "in verse 2 I split these words myself — win-dows" in log2,
+          log2[:400])
+
+    got = refused('  lyrics 2: Blue skies come home / / x\n')
+    check("verses: too many syllables in a phrase refuses naming the "
+          "verse and the bar",
+          "the phrase at bar 1 has 3 note(s) but verse 2 gives it 4"
+          in got, got)
+    got = refused('  lyrics 2: Blue skies / come\n')
+    check("verses: a later verse's phrase count must match the melody's",
+          "verse 2 gives 2" in got and "3 phrase(s)" in got, got)
+    got = refused('', ', lyrics 2 "' + "la " * 15 + '"')
+    check("verses: more syllables than notes refuses with both counts",
+          "sings 14 note(s)" in got and "verse 2 carries 15" in got, got)
+    got = refused('  lyrics 2: a\n  lyrics 2: b\n')
+    check("verses: a verse written twice is refused",
+          "verse 2 is written twice" in got, got)
+
+    # the page: a line per verse, numbered on each verse's first syllable
+    ms, _ = ce.parse_part(xml.replace('&amp;', '&'), 'P1')
+    first = [n for m in ms for _p, ns, _s, _v in m['events'] for n in ns
+             if n.vfirst]
+    check("verses: the page counts three lyric lines",
+          ce.verse_count(ms) == 3, str(ce.verse_count(ms)))
+    check("verses: each verse's first syllable carries its number",
+          [n.vfirst for n in first] == [(1, 2, 3)], str(
+              [n.vfirst for n in first]))
+    said = []
+    real = ce.Pdf.text
+
+    def spy(self, x, y, s_, *a, **k):
+        said.append((s_, round(y, 1)))
+        return real(self, x, y, s_, *a, **k)
+    ce.Pdf.text = spy
+    try:
+        ok, why = ce.engrave(os.path.join(out, "V — singer.musicxml"),
+                             os.path.join(tmp, "v.pdf"))
+    finally:
+        ce.Pdf.text = real
+    ys = {t: y for t, y in said}
+    check("verses: the page draws each verse on its own line, numbered",
+          ok and {"1. ", "2. ", "3. "} <= set(ys)
+          and ys["Green -"] > ys["Blue"] > ys["Third"]
+          and ys["Green -"] - ys["Blue"] == ys["Blue"] - ys["Third"]
+          and ys["1. "] == ys["Green -"], f"{why} {said[:20]}")
+
+    # braille: a numbered word line per verse, read back and paired
+    text, why = cb.part_to_brf(xml, 'P1', 'V', 'singer')
+    lines = text.replace('\r\n', '\n').split('\n')
+    check("braille: every verse takes its own numbered word line (35.7)",
+          any(l.startswith('#A4 ,GREENLINE') for l in lines)
+          and any(l.startswith('#B4 ,BLUE SKIES COME') for l in lines)
+          and any(l.startswith('#C4 AND') for l in lines)
+          and "STILL TO COME" not in text.upper()
+          and not why, f"{why} {lines}")
+    check("braille: the transcriber's note explains the verse lines",
+          "VERSE NUMBER" in text.upper())
+    check("braille: a three-verse part reads back clean",
+          not cb.proofread(xml, 'P1', text),
+          cb.proofread(xml, 'P1', text))
+    verses, spans = rd.decode_verses(text)
+    check("braille: the reader gives back every verse's words",
+          verses.get(2) == "Blue skies come everywhere"
+          and verses.get(3) == "Third time round we go and"
+          and len(spans) == 2 and spans[1][2].get(3) == "and",
+          f"{verses} {spans}")
+    bad = text.replace('#C4 AND', '#C4 ,THE')
+    got = cb.proofread(xml, 'P1', bad)
+    check("braille: the proofreader catches a wrong word in a later verse",
+          any("verse 3" in g for g in got), got)
+    moved = re.sub(r'#B4 EVERYWHERE\r?\n', '', text.replace(
+        '#B4 ,BLUE SKIES COME', '#B4 ,BLUE SKIES COME EVERYWHERE'))
+    got = cb.proofread(xml, 'P1', moved)
+    check("braille: a later verse's words over the wrong notes are named",
+          any("verse 2: the words over notes" in g for g in got), got)
+    # with chords, verse 1 keeps the placed chord line and the rest follow
+    song = [['{C}', 'C5 q ly=Twin/begin ly2=All',
+             'C5 q ly=kle/end ly2=the', '{G}', 'G5 q ly=twin/begin',
+             'G5 q ly=kle/end ly2=world'],
+            ['A5 q ly=lit/begin ly2=so', '{F}', 'A5 q',
+             'G5 h ly=tle/end ly2=high'],
+            ['F5 h ly=star', 'r q', '{C}', 'r q', '|]']]
+    sx = _mx(song)
+    st, _w = cb.part_to_brf(sx, 'P1', 'Test', 'Test part')
+    sl = [l for l in st.replace('\r\n', '\n').split('\n') if l.strip()]
+    k = next((i for i, l in enumerate(sl) if l.startswith('#A4 ')), -1)
+    check("braille: with chords, verse 1, its chord line, then verse 2",
+          k >= 0 and sl[k + 1].lstrip().startswith(',C')
+          and sl[k + 1].startswith(' ' * 4)
+          and sl[k + 2].startswith('#B4 ,ALL THE WORLD SO HIGH'), sl)
+    check("braille: chords and two verses read back",
+          not cb.proofread(sx, 'P1', st), cb.proofread(sx, 'P1', st))
+
+    # read-aloud: each verse's word on its note
+    old = sys.argv
+    sys.argv = ["chartread", path, "--part", "singer"]
+    buf = io.StringIO()
+    try:
+        with redirect_stdout(buf):
+            chartread.main()
+    finally:
+        sys.argv = old
+    said = buf.getvalue()
+    check("read-aloud: every verse said whole, then word by word",
+          "Verse 2: Blue skies come everywhere" in said
+          and "Verse 3: Third time round we go and" in said
+          and "F 4 'Green' / 'Blue' / 'Third'" in said
+          and "'roll' / 'come' / (none)" in said
+          and "B flat 4 'ing' / (held) / (none)" in said, said)
+    check("read-aloud: once the later verses are done, verse 1 alone",
+          "C 5 'down'." in said, said)
+
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def check_directive_family():
     """
     CHART-FORMAT.md 3.6, the last of the directive table: `double` joins
@@ -3402,12 +3586,18 @@ def _mx(bars, fifths=0, time=(4, 4), clef='G', title='Test', perc=None):
                         ('<tie type="start"/>' if start else '')
                     tied = ('<tied type="stop"/>' if stop else '') + \
                         ('<tied type="start"/>' if start else '')
-                    ly = [f for f in flags if f.startswith('ly=')]
                     lyric = ''
-                    if ly and k == 0:
-                        word, _, kind = ly[0][3:].partition('/')
-                        lyric = (f'<lyric><syllabic>{kind or "single"}'
-                                 f'</syllabic><text>{word}</text></lyric>')
+                    for f in flags if k == 0 else ():
+                        # ly= is verse 1, ly2= the second verse ...
+                        lm = re.match(r'ly(\d*)=(.*)$', f)
+                        if not lm:
+                            continue
+                        word, _, kind = lm.group(2).partition('/')
+                        num = (f' number="{lm.group(1)}"' if lm.group(1)
+                               else '')
+                        lyric += (f'<lyric{num}><syllabic>'
+                                  f'{kind or "single"}</syllabic><text>'
+                                  f'{word}</text></lyric>')
                     head = next((f[2:] for f in flags if f.startswith('h=')),
                                 None) if k == 0 else None
                     where = (f'<unpitched><display-step>{step}</display-step>'
@@ -9298,6 +9488,7 @@ if __name__ == "__main__":
     check_voltas()
     check_figures()
     check_lyrics()
+    check_verses()
     check_directive_family()
     check_build_entrance()
     check_trills_and_tremolos()
