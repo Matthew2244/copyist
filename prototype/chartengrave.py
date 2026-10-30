@@ -1834,6 +1834,33 @@ def lyric_lines(measures, staff):
     return most
 
 
+def lyric_drop(measures):
+    """{staff: how far its words drop} on a closed choir score. The
+    lower voice's stems point down, so a low alto or bass note's stem
+    reached into the words (the bass's low D through 'Lord'). The lines
+    drop below the deepest stem in the piece, the same all the way
+    through so every line of words stays level."""
+    drop = {}
+    if not measures or not any(m.get('_satb') for m in measures):
+        return drop
+    for m in measures:
+        for _p, ns, st, v in m['events']:
+            if v not in (2, 4):
+                continue
+            clef = m['state'].get('clefs', {}).get(st, 'G' if st == 1
+                                                    else 'F')
+            for n in ns:
+                if n.rest or n.step is None:
+                    continue
+                tip = step_pos(n.step, n.octave, clef) - 7   # stem down
+                need = -tip / 2 * SP + 1.6 * SP - (LYRIC_Y - 1.1 * SP)
+                if need > drop.get(st, 0):
+                    drop[st] = need
+    for m in measures:
+        m['_ly_drop'] = drop
+    return drop
+
+
 def staff_gap(measures):
     """The room between a part's staves: a grand staff's, or a
     choir's when words are sung on its upper staff, a line more for
@@ -1845,7 +1872,8 @@ def staff_gap(measures):
             # between them clear, the way vocal music is barred
             for m in measures:
                 m['_choir'] = True
-            return CHOIR_GAP + (lines - 1) * 2.2 * SP
+            return CHOIR_GAP + (lines - 1) * 2.2 * SP + \
+                lyric_drop(measures).get(1, 0)
     return GRAND_GAP
 
 
@@ -1855,7 +1883,8 @@ def words_below(measures):
     if not measures:
         return 0.0
     last = measures[0]['state'].get('staves', 1)
-    return max(0, lyric_lines(measures, last) - 1) * 2.2 * SP
+    return max(0, lyric_lines(measures, last) - 1) * 2.2 * SP + \
+        lyric_drop(measures).get(last, 0)
 
 
 def part_height(staves, gap=GRAND_GAP, below=0.0):
@@ -2341,7 +2370,8 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
                       if any(n.lyric for _p, ns in streams[(staff, v)]
                              for n in ns))
         words_y = (bottom_y if staff >= len(tops) else stop - STAFF) - (
-            sung.index(voice) * 2.2 * SP if voice in sung else 0)
+            sung.index(voice) * 2.2 * SP if voice in sung else 0) - \
+            meas.get('_ly_drop', {}).get(staff, 0)
         draw_stream(pdf, evs, stop, clef, beat_len, xat, x0, width,
                     forced, words_y,
                     carry.setdefault((staff, voice), []),
@@ -2486,6 +2516,12 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
         if n0.rest:
             flush_beam(pdf, pend_beam)
             pend_beam = []
+            if len(events) == 1 and not n0.measure_rest and \
+                    forced is not None:
+                # a voice silent the whole bar takes the whole-bar rest
+                # whatever the meter (a choir alto's 3/4 bar of rest
+                # had printed as an undotted half rest)
+                n0.measure_rest = True
             if n0.measure_rest and forced is False and not all_rests:
                 continue           # the second voice's filler rest
             # paired voices keep their rests apart: the up-stem voice

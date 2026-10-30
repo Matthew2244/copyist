@@ -9368,6 +9368,39 @@ def check_bug_hunt_round():
               and ("C", "4") in [c for _n, c in cl], cl)
 
 
+    # a choir whose voices sing together only at the end keeps every
+    # voice's own line to the last word (switching to shared words for
+    # one bar had left the tenor and bass with nothing under 'Lord')
+    import re as _re
+    import tempfile as _tf
+    from contextlib import redirect_stdout as _rs
+    import chartc as _cc
+    d_ = _tf.mkdtemp()
+    open(os.path.join(d_, "t.chart"), "w").write(
+        "title: C2\nkey: D\nmeter: 3/4\nchoir: two staves\n\nband:\n"
+        "  soprano\n  alto\n  tenor\n  bass\n\n"
+        "figure s, 3 bars:\n  notes: A4 q, A4 q, A4 q, F#4 h., D5 h.\n"
+        "  lyrics: Ho-ly Ho-ly Lord\n"
+        "figure a, 3 bars:\n  notes: A4 q, B4 q, C#5 q, rest h., D5 h.\n"
+        "  lyrics: Ho-ly Ho Lord\n"
+        "figure t, 3 bars:\n  notes: D3 e, E3 e, F#3 h, D3 h., D3 h.\n"
+        "  lyrics: Ho-ly Ho-ly Lord\n"
+        "figure b, 3 bars:\n  notes: D3 h., D3 h., D2 h.\n"
+        "  lyrics: Ho-ly Lord\n\n"
+        "section A, 3 bars\n  chords: D, D, D\n  soprano: figure s\n"
+        "  alto: figure a\n  tenor: figure t\n  bass: figure b\n")
+    with _rs(io.StringIO()):
+        _cc.compile_chart(os.path.join(d_, "t.chart"), os.path.join(d_, "b"))
+    sx = open(os.path.join(d_, "b", [x for x in os.listdir(
+        os.path.join(d_, "b")) if x.endswith("score.musicxml")][0])).read()
+    m3 = _re.findall(r'<measure number="3".*?</measure>', sx, _re.S)[0]
+    check("a closed choir keeps every voice's line to the last word",
+          m3.count("<text>Lord</text>") == 4, m3.count("<text>Lord</text>"))
+    import chartengrave as _ce
+    ms, _w = _ce.parse_part(sx, _re.search(r'<part id="(\w+)"', sx).group(1))
+    check("choir words drop below a low lower-voice stem",
+          _ce.lyric_drop(ms).get(2, 0) > 0, _ce.lyric_drop(ms))
+
 def check_sextuplet_numbers():
     """2026-10-30, the open list: a tuplet number sits over the middle
     of its own group, first stem to last, beamed up or down; two

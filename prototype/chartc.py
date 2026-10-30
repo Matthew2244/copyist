@@ -2341,18 +2341,20 @@ def close_choir(parts):
             if sings and (marks != w_marks or not w_sings):
                 return False
         return True
-    shared, keep = {}, {}
-    for run in runs:
-        any_words = any(_lyric_marks(split[0][k][1])[0] for k in run)
-        whole = any_words and all(same(v, 0, run) for v in (1, 2, 3))
-        for k in run:
-            shared[k] = whole
-            # otherwise a staff's lower voice drops words it shares
-            # with the voice above it: one line per staff where it can
-            keep[k] = [True,
-                       not same(1, 0, run),
-                       True,
-                       not same(3, 2, run)]
+    # decided once for the whole choir, the way a hymnal is set: the
+    # words print once between the staves only if every voice sings
+    # them together all the way through; a lower voice keeps its own
+    # line wherever its staff's upper voice ever sings other words.
+    # Switching bar by bar had left the tenor and bass with an empty
+    # line on the last word, printed once up between the staves.
+    worded = [run for run in runs
+              if any(_lyric_marks(split[0][k][1])[0] for k in run)]
+    whole = bool(worded) and all(same(v, 0, run) for run in worded
+                                 for v in (1, 2, 3))
+    own = [True, not all(same(1, 0, run) for run in runs), True,
+           not all(same(3, 2, run) for run in runs)]
+    shared = {k: whole for k in range(n)}
+    keep = {k: own for k in range(n)}
     out = []
     fifths = 0
     for k in range(n):
