@@ -362,10 +362,24 @@ def part_section(plan, label, chord_parts, figures=None):
             if item['res'].get('lyrics_text'):
                 # the words as said, not as typed: no underscores,
                 # phrase slashes or syllable hyphens read aloud
-                w = item['res']['lyrics_text']
-                w = re.sub(r'\s+-+\s+|(?<=\w)-(?=\w)', '', w)
-                w = re.sub(r'\s+', ' ', w.replace('_', '').replace('/', ' '))
-                lines.append(f"Words: {w.strip()}")
+                def said(w):
+                    w = re.sub(r'\s+-+\s+|(?<=\w)-(?=\w)', '', w)
+                    return re.sub(r'\s+', ' ', w.replace('_', '')
+                                  .replace('/', ' ')).strip()
+                more = sorted((item['res'].get('verses_text') or {})
+                              .items())
+                if more:
+                    # every verse said once whole, then each note says
+                    # its word in every verse in turn
+                    lines.append("Verse 1: " + said(
+                        item['res']['lyrics_text']))
+                    for v, w in more:
+                        lines.append(f"Verse {v}: {said(w)}")
+                    lines.append("Each note says verse 1's word, then "
+                                 "each later verse's after a slash.")
+                else:
+                    lines.append("Words: "
+                                 + said(item['res']['lyrics_text']))
             prose = chartdemo.say_range(item['res'], item['concert_fifths'],
                                         item['fall'],
                                         short=item.get('short', False),

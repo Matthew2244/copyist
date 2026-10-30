@@ -298,6 +298,17 @@ three sources, in descending order of preference:
   order (`lyrics: To-mor-row, to-mor-row_`). Lyrics riding in referenced
   XML come along automatically (Michael McElroy's *Tomorrow* carries 1,385
   syllables — the reference path is the realistic one).
+- Later verses: `lyrics 2:` (or `verse 2:`) after the figure's source, up
+  to verse 9, and `lyrics 2 "..."` on a from-demo line, which writes over
+  the figure's verse of that number (a line bringing its own verse 1
+  keeps only its own later verses). Same syllabify, hyphen, underscore
+  and slash rules as verse 1; a later verse may run out before verse 1
+  (its notes simply carry nothing in that verse, and an empty phrase
+  between slashes is allowed), but more syllables than notes, overall or
+  in a phrase, is refused naming the verse. MusicXML gets
+  `<lyric number="N">` (verse 1 is numbered too once there is a second),
+  and a held syllable a verse falls silent after ends with
+  `<extend type="stop"/>`.
 
 ### 3.4.1 The demo door — `from demo` (first built for *Subway Psalm*)
 

@@ -1178,17 +1178,30 @@ def parse_chart(path):
             cur_ks[k] = word
             continue
         if mode == 'figure':
-            m = re.match(r'lyrics:\s*(.+)$', s)
-            if m:
+            # `lyrics:` is verse 1; `lyrics 2:` (or `verse 2:`) the next
+            m = re.match(r'(?:lyrics|verse)(?:\s+(\d+))?:\s*(.+)$', s)
+            if m and (m.group(1) or s.startswith('lyrics')):
                 if not cur_fig['kind']:
                     fail(f"{loc}: lyrics: follows the figure's source "
                          "line")
+                if cur_fig['kind'] == 'xml':
+                    fail(f"{loc}: a from-xml figure brings its own words "
+                         "(every verse) — lyrics: is for a demo or "
+                         "written figure")
                 # quotes around the words are the writer's fence,
                 # not lyrics — strip a matched pair
-                lyr = m.group(1).strip()
+                lyr = m.group(2).strip()
                 if len(lyr) > 1 and lyr[0] == lyr[-1] and lyr[0] in '"\'':
                     lyr = lyr[1:-1]
-                cur_fig['lyrics'] = lyr
+                v = int(m.group(1) or 1)
+                if v < 1 or v > 9:
+                    fail(f"{loc}: verses run 1 to 9, not {v}")
+                if v == 1:
+                    cur_fig['lyrics'] = lyr
+                else:
+                    if v in cur_fig.setdefault('verses', {}):
+                        fail(f"{loc}: verse {v} is written twice")
+                    cur_fig['verses'][v] = lyr
                 continue
             if cur_fig['kind']:
                 fail(f"{loc}: one source per figure — this one already "
@@ -2032,6 +2045,18 @@ def lifted_rest(piece):
 TECHNIQUE_RE = re.compile(
     r"\s*(arco|pizz\.?|con sord|senza sord|sul |ord\.?\b|open\b|"
     r"[\w-]+ mute\b|mute\b)", re.I)
+
+
+def ref_verses(ref):
+    """The later verses a placed line sings: its figure's `lyrics 2:`,
+    with any `lyrics 2 "..."` on the part's line written over them —
+    unless the line brings its own verse 1, whose later verses are then
+    only the line's own."""
+    if ref.get('lyrics'):
+        return dict(ref.get('verses') or {})
+    out = dict(ref.get('fig_verses') or {})
+    out.update(ref.get('verses') or {})
+    return out
 
 
 def xml_text(text):
@@ -3092,7 +3117,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                                      "played in — none written")
                     chartdemo.attach_lyrics(
                         res, ref.get('lyrics') or ref.get('fig_lyrics'),
-                        l, ref['loc'], findings)
+                        l, ref['loc'], findings, verses=ref_verses(ref))
                     resolved[l].append({'res': res, 'fall': ref['fall'],
                                         'short': ref.get('short', False),
                                         'every': ref.get('every'),
@@ -3140,7 +3165,8 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                          f"simplified and rhythmic-slashes, not "
                          f"'{detail}'")
                 if detail == 'rhythmic-slashes' and (ref.get('lyrics')
-                                                     or ref.get('fig_lyrics')):
+                                                     or ref.get('fig_lyrics')
+                                                     or ref_verses(ref)):
                     fail(f"{ref['loc']}: lyrics need pitches — a "
                          "slash rhythm carries none")
                 res = chartdemo.resolve_range(
@@ -3170,7 +3196,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     'drums', 'percussion')
                 chartdemo.attach_lyrics(
                     res, ref.get('lyrics') or ref.get('fig_lyrics'),
-                    l, ref['loc'], findings)
+                    l, ref['loc'], findings, verses=ref_verses(ref))
                 resolved[l].append({'res': res, 'fall': ref['fall'],
                                     'short': ref.get('short', False),
                                     'every': ref.get('every'),
@@ -3262,7 +3288,8 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     r = i['res']
                     if r.get('lyrics'):
                         # a double plays the line; only the voice sings
-                        r = dict(r, lyrics=None, lyrics_text=None)
+                        r = dict(r, lyrics=None, lyrics_text=None,
+                                 verses=None, verses_text=None)
                     steps = 0 if is_cue else plan.get('harm', {}).get(
                         target, 0)
                     if not shift and not is_cue and not steps and \
@@ -3834,6 +3861,7 @@ def build_plans(chart, band, groups, labels):
             legato, ghost = False, False
             no_trills = False
             fig_lifts, lyrics_text = [], None
+            verses_text = {}
             doubles, cues, detail_word = None, None, None
             harm = 0
             every_artic, dyn_marks, scoops, doit = None, [], [], False
@@ -3879,6 +3907,7 @@ def build_plans(chart, band, groups, labels):
                                           'file': fig['file'],
                                           'lo': fig['lo'], 'hi': fig['hi'],
                                           'fig_lyrics': fig.get('lyrics'),
+                                          'fig_verses': fig.get('verses'),
                                           'at': at, 'loc': loc})
                     elif fig['kind'] == 'inline':
                         demo_refs.append({'track': None, 'file': None,
@@ -3886,6 +3915,7 @@ def build_plans(chart, band, groups, labels):
                                           'grids': fig['grids'],
                                           'ticks': fig['ticks'],
                                           'fig_lyrics': fig.get('lyrics'),
+                                          'fig_verses': fig.get('verses'),
                                           'lo': 1, 'hi': fig['bars'],
                                           'at': at, 'loc': loc})
                     else:
@@ -4070,9 +4100,18 @@ def build_plans(chart, band, groups, labels):
                 if m:
                     groove_words = m.group(1) or ''
                     continue
-                m = re.match(r'lyrics "([^"]*)"$', piece)
-                if m:
-                    lyrics_text = m.group(1)
+                m = re.match(r'(?:lyrics|verse)(?:\s+(\d+))? "([^"]*)"$',
+                             piece)
+                if m and (m.group(1) or piece.startswith('lyrics')):
+                    v = int(m.group(1) or 1)
+                    if v < 1 or v > 9:
+                        fail(f"{loc}: verses run 1 to 9, not {v}")
+                    if v == 1:
+                        lyrics_text = m.group(2)
+                    else:
+                        if v in verses_text:
+                            fail(f"{loc}: verse {v} is written twice")
+                        verses_text[v] = m.group(2)
                     continue
                 m = re.match(r'text "([^"]*)"(?:\s+at bar (\d+))?$', piece)
                 if m:
@@ -4305,6 +4344,7 @@ def build_plans(chart, band, groups, labels):
                                                     ghost=ghost,
                                                     no_trills=no_trills,
                                                     lyrics=lyrics_text,
+                                                    verses=verses_text,
                                                     detail=detail_word,
                                                     every=every_artic,
                                                     doit=doit,

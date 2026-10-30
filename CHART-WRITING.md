@@ -225,7 +225,25 @@ recording convention, not a voicing.
   melisma), and the read-aloud sings every word on its note, "F 4
   'Green', A flat 4 'line'", so you hear exactly where each word
   landed before a singer ever does. Words riding in a from-xml figure
-  come along automatically.
+  come along automatically, every verse of them.
+
+  More verses go the same way, numbered: `lyrics 2:` under the first
+  verse's line, or `lyrics 2 "..."` on the part's line (which wins over
+  the figure's verse 2):
+
+      figure hook, 2 bars:
+        notes: C5 q, D5 q, E5 h, G5 q, E5 q, C5 h
+        lyrics: Green-line roll-ing home now
+        lyrics 2: Blue skies o-ver_ me
+
+  A later verse follows every rule above and may stop early, or skip a
+  phrase (`lyrics 2: Blue skies come / / ev-ery-where`); the notes after
+  it simply sing nothing in that verse. It can't have more syllables
+  than notes, and the build says which verse and which bar when it
+  does. The page prints each verse on its own line under the staff,
+  "1." and "2." on each verse's first word; the read-aloud says every
+  verse whole once, then each note's word in every verse, "F 4 'Green'
+  / 'Blue'".
 - **First and second endings** live inside a repeated section. The
   declared length is one pass, the way you'd say it on the stand:
 
@@ -1627,8 +1645,14 @@ octave, accidental, value and dot. The build says so when every part
 agrees and names the note when one does not. For a sung part it also
 translates the words back to print and checks them against the lyrics,
 and checks that every note is paired with the right syllable.
-An organ's third staff (the pedal line) and verses after the first
-are not brailled yet; the build names each one.
+A song with more than one verse gives each verse its own word line
+in every parallel, above the music and opening with the verse number
+("1.", "2."), and a transcriber's note says so; with chord symbols, the
+chord line sits under the first verse, placed against its words. The
+reader reads every verse back and checks, parallel by parallel, that
+each verse's words sit over the notes the score sings them on.
+An organ's third staff (the pedal line) is not brailled yet; the build
+names it.
 
 Percussion comes out too. A hand drum, a bell or a set of like drums
 reads single-line, its notes named by where they sit on the staff as

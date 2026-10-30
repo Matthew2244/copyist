@@ -28,6 +28,8 @@ STAFF = 4 * SP              # five lines
 PAGE_W, PAGE_H = 612, 792   # letter, points
 MARGIN = 46
 SYS_GAP = 13 * SP           # lyrics below one staff, headers above the next
+LYRIC_Y = 4.6 * SP          # verse 1's baseline under the staff
+VERSE_STEP = 2.4 * SP       # each later verse a line further down
 TITLE_H = 70
 
 STEPS = {'C': 0, 'D': 1, 'E': 2, 'F': 3, 'G': 4, 'A': 5, 'B': 6}
@@ -758,7 +760,7 @@ class Note:
                  'dots', 'chord', 'tie_start', 'tie_stop', 'slur_start',
                  'slur_stop', 'artic', 'slash', 'kick', 'head', 'parens',
                  'cue',
-                 'lyric', 'fermata',
+                 'lyric', 'lyrics', 'vfirst', 'ext_stop', 'fermata',
                  'tmod', 'measure_rest',
                  'grace', 'grace_slash', 'graces',
                  'trill', 'trill_acc', 'trill_to', 'wavy', 'trem',
@@ -803,9 +805,26 @@ def _parse_note(t):
     n.head = m.group(1) if m else None
     n.parens = 'parentheses="yes"' in t
     n.cue = '<cue/>' in t
-    m = re.search(r'<lyric[^>]*>\s*<syllabic>(\w+)</syllabic>\s*'
-                  r'<text[^>]*>([^<]*)</text>\s*(<extend[^>]*/>)?', t)
-    n.lyric = (m.group(1), m.group(2), bool(m.group(3))) if m else None
+    # every verse: {number: (syllabic, text, extends)}; a lyric with no
+    # number is verse 1, and "verse2"-style names count by their digits
+    n.lyrics = {}
+    n.ext_stop = set()
+    for la, lb in re.findall(r'<lyric\b([^>]*)>(.*?)</lyric>', t, re.S):
+        m = re.search(r'<text[^>]*>([^<]*)</text>', lb)
+        num = re.search(r'number="[^"]*?(\d+)"', la)
+        v = int(num.group(1)) if num else 1
+        if not m:
+            if re.search(r'<extend[^>]*type="stop"', lb):
+                n.ext_stop.add(v)        # a held syllable's line ends here
+            continue
+        if v in n.lyrics:
+            continue
+        sy = re.search(r'<syllabic>(\w+)</syllabic>', lb)
+        n.lyrics[v] = (sy.group(1) if sy else 'single', m.group(1),
+                       bool(re.search(r'<extend(?![^>]*type="stop")'
+                                      r'[^>]*/?>', lb)))
+    n.lyric = n.lyrics.get(1)
+    n.vfirst = ()
     m = re.search(r'<actual-notes>(\d+)</actual-notes>', t)
     n.tmod = int(m.group(1)) if m else None
     nt = re.search(r'<notations>(.*?)</notations>', t, re.S)
@@ -1138,7 +1157,7 @@ def parse_part(xml, pid):
         for pos, notes, staff, voice in meas['events']:
             row = []
             for n in notes:
-                if (n.tie_start or n.tie_stop or n.lyric or n.cue
+                if (n.tie_start or n.tie_stop or n.lyrics or n.cue
                         or n.slash):
                     return None
                 if not n.rest:
@@ -1168,7 +1187,25 @@ def parse_part(xml, pid):
             meas['simile'] = run
         else:
             run = 1
+    # more than one verse: each verse's first syllable carries its
+    # number, "1." "2.", the way a hymnal starts its stanzas
+    seen = {}
+    for meas in measures:
+        for _pos, notes, _st, _vo in sorted(meas['events'],
+                                            key=lambda e: e[0]):
+            for v in notes[0].lyrics or {}:
+                seen.setdefault(v, notes[0])
+    if len(seen) > 1:
+        for v, n in seen.items():
+            n.vfirst = tuple(sorted(set(n.vfirst) | {v}))
     return measures, None
+
+
+def verse_count(measures):
+    """How many lyric lines a part's page needs under its staff."""
+    return max((max(n.lyrics) for m in measures
+                for _p, ns, _s, _v in m['events'] for n in ns
+                if n.lyrics), default=1)
 
 
 def acc_text(m):
@@ -1445,7 +1482,10 @@ def engrave(xml_path, pdf_path, look=None):
         # so the lift never lands in the system above
         lift = max((chord_height(m, 0.0, m['state']) - 1.5 * SP
                     for m, _ in system), default=0.0)
-        if y - lift - (ph + SYS_GAP) < MARGIN - SYS_GAP:
+        # every verse past the first takes a lyric line of its own,
+        # and the system below moves down to make the room
+        extra = (verse_count([m for m, _ in system]) - 1) * VERSE_STEP
+        if y - lift - (ph + SYS_GAP + extra) < MARGIN - SYS_GAP:
             pdf.new_page()
             y = PAGE_H - MARGIN - 2 * SP
             first_page = False
@@ -1489,7 +1529,7 @@ def engrave(xml_path, pdf_path, look=None):
                        tops[-1] - STAFF - 2.6 * SP + 3, wk,
                        open_left=res, open_right=True)
             wedge_run['open'] = (None, wk, True)
-        y = tops[-1] - STAFF - SYS_GAP
+        y = tops[-1] - STAFF - SYS_GAP - extra
     pdf.save(pdf_path)
     return True, None
 
@@ -1565,8 +1605,10 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
     widths = [max(measure_width(m[j]) for _, m, _ in parts)
               for j in range(nmeas)]
 
+    # a part singing more than one verse needs a lyric line per verse
+    vgap = [(verse_count(m) - 1) * VERSE_STEP for _, m, _ in parts]
     sys_h = (sum(part_height(s) for _, _, s in parts)
-             + (len(parts) - 1) * SCORE_GAP)
+             + (len(parts) - 1) * SCORE_GAP + sum(vgap))
     per_sys = sys_h + SYS_HEAD + 4 * SP
     want = 2 if len(parts) > 3 else 3
     # a conductor's page is landscape — every working score is
@@ -1609,7 +1651,7 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
         for pi, (pname, measures, staves) in enumerate(parts):
             py -= lifts[pi]
             part_tops.append(staff_tops(py, staves))
-            py -= part_height(staves) + SCORE_GAP
+            py -= part_height(staves) + SCORE_GAP + vgap[pi]
         for (pname, measures, staves), tops in zip(parts, part_tops):
             if staves > 1:
                 draw_brace(pdf, M - 2, tops[0], tops[-1] - STAFF)
@@ -1685,7 +1727,7 @@ def engrave_score(xml, pids, names, pdf_path, look=None):
                            ptops[-1] - STAFF - 2.6 * SP + 3, wk,
                            open_left=res, open_right=True)
                 wr['open'] = (None, wk, True)
-        y = part_tops[-1][-1] - STAFF - SYS_HEAD - 2 * SP
+        y = part_tops[-1][-1] - STAFF - SYS_HEAD - 2 * SP - vgap[-1]
     pdf.save(pdf_path)
     return True, None
 
@@ -2202,16 +2244,23 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
     return x0 + width
 
 
-_EXT_CARRY = set()   # streams whose melisma line runs on into the next bar
+_EXT_CARRY = set()   # (stream, verse) whose melisma line runs on into
+                     # the next bar
 
 
-def _melisma_end(events, ei, xat, half):
+def _verse_y(bottom_y, v):
+    return bottom_y - LYRIC_Y - (v - 1) * VERSE_STEP
+
+
+def _melisma_end(events, ei, xat, half, v=1):
     """(x where a held syllable's line ends, does it run past the bar)."""
     last = None
     for p2, ns2 in events[ei + 1:]:
-        if ns2[0].rest or ns2[0].lyric:
+        if ns2[0].rest or v in (ns2[0].lyrics or {}):
             return (xat(last) + half if last is not None else -1e9), False
         last = p2
+        if v in (ns2[0].ext_stop or ()):
+            return xat(last) + half, False
     return (xat(last) + half if last is not None else -1e9), True
 
 
@@ -2226,16 +2275,18 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
     gliss_open = []
     slur_open = opens if opens is not None else []
     drawn = []
-    if opens is not None and id(opens) in _EXT_CARRY:
+    for key in sorted(k for k in _EXT_CARRY
+                      if opens is not None and k[0] == id(opens)):
         # a melisma held over the barline: its line goes on here
-        _EXT_CARRY.discard(id(opens))
-        end_x, more = _melisma_end(events, -1, xat, head_half(pdf))
+        _EXT_CARRY.discard(key)
+        v = key[1]
+        end_x, more = _melisma_end(events, -1, xat, head_half(pdf), v)
         if more:
             end_x = x0 + width - 0.6 * SP
-            _EXT_CARRY.add(id(opens))
+            _EXT_CARRY.add(key)
         if end_x > x0:
-            pdf.line(x0 + 0.5 * SP, bottom_y - 4.6 * SP, end_x,
-                     bottom_y - 4.6 * SP, w=0.8)
+            pdf.line(x0 + 0.5 * SP, _verse_y(bottom_y, v), end_x,
+                     _verse_y(bottom_y, v), w=0.8)
     # notes that will beam together share one stem direction, decided
     # by the whole group — a lone dissenter would get its stem drawn
     # from the wrong side of the beam, a pole through the staff
@@ -2493,24 +2544,28 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                 slur_open.append((cx + 0.8 * half,
                                   (max(ys) if sup else min(ys)), sup,
                                   'tie', up, max(ys)))
-        if n0.lyric:
-            syl, txt, ext = n0.lyric
+        for v, (syl, txt, ext) in sorted((n0.lyrics or {}).items()):
+            # each verse on its own line under the staff, verse 1 on
+            # top; with several verses, each verse's first syllable
+            # carries its number
+            ly = _verse_y(bottom_y, v)
             shown = txt + ("" if syl in ('single', 'end') else " -")
-            lx = pdf.text(cx, bottom_y - 4.6 * SP, shown, size=8.5,
-                          font='H', center=True)
+            lx = pdf.text(cx, ly, shown, size=8.5, font='H', center=True)
+            if v in (n0.vfirst or ()):
+                tag = f"{v}. "
+                pdf.text(lx - pdf.tw(tag, 8.5, 'H'), ly, tag, size=8.5,
+                         font='H')
             if ext:
                 # the line runs under every note the vowel is held
                 # through, to the last one (it had stopped at the
                 # syllable's own note), on into the next bar if need be
-                end_x, more = _melisma_end(events, ei, xat, half)
+                end_x, more = _melisma_end(events, ei, xat, half, v)
                 if more:
                     end_x = x0 + width - 0.6 * SP
-                    _EXT_CARRY.add(id(slur_open))
+                    _EXT_CARRY.add((id(slur_open), v))
                 pdf.line(lx + max(0.55 * 8.5 * len(shown),
-                                  pdf.tw(shown, 8.5, 'H')) + 2,
-                         bottom_y - 4.6 * SP,
-                         max(end_x, xat(pos + n0.dur * 0.9)),
-                         bottom_y - 4.6 * SP, w=0.8)
+                                  pdf.tw(shown, 8.5, 'H')) + 2, ly,
+                         max(end_x, xat(pos + n0.dur * 0.9)), ly, w=0.8)
         if n0.trill or n0.wavy:
             draw_trill(pdf, n0, cx, ys, top, clef,
                        xat(pos + n0.dur) if n0.dur else cx + 3 * SP)
@@ -2613,10 +2668,10 @@ def drain_ties(pdf, carry, edge):
                 (1 if sup else -1)
             draw_arc(pdf, sx, sy + 0.3 * arc, edge, sy + 0.3 * arc, arc)
             fresh.append((None, None, sup))
-        if id(opens) in _EXT_CARRY:
+        for k in [k for k in _EXT_CARRY if k[0] == id(opens)]:
             # a held syllable's line carries to the next system too
-            _EXT_CARRY.discard(id(opens))
-            _EXT_CARRY.add(id(fresh))
+            _EXT_CARRY.discard(k)
+            _EXT_CARRY.add((id(fresh), k[1]))
         carry[key] = fresh
 
 
