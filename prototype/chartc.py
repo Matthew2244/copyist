@@ -2658,6 +2658,68 @@ def _opens_held(plans, i, label):
         (len(p) > 0 and min(p) > 1.0)
 
 
+def push_plan(plans, labels):
+    """Where every push ties, for the page, the listen and the read-aloud
+    alike: {(section index, label): {bar: (tie in, tie out)}}. A push
+    ties into whatever bar is played next when that bar opens on the
+    held chord: the next bar of the section; EVERY ending after the
+    body's last bar (it had reached ending 1 only); the next section
+    after a section's last bar, repeated or not (the last time round;
+    a vamp goes round, so it never ties out). The last bar of an ending
+    that goes back to the top, and the chart's last bar, never tie.
+    Each Beats learns .holds, so the read-aloud promises a hold only
+    where the page writes one."""
+    def opens_held(p):
+        return p is None or getattr(p, 'held', False) or \
+            (len(p) > 0 and min(p) > 1.0)
+    out = {}
+    for pi, pl in enumerate(plans):
+        sec = pl['sec']
+        n = sec['bars']
+        ends = sec.get('endings') or []
+        body = sec.get('body') if ends else None
+        elen = ends[0]['bars'] if ends else 0
+        for label in labels:
+            hm, _s = _section_hits(plans, pi, label)
+            if not hm:
+                continue
+            got = out.setdefault((pi, label), {})
+
+            def pat(b):
+                return hm.get(b, hm.get(None))
+            for b in range(1, n + 1):
+                p = pat(b)
+                if not getattr(p, 'push', False):
+                    continue
+                if ends and b == body:
+                    nexts = [('in', body + 1 + k * elen)
+                             for k in range(len(ends))]
+                elif ends and b > body and (b - body) % elen == 0 \
+                        and b < n:
+                    nexts = []          # back to the top: no tie round
+                elif b < n:
+                    nexts = [('in', b + 1)]
+                elif sec.get('open'):
+                    nexts = []
+                else:
+                    nexts = [('next', 1)]
+                ok = bool(nexts) and all(
+                    opens_held(pat(nb)) if w == 'in'
+                    else _opens_held(plans, pi + 1, label)
+                    for w, nb in nexts)
+                p.holds = ok
+                if not ok:
+                    continue
+                t_in, _t = got.get(b, (False, False))
+                got[b] = (t_in, True)
+                for w, nb in nexts:
+                    tgt = got if w == 'in' else out.setdefault(
+                        (pi + 1, label), {})
+                    _ti, t_o = tgt.get(nb, (False, False))
+                    tgt[nb] = (True, t_o)
+    return out
+
+
 def hits_bar(pattern, div, clef, staves, fifths, meter=(4, 4),
              tie_in=False, tie_out=None):
     """Rhythmic kicks: slash noteheads WITH stems at the named beats,
@@ -5021,6 +5083,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                   findings=None, meter=(4, 4), div_marks=None):
     demo_measures = demo_measures or {l: {} for l in labels}
     div_marks = div_marks or {}
+    PUSHES = push_plan(plans, labels)
     # ---- the ending: words and a fermata on the pages, the whole
     # performance in the listen (chartending)
     import chartending
@@ -6230,7 +6293,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     LEAD['map'].get(key_, ()), bmeter,
                     LEAD['ties'].get(key_)) if listen and LEAD['map'] and (
                         my_role == 'drums' or together or (
-                            my_role == 'bass'
+                            my_role in ('bass', 'comp')
                             and sec.get('_energy', 0) >= 0.8)) \
                     else None
                 resumed = None
@@ -6555,6 +6618,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                           '</attributes>\n')
                             resume_div = cur_div
                             cur_div = gdiv
+                        # the listen ties a push exactly where the page does
+                        groove_state['tie_in_now'], \
+                            groove_state['tie_out_now'] = PUSHES.get(
+                                (pi_, label), {}).get(off + 1, (False, False))
                         made = None if not LISTEN_OPTS['grooves'] else \
                             chartgroove.realize(
                             'hits', arg, sound_id, clef, staves,
@@ -6569,24 +6636,10 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                             realized_bars[label] = \
                                 realized_bars.get(label, 0) + 1
                     elif pattern or getattr(pattern, 'held', False) or \
-                            getattr(hmap.get(off) if off > 0 else None,
-                                    'push', False) or (
-                            off == 0 and _pushes_out(plans, pi_ - 1,
-                                                     label)):
-                        t_in, t_out = push_ties(hmap, off + 1,
-                                                sec['bars'])
-                        # across a section line: a push in the last bar
-                        # ties into the next section's held first bar
-                        # (never out of a repeat, which goes round)
-                        if off + 1 == sec['bars'] and \
-                                getattr(hmap.get(off + 1), 'push', False) \
-                                and _opens_held(plans, pi_ + 1, label) \
-                                and not sec['repeat'] and not sec['open']:
-                            t_out = True
-                        if off == 0 and _pushes_out(plans, pi_ - 1,
-                                                    label) and \
-                                _opens_held(plans, pi_, label):
-                            t_in = True
+                            PUSHES.get((pi_, label), {}).get(
+                                off + 1, (False, False))[0]:
+                        t_in, t_out = PUSHES.get((pi_, label), {}).get(
+                            off + 1, (False, False))
                         pieces.append(hits_bar(
                             pattern if pattern is not None else Beats(),
                             div, clef, staves, fifths, bmeter,

@@ -8710,6 +8710,50 @@ def check_band_hears_the_push():
                    abs(e[0] - (2.5 * b + 2.0)) < 0.05 for e in fv["drums"]):
                 ok = False
     check("no loud kick on 5/8's last eighth", ok)
+
+    # pushes tie where the page ties them: into both endings, out of a
+    # repeat into the next section, and the piano catches them every take
+    band = "band:\n  alto\n  trumpet\n  trombone\n  piano\n  bass\n  drums\n\n"
+    head = "key: Bb\nmeter: 4/4\ntempo: 170\nfeel: swing\n\n" + band
+    en = listen("title: En\n" + head + "section A, 3 bars, repeat 2x\n"
+                "  chords: Bb7, F7\n"
+                "  horns: hits bar 1 on 1, hits bar 2 on 4+ push\n"
+                "  ending 1, 1 bar: chords: C7\n"
+                "  ending 2, 1 bar: chords: F7\n", "ends")
+    holds = [e[1] for e in en["trumpet"] if e[0] % 1 == 0.5]
+    check("a push before the endings holds into ending 1 and ending 2",
+          len(holds) == 2 and min(holds) >= 4.4, holds)
+    rp = listen("title: Rp\n" + head + "section A, 2 bars, repeat 2x\n"
+                "  chords: Bb7, F7\n"
+                "  horns: hits bar 1 on 2, hits bar 2 on 4+ push\n\n"
+                "section B, 2 bars\n  chords: Eb7, Bb7\n"
+                "  horns: hits bar 1 on 4+ push\n\n"
+                "section C, 2 bars\n  chords: F7, Bb7\n", "rep")
+    tp = {round(e[0], 2): e[1] for e in rp["trumpet"]}
+    check("a repeat's last push holds into the next section; a push into "
+          "an empty bar holds through it, as the page ties",
+          tp.get(15.5, 0) >= 3.9 and tp.get(19.5, 0) >= 4.4, tp)
+    rd = open(os.path.join(tmp, "ends", "b", [
+        x for x in os.listdir(os.path.join(tmp, "ends", "b"))
+        if x.endswith("score.musicxml")][0])).read()
+    check("the page ties the push into both endings",
+          rd.count('<tie type="stop"/>') >= 2 * 3)
+    missed = 0
+    import chartc as _c
+    for take in range(1, 9):
+        _c.TAKE = str(take)
+        sh = listen("title: Sh\n" + head + "section shout, 4 bars\n"
+                    "  chords: Bb7, Eb7, F7, Bb7\n"
+                    "  horns: hits bar 1 on 1 2+ 4+ push, hits bar 2 on "
+                    "4+ push\n  ending: as written\n", f"sh{take}")
+        for h in (3.5, 7.5):
+            pn = sh["piano"]
+            if not any(abs(e[0] - h) < 0.06 for e in pn) or any(
+                    abs(e[0] - h - 0.5) < 0.06 for e in pn):
+                missed += 1
+    _c.TAKE = ''
+    check("the piano pushes with the horns on every take", missed == 0,
+          missed)
     shutil.rmtree(tmp, ignore_errors=True)
 
 

@@ -422,7 +422,11 @@ def part_section(plan, label, chord_parts, figures=None):
                                    + said[-1] if len(said) > 1
                                    else said[0] if said else "nothing")
             if getattr(pat, 'push', False):
-                w += ", the last one pushed, held into the next bar"
+                # held only where the page ties it (not round a repeat
+                # to the top, never past the chart's end)
+                w += (", the last one pushed, held into the next bar"
+                      if getattr(pat, 'holds', True)
+                      else ", the last one pushed")
             return w
         if None in hmap:
             bits.append("every bar " + kick_words(hmap[None]))
@@ -541,6 +545,7 @@ def main():
     chartc.resolve_trades(chart, band, groups)
     plans, total = chartc.build_plans(chart, band, groups, labels)
     chartc.road_cues(plans, band, labels, None)   # who cues, where cuts go
+    chartc.push_plan(plans, labels)     # where each push really ties
     findings = chartdemo.Findings()
     meter = chartc.parse_meter(hdr.get('meter', '4/4'))
     resolved, horn_of, key = chartc.resolve_demo(chart, plans, band, labels,

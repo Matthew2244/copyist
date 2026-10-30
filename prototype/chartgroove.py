@@ -1313,9 +1313,37 @@ def _bass_catch(bar, state, chords, hits, nxt=None):
         state['bass'] = m
 
 
-def _tie_in(bar, held):
+def _comp_catch(bar, state, chords, hits, nxt=None):
+    """Comping through a shout, the pianist still pushes with the band:
+    whatever was ringing stops at the and of 4, the next chord goes
+    there with the horns and ties over (the piano had struck beat 1
+    under a push, or held this bar's chord straight through it)."""
+    beat = bar.div * 4 // bar.den
+    for h in hits:
+        if not _push(h):
+            continue
+        c = nxt or _chord_at(chords, h[0] + 1.0)
+        if c is None:
+            continue
+        t = int(round(h[0] * beat))
+        for k in list(bar.onsets):
+            ln_, ns = bar.onsets[k]
+            if k >= t:
+                del bar.onsets[k]
+            elif k + ln_ > t:
+                bar.onsets[k] = (t - k, ns)
+        ms = rootless_voicing(c, None)
+        for m in ms:
+            bar.add(t, bar.barlen - t, ('p', m, 100, ('accent',),
+                                        ('start',)))
+        state['push_tie'] = ms
+
+
+def _tie_in(bar, held, whole=False):
     """The bar after a push: the pushed notes hold through the downbeat
-    (tied), and nothing else of this part strikes on 1."""
+    (tied), and nothing else of this part strikes on 1. A horn (whole)
+    holds to its next hit or the barline, as the page ties it; the
+    rhythm section holds a beat and plays on."""
     if not held:
         return
     beat = bar.div * 4 // bar.den
@@ -1328,7 +1356,8 @@ def _tie_in(bar, held):
             del bar.onsets[0]
     nxt = min([k for k in bar.onsets if k > 0], default=bar.barlen)
     for m in held:
-        bar.add(0, max(min(beat, nxt), 1), ('p', m, 96, (), ('stop',)))
+        bar.add(0, max(nxt if whole else min(beat, nxt), 1),
+                ('p', m, 96, (), ('stop',)))
 
 
 def _kicks_of(hits):
@@ -3173,6 +3202,12 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
     role = role_of(sound_id, clef)
     # last bar's push, held over into this one (whatever this bar is)
     tied = state.pop('push_tie', None)
+    if tied:
+        state['last_push'] = tied
+    if role is None and kind == 'hits' and 'tie_in_now' in state:
+        # a horn's push ties where the page ties it: into every ending,
+        # into the next section, never round a repeat to the top
+        tied = state.get('last_push') if state.pop('tie_in_now') else None
     if role is None and kind != 'hits':
         if not tied:
             return None
@@ -3206,9 +3241,13 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         tie_ok = off + 1 < sec['bars'] and (
             nh is None or getattr(nh, 'held', False)
             or (len(nh) > 0 and min(nh) > 1.0))
+        tie_ok = state.pop('tie_out_now', tie_ok)
         _horn_hits(bar, state, chords, state['hits'], bmeter,
                    _next_chord(sec, off, chords), tie_ok)
-        _tie_in(bar, tied)
+        # held the way the page ties it: to this bar's first hit, or
+        # through the bar when it has none (the page's whole-bar tie had
+        # sounded a beat and a half)
+        _tie_in(bar, tied, whole=True)
         state['hits'] = None
         if not bar.onsets:
             return None
@@ -3391,9 +3430,9 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
         if ENSEMBLE_NOW:
             _bass_catch(bar, state, chords, ENSEMBLE_NOW,
                         _next_chord(sec, off, chords))
-    elif ENSEMBLE_NOW and _with_the_kicks(bar, state, chords,
-                                          ENSEMBLE_NOW, 'comp',
-                                          _next_chord(sec, off, chords)):
+    elif ENSEMBLE_NOW and KICKS_TOGETHER and _with_the_kicks(
+            bar, state, chords, ENSEMBLE_NOW, 'comp',
+            _next_chord(sec, off, chords)):
         pass
     else:
         state['next_chord'] = None
@@ -3402,6 +3441,9 @@ def realize(kind, arg, sound_id, clef, staves, fifths, sec, off,
                                         sec['content'][off + 1]
                                         if c is not None), None)
         _comp(bar, state, absbar, feel, chords, sound_id, heat)
+        if ENSEMBLE_NOW:
+            _comp_catch(bar, state, chords, ENSEMBLE_NOW,
+                        _next_chord(sec, off, chords))
     state['hits'] = None
     if _new_style(feel, bar) and OPTS['builds']:
         # the styled grooves (gospel, funk, reggae, the Latin and
