@@ -658,6 +658,14 @@ def main():
                    f"{'section' if len(plans) == 1 else 'sections'}, "
                    f"{total} bars" +
                    (", plus a pickup." if chart['pickup'] else "."))
+        roles = [chartc.canonical_instrument(b['instrument']) for b in band]
+        if chartc.choir_word(hdr.get('choir')) and all(
+                roles.count(r_) == 1 for r_ in chartc.CHOIR_ROLES):
+            # the page's layout, said once; every voice is still read
+            # (and printed, and brailled) on its own
+            out.append("The score prints the choir on two staves: soprano "
+                       "and alto on the upper, tenor and bass on the "
+                       "lower. Each voice's own part reads alone.")
         for plan in plans:
             if a.section and plan['sec']['name'].lower() != a.section.lower():
                 continue

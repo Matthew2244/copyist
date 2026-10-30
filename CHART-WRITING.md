@@ -67,6 +67,21 @@ Copyist window that `windows\Copyist.bat` opens.
   on, you speak your DAW's bar numbers everywhere in the chart, and every
   spoken read-back uses them too. Only the printed page counts from one.
   Players never see your count-in.
+- `choir: two staves` prints a choir the way a hymnal or a choral
+  octavo does: in the score, soprano and alto share a treble staff
+  (soprano stems up, alto down) and tenor and bass share a bass staff
+  (tenor up, bass down). Where all four sing the same words on the same
+  rhythm, the words print once, between the staves; where a voice has
+  its own words, each staff keeps its own line, and a lower voice that
+  sings exactly the words of the voice above it on that staff doesn't
+  repeat them. Barlines stop at each staff so the words stay clear.
+  The band list needs one soprano, one alto, one tenor and one bass;
+  without them the findings say so and the score keeps a staff per
+  voice, which is also what you get without this line (`choir: four
+  staves` says it outright). Only the score changes: every singer's
+  own part, read-aloud and braille stays one voice, and the listen
+  sings all four. In the MusicXML the choir is one part on two staves,
+  voices 1 to 4, which MuseScore and Sibelius open as written.
 - `dynamics: by hand` means you'll dictate the dynamics. Leave it out and
   the build reads your expression pedal (CC 11) instead and drafts marks
   for you to correct.
@@ -102,6 +117,17 @@ the upright on swing, a waltz, a ballad, bossa, latin or nothing said;
 the electric on funk, rock, pop, R&B, Motown, reggae, hip hop or
 gospel. The findings say which, and `bass = upright` or `bass =
 electric bass` settles it yourself. A bare `alto` or `tenor` is the sax.
+
+Clefs follow the players. The viola reads alto clef. When a trombone,
+bassoon, euphonium or cello climbs, its part changes to tenor clef for
+the passage and back to bass clef when the line comes down, the way
+their books are printed; it goes to treble only when the line is high
+enough that tenor clef would still leave notes two ledger lines up (a
+cello up near the top of its range, say). Other bass-clef parts that
+climb, like the tuba, go to treble. A change only happens when it saves
+a real handful of ledger lines, so the part doesn't flicker between
+clefs, and singers never change clef. The tenor voice reads treble
+with the little 8 under it, at sounding pitch.
 
 The instrument table covers the whole ensemble world. Full woodwinds
 and brass, strings with their own clefs, the rhythm section, all the
@@ -1629,6 +1655,17 @@ translates the words back to print and checks them against the lyrics,
 and checks that every note is paired with the right syllable.
 An organ's third staff (the pedal line) and verses after the first
 are not brailled yet; the build names each one.
+
+A part that changes clef in print, like a trombone going into tenor
+clef, carries the braille clef sign where the change happens, and a
+transcriber's note says the sign shows the print and changes no notes.
+Singers get their own braille part each, whatever the score does.
+When a choir in closed score is brailled (four voices on two staves,
+as `choir: two staves` writes the score), it comes out the way BANA
+writes vocal music, in open score: each voice on its own, soprano,
+alto, tenor, then bass, each carrying the words it sings, with a
+transcriber's note saying that print shares the staves. The
+proofreader reads each voice back against its own line.
 
 Percussion comes out too. A hand drum, a bell or a set of like drums
 reads single-line, its notes named by where they sit on the staff as

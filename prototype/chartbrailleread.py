@@ -345,6 +345,11 @@ def read_line(r, s):
             i += 2
             in_event = False
             continue
+        clef = re.match(r'>(?:/|#|\+"?)L', s[i:])
+        if clef:                                   # a clef sign (3.1)
+            i += clef.end()
+            r.fresh()
+            continue
         if c == '>':
             i = take_word(i)
             r.fresh()                              # 22.3 (e)

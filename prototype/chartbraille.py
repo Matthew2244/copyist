@@ -104,6 +104,15 @@ SECTION_BAR = FINAL_BAR + cell(3)
 REPEAT_FWD = cell(1, 2, 6) + cell(2, 3, 5, 6)   # Table 17
 REPEAT_BACK = cell(1, 2, 6) + cell(2, 3)
 SEGNO = cell(3, 4, 6)                        # Table 20
+# Table 3: the print's clef, said where a part changes clef (a cello
+# going up into tenor or treble). Braille pitch never needs one; the
+# sign tells the reader what the print in front of the others shows.
+CLEF_SIGNS = {'G': cell(3, 4, 5) + cell(3, 4) + cell(1, 2, 3),
+              'F': cell(3, 4, 5) + cell(3, 4, 5, 6) + cell(1, 2, 3),
+              'C': cell(3, 4, 5) + cell(3, 4, 6) + cell(1, 2, 3),
+              # a C clef off the third line names its line: dot 5 the
+              # fourth, the tenor clef
+              'C4': cell(3, 4, 5) + cell(3, 4, 6) + cell(5) + cell(1, 2, 3)}
 CODA = cell(3, 4, 6) + cell(1, 2, 3)
 CAPITAL = cell(6)
 # Table 22(A), in the order 22.1 gives them: staccato, accents, tenuto
@@ -607,8 +616,12 @@ def measure_units_(meas, slurs, staff=1, down=None, words=True):
 def _down(meas):
     """9.2: treble and alto parts write a chord's top note and read
     down; bass and tenor parts write the bottom note and read up;
-    percussion reads up (34.2.3)."""
-    return meas['state']['clefs'].get(1, 'G') not in ('F', 'percussion')
+    percussion reads up (34.2.3). A part that moves into another clef
+    for a high passage keeps its own direction (`_home_down`)."""
+    if '_home_down' in meas:
+        return meas['_home_down']
+    return meas['state']['clefs'].get(1, 'G') not in ('F', 'C4',
+                                                      'percussion')
 
 
 def _bar_length(meas):
@@ -1037,11 +1050,168 @@ def paper(text):
                      "32x25")
 
 
+CHOIR_VOICES = ((1, 1, 'Soprano'), (2, 1, 'Alto'), (3, 2, 'Tenor'),
+                (4, 2, 'Bass'))
+CHOIR_NOTE = ("In print, this choir shares two staves: soprano and alto "
+              "on the upper, tenor and bass on the lower. Braille music "
+              "writes each voice on its own, in open score, so the voices "
+              "follow one after another: soprano, alto, tenor, then bass. "
+              "Where print gives the words once for every voice, each "
+              "voice carries them here.")
+
+
+def choir_voices(xml, pid):
+    """A choir in closed score (four voices on two staves, as Copyist's
+    `choir: two staves` writes it) -> [(voice name, a one-voice
+    document)], soprano to bass; None for any other part. BANA brails
+    vocal music in open score, a voice at a time, so a closed score is
+    taken apart before it is brailled. Words printed once for the whole
+    choir go to every voice singing that rhythm."""
+    body = re.search(r'<part id="%s">(.*?)</part>' % re.escape(pid), xml,
+                     re.S)
+    if not body or '<staves>2</staves>' not in body.group(1) or \
+            '<lyric' not in body.group(1):
+        return None
+    pairs = {(re.search(r'<voice>(\d+)</voice>', n_) or [0, '1'])[1]
+             + ':' + (re.search(r'<staff>(\d+)</staff>', n_) or [0, '1'])[1]
+             for n_ in re.findall(r'<note\b.*?</note>', body.group(1),
+                                  re.S)}
+    if pairs != {'1:1', '2:1', '3:2', '4:2'}:
+        return None
+    pat = (r'<attributes>.*?</attributes>|<direction\b.*?</direction>|'
+           r'<harmony\b.*?</harmony>|<note\b.*?</note>|'
+           r'<backup>.*?</backup>|<forward>.*?</forward>|'
+           r'<barline\b.*?</barline>|<print\b[^>]*/>')
+    measures = re.findall(r'(<measure\b[^>]*>)(.*?)(</measure>)',
+                          body.group(1), re.S)
+
+    def items(inner):
+        pos, last, out = 0, 0, []
+        for el in re.finditer(pat, inner, re.S):
+            t = el.group(0)
+            d = re.search(r'<duration>(\d+)</duration>', t)
+            d = int(d.group(1)) if d else 0
+            if t.startswith('<backup'):
+                pos -= d
+                continue
+            if t.startswith('<forward'):
+                pos += d
+                continue
+            if t.startswith('<note'):
+                v = int(re.search(r'<voice>(\d+)</voice>', t).group(1))
+                if '<chord/>' in t:
+                    out.append((last, 'note', t, v))
+                    continue
+                out.append((pos, 'note', t, v))
+                last = pos
+                if '<grace' not in t:
+                    pos += d
+                continue
+            st = re.search(r'<staff>(\d+)</staff>', t)
+            out.append((pos, t[1:t.index('>') if '>' in t else 4]
+                        .split()[0].rstrip('/'), t,
+                        int(st.group(1)) if st else 0))
+        return out
+
+    def words_at(its, v):
+        got = {}
+        for p_, kind, t, vv in its:
+            if kind == 'note' and vv == v and '<chord/>' not in t:
+                ly = re.findall(r'<lyric\b.*?</lyric>', t, re.S)
+                if ly:
+                    got[p_] = ly
+        return got
+    docs = []
+    for v, staff, name in CHOIR_VOICES:
+        bars = []
+        for head, inner, tail in measures:
+            its = items(inner)
+            mine = words_at(its, v)
+            sings = any(kind == 'note' and vv == v and '<pitch>' in t
+                        for _p, kind, t, vv in its)
+            lend = {}
+            if sings and not mine:
+                # the words printed once, for every voice: from the
+                # voice above on this staff, else the soprano's
+                for src in ((1,) if v in (2, 3) else (3, 1) if v == 4
+                            else ()):
+                    lend = words_at(its, src)
+                    if lend:
+                        break
+            out = []
+            for p_, kind, t, vv in its:
+                if kind == 'note':
+                    if vv != v:
+                        continue
+                    t = re.sub(r'<voice>\d+</voice>', '<voice>1</voice>', t)
+                    t = re.sub(r'\s*<staff>\d+</staff>', '', t)
+                    t = re.sub(r'<lyric name="[^"]*"', '<lyric', t)
+                    if lend.get(p_) and '<chord/>' not in t and \
+                            '<lyric' not in t and '<pitch>' in t:
+                        t = t.replace('</note>', ''.join(
+                            re.sub(r'<lyric name="[^"]*"', '<lyric', x)
+                            for x in lend[p_]) + '</note>')
+                    out.append((p_, 1, t))
+                elif kind == 'attributes':
+                    t = re.sub(r'<staves>\d+</staves>', '', t)
+                    clefs = re.findall(r'<clef number="(\d)">(.*?)</clef>',
+                                       t, re.S)
+                    if clefs:
+                        mine_c = dict(clefs).get(str(staff), clefs[0][1])
+                        t = re.sub(r'<clef\b.*</clef>',
+                                   f'<clef>{mine_c}</clef>', t, flags=re.S)
+                    out.append((p_, 0, t))
+                elif kind == 'harmony':
+                    if v == 1:
+                        out.append((p_, 0, t))
+                elif kind == 'direction':
+                    # a dynamic or hairpin is its staff's; words,
+                    # marks and tempo are everyone's
+                    if vv in (0, staff) or not re.search(
+                            r'<dynamics|<wedge', t):
+                        out.append((p_, 0, re.sub(
+                            r'\s*<staff>\d+</staff>', '', t)))
+                elif kind == 'barline':
+                    out.append((-1 if 'location="left"' in t else 10 ** 9,
+                                0, t))
+                elif kind == 'print' and v == 1:
+                    out.append((p_, 0, t))
+            out.sort(key=lambda e: (e[0], e[1]))
+            bars.append(head + '\n'.join(t for _p, _o, t in out) + tail)
+        doc = re.sub(r'<part-list>.*</part-list>',
+                     f'<part-list><score-part id="P1"><part-name>{name}'
+                     '</part-name></score-part></part-list>', xml,
+                     count=1, flags=re.S)
+        doc = re.sub(r'<part id="[^"]*">.*</part>',
+                     lambda _m: '<part id="P1">' + ''.join(bars)
+                     + '</part>', doc, count=1, flags=re.S)
+        docs.append((name, doc))
+    return docs
+
+
 def part_to_brf(xml, pid, title, part_name, chords=True, page=None):
     """The braille for one part, on a page of `page` = (cells, lines),
-    standard 40 by 25 when not given."""
+    standard 40 by 25 when not given. A choir in closed score comes out
+    a voice at a time (open score, BANA's way), each voice's braille
+    starting its own page 1, the transcriber's note on the first."""
     global LINE, PAGE
     xml = xml.replace('&amp;', '&')     # escaped text, brailled plain
+    voices = choir_voices(xml, pid)
+    if voices:
+        texts, said = [], []
+        for k, (name, doc) in enumerate(voices):
+            t, why = part_to_brf(doc, 'P1', title,
+                                 f"{part_name}, {name.lower()}", chords,
+                                 page)
+            if t is None:
+                return None, why
+            if k == 0:
+                t = _with_note(doc, t, title,
+                               f"{part_name}, {name.lower()}", chords,
+                               page)
+            texts.append(t)
+            said += [w for w in why if w not in said]
+        return '\f'.join(texts), said
     _KICKING[0] = False
     keep = LINE, PAGE
     LINE, PAGE = page or (40, 25)
@@ -1049,6 +1219,37 @@ def part_to_brf(xml, pid, title, part_name, chords=True, page=None):
         return _part_to_brf(xml, pid, title, part_name, chords)
     finally:
         LINE, PAGE = keep
+
+
+def _with_note(doc, text, title, part_name, chords, page):
+    """The first voice of a closed score again, with the note saying
+    how the choir was taken apart."""
+    global LINE, PAGE
+    keep = LINE, PAGE
+    LINE, PAGE = page or (40, 25)
+    _EXTRA_NOTES[:] = [CHOIR_NOTE]
+    try:
+        got, _w = _part_to_brf(doc, 'P1', title, part_name, chords)
+        return got if got is not None else text
+    finally:
+        _EXTRA_NOTES[:] = []
+        LINE, PAGE = keep
+
+
+def split_voices(brf_text):
+    """A closed score's braille back into its voices: each voice's
+    braille starts at its own page 1."""
+    docs = []
+    for pg in brf_text.split('\f'):
+        first = pg.split('\r\n', 1)[0].rstrip()
+        if first.endswith(' #A') or not docs:
+            docs.append([pg])
+        else:
+            docs[-1].append(pg)
+    return ['\f'.join(d) for d in docs]
+
+
+_EXTRA_NOTES = []
 
 
 def _part_to_brf(xml, pid, title, part_name, chords=True):
@@ -1073,6 +1274,19 @@ def _part_to_brf(xml, pid, title, part_name, chords=True):
     pager = Pager(title)
     pager.add(_center(literary(part_name)))
     _SHAPES.clear()
+    # a part that changes clef in print (a trombone up into tenor
+    # clef) says each change with its clef sign; its chords keep the
+    # direction its own clef reads in
+    home = _down(measures[0])
+    clef_moves = False
+    for k, m in enumerate(measures):
+        m['_home_down'] = home
+        was = measures[k - 1]['state']['clefs'].get(1) if k else None
+        now = m['state']['clefs'].get(1)
+        if k and now != was and m['state'].get('staves', 1) == 1 \
+                and now in CLEF_SIGNS:
+            m['_clef_sign'] = CLEF_SIGNS[now]
+            clef_moves = True
     perc = any(m['state']['clefs'].get(1) == 'percussion' for m in measures)
     comps = []
     if perc:
@@ -1112,6 +1326,10 @@ def _part_to_brf(xml, pid, title, part_name, chords=True):
                      "follow are print kicks: hit the chord symbols in "
                      "that rhythm, ties and holds as written; their pitch "
                      "is only where the print places them.")
+    notes += _EXTRA_NOTES
+    if clef_moves:
+        notes.append("A clef sign shows where the print changes clef; "
+                     "it does not change the notes.")
     paras = [' '.join(notes)] if notes else []
     legend = [c for c in comps if c['legend']]
     if legend:
@@ -1254,6 +1472,8 @@ def _measure_frame(m, i, slurs, in_slash):
     pre = [SEGNO if sgn == 'segno' else CODA for sgn in m['signs']]
     st = m['state']
     sig = ''
+    if m.get('_clef_sign'):
+        pre.append(m['_clef_sign'])
     if i > 0 and 'key' in m['show']:
         sig += _key_sign(st['fifths'])
     if i > 0 and 'time' in m['show']:
@@ -1589,6 +1809,19 @@ def proofread(xml, pid, brf_text):
     note, octave mark and accidental reads back as written."""
     import chartbrailleread
     xml = xml.replace('&amp;', '&')
+    voices = choir_voices(xml, pid)
+    if voices:
+        # a closed score was brailled a voice at a time: read each
+        # voice back against its own line of the score
+        pieces = split_voices(brf_text)
+        if len(pieces) != len(voices):
+            return [f"the braille has {len(pieces)} voices and the score "
+                    f"{len(voices)}"]
+        out = []
+        for (name, doc), piece in zip(voices, pieces):
+            out += [f"{name.lower()}: {w}"
+                    for w in proofread(doc, 'P1', piece)]
+        return out
     got, errors = chartbrailleread.decode(brf_text)
     want = score_notes(xml, pid)
     out = list(errors)
