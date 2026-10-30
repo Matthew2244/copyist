@@ -1080,6 +1080,11 @@ def parse_part(xml, pid):
                     meas['dyn'].append(
                         (pos + (int(off.group(1)) if off else 0),
                          dyn.group(1)))
+                    # the staff it belongs to, kept beside the list so
+                    # its (position, mark) shape stays what readers know
+                    dst = re.search(r'<staff>(\d+)</staff>', t)
+                    meas.setdefault('dyn_staff', []).append(
+                        int(dst.group(1)) if dst else None)
                 met = re.search(r'<beat-unit>(\w+)</beat-unit>\s*'
                                 r'(<beat-unit-dot/>)?\s*'
                                 r'<per-minute>([\d.]+)</per-minute>', t)
@@ -1209,6 +1214,14 @@ def parse_part(xml, pid):
     if len(seen) > 1:
         for v, n in seen.items():
             n.vfirst = tuple(sorted(set(n.vfirst) | {v}))
+    # a choir in closed score (chartc.close_choir): soprano and alto as
+    # voices 1 and 2 on the upper staff, tenor and bass as 3 and 4 on
+    # the lower. Its dynamics go under their own staff and every
+    # voice's rests are drawn, words or no words.
+    sv = {(st, v) for m in measures for _p, _n, st, v in m['events']}
+    if sv == {(1, 1), (1, 2), (2, 3), (2, 4)}:
+        for m in measures:
+            m['_satb'] = True
     return measures, None
 
 
@@ -2220,9 +2233,19 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
     DYN_GLYPH = {'p': 'dynP', 'f': 'dynF', 'mf': 'dynMF',
                  'mp': 'dynMP', 'pp': 'dynPP', 'ff': 'dynFF',
                  'sfz': 'dynSFZ', 'fp': 'dynFP'}
-    for pos, mark in meas['dyn']:
+    dyn_staff = meas.get('dyn_staff') or []
+    for di, (pos, mark) in enumerate(meas['dyn']):
+        # a choir's dynamics sit under the staff they are sung on (the
+        # soprano's mf under the upper staff, the bass's p under the
+        # lower), between the staff and its words; anything else keeps
+        # the lane under the part's last staff
+        dst = dyn_staff[di] if di < len(dyn_staff) else None
+        dy_ = bottom_y - 2.6 * SP
+        if (meas.get('_choir') or meas.get('_satb')) and dst and \
+                dst < len(tops):
+            dy_ = tops[dst - 1] - STAFF - 2.6 * SP
         g = DYN_GLYPH.get(mark)
-        if g and pdf.glyph(xat(pos), bottom_y - 2.6 * SP, g, 4 * SP):
+        if g and pdf.glyph(xat(pos), dy_, g, 4 * SP):
             continue
         # anything else — sf, fz, rf, ppp, sfp, fffff — letter by letter
         # from the font's own dynamic alphabet
@@ -2230,10 +2253,10 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
         if all(pdf.music and pdf.music.gids.get('dyn_' + ch)
                for ch in mark):
             for ch in mark:
-                pdf.glyph(dx, bottom_y - 2.6 * SP, 'dyn_' + ch, 4 * SP)
+                pdf.glyph(dx, dy_, 'dyn_' + ch, 4 * SP)
                 dx += pdf.gw('dyn_' + ch, 4 * SP) * 0.92
         else:
-            pdf.text(dx, bottom_y - 2.6 * SP, mark, size=11, font='TBI')
+            pdf.text(dx, dy_, mark, size=11, font='TBI')
 
     low = bottom_y
     for _p, ns, st_, _v in meas['events']:
@@ -2322,7 +2345,8 @@ def draw_measure(pdf, meas, x0, tops, width, first_in_system=False,
         draw_stream(pdf, evs, stop, clef, beat_len, xat, x0, width,
                     forced, words_y,
                     carry.setdefault((staff, voice), []),
-                    shift=shifts.get((staff, voice)))
+                    shift=shifts.get((staff, voice)),
+                    all_rests=bool(meas.get('_satb')))
 
     draw_barline(pdf, meas, x0, tops, width)
     draw_ending(pdf, meas, x0, top, width)
@@ -2385,7 +2409,8 @@ def voice_shifts(pdf, streams, voices_of, state):
 
 
 def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
-                forced, bottom_y, opens=None, shift=None):
+                forced, bottom_y, opens=None, shift=None,
+                all_rests=False):
     """One voice on one staff: heads, stems, beams, ties, words.
     `opens` carries unclosed ties and slurs between measures, so an
     arc across a barline is one true curve, not a hint. `shift` moves
@@ -2461,12 +2486,17 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
         if n0.rest:
             flush_beam(pdf, pend_beam)
             pend_beam = []
-            if n0.measure_rest and forced is False:
+            if n0.measure_rest and forced is False and not all_rests:
                 continue           # the second voice's filler rest
             # paired voices keep their rests apart: the up-stem voice
-            # rests high, the down-stem voice low
+            # rests high, the down-stem voice low (a choir's whole-bar
+            # rest hangs from the second line up, a line under its
+            # usual place)
             rest_dy = 0 if forced is None else (
-                SP if forced else -1.5 * SP)
+                SP if forced else
+                -2 * SP if all_rests and (n0.measure_rest
+                                          or n0.ntype == 'whole')
+                else -1.5 * SP)
             if n0.measure_rest:
                 # a whole-bar rest sits in the middle of the bar, and
                 # never wears a dot (a 3/4 pickup bar's read as a dotted

@@ -9172,6 +9172,158 @@ def check_tenor_clef():
           chartbraille.proofread(tb, "P1", brf))
 
 
+_HUNT_SATB = ("title: C\nkey: D\nmeter: 3/4\ntempo: 80\n{hdr}\n"
+              "dynamics: by hand\n\nband:\n  soprano\n  alto\n  tenor\n"
+              "  bass\n\n"
+              "figure s, 3 bars:\n  notes: A4 q, A4 q, A4 q, F#4 h., D5 h.\n"
+              "  lyrics: Ho-ly Ho-ly Lord\n\n"
+              "figure a, 3 bars:\n  notes: A4 q, B4 q, C#5 q, rest h., D5 h.\n"
+              "  lyrics: Ho-ly Ho Lord\n\n"
+              "figure t, 3 bars:\n  notes: D3 e, E3 e, F#3 h, D3 h., D3 h.\n"
+              "  lyrics: Ho-ly Ho-ly Lord\n\n"
+              "figure b, 3 bars:\n  notes: D3 h., D3 h., D2 h.\n"
+              "  lyrics: Ho-ly Lord\n\n"
+              "section A, 3 bars\n  chords: D, D, D\n  soprano: figure s\n"
+              "  alto: figure a\n  tenor: figure t\n  bass: figure b\n"
+              "  soprano: dyn f\n  alto: dyn p at bar 2\n  tenor: dyn mp\n"
+              "{more}")
+
+
+def check_bug_hunt_round():
+    """2026-10-30, the bug hunt: words that are all capitals are not
+    chord symbols; hits after a key change take the new signature; a
+    closed choir score's dynamics, rests and slashes sit on their own
+    staff; a band label twice is refused; tenor clef comes home for a
+    low last note."""
+    import chartbraille
+    import chartbrailleread as rd
+    import chartengrave as ce
+    print("\n== the bug hunt: braille words, key changes, closed score ==")
+    # 1. a word line of capitalised words is words, not chords
+    check("a chord line is chord symbols, not capitals",
+          rd._chordline(",D ,D ,A#G -,B<MAJ#G ,C/,G")
+          and not rd._chordline(",HOLY ,HOLY ,LORD")
+          and not rd._chordline(",GLORY ,GLORY ,HAL"),
+          [rd.chord_print(w) for w in ",HOLY ,GLORY ,D ,A#G".split()])
+    _o, f = _build_chart(_HUNT_SATB.format(hdr="", more=""), "c")
+    for v in ("soprano", "alto", "tenor", "bass"):
+        x_ = f[f"C — {v}.musicxml"]
+        brf, _w = chartbraille.part_to_brf(x_, "P1", "C", v)
+        check(f"'Holy Holy Lord' proofreads in the {v}'s braille",
+              chartbraille.proofread(x_, "P1", brf) == [],
+              chartbraille.proofread(x_, "P1", brf))
+    # 2. hits after a key change into F: the slash B is the key's B flat
+    _o, f = _build_chart(
+        "title: K\nkey: G\n\nband:\n  flute\n  piano\n\n"
+        "section A, 1 bar\n  chords: G\n\nsection B, 2 bars\n"
+        "  at bar 1: key F\n  chords: F, F\n  flute: hits on 1, 3\n", "k")
+    fl = f["K — flute.musicxml"]
+    b2 = re.search(r'<measure number="2".*?</measure>', fl, re.S).group(0)
+    check("hits after a key change carry the new key's B flat",
+          b2.count("<step>B</step><alter>-1</alter>") == 2, b2[:600])
+    brf, _w = chartbraille.part_to_brf(fl, "P1", "K", "flute")
+    check("and the flute's braille reads back against them",
+          chartbraille.proofread(fl, "P1", brf) == [],
+          chartbraille.proofread(fl, "P1", brf))
+    # 3, 4, 9. the closed score
+    out, f = _build_chart(_HUNT_SATB.format(
+        hdr="choir: two staves",
+        more="\nsection B, 1 bar\n  chords: D\n  soprano: hits on 1\n"
+             "  tenor: hits on 2\n\nsection C, 1 bar\n  chords: D\n"
+             "  soprano: hits on 1\n"), "c")
+    sc = f["C — score.musicxml"]
+    slashes = {(re.search(r"<voice>(\d)", n).group(1),
+                re.sub(r"<[^>]+>", " ",
+                       re.search(r"<pitch>(.*?)</pitch>", n).group(1))
+                .split()[0],
+                re.sub(r"<[^>]+>", " ",
+                       re.search(r"<pitch>(.*?)</pitch>", n).group(1))
+                .split()[-1])
+               for n in re.findall(r"<note>(?:(?!</note>).)*"
+                                   r"<notehead>slash(?:(?!</note>).)*"
+                                   r"</note>", sc, re.S)}
+    check("the tenor's slashes sit on the bass staff's middle line",
+          ("3", "D", "3") in slashes and ("1", "B", "4") in slashes
+          and not any(v == "3" and s_ == "B" for v, s_, _o in slashes),
+          slashes)
+    check("the tenor part's own slashes sit on the octave treble's "
+          "middle line",
+          "<step>B</step><octave>3</octave>" in f["C — tenor.musicxml"]
+          and "<step>B</step><octave>4</octave>"
+          not in f["C — tenor.musicxml"])
+    ms, _ = ce.parse_part(sc, "P1")
+    check("the engraver knows a closed choir score",
+          all(m.get("_satb") for m in ms)
+          and ms[0].get("dyn_staff") == [1, 2], ms[0].get("dyn_staff"))
+    rests, dyns = [], []
+    dr, gl = ce.draw_rest, ce.Pdf.glyph
+
+    def r_(pdf, x, top, rt, dy=0):
+        rests.append((round(top), rt, dy))
+        return dr(pdf, x, top, rt, dy)
+
+    def g_(self, x, y, name, size, spoken=False):
+        if name.startswith("dyn"):
+            dyns.append((name, round(y)))
+        return gl(self, x, y, name, size, spoken)
+    ce.draw_rest, ce.Pdf.glyph = r_, g_
+    try:
+        ok = ce.engrave(os.path.join(out, "C — score.musicxml"),
+                        os.path.join(out, "C — score.pdf"))
+    finally:
+        ce.draw_rest, ce.Pdf.glyph = dr, gl
+    ys = dict(dyns)
+    check("the closed score engraves", ok == (True, None), ok)
+    check("each voice's dynamic sits under its own staff: f and p under "
+          "the upper, mp under the lower",
+          {"dynF", "dynP", "dynMP"} <= set(ys)
+          and ys["dynF"] == ys["dynP"] and ys["dynF"] > ys["dynMP"], dyns)
+    check("the alto's bar of rest is drawn, low on the upper staff",
+          any(rt == "measure" and dy < 0 for _t, rt, dy in rests), rests)
+    # bar 4: the soprano hits, the alto and the bass are tacet, the
+    # tenor rests then hits: every voice's rest drawn, offset
+    check("a tacet voice under a singing one draws its own rest",
+          sum(1 for _t, rt, dy in rests if rt == "measure" and dy) >= 3,
+          rests)
+    check("a staff where both voices rest the bar draws one rest",
+          sum(1 for _t, rt, dy in rests if rt == "measure" and not dy)
+          == 1, rests)
+    # 10. a band label twice
+    for band_ in ("  trumpet\n  trumpet\n", "  bass\n  bass = upright\n"):
+        try:
+            _build_chart("title: D\nkey: C\n\nband:\n" + band_
+                         + "\nsection A, 1 bar\n  chords: C\n", "d")
+            said = ""
+        except SystemExit as e:
+            said = str(e)
+        lab = band_.split()[0]
+        check(f"'{lab}' twice on the band list is refused, with a "
+              "way out",
+              f"'{lab}' is on the band list twice" in said
+              and "line 6" in said and f"'{lab} 2 = " in said, said)
+    _o, f = _build_chart("title: D\nkey: C\n\nband:\n  trumpet\n"
+                         "  trumpet 2 = trumpet\n\nsection A, 1 bar\n"
+                         "  chords: C\n", "d")
+    check("the suggested name builds",
+          "D — trumpet 2.musicxml" in f and "D — trumpet.musicxml" in f,
+          sorted(f))
+    # 12. tenor clef comes home for a low last note
+    _o, f = _build_chart(
+        "title: TC\nkey: Eb\nmeter: 4/4\ntempo: 120\n\nband:\n"
+        "  trombone\n  cello\n\nfigure flick, 4 bars:\n  notes: Eb3 q, "
+        "A4 q, Eb3 q, Bb4 q, Eb3 q, C5 q, Eb3 q, Db5 q, Eb3 h, F#4 h, "
+        "Eb2 w\n\nsection A, 4 bars\n  chords: Eb, Eb, Eb, Eb\n"
+        "  trombone: figure flick\n  cello: figure flick\n", "tc")
+    for p_ in ("trombone", "cello"):
+        x_ = f[f"TC — {p_}.musicxml"]
+        cl = [(n, c) for n, m in re.findall(
+            r'<measure number="(\d+)"[^>]*>(.*?)</measure>', x_, re.S)
+            for c in re.findall(r"<clef><sign>(\w)</sign><line>(\d)", m)]
+        check(f"the {p_}'s low Eb2 brings the bass clef back",
+              cl and cl[-1] == ("4", ("F", "4"))
+              and ("C", "4") in [c for _n, c in cl], cl)
+
+
 def check_sextuplet_numbers():
     """2026-10-30, the open list: a tuplet number sits over the middle
     of its own group, first stem to last, beamed up or down; two
@@ -9804,6 +9956,7 @@ if __name__ == "__main__":
     check_band_hears_the_push()
     check_choir_on_two_staves()
     check_tenor_clef()
+    check_bug_hunt_round()
     check_sextuplet_numbers()
 
     run_fixture("two-hand-piano", "C# minor",

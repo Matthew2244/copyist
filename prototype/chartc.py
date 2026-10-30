@@ -1141,6 +1141,16 @@ def parse_chart(path):
                          s)
             if not m:
                 fail(f"{loc}: cannot read band line '{s}'")
+            label_ = m.group(1).strip()
+            if any(b['label'].lower() == label_.lower()
+                   for b in chart['band']):
+                # every file is named for its label: a second one of
+                # the same name would overwrite the first
+                fail(f"{loc}: '{label_}' is on the band list twice, "
+                     "and each part's files are named for it. Give this "
+                     "one its own name and say what it plays after an "
+                     f"equals sign, like '{label_} 2 = "
+                     f"{(m.group(2) or label_).strip()}'")
             inst = (m.group(2) or m.group(1)).strip()
             if inst.lower() == 'bass':
                 # which bass is decided by the feel, after the header
@@ -2157,6 +2167,10 @@ def harmony_xml(chord, beat, pulse_div):
 
 
 SLASH_PITCH = {'G': ('B', 4), 'F': ('D', 3), 'C': ('C', 4),
+               # the middle line of the tenor voice's octave treble
+               # (B3) and of tenor clef (A3): a slash never needs a
+               # ledger line
+               'G8': ('B', 3), 'C4': ('A', 3),
                'percussion': ('B', 4)}
 
 FLATS = 'BEADGCF'
@@ -2340,9 +2354,13 @@ def close_choir(parts):
                        True,
                        not same(3, 2, run)]
     out = []
+    fifths = 0
     for k in range(n):
         head, _b, tail = split[0][k]
         attrs, left, right, streams = '', '', '', []
+        kf = re.search(r'<fifths>(-?\d+)</fifths>', split[0][k][1])
+        if kf:
+            fifths = int(kf.group(1))
         for v in range(4):
             body = split[v][k][1]
             staff, stem = _CHOIR_STAFF[v], _CHOIR_STEM[v]
@@ -2370,6 +2388,16 @@ def close_choir(parts):
 
             def note(m_, v=v, staff=staff, stem=stem):
                 t = m_.group(0)
+                if '<notehead>slash</notehead>' in t and '<pitch>' in t:
+                    # a slash sits on its staff's middle line: the
+                    # tenor's hits move to the bass staff's D3
+                    st_, oc_ = SLASH_PITCH['G' if staff == 1 else 'F']
+                    al_ = key_alter(st_, fifths)
+                    t = re.sub(r'<pitch>.*?</pitch>',
+                               f'<pitch><step>{st_}</step>'
+                               + (f'<alter>{al_}</alter>' if al_ else '')
+                               + f'<octave>{oc_}</octave></pitch>', t,
+                               flags=re.S)
                 t = re.sub(r'<voice>\d+</voice>', f'<voice>{v + 1}</voice>',
                            t)
                 t = re.sub(r'\s*<stem>[^<]*</stem>|\s*<staff>\d+</staff>',
@@ -6252,6 +6280,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                                       f'{want_div}</divisions>'
                                       '</attributes>\n')
                         cur_div = want_div
+                if not sp and clef != 'percussion':
+                    # the signature this bar sits under: slashes and
+                    # hits after a key change take the new key's
+                    # alteration (key_alter) — a G chart's B is plain,
+                    # an F chart's B is the key's B flat
+                    kf_ = key_at(keys_map, absbar)[0]
+                    fifths = kf_ + (written_foff(horn['foff'], kf_)
+                                    if horn else 0)
                 if need_attrs:
                     pieces.append(attributes())
                     need_attrs = False
@@ -7006,8 +7042,16 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     cnt_[c_], {'F': 0, 'C4': 1, 'G': 2}[c_]))
                 if now_ != 'F' and cnt_['F'] == 0:
                     best_ = 'F'      # home again once the bass staff holds it
+                # going up waits for a real gain (four ledger lines
+                # saved); coming back down toward the bass clef needs
+                # only that it reads better — a low last note (Eb2
+                # after a tenor-clef passage) must not hang on three
+                # ledger lines below the tenor staff
+                down_ = {'F': 0, 'C4': 1, 'G': 2}
                 if best_ != now_ and (cnt_[now_] - cnt_[best_] >= 4
-                                      or best_ == 'F' and cnt_['F'] == 0):
+                                      or best_ == 'F' and cnt_['F'] == 0
+                                      or down_[best_] < down_[now_]
+                                      and cnt_[best_] < cnt_[now_]):
                     now_ = best_
                     head = re.match(r'\s*<measure[^>]*>\n', mx)
                     at_ = head.end() if head else 0
