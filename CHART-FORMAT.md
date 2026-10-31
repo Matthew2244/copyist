@@ -451,8 +451,9 @@ drummer's.
 - **Endings** (the volta brackets *Jeannine* uses 144 of): the declared
   section length is ONE PASS — the body plus one ending — because that
   is how a musician counts it ("letter B is 8 bars"). Endings declare
-  their own bars, must all be the same length, and must number 1 up to
-  the repeat count, one per pass. The printed page carries the body and
+  their own bars and must number 1 up to the repeat count, one per
+  pass. They may differ in length (a two-bar first ending, a one-bar
+  second); then the declared length is the body plus the FIRST ending. The printed page carries the body and
   every ending; Copyist's own playback takes ending K on pass K, and a
   from-bar trim lands where the PLAYER reaches that bar, repeats
   included.
@@ -477,6 +478,7 @@ drummer's.
   | `tacet` | whole-section multirest in the part |
   | `as demo` | "as demo" over slashes — symbols-level (DESIGN.md §11) |
   | `as played` | beside `groove` or `hits`: the page keeps its slashes or kicks, and the listen plays the part's own demo bars for the section instead of making the part up from the chords (a lead sheet heard as it was played) |
+  | `as played bars 13-24 and 35` | the same, naming which demo bars to play, laid on the section's printed bars in order — for a repeated section whose second ending is a later bar of the demo. Must cover every printed bar |
   | `soli on <part>` / `harmonize <part>` [`, close` / `, drop 2`] | a group voices a written lead from the chord symbols, one voice per chair under it (drop 2 for four or more, a major chord as a sixth unless the lead is on the 7th) |
   | `double <part>` | this part plays another part's line (printed full size), in the octave that horn sits in: unsaid, a tenor or trombone doubling a trumpet melody drops an octave and the findings say so; `double <part> at pitch` (or `in unison`) keeps the writer's octave; `double <part> an octave down` / `up`, `two octaves down`, `8va`, `8vb` move it by octaves (so does `cue`); `double <part> a third below` (second through seventh, ninth, tenth; `above`/`below`, `in thirds`) harmonizes it in scale steps of the key in force |
   | `cue <part>` | another part's line printed cue-size, not played — "(Piano cue)" |

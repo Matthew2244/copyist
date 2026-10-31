@@ -251,9 +251,15 @@ def section_heading(sec, start=None, form=False):
     if sec['label']:
         bits.append(f'"{sec["label"]}"')
     if sec.get('endings'):
-        per = sec['body'] + sec['endings'][0]['bars']
-        bits.append(f"{per} bars a pass, with "
-                    f"{len(sec['endings'])} endings")
+        lens = [e['bars'] for e in sec['endings']]
+        per = sec['body'] + lens[0]
+        if len(set(lens)) == 1:
+            bits.append(f"{per} bars a pass, with "
+                        f"{len(lens)} endings")
+        else:
+            bits.append(f"{sec['body']} bars, then endings of "
+                        + ", ".join(str(x) for x in lens[:-1])
+                        + f" and {lens[-1]} bars")
     else:
         bits.append(f"{sec['bars']} bars")
     if sec['feel']:

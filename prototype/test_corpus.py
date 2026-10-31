@@ -878,10 +878,6 @@ def check_voltas():
          "  ending 1, 2 bars: chords: G7, C\n"
          "  ending 2, 2 bars: chords: G7, C\n  piano: groove\n",
          "numbered from 1"),
-        ("r3", HEAD + "section A, 4 bars, repeat 2x\n  chords: C, F\n"
-         "  ending 1, 2 bars: chords: G7, C\n"
-         "  ending 2, 1 bars: chords: C\n  piano: groove\n",
-         "same length"),
         ("r4", HEAD + "section A, 4 bars, repeat 2x\n  chords: C, F, G\n"
          "  ending 1, 2 bars: chords: G7, C\n"
          "  ending 2, 2 bars: chords: G7, C\n  piano: groove\n",
@@ -907,6 +903,53 @@ def check_voltas():
           and "First ending: G seven; C." in changes
           and "Second ending:" in changes,
           f"got: {heading} / {changes}")
+
+    # endings of different lengths (his "play it back", 2026-10-31: a
+    # two-bar first ending, a one-bar second): the declared bars are the
+    # first pass, brackets sit on each ending's own bars, the player
+    # walks body + ending 1, body + ending 2, and "as played bars" lays
+    # the demo's bars on the printed ones in order
+    import smf
+    div = 480
+    notes = [(b * 4 * div, b * 4 * div + 400, 60 + b, 90) for b in range(8)]
+    smf.write(os.path.join(tmp, "u.mid"), notes, div, 120)
+    pu = os.path.join(tmp, "u.chart")
+    open(pu, "w").write(
+        "title: U\nkey: C\nmeter: 4/4\ntempo: 120\ndemo: u.mid\n\n"
+        "band:\n  piano\n\n"
+        "section A, 4 bars, repeat 2x\n  chords: C, F\n"
+        "  ending 1, 2 bars: chords: G7, C\n"
+        "  ending 2, 1 bar: chords: G7\n"
+        "  piano: groove, as played bars 1-4 and 8\n")
+    out = os.path.join(tmp, "ub")
+    with redirect_stdout(io.StringIO()):
+        files = chartc.compile_chart(pu, out)
+    check("unequal endings: measures sum", not verify_measures(files))
+    xml = open(os.path.join(out, "U — piano.musicxml")).read()
+    marks = {num: re.findall(r'<ending [^/]*/>|<repeat [^/]*/>', m)
+             for num, m in re.findall(
+                 r'<measure [^>]*number="(\d+)"[^>]*>(.*?)</measure>',
+                 xml, re.S) if '<ending' in m or '<repeat' in m}
+    check("unequal endings: brackets on each ending's own bars",
+          marks == {'1': ['<repeat direction="forward"/>'],
+                    '3': ['<ending number="1" type="start"/>'],
+                    '4': ['<ending number="1" type="stop"/>',
+                          '<repeat direction="backward"/>'],
+                    '5': ['<ending number="2" type="start"/>',
+                          '<ending number="2" type="discontinue"/>']},
+          f"got {marks}")
+    lx = open(os.path.join(out, "U — for listening.musicxml")).read()
+    m5 = re.findall(r'<measure [^>]*number="5"[^>]*>(.*?)</measure>',
+                    lx, re.S)
+    check("as played bars: the second ending plays the demo's bar 8",
+          m5 and '<step>G</step>' in m5[0] and '<octave>4</octave>' in m5[0],
+          f"got {m5[:1]}")
+    import chartread
+    usec = chartc.parse_chart(pu)['sections'][0]
+    check("the read says the endings' own lengths",
+          "2 bars, then endings of 2 and 1 bars"
+          in chartread.section_heading(usec),
+          chartread.section_heading(usec))
 
     shutil.rmtree(tmp, ignore_errors=True)
 

@@ -1446,20 +1446,21 @@ def parse_chart(path):
                                  for e in es)
                      + " — every pass needs an ending, numbered from 1 "
                      "(ending 1-2 takes one bracket twice)")
-            if len({e['bars'] for e in es}) != 1:
-                fail(f"section {sec['name']}: endings must all be the "
-                     "same length, so the declared bars mean one pass")
             for e in es:
                 if len(e['content']) != e['bars']:
                     fail(f"section {sec['name']} ending {e['num']} "
                          f"declares {e['bars']} bars but its chords "
                          f"cover {len(e['content'])}")
+            # endings may differ in length (a two-bar first ending, a
+            # one-bar second); the declared bars are the first pass
             body = sec['bars'] - es[0]['bars']
             if len(sec['content']) != body:
                 fail(f"section {sec['name']} declares {sec['bars']} bars "
-                     f"(a {body}-bar body plus one {es[0]['bars']}-bar "
-                     f"ending) but its chords cover {len(sec['content'])}"
-                     + (f" — the declared length counts one ending, so "
+                     f"(a {body}-bar body plus the {es[0]['bars']}-bar "
+                     f"first ending) but its chords cover "
+                     f"{len(sec['content'])}"
+                     + (f" — the declared length counts the first "
+                        f"ending, so "
                         f"if the body is {len(sec['content'])} bars, say "
                         f"{len(sec['content']) + es[0]['bars']} bars"
                         if len(sec['content']) else ""))
@@ -2663,6 +2664,25 @@ def push_ties(hmap, bar, nbars):
     return tie_in, tie_out
 
 
+def ending_spans(sec):
+    """Where each ending starts in the printed section and how long it
+    is: [(offset, bars), ...], offsets 0-based after the body."""
+    out, pos = [], sec.get('body', 0)
+    for e in sec.get('endings') or []:
+        out.append((pos, e['bars']))
+        pos += e['bars']
+    return out
+
+
+def ending_at(sec, off):
+    """(k, offset into the ending, its length) for a printed bar offset,
+    k counting endings from 1; (0, None, None) in the body."""
+    for k, (st, ln) in enumerate(ending_spans(sec), 1):
+        if st <= off < st + ln:
+            return k, off - st, ln
+    return 0, None, None
+
+
 def _section_hits(plans, i, label):
     if not 0 <= i < len(plans):
         return None, None
@@ -2708,7 +2728,8 @@ def push_plan(plans, labels):
         n = sec['bars']
         ends = sec.get('endings') or []
         body = sec.get('body') if ends else None
-        elen = ends[0]['bars'] if ends else 0
+        spans = ending_spans(sec) if ends else []
+        lasts = {st + ln for st, ln in spans[:-1]}  # 1-based ending ends
         for label in labels:
             hm, _s = _section_hits(plans, pi, label)
             if not hm:
@@ -2722,10 +2743,8 @@ def push_plan(plans, labels):
                 if not getattr(p, 'push', False):
                     continue
                 if ends and b == body:
-                    nexts = [('in', body + 1 + k * elen)
-                             for k in range(len(ends))]
-                elif ends and b > body and (b - body) % elen == 0 \
-                        and b < n:
+                    nexts = [('in', st + 1) for st, _l in spans]
+                elif ends and b in lasts:
                     nexts = []          # back to the top: no tie round
                 elif b < n:
                     nexts = [('in', b + 1)]
@@ -4445,6 +4464,36 @@ def build_plans(chart, band, groups, labels):
                     continue
                 if piece == 'as demo':
                     groove_words = 'as demo'
+                    continue
+                m = re.match(r'(?:as played|listen as played|plays? my '
+                             r'take) bars ([\d\- ]+(?:and [\d\- ]+)*)$',
+                             piece)
+                if m:
+                    # the demo's bars named, in playing order, laid on
+                    # the section's printed bars one after another — how
+                    # a repeated section's second ending finds the bar
+                    # he played after the repeat ("bars 13-24 and 35")
+                    shift_ = int(chart['header'].get('countin', 0))
+                    at_ = start
+                    for run in re.split(r'\s+and\s+|\s+', m.group(1)):
+                        if not run:
+                            continue
+                        a_, _d, b_ = run.partition('-')
+                        a_, b_ = int(a_), int(b_ or a_)
+                        if b_ < a_:
+                            fail(f"line {loc}: demo bars {run} run "
+                                 "backwards")
+                        demo_refs.append({'track': None,
+                                          'lo': a_ + shift_,
+                                          'hi': b_ + shift_,
+                                          'at': at_, 'loc': loc,
+                                          'placed': None,
+                                          'listen_only': True})
+                        at_ += b_ - a_ + 1
+                    if at_ - start != sec['bars']:
+                        fail(f"line {loc}: those demo bars cover "
+                             f"{at_ - start}, but section {sec['name']} "
+                             f"prints {sec['bars']}")
                     continue
                 if piece in ('as played', 'listen as played',
                              'play my take', 'plays my take'):
@@ -6832,15 +6881,14 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                     # with a backward repeat; the last discontinues and
                     # carries the section's closing bar
                     body = sec['body']
-                    elen = ends[0]['bars']
-                    k = (off - body) // elen + 1 if off >= body else 0
+                    k, into, elen = ending_at(sec, off)
                     knum = ', '.join(str(x) for x in ends[k - 1].get(
                         'nums', [k])) if k >= 1 else ''
-                    if k >= 1 and (off - body) % elen == 0:
+                    if k >= 1 and into == 0:
                         open_bl += ('      <barline location="left">'
                                     f'<ending number="{knum}" type="start"/>'
                                     '</barline>\n')
-                    if k >= 1 and (off - body) % elen == elen - 1:
+                    if k >= 1 and into == elen - 1:
                         if k < len(ends):
                             barline = ('      <barline location="right">'
                                        f'<ending number="{knum}" '

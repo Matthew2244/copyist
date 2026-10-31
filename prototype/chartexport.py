@@ -186,10 +186,10 @@ def ireal_music(chart):
             cells.append(t + words + _bar_cells(sec['content'][off], beats))
         if ends:
             body = '|'.join(cells[:body_n])
-            elen = ends[0]['bars']
-            blocks = []
+            blocks, pos = [], body_n
             for k in range(len(ends)):
-                seg = cells[body_n + k * elen: body_n + (k + 1) * elen]
+                seg = cells[pos: pos + ends[k]['bars']]
+                pos += ends[k]['bars']
                 close = '}' if k < len(ends) - 1 else ']'
                 blocks.append(f"N{k + 1}" + '|'.join(seg) + close)
             out.append('{' + mark + body + '|' + ''.join(blocks))

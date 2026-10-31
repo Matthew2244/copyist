@@ -228,7 +228,8 @@ def decode(brf):
             raw.append(l.rstrip())
             if re.fullmatch(r'>,.*>', t):
                 continue                          # a rehearsal letter
-            if all(re.match(r',[A-Z]', w) for w in t.split()):
+            if all(re.match(r',[A-Z]', w) or w.lstrip('-') == NC
+                   for w in t.split()):
                 continue                          # chord symbols (27)
             lines.append(re.sub(r'^#[A-J]+ ', '', t))
     perc = 'STAFF POSITIONS' in ' '.join(brf.split())
@@ -539,6 +540,7 @@ def _keyboard(lines, head):
 
 
 
+NC = ',,N4C4'      # "N.C." in uncontracted literary braille, as written
 _CHORD_REST = re.compile(
     r'(?:maj|ma|min|mi|m|dim|aug|sus|add|alt|o|\+|-|\(|\)|[b#]?\d+)*')
 
@@ -551,6 +553,8 @@ def chord_print(tok):
     marks a chord that falls during a syllable (36.2)."""
     if tok.startswith('-'):
         tok = tok[1:]
+    if tok == NC:
+        return 'N.C.'
     if '/' in tok:
         tok, bass = tok.split('/', 1)
         mb = re.fullmatch(r',([A-G])([<%]?)', bass)
