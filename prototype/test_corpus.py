@@ -9505,6 +9505,44 @@ def check_sextuplet_numbers():
               (nums, want))
 
 
+def check_chord_spelling_by_beat():
+    """A bar of four 7#9 chords a half step apart (his "play it back"
+    turnaround): each note spells by the chord sounding on its beat, and
+    across the bar a root outranks another chord's tension."""
+    import chartc
+    bar = [(1.0, chartc.split_chord('E7#9')),
+           (2.0, chartc.split_chord('Eb7#9')),
+           (3.0, chartc.split_chord('D7#9')),
+           (4.0, chartc.split_chord('Db7#9'))]
+    chart = {'keys': [(1, 'F')], 'meters': [(1, (4, 4))],
+             'chord_bars': {1: [c for _, c in bar]},
+             'chord_beats': {1: bar}}
+    _minor, at = chartc.spelling_hints(chart, 'F')
+    check("E7#9 on beat 1 spells its third G#",
+          at(1, 1.0).get(8) == ('G', 1), at(1, 1.0))
+    check("Db7#9 on beat 4 spells its seventh Cb",
+          at(1, 4.0).get(11) == ('C', -1), at(1, 4.0))
+    up = chartc.chord_spelling(['C7#9', 'Db7#9', 'D7#9', 'Eb7#9'])
+    check("across the bar Eb7#9's root outranks C7#9's #9",
+          up.get(3) == ('E', -1), up)
+
+
+def check_braille_chord_gap():
+    """27.4: a chord symbol one cell longer than its note opens the gap
+    inside the measure with a music hyphen, never a bare space, which a
+    reader takes for a new measure (and with it drops the bar's
+    accidentals: his "play it back" guitar, 2026-10-31)."""
+    import chartbraille as cb
+    first = "x" * len(cb.chord_braille("F6"))     # the symbol ends one
+    ln = cb.Line("")                               # cell past the note
+    ln.add(first, "F6")
+    ln.add("y", "F6")
+    check("a one-cell chord gap inside a measure is a music hyphen",
+          ln.music == first + cb.HYPHEN + " y"
+          and ln.chord.index(cb.chord_braille("F6"), 1)
+          == len(first) + 2, repr((ln.music, ln.chord)))
+
+
 def check_lead_sheet_repeats():
     """
     A lead sheet finds a stretch the demo plays twice and prints it once
@@ -10137,6 +10175,8 @@ if __name__ == "__main__":
     check_streamline()
     check_lead_sheet_from_markers()
     check_lead_sheet_repeats()
+    check_braille_chord_gap()
+    check_chord_spelling_by_beat()
     check_odd_meter_downbeats()
     check_stems_and_page_bars()
     check_pickups_play()

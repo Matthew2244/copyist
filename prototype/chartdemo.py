@@ -1677,14 +1677,17 @@ class KeyedTable:
         # that bar, already in this table's (written) frame. A chord
         # spells what the signature does not: C# under A7 in any key.
         self.minor_at, self.chords_at = minor_at, chords_at
+        self.beat = None          # the note's place, quarters from 1
         self._cache = {}
 
     def _t(self):
         f = self.fifths_at(self.at) if self.at is not None else \
             self.fifths_at(None)
         minor = bool(self.minor_at and self.minor_at(self.at))
-        chords = (self.chords_at(self.at)
-                  if self.chords_at and self.at is not None else None)
+        chords = None
+        if self.chords_at and self.at is not None:
+            chords = (self.chords_at(self.at, self.beat)
+                      if self.beat is not None else self.chords_at(self.at))
         ck = (f, minor, tuple(sorted(chords.items())) if chords else ())
         if ck not in self._cache:
             self._cache[ck] = spelling_table(f, self.find, minor=minor,
@@ -1764,9 +1767,11 @@ def _spelling_hints(res, timeline, table, transpose, at_bar, bar_ticks,
             continue
         if isinstance(table, KeyedTable):
             table.at = at_bar + s // bar_ticks
+            table.beat = (s % bar_ticks) / DIV + 1
             fw = table.fifths_at(table.at)
             if table.chords_at and table.at is not None and \
-                    (w % 12) in (table.chords_at(table.at) or {}):
+                    (w % 12) in (table.chords_at(table.at, table.beat)
+                                 or {}):
                 continue        # a chord tone keeps the chord's letter
         else:
             fw = fifths_written
@@ -2159,6 +2164,7 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
             continue
         if isinstance(table, KeyedTable):
             table.at = bar_no
+            table.beat = (a % bar) / DIV + 1
         first, last = pi == 0, pi == len(pieces) - 1
         sub = grids.get(beat_of(a, bar), 4)
         if pitches is None and a % bar == 0 and b - a == bar:
@@ -2569,6 +2575,7 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
             # speak in the key of the printed bar (spoken bars carry
             # the count-in; the key map counts printed bars)
             table.at = bar - getattr(table, 'shift', 0)
+            table.beat = None
         clauses = out.setdefault(bar, [])
         where = _say_beat(start, bar_ticks, pulse)
         def one(t):

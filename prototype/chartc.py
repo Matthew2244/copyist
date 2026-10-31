@@ -364,6 +364,10 @@ INSTRUMENT_ALIASES = {
     'upright piano': 'piano',
     'acoustic bass': 'double bass', 'contrabass': 'double bass',
     'bass': 'electric bass', 'bass guitar': 'electric bass',
+    # plain 'guitar' is the electric already
+    'electric guitar': 'guitar', 'electric gtr': 'guitar',
+    'e guitar': 'guitar', 'e. guitar': 'guitar', 'gtr': 'guitar',
+    'elec guitar': 'guitar', 'elec. guitar': 'guitar',
     '5-string bass': 'five-string bass', '5 string bass': 'five-string bass',
     'five string bass': 'five-string bass', '5-string': 'five-string bass',
     '5 string': 'five-string bass', 'five-string': 'five-string bass',
@@ -1592,10 +1596,13 @@ def parse_chart(path):
     # every bar's chord symbols, in printed bar numbers — the speller
     # reads them so a note spells the way its chord does
     chart['chord_bars'] = {}
-    start = 1
+    chart['chord_beats'] = {}        # bar -> [(beat, chord)], for the
+    start = 1                        # chord sounding under one note
     for sec in chart['sections']:
         for off, bar in enumerate(sec['content']):
             chart['chord_bars'][start + off] = [c for _, c in bar]
+            chart['chord_beats'][start + off] = [(p, c) for p, c in bar
+                                                 if c is not None]
         start += sec['bars']
     # a bandleader who says "bass" on a swing chart means the upright;
     # on a funk or rock chart, the electric (Matthew, 2026-09-30: "you
@@ -1706,10 +1713,14 @@ def chord_degrees(qual):
 
 def chord_spelling(syms, foff=0):
     """{pitch class: (step, alter)} for the chord tones of one bar's
-    symbols, shifted foff fifths into a transposing part's frame. A pitch
-    class two chords in the bar spell differently is left to the key."""
+    symbols, shifted foff fifths into a transposing part's frame. When
+    two chords in the bar spell a pitch class differently, a root (or
+    slash bass) outranks a third, fifth, sixth or seventh, which outranks
+    a tension: Eb7#9's root is Eb even beside C7#9's D# in a chromatic
+    bar. Two of the same rank are left to the key."""
     from spelling import spell_fifth
-    out, clash = {}, set()
+    out, clash, rank = {}, set(), {}
+    core = {'3', 'b3', '5', 'b5', '#5', '7', 'b7', 'bb7', '6', '4', '2'}
     for sym in syms:
         # the parser leaves each chord as (step, alter, quality, bass);
         # a raw symbol is accepted too, for callers outside a chart
@@ -1721,20 +1732,30 @@ def chord_spelling(syms, foff=0):
             continue
         step, alter, qual, bass = got
         root = _STEP_FIFTH[step] + 7 * alter
-        places = [root] + [root + DEGREE_FIFTHS[d]
-                           for d in chord_degrees(qual)]
+        places = [(root, 0)] + [(root + DEGREE_FIFTHS[d],
+                                 1 if d in core else 2)
+                                for d in chord_degrees(qual)]
         if bass:
             m = re.fullmatch(r'([A-G])([b#]?)', bass)
             if m:
-                places.append(_STEP_FIFTH[m.group(1)]
-                              + 7 * {'b': -1, '#': 1, '': 0}[m.group(2)])
-        for f in places:
+                places.append((_STEP_FIFTH[m.group(1)]
+                               + 7 * {'b': -1, '#': 1, '': 0}[m.group(2)],
+                               0))
+        for f, rk in places:
             st, al, pc = spell_fifth(f + foff)
             if abs(al) > 2:
                 continue
             if pc in out and out[pc] != (st, al):
-                clash.add(pc)
+                if rk > rank[pc]:
+                    continue                  # the stronger spelling stays
+                if rk == rank[pc]:
+                    clash.add(pc)
+                    continue
+                clash.discard(pc)
+            elif pc in out and rk > rank[pc]:
+                continue
             out[pc] = (st, al)
+            rank[pc] = rk
     for pc in clash:
         del out[pc]
     return out
@@ -1745,14 +1766,31 @@ def spelling_hints(chart, key, foff=0):
     fifths from concert: what KeyedTable needs to spell like a copyist."""
     keys_ = chart.get('keys') or [(1, key)]
     bars = chart.get('chord_bars') or {}
+    beats = chart.get('chord_beats') or {}
+    meters = chart.get('meters') or [(1, (4, 4))]
     cache = {}
 
-    def chords_at(b):
-        if b not in cache:
+    def chords_at(b, q=None):
+        """The bar's chord tones; with q (the note's place in quarter
+        notes from 1) the chord sounding there spells its own tones
+        first — E7#9's G# beside Db7#9's Ab in a chromatic bar."""
+        here = None
+        if q is not None and b in beats and beats[b]:
+            den = next((m[1] for bb, m in reversed(meters)
+                        if bb <= b), 4)
+            on = [(p, c) for p, c in beats[b]
+                  if 1 + (p - 1) * 4 / den <= q + 1e-6]
+            if on and len(beats[b]) > 1:
+                here = on[-1][1]
+        k = (b, here)
+        if k not in cache:
             kf = key_at(keys_, b if b is not None else 1)[0]
-            cache[b] = chord_spelling(bars.get(b, ()),
-                                      written_foff(foff, kf))
-        return cache[b]
+            fo = written_foff(foff, kf)
+            got = chord_spelling(bars.get(b, ()), fo)
+            if here is not None:
+                got = {**got, **chord_spelling([here], fo)}
+            cache[k] = got
+        return cache[k]
     return (lambda b: key_at(keys_, b if b is not None else 1)[1]
             == 'minor', chords_at)
 

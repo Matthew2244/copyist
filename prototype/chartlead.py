@@ -937,8 +937,14 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
             lines.append(f"  {part}: " + (", ".join(pieces)
                                           if pieces else "groove") + take)
         elif mode == "notes":
-            lines.append(f"  {part}: " + ", ".join(
-                f"from demo bars {a}-{b}" for a, b in played))
+            # a demo bar lands on its own chart bar unless told; a second
+            # ending played later in the demo is told where it prints
+            runs, at_ = [], 1
+            for k, (a, b) in enumerate(played):
+                runs.append(f"from demo bars {a}-{b}"
+                            + (f" at bar {at_}" if k else ""))
+                at_ += b - a + 1
+            lines.append(f"  {part}: " + ", ".join(runs))
         elif mode == "tacet":
             lines.append(f"  {part}: tacet")
         elif mode.startswith("solo"):

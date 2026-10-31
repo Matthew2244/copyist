@@ -928,8 +928,15 @@ class Line:
                 at = max(at, self.chord_end + 1)
             if at > len(self.music):
                 gap = at - len(self.music)
-                self.music += (HYPHEN + ' ' * (gap - 1)) \
-                    if gap > 1 and self.in_measure else ' ' * gap
+                if self.in_measure:
+                    # a gap inside a measure is a music hyphen and blank
+                    # cells (27.4), never a bare space, which divides
+                    # measures; one cell short of that takes two
+                    gap = max(gap, 2)
+                    at = len(self.music) + gap
+                    self.music += HYPHEN + ' ' * (gap - 1)
+                else:
+                    self.music += ' ' * gap
             self.chord = self.chord.ljust(at) + cb
             self.chord_end = len(self.chord)
         self.music += text
