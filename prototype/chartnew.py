@@ -458,8 +458,9 @@ def interview(out_path, demo_path, composer='', cfg=None):
                 + (f", and the demo carries "
                    f"{chartc.n_of(len(marks), 'marker')}" if marks else ""))
         lead = ask(f"{said}. Make a lead sheet: chord symbols where you "
-                   "played them, the form from the markers, and what each "
-                   "marker says? yes or no", "yes")
+                   "played them, the form from the markers and from what "
+                   "you played twice, and what each marker says? yes or "
+                   "no", "yes")
         if not lead.lower().startswith("n"):
             part = ask("Which instrument does the lead sheet print for",
                        "piano")

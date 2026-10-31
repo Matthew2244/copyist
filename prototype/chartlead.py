@@ -287,6 +287,74 @@ def chord_bars(events, first, last, meter, bar_ticks, grid, song_last=None):
     return bars, hits, misses
 
 
+def bar_prints(notes, division, meter, barof, first, last):
+    """Each bar's notes as a comparable print: (grid step, pitch) pairs,
+    so two bars match only when the same notes start in the same places.
+    A played take never matches itself by accident; a quantized demo
+    finds its own repeats exactly."""
+    grid = grid_ticks(division, meter)
+    bar_ticks = division * 4 * meter[0] // meter[1]
+    out = {b: [] for b in range(first, last + 1)}
+    for n in notes:
+        q = int(round(n.on / grid)) * grid
+        b = barof(q)
+        if b in out:
+            out[b].append(((q - (b - 1) * bar_ticks) // grid, n.pitch))
+    return {b: tuple(sorted(v)) for b, v in out.items()}
+
+
+MIN_REPEAT = 8          # a repeat sign is worth printing from 8 bars up
+
+
+def find_repeat(prints, lo, hi):
+    """The longest stretch inside bars lo..hi that is played again later,
+    read as a section with a repeat: (start, body, first ending, second
+    ending, after) in demo bars, or None.
+
+    Pass one is the body then its first ending (the bars between the
+    body and its return, at most 4 and at most half the body; none for a
+    plain repeat). Pass two is the body again, then the second ending:
+    what follows, up to the first ending's length. Bars after that are
+    the next section."""
+    bars = list(range(lo, hi + 1))
+    fp = [prints.get(b, ()) for b in bars]
+    n = len(fp)
+    run = [[0] * (n + 1) for _ in range(n + 1)]
+    best = None
+    for i in range(n - 1, -1, -1):
+        for j in range(n - 1, i, -1):
+            if fp[i] == fp[j]:
+                run[i][j] = run[i + 1][j + 1] + 1
+    for i in range(n):
+        for j in range(i + 1, n):
+            k = min(run[i][j], j - i)
+            if k < MIN_REPEAT:
+                continue
+            if i and fp[i - 1] == fp[j - 1] and run[i][j] <= j - i:
+                continue                 # not where the stretch starts
+            if sum(1 for x in fp[i:i + k] if x) * 2 < k:
+                continue                 # mostly empty bars: nothing played
+            e1 = j - i - k
+            if e1 > 4 or e1 * 2 > k:
+                continue                 # a different section between
+            rest = n - (j + k)
+            if e1 and rest < 1:
+                continue                 # no second ending to take
+            e2 = min(rest, e1) if e1 else 0
+            cand = (k, -i, i, j, e1, e2)
+            if best is None or cand[:2] > best[:2]:
+                best = cand
+    if best is None:
+        return None
+    k, _, i, j, e1, e2 = best
+    b0 = bars[i]
+    first_end = (b0 + k, b0 + k + e1 - 1) if e1 else None
+    second_end = (bars[j] + k, bars[j] + k + e2 - 1) if e2 else None
+    after = bars[j] + k + e2
+    return dict(start=b0, body=k, first=first_end, second=second_end,
+                again=bars[j], after=after if after <= hi else None)
+
+
 def chordiness(notes, division):
     """Share of onsets that come in clusters of three or more: block
     chords read near 1, a melody near 0."""
@@ -812,23 +880,54 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
         lo = s["bar"]
         hi = secs[i + 1]["bar"] - 1 if i + 1 < len(secs) else last
         spans.append((lo, hi))
-    for i, s in enumerate(secs):
-        lo, hi = spans[i]
-        n = hi - lo + 1
+    units = _units(secs, spans, bar_prints(notes, div, meter, barof,
+                                            first, last), find, page)
+    for s, lo, hi, rep in units:
         pm = s["pm"]
-        bars, hits, misses = chord_bars(events, lo, hi, meter, bar_ticks,
-                                        grid, song_last=last)
+        # chords read over the marker's whole section, so a bar after a
+        # repeat carries what really rang into it
+        slo, shi = s["span"]
+        abars, ahits, amiss = chord_bars(events, slo, shi, meter,
+                                         bar_ticks, grid, song_last=last)
+        played = rep["played"] if rep else [(lo, hi)]
+        bars, hits = [], []
+        for a, b in played:
+            bars += abars[a - slo:b - slo + 1]
+            hits += ahits[a - slo:b - slo + 1]
+        misses = [b for b in amiss if any(a <= b <= z for a, z in played)]
         allmiss += [page(b) for b in misses]
+        n = len(bars)
         if pm["chords"] == "nc":
             bars = ["nc"] * n
-        lines.append(section_head(pm, n))
+        if rep:
+            e1 = rep["e1"]
+            body = rep["body"]
+            head = section_head(pm, body + e1)
+            if not any(h.startswith("repeat") for h in pm["header"]):
+                head += ", repeat 2x"
+            lines.append(head)
+        else:
+            lines.append(section_head(pm, n))
         if pm["feel"] and pm["feel"] != tune_feel:
             lines.append(f"  feel: {pm['feel']}")
-        lines.append("  chords: " + compress(bars))
+        if rep:
+            lines.append("  chords: " + compress(bars[:body]))
+            if e1:
+                lines.append(f"  ending 1, {e1} bar{'s' if e1 != 1 else ''}"
+                             f": chords: " + compress(bars[body:body + e1]))
+                e2 = n - body - e1
+                lines.append(f"  ending 2, {e2} bar{'s' if e2 != 1 else ''}"
+                             f": chords: " + compress(bars[body + e1:]))
+        else:
+            lines.append("  chords: " + compress(bars))
         mode = pm["mode"] or "slashes"
         # the listen plays his own take under the page's slashes, unless
-        # the marker hands it to the band ("comp")
+        # the marker hands it to the band ("comp"); a repeat names the
+        # bars it plays, since its second ending comes later in the demo
         take = "" if pm.get("comp") else ", as played"
+        if take and len(played) > 1:
+            take += " bars " + " and ".join(
+                f"{a}-{b}" if b > a else f"{a}" for a, b in played)
         if mode == "hits":
             pieces = []
             for k, beats in enumerate(hits):
@@ -838,16 +937,23 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
             lines.append(f"  {part}: " + (", ".join(pieces)
                                           if pieces else "groove") + take)
         elif mode == "notes":
-            lines.append(f"  {part}: from demo bars {lo}-{hi}")
+            lines.append(f"  {part}: " + ", ".join(
+                f"from demo bars {a}-{b}" for a, b in played))
         elif mode == "tacet":
             lines.append(f"  {part}: tacet")
         elif mode.startswith("solo"):
             lines.append(f"  {part}: {mode}")
         else:
             lines.append(f"  {part}: groove" + take)
-        more, said = section_extras(s, lo, n, first)
-        lines += more
-        find += said
+        if not s.get("split"):
+            more, said = section_extras(s, lo, n, first)
+            lines += more
+            find += said
+        if take and (s, lo, hi, rep) == units[-1] and not any(
+                ln.startswith("  ending:") for ln in lines[-12:]):
+            # his take ends the tune the way he ended it; the band
+            # adds no ending of its own after it
+            lines.append("  ending: as written")
         lines.append("")
     if allmiss:
         find.append("no chord name for the hits at bar(s) "
@@ -855,8 +961,7 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
                     + "; they carry the chord before")
     # sections that are the same as an earlier one, said once
     sig = {}
-    for i, s in enumerate(secs):
-        lo, hi = spans[i]
+    for s, lo, hi, rep in units:
         key_ = tuple(chord_bars(events, lo, hi, meter, bar_ticks,
                                 grid)[0])
         if key_ in sig:
@@ -865,6 +970,67 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
         else:
             sig[key_] = s["pm"]["name"]
     return "\n".join(lines).rstrip() + "\n", find
+
+
+def _units(secs, spans, prints, find, page):
+    """The sections as they print: [(section, lo, hi, repeat or None)].
+    A marker section holding a stretch the demo plays twice splits into
+    the bars before it (keeping the marker's name), the repeated section
+    (body, endings), and the bars after; new parts take the next free
+    letter. A marker that already says how it repeats, or carries
+    events inside, is left as it is."""
+    used = {s["pm"]["name"] for s in secs}
+
+    def fresh(after):
+        nm = after
+        while nm in used:
+            nm = chr(ord(nm[0]) + 1) if len(nm) == 1 and nm.isalpha() \
+                and nm.upper() < "Z" else nm + "2"
+        used.add(nm)
+        return nm
+    out = []
+    for s, (lo, hi) in zip(secs, spans):
+        s["span"] = (lo, hi)
+        r = None
+        if not s["events"] and not s["pm"]["header"]:
+            r = find_repeat(prints, lo, hi)
+        if not r:
+            out.append((s, lo, hi, None))
+            continue
+        name = s["pm"]["name"]
+        last_name = name
+        if r["start"] > lo:
+            out.append((s, lo, r["start"] - 1, None))
+            last_name = fresh(name)
+            pm = dict(s["pm"], name=last_name, label=None, events=[],
+                      unknown=[], header=[])
+            rs = dict(s, pm=pm, split=True)
+        else:
+            rs = s
+        k, a = r["body"], r["start"]
+        played = [(a, a + k - 1 + (r["first"][1] - r["first"][0] + 1
+                                   if r["first"] else 0))]
+        if r["second"]:
+            played.append(r["second"])
+        e1 = r["first"][1] - r["first"][0] + 1 if r["first"] else 0
+        out.append((rs, a, played[-1][1],
+                    dict(body=k, e1=e1, played=played)))
+        said = (f"bars {page(a)}-{page(a + k - 1)} come back at "
+                f"{page(r['again'])}-{page(r['again'] + k - 1)}, so "
+                f"section {rs['pm']['name']} prints once with a repeat")
+        if r["first"]:
+            f1, f2 = r["first"]
+            s1, s2 = r["second"]
+            said += (f": first ending bar{'s' if f2 > f1 else ''} "
+                     f"{page(f1)}" + (f"-{page(f2)}" if f2 > f1 else "")
+                     + f", second ending bar{'s' if s2 > s1 else ''} "
+                     f"{page(s1)}" + (f"-{page(s2)}" if s2 > s1 else ""))
+        find.append(said)
+        if r["after"] is not None:
+            pm = dict(s["pm"], name=fresh(last_name), label=None,
+                      events=[], unknown=[], header=[])
+            out.append((dict(s, pm=pm, split=True), r["after"], hi, None))
+    return out
 
 
 def _merge(into, other):

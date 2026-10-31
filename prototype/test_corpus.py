@@ -9505,6 +9505,79 @@ def check_sextuplet_numbers():
               (nums, want))
 
 
+def check_lead_sheet_repeats():
+    """
+    A lead sheet finds a stretch the demo plays twice and prints it once
+    with a repeat (his "play it back", 2026-10-31): A once, then B's ten
+    bars, a two-bar first ending, the ten bars again and a one-bar
+    second ending. The chart that comes out compiles, and its listen
+    takes the demo's own second-ending bar. A loose take still repeats; a
+    changed bar in the return does not.
+    """
+    import chartlead
+    import smf
+    div, bar = 480, 1920
+    chords = {"F": (41, 57, 60, 63, 67), "C": (36, 52, 55, 58),
+              "Bb": (46, 50, 53, 56), "G": (43, 59, 62, 65)}
+
+    def bars_of(names):
+        out = []
+        for b, nm in enumerate(names):
+            for off in (0, 3 * div // 2) if nm != "G" else (0,):
+                for p_ in chords[nm]:
+                    out.append((b, off, p_))
+        return out
+    body = ["F", "Bb", "F", "F", "Bb", "Bb", "F", "F", "C", "Bb"]
+    form = (["C"] * 4 + ["Bb"] * 4) + body + ["F", "C"] + body + ["G"]
+    notes = [(b * bar + off, b * bar + off + 400, p_, 80)
+             for b, off, p_ in bars_of(form)]
+    with tempfile.TemporaryDirectory() as tmp:
+        demo = os.path.join(tmp, "rep.mid")
+        smf.write(demo, notes, div, 115, name="Pianoteq 8")
+        out = os.path.join(tmp, "rep.chart")
+        text, find = chartlead.lead_sheet(demo, out, title="Rep", key="F")
+        check("a repeated stretch prints once with a repeat",
+              "section B, 12 bars, repeat 2x" in text
+              and "ending 1, 2 bars:" in text
+              and "ending 2, 1 bar:" in text, text)
+        check("the bars before it stay their own section",
+              "section A, 8 bars\n" in text, text)
+        check("his take ends the tune as he ended it",
+              text.rstrip().endswith("ending: as written"), text[-200:])
+        check("the listen names the second ending's demo bar",
+              "as played bars 9-20 and 31" in text, text)
+        check("the repeat is said",
+              any("come back at 21-30" in f
+                  and "second ending bar 31" in f for f in find), find)
+        with open(out, "w") as f:
+            f.write(text)
+        import chartc
+        from chart import verify_measures
+        with redirect_stdout(io.StringIO()):
+            files = chartc.compile_chart(out, os.path.join(tmp, "b"))
+        check("the found repeat compiles", not verify_measures(files))
+        # the same tune played loosely, a hand a little off the grid:
+        # the same notes in the same places, so the same repeat
+        loose = [(max(0, on + j), off + j, p_, v)
+                 for i, (on, off, p_, v) in enumerate(notes)
+                 for j in [((i * 37) % 141) - 70]]
+        demo2 = os.path.join(tmp, "loose.mid")
+        smf.write(demo2, loose, div, 115, name="Pianoteq 8")
+        text2, _f = chartlead.lead_sheet(demo2, os.path.join(
+            tmp, "loose.chart"), title="Loose", key="F")
+        check("a loose take still finds its repeat",
+              "section B, 12 bars, repeat 2x" in text2, text2)
+        # the return differs in one bar: not the same music, no repeat
+        moved = [(on, off, p_ + (2 if on // bar == 24 else 0), v)
+                 for on, off, p_, v in notes]
+        demo3 = os.path.join(tmp, "moved.mid")
+        smf.write(demo3, moved, div, 115, name="Pianoteq 8")
+        text3, _f = chartlead.lead_sheet(demo3, os.path.join(
+            tmp, "moved.chart"), title="Moved", key="F")
+        check("a changed bar in the return is not a repeat",
+              "repeat 2x" not in text3 and "ending 1" not in text3, text3)
+
+
 def check_lead_sheet_from_markers():
     """2026-10-27, his ask: a lead sheet from a played chord track, the
     form and what each section does said in the DAW's markers. Chords
@@ -10063,6 +10136,7 @@ if __name__ == "__main__":
     check_cues_and_cuts()
     check_streamline()
     check_lead_sheet_from_markers()
+    check_lead_sheet_repeats()
     check_odd_meter_downbeats()
     check_stems_and_page_bars()
     check_pickups_play()
