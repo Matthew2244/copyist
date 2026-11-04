@@ -708,6 +708,10 @@ CHORD_KINDS = {
     '7#9b5': ('dominant', '7#9b5', [(5, -1, 'alter'), (9, 1, 'add')]),
     'm#5': ('minor', 'm#5', [(5, 1, 'alter')]),
     'm9b5': ('half-diminished', 'm9b5', [(9, 0, 'add')]),
+    # the half-diminished ii with its eleventh, and a ninth chord's
+    # flat thirteen: both in his ballad voicings (2026-11-03)
+    'm11b5': ('half-diminished', 'm11b5', [(11, 0, 'add')]),
+    '9b13': ('dominant-ninth', '9b13', [(13, -1, 'add')]),
     '9b5': ('dominant-ninth', '9b5', [(5, -1, 'alter')]),
     'mmaj9': ('major-minor', 'mmaj9', [(9, 0, 'add')]),
 }
@@ -719,7 +723,11 @@ QUAL_SYNONYMS = {'-': 'm', '-7': 'm7', '-9': 'm9', '-11': 'm11',
                  'mi': 'm', 'mi7': 'm7', 'mi9': 'm9', 'mi11': 'm11',
                  'mi6': 'm6', 'sus': 'sus4', '7sus': '7sus4',
                  '9sus': '9sus4', 'min13': 'm13', 'mi13': 'm13',
-                 '7b9sus': '7b9sus4', 'm(b6)': 'mb6', 'm(maj9)': 'mmaj9',
+                 '7b9sus': '7b9sus4', '7susb9': '7b9sus4',
+                 '7sus4b9': '7b9sus4', '7sus(b9)': '7b9sus4',
+                 'm7b5(11)': 'm11b5', '-11b5': 'm11b5',
+                 'mi11b5': 'm11b5', 'min11b5': 'm11b5',
+                 '9(b13)': '9b13', 'm(b6)': 'mb6', 'm(maj9)': 'mmaj9',
                  'maj7+5': 'maj7#5', 'maj7(#5)': 'maj7#5', 'aug9': '9#5',
                  '7alt#5': '7#9#5',
                  '13sus4': '13sus',

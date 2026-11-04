@@ -469,11 +469,17 @@ def interview(out_path, demo_path, composer='', cfg=None):
                 say(f"I don't know '{part}' as an instrument; it prints "
                     "for piano.")
                 part = "piano"
+            split = ask("Anyone to play your own figures from it? A bass "
+                        "takes your lowest notes, a chord player the "
+                        "voicing above. Name them, like: bass, guitar. "
+                        "Or none", "none")
+            split = [] if split.strip().lower() in ("", "none", "no") \
+                else [w.strip() for w in split.split(",") if w.strip()]
             text, find = chartlead.lead_sheet(
                 demo_path, out_path, title=title, composer=composer,
                 key=key, tempo=tempo or None, part=part,
                 chord_track=nm0 if dm.names.get(ti0) else None,
-                countin=int(countin or 0))
+                countin=int(countin or 0), split=split)
             with open(out_path, 'w', encoding='utf-8') as fh:
                 fh.write(text)
             nsec = text.count("\nsection ")

@@ -41,12 +41,19 @@ PC_SHARP = {0: "C", 1: "C#", 2: "D", 3: "D#", 4: "E", 5: "F", 6: "F#",
 TEMPLATES = [
     ("13sus", {0, 5, 10, 9}, {2, 7}),
     ("9sus4", {0, 5, 10, 2}, {7}),
+    ("7b9sus4", {0, 5, 10, 1}, {7}),
     ("7#9b13", {0, 4, 10, 3, 8}, {7}),
     ("7b9#9", {0, 4, 10, 1, 3}, {7}),
     ("7b9b13", {0, 4, 10, 1, 8}, {7}),
     ("7#9#11", {0, 4, 10, 3, 6}, {7}),
     ("13#11", {0, 4, 10, 9, 6}, {2, 7}),
     ("13b9", {0, 4, 10, 9, 1}, {7}),
+    # with the ninth there, the raised eleventh is the name (as in
+    # 13#11); the bare 7b5 below has no ninth
+    ("9#11", {0, 4, 10, 2, 6}, {7}),
+    ("9b13", {0, 4, 10, 2, 8}, {7}),
+    ("maj13", {0, 4, 11, 9}, {2, 7}),
+    ("m11b5", {0, 3, 6, 10, 5}, {2}),
     ("m9b5", {0, 3, 6, 10, 2}, set()),
     ("maj7#5", {0, 4, 8, 11}, {2}),
     # no fifth: the flat five is the fifth (C E Gb Bb is C7b5); with the
@@ -88,7 +95,36 @@ TEMPLATES = [
 # ninth chord with no third (C G Bb D) is C9, not Bb69/C.
 NEAR = [("7b9", {0, 4, 1}, {7}), ("7#9", {0, 4, 3}, {7, 10}),
         ("9", {0, 10, 2}, {7}), ("maj9", {0, 11, 2}, {7}),
-        ("maj7", {0, 11, 7}, set()), ("7", {0, 10, 7}, set())]
+        ("maj7", {0, 11, 7}, set()), ("7", {0, 10, 7}, set()),
+        # the half-diminished ii with its third left out (E Bb D A):
+        # the ii of a ii-V, not Bbmaj7#11 over E
+        ("m11b5", {0, 6, 10, 5}, set())]
+
+# the bass sits on a chord tone (3rd, 5th, 6th, 7th) rather than a
+# tension when two slash readings fit: C# E A B is A(add9)/C#, not
+# B9sus4/C#
+CHORD_TONE = {3, 4, 6, 7, 8, 9, 10, 11}
+
+LETTER_PC = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+
+
+def spell_over(root_name, qual, bass_pc, fallback):
+    """The slash bass spelled from the chord, not the key: D's third
+    is F#, never Gb, even in Db. Falls back to the key's name when
+    the letter would need a double accidental."""
+    root_pc = (LETTER_PC[root_name[0]]
+               + {"b": -1, "#": 1}.get(root_name[1:2], 0)) % 12
+    iv = (bass_pc - root_pc) % 12
+    flat5 = "b5" in qual or qual.startswith("dim")
+    sharp5 = "#5" in qual or qual.startswith("aug")
+    steps = {0: 0, 1: 1, 2: 1, 3: 2, 4: 2, 5: 3, 6: 4 if flat5 else 3,
+             7: 4, 8: 4 if sharp5 else 5, 9: 5, 10: 6, 11: 6}[iv]
+    letters = "CDEFGAB"
+    letter = letters[(letters.index(root_name[0]) + steps) % 7]
+    acc = (bass_pc - LETTER_PC[letter] + 6) % 12 - 6
+    if acc not in (-1, 0, 1):
+        return fallback
+    return letter + {-1: "b", 0: "", 1: "#"}[acc]
 
 
 def spelling(fifths):
@@ -139,13 +175,15 @@ def name_chord(pitches, flats=True, names=None):
             if q is None:
                 continue
             req = next(r for qq, r, _ in TEMPLATES if qq == q)
-            # the richer reading first; on a tie a seventh chord beats a
-            # sixth (E G A C over E is Am7/E, not C6/E)
-            cand = (len(req), q not in ("6", "m6", "69"), q, root)
-            if best is None or cand[:2] > best[:2]:
+            # a chord tone in the bass first, then the richer reading;
+            # on a tie a seventh chord beats a sixth (E G A C over E is
+            # Am7/E, not C6/E)
+            cand = ((bass - root) % 12 in CHORD_TONE, len(req),
+                    q not in ("6", "m6", "69"), q, root)
+            if best is None or cand[:3] > best[:3]:
                 best = cand
         if best:
-            found = (best[2], best[3])
+            found = (best[3], best[4])
     if found is None:
         # a rootless voicing (the left hand's 3-7-9, the bass player
         # has the root): read only when nothing with its root in the
@@ -170,7 +208,7 @@ def name_chord(pitches, flats=True, names=None):
     sym = names[root] + qual
     # a rootless voicing's lowest note is a chord tone, not a bass line
     if bass != root and len(found) < 3:
-        sym += "/" + names[bass]
+        sym += "/" + spell_over(names[root], qual, bass, names[bass])
     return sym
 
 
@@ -195,6 +233,19 @@ def beat_text(pos, meter):
     return f"{beat + 1}" + ("+" if rem else "")
 
 
+def _fifth_of(sym):
+    """The fifth a symbol implies but a voicing often leaves out, as a
+    pitch-class set (empty when the chord alters it)."""
+    head = sym.split("/")[0]
+    if len(head) < 1 or head[0] not in LETTER_PC:
+        return set()
+    acc = {"b": -1, "#": 1}.get(head[1:2], 0)
+    qual = head[1 + (head[1:2] in ("b", "#")):]
+    if "b5" in qual or "#5" in qual or qual.startswith(("dim", "aug")):
+        return set()
+    return {(LETTER_PC[head[0]] + acc + 7) % 12}
+
+
 def chord_events(notes, division, meter, barof, first=1, last=None,
                  names=None):
     """Onset clusters on one track -> {bar: [(step, symbol, pitches,
@@ -215,6 +266,7 @@ def chord_events(notes, division, meter, barof, first=1, last=None,
         else:
             clusters.append([n.on, [n]])
     out = {}
+    prev_sym, prev_pcs = None, set()
     for start, ns in clusters:
         q = int(round(start / grid)) * grid
         b = barof(q)
@@ -222,7 +274,17 @@ def chord_events(notes, division, meter, barof, first=1, last=None,
             continue
         pos = (q - (b - 1) * bar_ticks) // grid
         pos = max(0, min(pos, steps - 1))
-        sym = name_chord([n.pitch for n in ns], names=names)
+        pcs = {n.pitch % 12 for n in ns}
+        if len(pcs) <= 2 and prev_sym and pcs <= prev_pcs:
+            # a hand moving inside the chord (Bb F under Bb7b9b13, or
+            # a melody note in it) is the same chord, not Bb5
+            sym = prev_sym
+        else:
+            sym = name_chord([n.pitch for n in ns], names=names)
+        if sym is not None and sym != prev_sym:
+            prev_sym, prev_pcs = sym, pcs | _fifth_of(sym)
+        elif sym is not None:
+            prev_pcs = prev_pcs | pcs
         rings = max((n.off or n.on) for n in ns)
         out.setdefault(b, []).append((pos, sym, [n.pitch for n in ns],
                                       rings))
@@ -253,11 +315,13 @@ def chord_bars(events, first, last, meter, bar_ticks, grid, song_last=None):
         evs = sorted(events.get(b, []), key=lambda e: e[0])
         carried = held
         parts, beats = [], []
-        for pos, sym, _, end in evs:
+        for pos, sym, pitches, end in evs:
             beats.append(beat_text(pos, meter) or "1")
             ring_end = end
             if sym is None:
-                misses.append(b)
+                # a lone note is melody, never an unnamed chord
+                if len({p % 12 for p in pitches}) > 1:
+                    misses.append(b)
                 continue
             if sym == held and (parts or pos != 0):
                 continue
@@ -783,11 +847,59 @@ def section_head(pm, n):
     return head
 
 
+def split_hands(notes, division, roles):
+    """One chord track -> the players' own lines, {role: [(on, off,
+    pitch, vel)]}. A bass-family role takes the lowest note of each
+    chord (a root-and-fifth re-hit of the note it already holds stays
+    with the chord players) and any lone note at C3 or under; a chord
+    role takes everything above it, and a guitar the top four voices,
+    the most a hand can hold."""
+    import chartc
+    low = [r for r in roles if "bass" in chartc.canonical_instrument(r)]
+    upper = [r for r in roles if r not in low]
+    if len(low) > 1 or len(upper) > 1:
+        raise SystemExit("chart: a split takes one bass player and one "
+                         "chord player, like: bass, guitar")
+    clusters = []
+    for n in sorted(notes, key=lambda n: (n.on, n.pitch)):
+        if clusters and n.on - clusters[-1][0].on <= division // 4:
+            clusters[-1].append(n)
+        else:
+            clusters.append([n])
+    out = {r: [] for r in roles}
+    held = None
+    cap = 4 if upper and "guitar" in chartc.canonical_instrument(
+        upper[0]) else None
+    for c in clusters:
+        c = sorted(c, key=lambda n: n.pitch)
+        lo_n = c[0]
+        rehit = len(c) == 2 and held is not None and \
+            lo_n.pitch % 12 == held
+        if (len(c) >= 2 and not rehit) or (len(c) == 1
+                                           and lo_n.pitch <= 48):
+            take, rest = lo_n, c[1:]
+            held = lo_n.pitch % 12
+        else:
+            take, rest = None, c
+        if take is not None and low:
+            out[low[0]].append((take.on, take.off or take.on + division,
+                                take.pitch, take.vel))
+        if upper:
+            for n in (rest[-cap:] if cap else rest):
+                out[upper[0]].append((n.on, n.off or n.on + division,
+                                      n.pitch, n.vel))
+    return out
+
+
 def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
                tempo=None, part="piano", chord_track=None, feel=None,
-               countin=0):
+               countin=0, split=()):
     """Write a lead-sheet chart from one demo: chords from its chord
-    track, form from its markers.  Returns (chart text, findings)."""
+    track, form from its markers.  Returns (chart text, findings).
+
+    split names players who play his own figures from the chord track
+    (one bass, one chord player: "bass", "guitar"); their MIDI files
+    are written beside the chart and each section lifts its bars."""
     import chartdemo
     import analyze
     dm = chartdemo.load_demo(demo_path)
@@ -803,6 +915,7 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
         _, tn, td = ex["timesigs"][0]
         meter = (tn, td)
     compound = meter[1] == 8 and meter[0] % 3 == 0 and meter[0] > 3
+    q_bpm = 60_000_000 / ex["tempos"][0][1] if ex["tempos"] else 120
     if tempo is None and ex["tempos"]:
         q = 60_000_000 / ex["tempos"][0][1]
         # a 6/8 chart's tempo is the dotted quarter, the one it prints
@@ -873,7 +986,23 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
     # made-up name the demo reader cannot match
     band = f"  {part}" + (f', demo "{tname}"' if tname else "") + \
         ", one staff"
-    lines += ["", "band:", band, ""]
+    lines += ["", "band:", band]
+    stem = os.path.splitext(os.path.basename(demo_path))[0]
+    for role, ns in split_hands(notes, div, list(split)).items() \
+            if split else ():
+        fname = f"{stem} - {role}.MID"
+        path = os.path.join(os.path.dirname(os.path.abspath(out_path)),
+                            fname)
+        if os.path.exists(path):
+            find.append(f"kept the {fname} already there; delete it to "
+                        "split again")
+        else:
+            import smf
+            smf.write(path, ns, div, q_bpm, ts=meter, name=role)
+            find.append(f"{role} plays your figures from {said_track}: "
+                        f"{chartc_n(len(ns), 'note')} in {fname}")
+        lines.append(f'  {role}, demo "{fname}"')
+    lines.append("")
     allmiss = []
     spans = []
     for i, s in enumerate(secs):
@@ -947,10 +1076,22 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
             lines.append(f"  {part}: " + ", ".join(runs))
         elif mode == "tacet":
             lines.append(f"  {part}: tacet")
+            for role in split:
+                lines.append(f"  {role}: tacet")
         elif mode.startswith("solo"):
             lines.append(f"  {part}: {mode}")
         else:
             lines.append(f"  {part}: groove" + take)
+        if mode != "tacet" and split:
+            # each split player lifts the same demo bars the section
+            # plays, a second ending told where it prints
+            runs, at_ = [], 1
+            for k, (a, b) in enumerate(played):
+                runs.append(f"from demo bars {a}-{b}"
+                            + (f" at bar {at_}" if k else ""))
+                at_ += b - a + 1
+            for role in split:
+                lines.append(f"  {role}: " + ", ".join(runs))
         if not s.get("split"):
             more, said = section_extras(s, lo, n, first)
             lines += more
@@ -976,6 +1117,11 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
         else:
             sig[key_] = s["pm"]["name"]
     return "\n".join(lines).rstrip() + "\n", find
+
+
+def chartc_n(n, word):
+    import chartc
+    return chartc.n_of(n, word)
 
 
 def _units(secs, spans, prints, find, page):
@@ -1088,13 +1234,19 @@ def main(argv=None):
                     help="the instrument the lead sheet prints for")
     ap.add_argument("--countin", type=int, default=0,
                     help="count-in bars at the start of the demo")
+    ap.add_argument("--split", default="",
+                    help="players who play your own figures from the "
+                    "chord track, one bass and one chord player, like "
+                    "\"bass, guitar\"")
     ap.add_argument("--print", action="store_true",
                     help="print the chart instead of writing it")
     a = ap.parse_args(argv)
     text, find = lead_sheet(a.demo, a.chart, title=a.title,
                             composer=a.composer, key=a.key,
                             chord_track=a.track, part=a.part,
-                            countin=a.countin)
+                            countin=a.countin,
+                            split=[s.strip() for s in a.split.split(",")
+                                   if s.strip()])
     if a.print:
         print(text)
     else:

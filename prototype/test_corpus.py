@@ -9616,6 +9616,80 @@ def check_lead_sheet_repeats():
               "repeat 2x" not in text3 and "ending 1" not in text3, text3)
 
 
+def check_lead_sheet_ballad_voicings():
+    """A ballad player's voicings read as he means them (2026-11-03):
+    the ninth with a raised eleventh, the half-diminished ii with its
+    eleventh (third or no third), a flat-nine sus, maj13 and 9b13; a
+    slash bass spelled from its chord; a chord tone in the bass beats a
+    tension; a hand moving inside a chord is no new chord; and the
+    split that hands a bass and a guitar their own figures."""
+    import chartc
+    import chartlead
+    import smf
+    name = chartlead.name_chord
+    check("ballad shapes are named, not guessed rootless",
+          [name(p) for p in ([48, 52, 58, 62, 66], [48, 51, 54, 58, 65],
+                             [48, 53, 55, 58, 61], [48, 55, 52, 57, 59, 62],
+                             [48, 52, 58, 62, 68], [48, 53, 54, 58])]
+          == ["C9#11", "Cm11b5", "C7b9sus4", "Cmaj13", "C9b13", "Cm11b5"],
+          [name(p) for p in ([48, 52, 58, 62, 66], [48, 51, 54, 58, 65],
+                             [48, 53, 55, 58, 61], [48, 55, 52, 57, 59, 62],
+                             [48, 52, 58, 62, 68], [48, 53, 54, 58])])
+    check("the new kinds compile, with their synonyms",
+          [chartc.split_chord(s)[2] for s in (
+              "Cm11b5", "C9b13", "C7susb9", "Cm7b5(11)", "C9(b13)")]
+          == ["m11b5", "9b13", "7b9sus4", "m11b5", "9b13"])
+    check("a slash bass is spelled from its chord, not the key",
+          name([42, 50, 57, 61, 64]) == "Dmaj9/F#", name([42, 50, 57, 61, 64]))
+    check("a chord tone in the bass beats a tension",
+          name([49, 52, 57, 59]) == "Aadd9/C#", name([49, 52, 57, 59]))
+    with tempfile.TemporaryDirectory() as tmp:
+        div, bar = 480, 1920
+        notes = []
+
+        def hit(t, ln, ps):
+            for p_ in ps:
+                notes.append((t, t + ln, p_, 90))
+        for o in (0, 2 * bar):
+            # C7b9b13 on 1 with no fifth, its root and fifth again on 2,
+            # F13sus on 3, F/A on 4; then Bbmaj9 a whole bar
+            hit(o, 700, (36, 46, 49, 52, 56))
+            hit(o + div, 200, (48, 55))
+            hit(o + 2 * div, 700, (41, 46, 51, 55, 62))
+            hit(o + 3 * div, 300, (45, 53))
+            hit(o + bar, 1800, (34, 50, 57, 60, 62, 65))
+        demo = os.path.join(tmp, "ballad.mid")
+        smf.write(demo, notes, div, 64, name="Pianoteq 8",
+                  markers=[(0, "a"), (2 * bar, "a")])
+        out = os.path.join(tmp, "ballad.chart")
+        text, find = chartlead.lead_sheet(demo, out, title="B", key="F",
+                                          split=["bass", "guitar"])
+        check("a hand inside the chord is no new chord (no C5)",
+              "chords: C7b9b13 F13sus@3 F/A@4, Bbmaj9" in text
+              and "C5" not in text, text)
+        check("the split writes both players and their bars",
+              'bass, demo "ballad - bass.MID"' in text
+              and 'guitar, demo "ballad - guitar.MID"' in text
+              and "  bass: from demo bars 1-2" in text
+              and "  guitar: from demo bars 3-4" in text, text)
+        import chartdemo
+        b = chartdemo.load_demo(os.path.join(tmp, "ballad - bass.MID"))
+        g = chartdemo.load_demo(os.path.join(tmp, "ballad - guitar.MID"))
+        bp = sorted((n.on, n.pitch) for t in b.tracks.values() for n in t)
+        gon = {}
+        for t in g.tracks.values():
+            for n in t:
+                gon[n.on] = gon.get(n.on, 0) + 1
+        check("bass takes the lowest notes; the re-hit stays with guitar",
+              [p for _, p in bp] == [36, 41, 45, 34] * 2, bp)
+        check("guitar holds at most four voices",
+              max(gon.values()) == 4, gon)
+        text2, find2 = chartlead.lead_sheet(demo, out, title="B", key="F",
+                                            split=["bass", "guitar"])
+        check("an existing split file is kept, and said",
+              any("kept the ballad - bass.MID" in f for f in find2), find2)
+
+
 def check_lead_sheet_from_markers():
     """2026-10-27, his ask: a lead sheet from a played chord track, the
     form and what each section does said in the DAW's markers. Chords
@@ -10174,6 +10248,7 @@ if __name__ == "__main__":
     check_cues_and_cuts()
     check_streamline()
     check_lead_sheet_from_markers()
+    check_lead_sheet_ballad_voicings()
     check_lead_sheet_repeats()
     check_braille_chord_gap()
     check_chord_spelling_by_beat()

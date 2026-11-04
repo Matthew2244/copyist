@@ -69,6 +69,7 @@ _QUAL = {
     '7b9sus4': (0, 5, 7, 10, 13), '7b9b5': (0, 4, 6, 10, 13),
     '9#5': (0, 4, 8, 10, 14), '7#9b5': (0, 4, 6, 10, 15),
     'm#5': (0, 3, 8), 'm9b5': (0, 3, 6, 10, 14),
+    'm11b5': (0, 3, 6, 10, 17), '9b13': (0, 4, 10, 14, 20),
     '9b5': (0, 4, 6, 10, 14), 'mmaj9': (0, 3, 7, 11, 14),
 }
 
@@ -2506,7 +2507,7 @@ def swing_ratio(bpm):
 
 def _family(c):
     q = (c[2] if c else '') or 'maj'
-    if q in ('m7b5', 'm9b5'):
+    if q in ('m7b5', 'm9b5', 'm11b5'):
         return 'half'
     if q.startswith('dim'):
         return 'dim'
@@ -4193,7 +4194,7 @@ def _scale(chord):
     """The chord-scale a player reaches for, as semitones above the
     root."""
     q = (chord[2] if chord else '') or 'maj'
-    if q in ('m7b5', 'm9b5'):
+    if q in ('m7b5', 'm9b5', 'm11b5'):
         return (0, 1, 3, 5, 6, 8, 10)
     if q.startswith('dim'):
         return (0, 2, 3, 5, 6, 8, 9, 11)
@@ -4800,7 +4801,7 @@ def _colors(chord):
 
 def _colors_(chord):
     q = (chord[2] if chord else '') or 'maj'
-    if q in ('m7b5', 'm9b5'):
+    if q in ('m7b5', 'm9b5', 'm11b5'):
         return (5, 8)                    # 11, b13
     if q.startswith('dim'):
         return (2, 5, 11)
@@ -5844,7 +5845,7 @@ def play_planned(bar, plan, pos, bar_beats):
 def _rootless(chord):
     """(A form, B form) as semitones above the root."""
     q = (chord[2] if chord else '') or 'maj'
-    if q in ('m7b5', 'm9b5'):
+    if q in ('m7b5', 'm9b5', 'm11b5'):
         return (3, 6, 10, 14), (10, 14, 15, 18)
     if q.startswith('dim'):
         return (3, 6, 9, 14), (9, 14, 15, 18)
