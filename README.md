@@ -21,6 +21,16 @@ check it by ear, and verifies its own output instead of asking you to look.
 > genuinely help. Parts of the design are still unbuilt, and those gaps are
 > listed in the docs rather than glossed over.
 
+## Get the app
+
+**Mac:** [download Copyist for Mac](https://github.com/Matthew2244/copyist/releases/latest/download/Copyist-mac.zip), open the zip, and drag Copyist into Applications. It's signed and notarized by Apple, so it opens without a warning.
+
+**Windows:** [download Copyist for Windows](https://github.com/Matthew2244/copyist/releases/latest/download/Copyist-Setup.exe) and run it. It installs just for you, with no administrator password, adds Copyist to the Start menu, and can be removed from Settings, Apps. Removing it leaves your charts and settings alone. Windows may say it doesn't recognise the app; choose More info, then Run anyway. You also need [Python 3](https://www.python.org), with "Add python.exe to PATH" ticked when you install it. The Windows side was written on a Mac and hasn't had much time on real PCs yet, so tell us what goes wrong.
+
+The app updates itself, with [Sparkle](https://sparkle-project.org) on the Mac and WinSparkle on Windows. Every update is signed, and the app refuses one that isn't.
+
+Every version, with what changed, is on the [releases page](https://github.com/Matthew2244/copyist/releases).
+
 ## It draws its own pages now
 
 Copyist used to hand MusicXML to MuseScore and let MuseScore draw the page and
