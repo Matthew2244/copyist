@@ -1018,20 +1018,33 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
         band = f'  {part}, demo "{fname}"'
         b = basses[0]
         bns = hands[b]
-        fname = keep_or_write(b, bns, f"{b} plays your figures from "
-                                      f"{said_track}")
         ps = sorted(n[2] for n in bns)
-        line = f'  {b}, demo "{fname}"'
+        kept = []
         if ps and ps[len(ps) // 2] >= 43:
             # a piano left hand's roots sit an octave above where a
-            # bass plays them; below the low E it takes the low B
-            inst = "five-string bass" if ps[0] - 12 < 28 else None
-            line = f"  {b}" + (f" = {inst}" if inst else "") + \
-                f', demo "{fname}" octave -1'
+            # bass plays them: each bar goes down an octave unless that
+            # takes it under a four-string's low E (his player's bass,
+            # 2026-11-06), and then the whole bar stays where he played
+            # it, so no single note jumps
+            low = {}
+            for n in bns:
+                k = n[0] // bar_ticks
+                low[k] = min(low.get(k, 999), n[2])
+            up = {k for k, p_ in low.items() if p_ - 12 < 28}
+            bns = [(on, off, p_ if on // bar_ticks in up else p_ - 12, v)
+                   for on, off, p_, v in bns]
+            kept = sorted(page(k + 1) for k in up)
             find.append(f"{b} plays your lowest notes an octave down, "
                         "where a bass sits"
-                        + (" — the low end wants a five-string"
-                           if inst else ""))
+                        + (", except bar" + ("s " if len(kept) > 1
+                                             else " ")
+                           + ", ".join(map(str, kept))
+                           + ", left where you played them so a "
+                           "four-string's low E reaches"
+                           if kept else ""))
+        fname = keep_or_write(b, bns, f"{b} plays your figures from "
+                                      f"{said_track}")
+        line = f'  {b}, demo "{fname}"'
         split_lines.append(line)
         for r in compers:
             split_lines.append(f"  {r}")

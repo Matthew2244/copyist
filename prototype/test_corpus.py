@@ -9701,9 +9701,28 @@ def check_lead_sheet_ballad_voicings():
                   markers=[(0, "a"), (2 * bar, "a")])
         t3, f3 = chartlead.lead_sheet(demo2, os.path.join(tmp, "high.chart"),
                                       title="H", key="F", split=["bass"])
+        hb = chartdemo.load_demo(os.path.join(tmp, "high - bass.MID"))
+        hp = [n.pitch for t in hb.tracks.values()
+              for n in sorted(t, key=lambda n: n.on)]
         check("a bass split from piano-register roots drops an octave",
-              'bass, demo "high - bass.MID" octave -1' in t3
-              and any("an octave down" in f for f in f3), t3)
+              hp == [36, 41, 45, 34] * 2 and "octave -1" not in t3
+              and "five-string" not in t3
+              and any("an octave down" in f for f in f3), (hp, f3))
+        # a bar that would go under a four-string's low E stays put,
+        # whole, and is named (his player's four-string, 2026-11-06)
+        lo = [(on, off, p_ + 12 if on < bar else p_, v)
+              for on, off, p_, v in notes]
+        demo3 = os.path.join(tmp, "low.mid")
+        smf.write(demo3, lo, div, 64, name="Pianoteq 8",
+                  markers=[(0, "a"), (2 * bar, "a")])
+        t4, f4 = chartlead.lead_sheet(demo3, os.path.join(tmp, "low.chart"),
+                                      title="L", key="F", split=["bass"])
+        lb = chartdemo.load_demo(os.path.join(tmp, "low - bass.MID"))
+        lp = [n.pitch for t in lb.tracks.values()
+              for n in sorted(t, key=lambda n: n.on)]
+        check("a bar that would go under the low E keeps its octave",
+              lp == [36, 41, 45, 34] * 2
+              and any("except bars 2, 3, 4," in f for f in f4), (lp, f4))
         text2, find2 = chartlead.lead_sheet(demo, out, title="B", key="F",
                                             split=["bass", "guitar"])
         check("an existing split file is kept, and said",
