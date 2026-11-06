@@ -9804,6 +9804,10 @@ def check_flower_read():
             t, f = chartlead.lead_sheet(demo, os.path.join(tmp, name
                                                            + ".chart"),
                                         title="F", key="Db", split=split)
+            # each split rewrites the same file within one clock tick, and
+            # Windows' coarse timestamps leave the same (name, time, size)
+            # key, so the demo cache would hand back the last split's bass
+            chartdemo._DEMOS.clear()
             d = chartdemo.load_demo(os.path.join(tmp, "f - bass.MID"))
             os.remove(os.path.join(tmp, "f - bass.MID"))
             os.remove(os.path.join(tmp, "f - piano.MID"))
