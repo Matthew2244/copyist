@@ -1443,8 +1443,24 @@ def measure_width(meas):
     # chord symbols need their letters' room too — two changes in an
     # empty bar must not print on top of each other
     cw = sum(6.2 * len(s) + 8 for _, s in meas['chords'])
+    # and each change must fit before the next one's beat, or the names
+    # shove each other right and sit off the beats they belong to (A
+    # Flower's "Ab7b9b13 Db13sus@3 Db/F@4" put Db/F most of a beat late):
+    # the bar grows until every name ends before the next change's beat
+    total = max(meas.get('len') or 0, 1)
+    ch = sorted(meas['chords'])
+    beat_room = 0.0
+    for i, (pos, sym) in enumerate(ch):
+        nxt = ch[i + 1][0] if i + 1 < len(ch) else total
+        frac = max((nxt - pos) / total, 0.125)
+        beat_room = max(beat_room, (6.2 * len(sym) + 8) / frac)
+    if len(ch) > 1:
+        beat_room += 3.6 * SP
+    else:
+        beat_room = 0.0
     return max(w + max(per.values(), default=0), w + opt + 2 * SP,
-               w + cw, 12 * SP, header_width(meas) + 2 * SP)
+               w + cw, w + beat_room, 12 * SP,
+               header_width(meas) + 2 * SP)
 
 
 def engrave(xml_path, pdf_path, look=None):

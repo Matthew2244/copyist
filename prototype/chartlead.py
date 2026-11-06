@@ -984,24 +984,64 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
         lines.append(f"countin: {countin}")
     # an unnamed track is found as the demo's only track, never by a
     # made-up name the demo reader cannot match
-    band = f"  {part}" + (f', demo "{tname}"' if tname else "") + \
-        ", one staff"
-    lines += ["", "band:", band]
+    # 2026-11-06, his A Flower read: with a bass split off, the keyboard
+    # player reads HIS voicings (what the bass took left out) on the grand
+    # staff, and another chord player reads the changes. The other way
+    # round printed a piano part that looked like a guitar's (slashes)
+    # and a guitar part that looked like a piano's (five-note voicings)
+    import chartc
+    basses = [r for r in split
+              if "bass" in chartc.canonical_instrument(r)]
+    compers = [r for r in split if r not in basses]
+    reads = bool(basses)
     stem = os.path.splitext(os.path.basename(demo_path))[0]
-    for role, ns in split_hands(notes, div, list(split)).items() \
-            if split else ():
+    here = os.path.dirname(os.path.abspath(out_path))
+    split_lines = []
+
+    def keep_or_write(role, ns, said):
         fname = f"{stem} - {role}.MID"
-        path = os.path.join(os.path.dirname(os.path.abspath(out_path)),
-                            fname)
+        path = os.path.join(here, fname)
         if os.path.exists(path):
             find.append(f"kept the {fname} already there; delete it to "
                         "split again")
         else:
             import smf
             smf.write(path, ns, div, q_bpm, ts=meter, name=role)
-            find.append(f"{role} plays your figures from {said_track}: "
-                        f"{chartc_n(len(ns), 'note')} in {fname}")
-        lines.append(f'  {role}, demo "{fname}"')
+            find.append(f"{said}: {chartc_n(len(ns), 'note')} in {fname}")
+        return fname
+    if reads:
+        hands = split_hands(notes, div, basses + [part])
+        fname = keep_or_write(part, hands[part],
+                              f"{part} reads your own voicings from "
+                              f"{said_track}, the bass notes left to the "
+                              "bass")
+        band = f'  {part}, demo "{fname}"'
+        b = basses[0]
+        bns = hands[b]
+        fname = keep_or_write(b, bns, f"{b} plays your figures from "
+                                      f"{said_track}")
+        ps = sorted(n[2] for n in bns)
+        line = f'  {b}, demo "{fname}"'
+        if ps and ps[len(ps) // 2] >= 43:
+            # a piano left hand's roots sit an octave above where a
+            # bass plays them; below the low E it takes the low B
+            inst = "five-string bass" if ps[0] - 12 < 28 else None
+            line = f"  {b}" + (f" = {inst}" if inst else "") + \
+                f', demo "{fname}" octave -1'
+            find.append(f"{b} plays your lowest notes an octave down, "
+                        "where a bass sits"
+                        + (" — the low end wants a five-string"
+                           if inst else ""))
+        split_lines.append(line)
+        for r in compers:
+            split_lines.append(f"  {r}")
+            find.append(f"{r} reads the changes and comps; the {part} "
+                        "part prints your voicings")
+    else:
+        band = f"  {part}" + (f', demo "{tname}"' if tname else "") + \
+            ", one staff"
+        split_lines = [f"  {r}" for r in split]
+    lines += ["", "band:", band] + split_lines
     lines.append("")
     allmiss = []
     spans = []
@@ -1080,18 +1120,25 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
                 lines.append(f"  {role}: tacet")
         elif mode.startswith("solo"):
             lines.append(f"  {part}: {mode}")
+        runs, at_ = [], 1
+        for k, (a, b) in enumerate(played):
+            runs.append(f"from demo bars {a}-{b}"
+                        + (f" at bar {at_}" if k else ""))
+            at_ += b - a + 1
+        if mode in ("hits", "notes", "tacet") or mode.startswith("solo"):
+            pass
+        elif reads:
+            # he reads his own voicings; the band hears them as played
+            lines.append(f"  {part}: " + ", ".join(runs))
         else:
             lines.append(f"  {part}: groove" + take)
         if mode != "tacet" and split:
-            # each split player lifts the same demo bars the section
-            # plays, a second ending told where it prints
-            runs, at_ = [], 1
-            for k, (a, b) in enumerate(played):
-                runs.append(f"from demo bars {a}-{b}"
-                            + (f" at bar {at_}" if k else ""))
-                at_ += b - a + 1
+            # the bass lifts the same demo bars the section plays, a
+            # second ending told where it prints; a comper reads changes
             for role in split:
-                lines.append(f"  {role}: " + ", ".join(runs))
+                lines.append(f"  {role}: " + (", ".join(runs)
+                                               if role in basses
+                                               else "groove"))
         if not s.get("split"):
             more, said = section_extras(s, lo, n, first)
             lines += more

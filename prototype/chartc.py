@@ -1143,7 +1143,7 @@ def parse_chart(path):
 
         # indented lines
         if mode == 'band':
-            m = re.match(r'([\w ]+?)(?:\s*=\s*([\w ]+?))?'
+            m = re.match(r'([\w ]+?)(?:\s*=\s*([\w -]+?))?'
                          r'(?:,\s*detail (\w[\w-]*))?'
                          r'(?:,\s*tuning ([\w ]+))?'
                          r'(?:,\s*demo "([^"]+)"(?:\s+octave (-?\d+))?)?'

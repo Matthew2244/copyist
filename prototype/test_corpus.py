@@ -9667,14 +9667,24 @@ def check_lead_sheet_ballad_voicings():
         check("a hand inside the chord is no new chord (no C5)",
               "chords: C7b9b13 F13sus@3 F/A@4, Bbmaj9" in text
               and "C5" not in text, text)
-        check("the split writes both players and their bars",
-              'bass, demo "ballad - bass.MID"' in text
-              and 'guitar, demo "ballad - guitar.MID"' in text
+        # 2026-11-06 (A Flower): the piano reads his voicings, the
+        # guitar the changes — never the other way round
+        check("the split: piano reads his voicings, guitar the changes",
+              'piano, demo "ballad - piano.MID"' in text
+              and 'bass, demo "ballad - bass.MID"' in text
+              and "one staff" not in text
+              and "  piano: from demo bars 3-4" in text
               and "  bass: from demo bars 1-2" in text
-              and "  guitar: from demo bars 3-4" in text, text)
+              and "  guitar: groove" in text
+              and "ballad - guitar.MID" not in text
+              and not os.path.exists(os.path.join(tmp,
+                                                  "ballad - guitar.MID")),
+              text)
+        check("a bass already in bass range keeps its octave",
+              "octave -1" not in text, text)
         import chartdemo
         b = chartdemo.load_demo(os.path.join(tmp, "ballad - bass.MID"))
-        g = chartdemo.load_demo(os.path.join(tmp, "ballad - guitar.MID"))
+        g = chartdemo.load_demo(os.path.join(tmp, "ballad - piano.MID"))
         bp = sorted((n.on, n.pitch) for t in b.tracks.values() for n in t)
         gon = {}
         for t in g.tracks.values():
@@ -9682,12 +9692,58 @@ def check_lead_sheet_ballad_voicings():
                 gon[n.on] = gon.get(n.on, 0) + 1
         check("bass takes the lowest notes; the re-hit stays with guitar",
               [p for _, p in bp] == [36, 41, 45, 34] * 2, bp)
-        check("guitar holds at most four voices",
-              max(gon.values()) == 4, gon)
+        check("the piano keeps every voice the bass did not take",
+              max(gon.values()) == 5, gon)
+        # a left hand's roots up in piano range go down to the bass's
+        hi = [(on, off, p_ + 12, v) for on, off, p_, v in notes]
+        demo2 = os.path.join(tmp, "high.mid")
+        smf.write(demo2, hi, div, 64, name="Pianoteq 8",
+                  markers=[(0, "a"), (2 * bar, "a")])
+        t3, f3 = chartlead.lead_sheet(demo2, os.path.join(tmp, "high.chart"),
+                                      title="H", key="F", split=["bass"])
+        check("a bass split from piano-register roots drops an octave",
+              'bass, demo "high - bass.MID" octave -1' in t3
+              and any("an octave down" in f for f in f3), t3)
         text2, find2 = chartlead.lead_sheet(demo, out, title="B", key="F",
                                             split=["bass", "guitar"])
         check("an existing split file is kept, and said",
               any("kept the ballad - bass.MID" in f for f in find2), find2)
+
+
+def check_flower_read():
+    """2026-11-06, his A Flower read: chord names stay over their beats
+    when a bar carries three changes, and a band line can name a
+    hyphenated instrument (five-string bass)."""
+    import chartengrave
+    import chartc
+    print("\n== A Flower: changes on their beats, five-string bass ==")
+    m = {'multi': 0, 'show': set(), 'events': [], 'chords': [],
+         'state': {'div': 24}, 'len': 96, 'rehearsal': None,
+         'metronome': None, 'texts': [], 'signs': ()}
+    one = chartengrave.measure_width(dict(m, chords=[(0, 'Ab7b9b13')]))
+    three = chartengrave.measure_width(dict(
+        m, chords=[(0, 'Ab7b9b13'), (48, 'Db13sus'), (72, 'Db/F')]))
+    # Db13sus has a quarter of the bar to print in before Db/F's beat
+    check("a bar of three changes grows so each name ends before the next "
+          "beat", three >= 4 * (6.2 * 7 + 8) and three > one,
+          (one, three))
+    check("a band line names a hyphenated instrument",
+          chartc.canonical_instrument("five-string bass")
+          == "five-string bass")
+    text = ('title: T\nkey: C\nmeter: 4/4\n\nband:\n'
+            '  bass = five-string bass\n\nsection A, 1 bar\n'
+            '  chords: C\n  bass: groove\n')
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        p = os.path.join(tmp, "t.chart")
+        open(p, "w").write(text)
+        try:
+            ch = chartc.parse_chart(p)
+            ok = chartc.canonical_instrument(
+                ch['band'][0]['instrument']) == 'five-string bass'
+        except SystemExit as e:
+            ok = e
+        check("'bass = five-string bass' reads", ok is True, ok)
 
 
 def check_lead_sheet_from_markers():
@@ -10247,6 +10303,7 @@ if __name__ == "__main__":
     check_band_hears_the_lead()
     check_cues_and_cuts()
     check_streamline()
+    check_flower_read()
     check_lead_sheet_from_markers()
     check_lead_sheet_ballad_voicings()
     check_lead_sheet_repeats()
