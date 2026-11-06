@@ -635,7 +635,10 @@ def main():
             _PART.update(tr=h_['transpose'], foff=h_['foff'],
                          fifths=key[0],
                          keys=chart.get('keys') or [(1, key)])
-        out.append(f"{title} — the {label} part. "
+        kind = chartc.string_kind(chartc.canonical_instrument(next(
+            (b['instrument'] for b in band if b['label'] == label), '')))
+        out.append(f"{title} — the {label} part"
+                   + (f", {kind}" if kind else "") + ". "
                    f"{len(plans)} {'section' if len(plans) == 1 else 'sections'}, "
                    f"{total} bars.")
         if int(hdr.get('countin', 0)):

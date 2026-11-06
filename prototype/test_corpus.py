@@ -9671,7 +9671,7 @@ def check_lead_sheet_ballad_voicings():
         # guitar the changes — never the other way round
         check("the split: piano reads his voicings, guitar the changes",
               'piano, demo "ballad - piano.MID"' in text
-              and 'bass, demo "ballad - bass.MID"' in text
+              and 'bass = four-string bass, demo "ballad - bass.MID"' in text
               and "one staff" not in text
               and "  piano: from demo bars 3-4" in text
               and "  bass: from demo bars 1-2" in text
@@ -9763,6 +9763,70 @@ def check_flower_read():
         except SystemExit as e:
             ok = e
         check("'bass = five-string bass' reads", ok is True, ok)
+
+    import chartlead
+    import chartnew
+    import smf
+    import chartdemo
+    sr = chartlead.split_role
+    check("a split names the chair, the instrument and the octave",
+          sr("five-string bass as played") == ("bass", "five-string bass",
+                                              "five-string bass",
+                                              "as played")
+          and sr("bass down an octave")[3] == "down"
+          and sr("7-string guitar")[:2] == ("guitar",
+                                            "seven-string guitar")
+          and sr("bass")[1] == "electric bass",
+          [sr(x) for x in ("five-string bass as played",
+                           "bass down an octave", "7-string guitar")])
+    check("a four-string part says so on the page",
+          chartc.canonical_instrument("4-string bass") == "four-string bass"
+          and chartc.SOUNDS["four-string bass"][0] == "4-String Bass"
+          and chartc.SOUNDS["seven-string guitar"][0] == "7-String Guitar")
+    check("a track or preset name says which bass and which guitar",
+          [chartnew.guess_instrument(t) for t in
+           ("MODO BASS 2 - 5 String", "Trilian 6-string bass",
+            "Ample 7-String Gtr", "Baritone Guitar", "Nylon Guitar")]
+          == ["five-string bass", "six-string bass", "seven-string guitar",
+              "baritone guitar", "acoustic guitar"])
+    with tempfile.TemporaryDirectory() as tmp:
+        div, bar = 480, 1920
+        # roots in piano range; bar 2 goes down to Eb2, which an octave
+        # down is under a four-string's E but on a five-string's B
+        notes = []
+        for k, ps in enumerate(((47, 59, 63, 66), (39, 55, 58, 61))):
+            for p_ in ps:
+                notes.append((k * bar, k * bar + 1800, p_, 90))
+        demo = os.path.join(tmp, "f.mid")
+        smf.write(demo, notes, div, 64, name="Pianoteq 8")
+
+        def bass_of(split, name):
+            t, f = chartlead.lead_sheet(demo, os.path.join(tmp, name
+                                                           + ".chart"),
+                                        title="F", key="Db", split=split)
+            d = chartdemo.load_demo(os.path.join(tmp, "f - bass.MID"))
+            os.remove(os.path.join(tmp, "f - bass.MID"))
+            os.remove(os.path.join(tmp, "f - piano.MID"))
+            return ([n.pitch for tr in d.tracks.values() for n in
+                     sorted(tr, key=lambda n: n.on)], t, f)
+        p4, t4, f4 = bass_of(["bass", "baritone guitar"], "a")
+        check("a bare bass is a four-string: a bar under its E stays up",
+              p4 == [35, 39] and "bass = four-string bass" in t4
+              and "guitar = baritone guitar" in t4
+              and any("needs a four-string" in f for f in f4), (p4, t4))
+        p5, t5, f5 = bass_of(["five-string bass"], "b")
+        check("a five-string goes all the way down",
+              p5 == [35, 27] and "bass = five-string bass" in t5, p5)
+        p6, t6, f6 = bass_of(["bass as played"], "c")
+        check("'bass as played' keeps his octave",
+              p6 == [47, 39], p6)
+        low = [(on, off, p_ - 12 if p_ < 48 else p_, v)
+               for on, off, p_, v in notes]
+        smf.write(demo, low, div, 64, name="Pianoteq 8")
+        p7, t7, f7 = bass_of(["bass"], "d")
+        check("roots played under the low E make a five-string part",
+              p7 == [35, 27] and "bass = five-string bass" in t7
+              and any("five-string part" in f for f in f7), (p7, f7))
 
 
 def check_lead_sheet_from_markers():

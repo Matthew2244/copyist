@@ -58,6 +58,16 @@ def _inst(transpose, fold, clef, foff, comf, poly=False, grand=False):
             'foff': foff, 'comf': comf, 'poly': poly, 'grand': grand}
 
 
+def string_kind(inst):
+    """'4-string', '7-string', 'baritone', 'acoustic' for the basses
+    and guitars that name it; '' for the rest."""
+    return {'four-string bass': '4-string', 'five-string bass': '5-string',
+            'six-string bass': '6-string',
+            'seven-string guitar': '7-string',
+            'baritone guitar': 'baritone',
+            'acoustic guitar': 'acoustic'}.get(inst, '')
+
+
 HORNS = {
     # woodwinds
     'piccolo':           _inst(-12, (73, 108), 'G', 0, (74, 103)),
@@ -85,9 +95,19 @@ HORNS = {
     'double bass':       _inst(12, (28, 60),  'F', 0, (28, 50)),
     # rhythm
     'guitar':            _inst(12, (40, 88),  'G', 0, (40, 76), poly=True),
+    # 2026-11-06, his ask: say which guitar. A seven-string adds the low
+    # B; a baritone is tuned down a fourth (B standard) and tops out
+    # lower; an acoustic's neck meets the body around the 14th fret
+    'seven-string guitar': _inst(12, (35, 88), 'G', 0, (35, 76), poly=True),
+    'baritone guitar':   _inst(12, (35, 83),  'G', 0, (35, 71), poly=True),
+    'acoustic guitar':   _inst(12, (40, 84),  'G', 0, (40, 74), poly=True),
     # a four-string's floor is its low E; the low B is a five-string's
     'electric bass':     _inst(12, (28, 60),  'F', 0, (31, 55)),
+    # the same bass, said out loud: its part says 4-String Bass
+    'four-string bass':  _inst(12, (28, 60),  'F', 0, (31, 55)),
     'five-string bass':  _inst(12, (23, 60),  'F', 0, (26, 55)),
+    # low B to high C: a six-string reaches up into the guitar's range
+    'six-string bass':   _inst(12, (23, 67),  'F', 0, (26, 60)),
     'piano':             _inst(0,  (21, 108), 'G', 0, (21, 108), poly=True,
                                grand=True),
     # a Stage 73's keyboard, E1 to E7
@@ -199,7 +219,12 @@ SOUNDS = {
     'double bass':    ('Double Bass', 'strings.contrabass', 44),
     'guitar':         ('Guitar', 'pluck.guitar.electric', 27),
     'electric bass':  ('Electric Bass', 'pluck.bass.electric', 34),
+    'four-string bass': ('4-String Bass', 'pluck.bass.electric', 34),
     'five-string bass': ('5-String Bass', 'pluck.bass.electric', 34),
+    'six-string bass': ('6-String Bass', 'pluck.bass.electric', 34),
+    'seven-string guitar': ('7-String Guitar', 'pluck.guitar.electric', 27),
+    'baritone guitar': ('Baritone Guitar', 'pluck.guitar.electric', 27),
+    'acoustic guitar': ('Acoustic Guitar', 'pluck.guitar.acoustic', 25),
     'piano':          ('Piano', 'keyboard.piano', 1),
     'electric piano': ('Electric Piano', 'keyboard.piano.electric', 5),
     'vibraphone':     ('Vibraphone', 'pitched-percussion.vibraphone', 12),
@@ -371,6 +396,22 @@ INSTRUMENT_ALIASES = {
     '5-string bass': 'five-string bass', '5 string bass': 'five-string bass',
     'five string bass': 'five-string bass', '5-string': 'five-string bass',
     '5 string': 'five-string bass', 'five-string': 'five-string bass',
+    '4-string bass': 'four-string bass',
+    '4 string bass': 'four-string bass', 'four string bass':
+    'four-string bass', '4-string': 'four-string bass',
+    '4 string': 'four-string bass', 'four-string': 'four-string bass',
+    '6-string bass': 'six-string bass', '6 string bass': 'six-string bass',
+    'six string bass': 'six-string bass',
+    '7-string guitar': 'seven-string guitar',
+    '7 string guitar': 'seven-string guitar',
+    'seven string guitar': 'seven-string guitar',
+    '7-string': 'seven-string guitar', '7 string': 'seven-string guitar',
+    'seven-string': 'seven-string guitar',
+    'bari guitar': 'baritone guitar', 'baritone gtr': 'baritone guitar',
+    'acoustic gtr': 'acoustic guitar', 'steel string guitar':
+    'acoustic guitar', 'steel-string guitar': 'acoustic guitar',
+    'nylon guitar': 'acoustic guitar', 'classical guitar':
+    'acoustic guitar', 'nylon string guitar': 'acoustic guitar',
     'keys': 'piano', 'keyboard': 'piano', 'rhodes': 'electric piano',
     'fender rhodes': 'electric piano', 'e piano': 'electric piano',
     'e. piano': 'electric piano', 'epiano': 'electric piano',
@@ -1143,7 +1184,7 @@ def parse_chart(path):
 
         # indented lines
         if mode == 'band':
-            m = re.match(r'([\w ]+?)(?:\s*=\s*([\w -]+?))?'
+            m = re.match(r'([\w -]+?)(?:\s*=\s*([\w -]+?))?'
                          r'(?:,\s*detail (\w[\w-]*))?'
                          r'(?:,\s*tuning ([\w ]+))?'
                          r'(?:,\s*demo "([^"]+)"(?:\s+octave (-?\d+))?)?'
@@ -2930,7 +2971,10 @@ def resolve_groups(band, custom=None):
          'rhythm': [l for l in labels if inst[l] in
                     ('guitar', 'piano', 'electric piano', 'electric bass',
                      'double bass',
-                     'five-string bass',
+                     'four-string bass', 'five-string bass',
+                     'six-string bass',
+                     'seven-string guitar', 'baritone guitar',
+                     'acoustic guitar',
                      'drums', 'organ', 'vibraphone', 'banjo',
                      'accordion')]}
     g['horns'] = [l for l in labels
@@ -7296,6 +7340,11 @@ def _compile_rest(chart, band, groups, labels, plans, total,
             name = src_of.get(l, l)
             inst = canonical_instrument(next(
                 x for x in band if x['label'] == l)['instrument'])
+            # the part says which bass or guitar it needs: "bass
+            # (4-string)", "guitar (7-string)" (his ask, 2026-11-06)
+            kind = string_kind(inst)
+            if kind and kind.split('-')[0] not in name.lower():
+                name = f"{name} ({kind})"
             sound = SOUNDS.get(inst)
             if closed and l == closed[0]:
                 name = 'Choir'

@@ -847,6 +847,31 @@ def section_head(pm, n):
     return head
 
 
+AS_PLAYED = re.compile(r"\b(as played|where i played( it)?|my octave|"
+                       r"at pitch)\b")
+DOWN = re.compile(r"\b(down an octave|an octave down|octave down|8vb)\b")
+
+
+def split_role(text):
+    """'five-string bass as played' -> ('bass', 'five-string bass',
+    'as played'). The label is the chair (bass, guitar), the instrument
+    is what the player brings, and the octave is his word: 'as played'
+    keeps the octave he played, 'down an octave' moves it, unsaid it is
+    read from where he played the roots (2026-11-06, his ask)."""
+    import chartc
+    t = " ".join(text.lower().split())
+    octave = "auto"
+    if AS_PLAYED.search(t):
+        octave, t = "as played", AS_PLAYED.sub("", t)
+    elif DOWN.search(t):
+        octave, t = "down", DOWN.sub("", t)
+    t = " ".join(t.split()).strip(" ,")
+    inst = chartc.canonical_instrument(t)
+    label = "bass" if "bass" in inst else \
+        "guitar" if "guitar" in inst else t
+    return label, inst, t, octave
+
+
 def split_hands(notes, division, roles):
     """One chord track -> the players' own lines, {role: [(on, off,
     pitch, vel)]}. A bass-family role takes the lowest note of each
@@ -990,8 +1015,8 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
     # round printed a piano part that looked like a guitar's (slashes)
     # and a guitar part that looked like a piano's (five-note voicings)
     import chartc
-    basses = [r for r in split
-              if "bass" in chartc.canonical_instrument(r)]
+    roles = {r: split_role(r) for r in split}
+    basses = [r for r in split if "bass" in roles[r][1]]
     compers = [r for r in split if r not in basses]
     reads = bool(basses)
     stem = os.path.splitext(os.path.basename(demo_path))[0]
@@ -1017,43 +1042,73 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
                               "bass")
         band = f'  {part}, demo "{fname}"'
         b = basses[0]
+        bl, binst, bsaid, boct = roles[b]
         bns = hands[b]
         ps = sorted(n[2] for n in bns)
+        named = binst != "electric bass"
+        if not named:
+            # a bare "bass" is said out loud: four strings unless he
+            # played under the low E
+            binst = "four-string bass"
+        if ps and ps[0] < 28 and not named:
+            # he played roots under a four-string's low E: the part
+            # needs the low B, and says so
+            binst = "five-string bass"
+            find.append(f"{bl}: you played roots under the low E, so it "
+                        "is a five-string part; name the bass (four-"
+                        "string, six-string) to change that")
+        floor = chartc.HORNS.get(binst, chartc.HORNS["electric bass"]
+                                 )["fold"][0]
         kept = []
-        if ps and ps[len(ps) // 2] >= 43:
+        drop = boct == "down" or (
+            boct == "auto" and ps and ps[len(ps) // 2] >= 43)
+        if drop:
             # a piano left hand's roots sit an octave above where a
             # bass plays them: each bar goes down an octave unless that
-            # takes it under a four-string's low E (his player's bass,
-            # 2026-11-06), and then the whole bar stays where he played
-            # it, so no single note jumps
+            # takes it under the bass's lowest string, and then the
+            # whole bar stays where he played it, so no single note jumps
             low = {}
             for n in bns:
                 k = n[0] // bar_ticks
                 low[k] = min(low.get(k, 999), n[2])
-            up = {k for k, p_ in low.items() if p_ - 12 < 28}
+            up = {k for k, p_ in low.items() if p_ - 12 < floor}
             bns = [(on, off, p_ if on // bar_ticks in up else p_ - 12, v)
                    for on, off, p_, v in bns]
             kept = sorted(page(k + 1) for k in up)
-            find.append(f"{b} plays your lowest notes an octave down, "
+            find.append(f"{bl} plays your lowest notes an octave down, "
                         "where a bass sits"
                         + (", except bar" + ("s " if len(kept) > 1
                                              else " ")
                            + ", ".join(map(str, kept))
-                           + ", left where you played them so a "
-                           "four-string's low E reaches"
-                           if kept else ""))
-        fname = keep_or_write(b, bns, f"{b} plays your figures from "
-                                      f"{said_track}")
-        line = f'  {b}, demo "{fname}"'
+                           + f", left where you played them so a "
+                           f"{binst}'s lowest string reaches"
+                           if kept else "")
+                        + "; say 'bass as played' to keep your octave")
+        elif boct == "as played":
+            find.append(f"{bl} plays your lowest notes in the octave you "
+                        "played them")
+        fname = keep_or_write(bl, bns, f"{bl} plays your figures from "
+                                       f"{said_track}")
+        lo_p = min((n[2] for n in bns), default=99)
+        need = ("a five-string (it goes under the low E)"
+                if lo_p < 28 else "a four-string")
+        find.append(f"{bl} part: {binst} — the line needs {need}")
+        line = f'  {bl} = {binst}, demo "{fname}"'
         split_lines.append(line)
         for r in compers:
-            split_lines.append(f"  {r}")
-            find.append(f"{r} reads the changes and comps; the {part} "
-                        "part prints your voicings")
+            cl, ci, _cs, _co = roles[r]
+            split_lines.append(f"  {cl}" + (f" = {ci}" if ci != cl
+                                            else ""))
+            find.append(f"{cl} ({ci}) reads the changes and comps; the "
+                        f"{part} part prints your voicings")
     else:
         band = f"  {part}" + (f', demo "{tname}"' if tname else "") + \
             ", one staff"
-        split_lines = [f"  {r}" for r in split]
+        split_lines = []
+        for r in split:
+            cl, ci, _cs, _co = roles[r]
+            split_lines.append(f"  {cl}" + (f" = {ci}" if ci != cl
+                                            else ""))
     lines += ["", "band:", band] + split_lines
     lines.append("")
     allmiss = []
@@ -1130,7 +1185,7 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
         elif mode == "tacet":
             lines.append(f"  {part}: tacet")
             for role in split:
-                lines.append(f"  {role}: tacet")
+                lines.append(f"  {split_role(role)[0]}: tacet")
         elif mode.startswith("solo"):
             lines.append(f"  {part}: {mode}")
         runs, at_ = [], 1
@@ -1149,9 +1204,9 @@ def lead_sheet(demo_path, out_path, title=None, composer="", key=None,
             # the bass lifts the same demo bars the section plays, a
             # second ending told where it prints; a comper reads changes
             for role in split:
-                lines.append(f"  {role}: " + (", ".join(runs)
-                                               if role in basses
-                                               else "groove"))
+                lines.append(f"  {roles[role][0]}: "
+                             + (", ".join(runs) if role in basses
+                                else "groove"))
         if not s.get("split"):
             more, said = section_extras(s, lo, n, first)
             lines += more
@@ -1295,9 +1350,12 @@ def main(argv=None):
     ap.add_argument("--countin", type=int, default=0,
                     help="count-in bars at the start of the demo")
     ap.add_argument("--split", default="",
-                    help="players who play your own figures from the "
-                    "chord track, one bass and one chord player, like "
-                    "\"bass, guitar\"")
+                    help="players beside you, like \"bass, guitar\": the "
+                    "bass takes your lowest notes, the guitar reads the "
+                    "changes. Name the kind (\"five-string bass\", "
+                    "\"seven-string guitar\", \"baritone guitar\"); "
+                    "\"bass as played\" keeps your octave, \"bass down "
+                    "an octave\" moves it")
     ap.add_argument("--print", action="store_true",
                     help="print the chart instead of writing it")
     a = ap.parse_args(argv)

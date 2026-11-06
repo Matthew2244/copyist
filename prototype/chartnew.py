@@ -67,6 +67,16 @@ PLUGIN_HINTS = [
     (r"\bb-?3\b|hammond|\bvb-?3|leslie|setbfree|organ", "organ"),
     (r"rhodes|scarbee mark|mark ?i\b|lounge lizard|suitcase|"
      r"electric piano|\bep\b", "electric piano"),
+    # which bass and which guitar, when the track or the plugin's
+    # preset says it (his ask, 2026-11-06): "Modo Bass 5-String",
+    # "Trilian 6 string", "7-string gtr", "Baritone"
+    (r"(5|five)[ -]?str(ing)?\b", "five-string bass"),
+    (r"(6|six)[ -]?str(ing)? ?bass", "six-string bass"),
+    (r"(4|four)[ -]?str(ing)? ?bass", "four-string bass"),
+    (r"(7|seven)[ -]?str(ing)?\b", "seven-string guitar"),
+    (r"bari(tone)? ?(guitar|gtr)|(guitar|gtr) ?bari", "baritone guitar"),
+    (r"acoustic ?(guitar|gtr)|nylon|steel ?string|classical guitar",
+     "acoustic guitar"),
     (r"trilian|modo ?bass|\bbass\b", "bass"),
     (r"guitar|\bgtr\b", "guitar"),
     (r"vocal|\bvox\b|voice|singer", "voice"),
@@ -470,9 +480,12 @@ def interview(out_path, demo_path, composer='', cfg=None):
                     "for piano.")
                 part = "piano"
             split = ask("Anyone to play your own figures from it? A bass "
-                        "takes your lowest notes, a chord player the "
-                        "voicing above. Name them, like: bass, guitar. "
-                        "Or none", "none")
+                        "takes your lowest notes and you keep your "
+                        "voicings; a guitar reads the changes. Name them, "
+                        "like: bass, guitar. Say which kind if it "
+                        "matters (five-string bass, seven-string guitar, "
+                        "baritone guitar), and 'bass as played' to keep "
+                        "the octave you played. Or none", "none")
             split = [] if split.strip().lower() in ("", "none", "no") \
                 else [w.strip() for w in split.split(",") if w.strip()]
             text, find = chartlead.lead_sheet(

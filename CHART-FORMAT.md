@@ -187,6 +187,23 @@ transposition and range. No `=` means the label is the instrument.
   come from the instrument profile (rhythm section → slashes, melodic → full).
 - `tuning` overrides the range check — the five-string tuned a half-step
   down is a real bass in this band.
+- Say which bass or guitar the player brings and the part says it too
+  ("bass (4-string)" in the margin, the read-aloud and braille):
+  `four-string bass`, `five-string bass`, `six-string bass`,
+  `seven-string guitar`, `baritone guitar`, `acoustic guitar` (with
+  `4-string`, `7 string`, `nylon`, `classical` and the like as aliases).
+  Each brings its own range: a five-string's low B, a seven-string's,
+  a baritone's lower top. A demo track named after a preset that says it
+  ("Modo Bass 5-String", "Ample 7-String Gtr") is read the same way.
+- A lead sheet split from one played chord track (`--split "bass,
+  guitar"`, or the interview's question): the keyboard reads his own
+  voicings, the bass his lowest notes, a guitar the changes. The bass
+  comes down an octave when he played the roots where a piano's left
+  hand plays them, a bar at a time, and a bar that would go under the
+  bass's lowest string stays where he played it. A bare `bass` is a
+  four-string, unless he played roots under its low E (then a
+  five-string, and the findings say so). `five-string bass` names it;
+  `bass as played` keeps his octave; `bass down an octave` moves it all.
 - Built-in groups resolve automatically from the band list: `saxes`,
   `trumpets`, `trombones`, `horns` (all winds), `rhythm` (guitar, piano,
   bass, drums), `all`. Custom: `group shout team: trumpet 1, alto 1`.
@@ -696,4 +713,5 @@ construct, never a partial page (the docstring lists them).
 | Vocal parts with lyrics (*Tomorrow*: SAT, 1,385 syllables) | `lyrics:`, XML reference |
 | Kicks over slashes | `hits on …` |
 | A five-string bass tuned Bb0–Gb2 | `tuning` on the band line |
+| A four-string, five-string or six-string bass; a seven-string, baritone or acoustic guitar | `bass = four-string bass` (the part says "bass (4-string)") |
 | Pickup bar ("(piano pickups)", 3 beats) | `pickup` |
