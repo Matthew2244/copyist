@@ -1275,8 +1275,11 @@ def check_verses():
     said = []
     real = ce.Pdf.text
 
+    hx = []
+
     def spy(self, x, y, s_, *a, **k):
         said.append((s_, round(y, 1)))
+        hx.append(x)
         return real(self, x, y, s_, *a, **k)
     ce.Pdf.text = spy
     try:
@@ -1287,9 +1290,13 @@ def check_verses():
     ys = {t: y for t, y in said}
     check("verses: the page draws each verse on its own line, numbered",
           ok and {"1. ", "2. ", "3. "} <= set(ys)
-          and ys["Green -"] > ys["Blue"] > ys["Third"]
-          and ys["Green -"] - ys["Blue"] == ys["Blue"] - ys["Third"]
-          and ys["1. "] == ys["Green -"], f"{why} {said[:20]}")
+          and ys["Green"] > ys["Blue"] > ys["Third"]
+          and ys["Green"] - ys["Blue"] == ys["Blue"] - ys["Third"]
+          and ys["1. "] == ys["Green"], f"{why} {said[:20]}")
+    # a hyphen sits between its syllables, not glued to the first
+    at = {t: x for x, (t, y) in zip(hx, said) if y == ys["Green"]}
+    check("verses: a word's hyphen is centred between its syllables",
+          "-" in at and at["Green"] < at["-"] < at["line"], str(at))
 
     # braille: a numbered word line per verse, read back and paired
     text, why = cb.part_to_brf(xml, 'P1', 'V', 'singer')
@@ -3267,7 +3274,48 @@ def check_roadmap():
     check("families and abbreviations read",
           _cg._score_family("brass.trombone.bass") == "brass"
           and _cg._score_family("pluck.bass.electric") == "rhythm"
-          and _cg._abbrev("bass trombone 2") == "Bass Trom. 2")
+          and _cg._abbrev("bass trombone 2") == "Bass Tbn. 2"
+          and _cg._abbrev("tenor") == "Ten."
+          and _cg._abbrev("soprano") == "Sop."
+          and _cg._abbrev("clarinet in Bb") == "Cl. in Bb",
+          [_cg._abbrev(n) for n in ("bass trombone 2", "tenor",
+                                    "soprano", "clarinet in Bb")])
+
+    class _F:
+        faces = {'H': _cg.load_font('Edwin-Roman.otf')}
+    check("a part's name prints capitalized, its key a real flat",
+          _cg.display_name(_F, "clarinet in Bb") == "Clarinet in B\u266d"
+          and _cg.display_name(_F, "alto in Eb") == "Alto in E\u266d"
+          and _cg.display_name(type("P", (), {"faces": {}}),
+                               "alto in Eb") == "Alto in Eb",
+          _cg.display_name(_F, "clarinet in Bb"))
+
+    # chord symbols: every flat and sharp a real one, suffix included
+    cpdf = _cg.Pdf(music=_cg.music_font(), faces=_cg.text_faces(None))
+    texts, glyphs = [], []
+    rt, rg = cpdf.text, cpdf.glyph
+    cpdf.text = lambda x, y, s_, *a, **k: texts.append(s_) or rt(
+        x, y, s_, *a, **k)
+    cpdf.glyph = lambda x, y, n, *a, **k: glyphs.append(n) or rg(
+        x, y, n, *a, **k)
+    _cg.draw_chord_symbol(cpdf, 0, 0, "Bb7b9#11/Ab")
+    check("chord symbols draw b9 and #11 as a real flat and sharp",
+          "b" not in "".join(texts).replace("/", "")
+          and "#" not in "".join(texts)
+          and glyphs.count("flat") == 3 and glyphs.count("sharp") == 1,
+          f"{texts} {glyphs}")
+    wide = _cg.draw_chord_symbol(cpdf, 0, 0, "Bb7b9#11/Ab", measure=True)
+    check("a chord symbol measures what it draws",
+          abs(wide - _cg.draw_chord_symbol(cpdf, 0, 0, "Bb7b9#11/Ab")) < .01,
+          str(wide))
+    check("a chord's ties split: upper half over, lower half under",
+          _cg.tie_dirs([30, 20, 10], False, False)
+          == [(30, True), (20, False), (10, False)]
+          and _cg.tie_dirs([30, 20], True, False)
+          == [(30, True), (20, False)]
+          and _cg.tie_dirs([30, 20], False, True)
+          == [(30, False), (20, False)],
+          str(_cg.tie_dirs([30, 20, 10], False, False)))
 
     check("the pro title block reaches the page's XML",
           "<work-number>5</work-number>" in px
