@@ -127,7 +127,10 @@ cello up near the top of its range, say). Other bass-clef parts that
 climb, like the tuba, go to treble. A change only happens when it saves
 a real handful of ledger lines, so the part doesn't flicker between
 clefs, and singers never change clef. The tenor voice reads treble
-with the little 8 under it, at sounding pitch.
+with the little 8 under it, at sounding pitch. A jazz, funk or
+commercial trombonist reads the high notes in bass clef: end the band
+line with `bass clef` (`trombone, demo "bone", bass clef`) and that
+part keeps its own clef the whole way.
 
 The instrument table covers the whole ensemble world. Full woodwinds
 and brass, strings with their own clefs, the rhythm section, all the
@@ -1289,7 +1292,9 @@ All of these ride on a `from demo` line, after commas:
 - **Articulation words**: `marcato` is short-but-fat on every note (the
   big-band daht). `short` makes the phrase's last note print short.
   `fall` drops off the last note. `scoop first`, `scoop last`, or
-  `scoop bar 12 beat 3.5` put the slide where you bent it.
+  `scoop bar 12 beat 3.5` put the slide where you bent it, and falls
+  and doits go on any note the same way: `fall bar 9 beat 4+`, `doit
+  bar 31 beat 4.5`, as many as the line has.
 - **Dynamics**: `dyn mp`, `dyn f at bar 9`, `dyn sfz at bar 8 beat 4+`.
   Marks land under the note, including on off-beats and tuplet spots.
 - **Say it your way, whatever music raised you.** The same mark has a

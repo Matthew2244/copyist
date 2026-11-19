@@ -522,9 +522,11 @@ INTERVAL_WORD = {1: 'a half step', 2: 'a whole step',
                  5: 'a fourth', 6: 'a tritone', 7: 'a fifth'}
 
 
-def _mono_tl(events, n_units):
+def _mono_tl(events, n_units, tuplet_beat=None):
     """One voice's cleanup: truncate at the voice's next onset, close
-    slivers of daylight, cap at the figure's end."""
+    slivers of daylight, cap at the figure's end. A note that ends a
+    tuplet beat exactly on the beat line keeps its daylight: closing it
+    would tie a triplet value to a binary sliver across the beat."""
     onsets = sorted(events)
     close = DIV // 4
     timeline = []                          # (start, end, [pitches])
@@ -534,7 +536,9 @@ def _mono_tl(events, n_units):
         if nxt is not None:
             if end > nxt:
                 end = nxt                  # one voice, one line
-            elif 0 < nxt - end <= close:
+            elif 0 < nxt - end <= close and not (
+                    tuplet_beat and end % DIV == 0
+                    and tuplet_beat(end // DIV - 1)):
                 end = nxt                  # close a sliver of daylight
         end = max(end, q_on + 1)
         end = min(end, n_units)
@@ -1330,10 +1334,25 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             # cutoff, and cutoffs land on the eighth grid
             q_off = int(round(x / (DIV // 2))) * (DIV // 2)
         else:
-            ostep = DIV / (osub or default_sub)
+            # a lone attack on the beat chooses the quarter grid for its
+            # onset, but its release is not an onset: a short hit there
+            # ends on the eighth grid, never stretched to the next beat
+            # (a 16th-length stab printed as a quarter tied over)
+            # a short note's release is not an onset: in a binary beat
+            # it lands on the sixteenth (a stab, a sixteenth's daylight,
+            # the re-hit), whatever grid the beat's attacks chose. Less
+            # than a sixteenth of daylight still closes up below.
+            g = osub or default_sub
+            ostep = DIV / (g if quant in ('quarters', 'eighths', 'grid8')
+                           or g not in (1, 2, 4, 8) else max(g, 4))
             q_off = int(round(ob * DIV + round((x - ob * DIV) / ostep)
                               * ostep))
-        onstep = int(DIV / sub)
+        # the shortest a note may print: one step of its beat's grid,
+        # but a lone hit on the beat is an eighth, not a whole quarter,
+        # unless the writer said quarters
+        onstep = int(DIV / (sub if quant in ('quarters', 'eighths',
+                                             'grid8')
+                            or sub not in (1, 2, 4, 8) else max(sub, 4)))
         q_off = max(q_on + onstep, min(q_off, n_units))
         if quant == 'eighths' and (off - on) < beat:
             # the writer said eighths: only a genuinely held gate may be
@@ -1452,7 +1471,11 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             named_strokes[q] = got
 
     # ---- monophonic cleanup and legato gap-closing
-    timeline = _mono_tl(events, n_units)
+    timeline = _mono_tl(
+        events, n_units,
+        (lambda b: tuplets.CANDIDATES[grids.get(b, default_sub)][2]
+         != tuplets.CANDIDATES[grids.get(b, default_sub)][3])
+        if pad == bar_ticks else None)
 
     if drums:
         # Kit notation reads spacing, not gate: each attack extends to
@@ -1790,6 +1813,13 @@ def _spelling_hints(res, timeline, table, transpose, at_bar, bar_ticks,
         else:
             continue
         a2 = ((w % 12) - base[n2] + 6) % 12 - 6
+        if (n2, a2) in (('C', -1), ('F', -1), ('E', 1), ('B', 1)) \
+                and abs(fw) < 6:
+            # a white-key note respelled as C flat, F flat, E sharp or
+            # B sharp outside the six-plus keys that own them: the
+            # raised sixth of a minor key coming down printed C flat in
+            # D minor, where every player reads B natural
+            continue
         if abs(a2) <= 1 and a2 != _sig_alter(n2, fw):
             out[(s, w)] = (n2, a2)
     return out
@@ -1834,6 +1864,11 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     last_artic = ('falloff' if fall else 'doit' if doit else
                   'staccato' if short else None)
     bends = bend_indices(res, scoops)
+    _SHOW_BEATS[0] = res.get('pulse_div', DIV) == DIV
+    # a fall or doit placed on a note is an ending bend: it rides the
+    # note's last tied piece, where the articulation goes
+    offs = {i: k for i, k in bends.items() if k in ('falloff', 'doit')}
+    bends = {i: k for i, k in bends.items() if i not in offs}
 
     bar_ticks = res.get('bar_ticks', BAR)
     slash = res.get('detail') == 'rhythmic-slashes'
@@ -1967,8 +2002,8 @@ def render_range(res, fifths_written, transpose_to_written, fall,
             out[at_bar + start // bar_ticks].append(
                 words_direction(ks_texts[start]))
         _emit(out, at_bar, start, end, pitches, table, grids_chart,
-              (last_artic if is_last else None) or ks_marks.get(start)
-              or every,
+              (last_artic if is_last else None) or offs.get(ti)
+              or ks_marks.get(start) or every,
               transpose_to_written, bend=bends.get(ti), bar=bar_ticks,
               slur=(ti in slur_a, ti in slur_b),
               ghost=ti in ghosts,
@@ -2116,6 +2151,62 @@ def _pieces(start, end, grids, bar=BAR):
     return cuts
 
 
+# Quarter-note meters (4/4, 3/4, 6/4...) show every beat: set by
+# render_range from the figure's pulse. Eighth-note meters (6/8, 7/8)
+# keep their own groupings and are left alone.
+_SHOW_BEATS = [False]
+
+
+def _show_beats(pieces, grids, bar, rest):
+    """Re-cut pieces so a reader always sees the beat, the way funk and
+    big-band books are copied: a rest never hides a beat (no half rest
+    starting on 2, no double-dotted rest), whole-beat rests pair into a
+    half rest only on beats 1-2 or 3-4, a rest off the sixteenth shows
+    the half-beat, and a note struck on a sixteenth off-beat (an e or an
+    a) ties over the next beat instead of printing as a dotted value
+    that hides it."""
+    if not _SHOW_BEATS[0] or bar % DIV:
+        return pieces
+    half = DIV // 2
+    out = []
+    for a, b in pieces:
+        if _is_tuplet(grids, beat_of(a, bar)) or (
+                rest and a % bar == 0 and b - a == bar):
+            out.append((a, b))
+            continue
+        if not rest:
+            off = (a % bar) % DIV
+            e = beat_end(beat_of(a, bar), bar)
+            if e < b and not _is_tuplet(grids, beat_of(e, bar)) and (
+                    off % half or (off == half and (b - e) % half)):
+                # struck on an e or an a, or on the & and ending off
+                # the eighth: tie over the beat so the beat shows
+                out.extend([(a, e), (e, b)])
+            else:
+                out.append((a, b))
+            continue
+        segs, pos = [], a
+        while pos < b:
+            e = min(b, beat_end(beat_of(pos, bar), bar))
+            off = (pos % bar) % DIV
+            if off % half and off < half and e - pos > half - off:
+                # off the sixteenth: complete the half-beat first
+                e = pos - off + half
+            segs.append((pos, e))
+            pos = e
+        merged = []
+        for sa, sb in segs:
+            whole = sa % DIV == 0 and sb - sa == DIV
+            if (merged and whole and merged[-1][1] - merged[-1][0] == DIV
+                    and merged[-1][0] % DIV == 0
+                    and ((merged[-1][0] % bar) // DIV) % 2 == 0):
+                merged[-1] = (merged[-1][0], sb)
+            else:
+                merged.append((sa, sb))
+        out.extend(merged)
+    return out
+
+
 def _name(ticks, sub):
     """(len, type, dots, time-modification) pieces for one duration.
 
@@ -2150,7 +2241,8 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
           trill=None, trem=None, strokes=None, verses=None):
     staff_xml = f'        <staff>{staff}</staff>\n' if staff else ''
     strokes = strokes or {}
-    pieces = _pieces(start, end, grids, bar)
+    pieces = _show_beats(_pieces(start, end, grids, bar), grids, bar,
+                         pitches is None)
     if trill and trill.get('form') == 'trem' and pitches \
             and len(pitches) == 1 and not (slash or drums or cue):
         if _emit_ftrem(out, at_bar, pieces, grids, bar, pitches[0],
@@ -2617,8 +2709,11 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
             clauses[-1] += (f", slurred to {place}" if eb == bar
                             else f", slurred to bar {eb}")
         if i == j and i in bends:
-            clauses[-1] += (", scooped" if bends[i] == 'scoop'
-                            else ", plopped into")
+            clauses[-1] += {'scoop': ", scooped",
+                            'plop': ", plopped into",
+                            'falloff': ", with a fall off the end",
+                            'doit': ", with a doit up off the end",
+                            }[bends[i]]
         if j == len(tl) - 1:
             if fall:
                 clauses[-1] += ", with a big fall off the end"

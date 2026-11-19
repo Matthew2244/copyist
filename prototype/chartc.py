@@ -1190,7 +1190,9 @@ def parse_chart(path):
                          r'(?:,\s*demo "([^"]+)"(?:\s+octave (-?\d+))?)?'
                          r'(?:,\s*keyswitches "([^"]+)")?'
                          r'(?:,\s*drummap "([^"]+)")?'
-                         r'(,\s*one staff)?\s*$',
+                         r'(,\s*one staff)?'
+                         r'(,\s*(?:bass clef|one clef|no clef changes)'
+                         r'(?: only)?)?\s*$',
                          s)
             if not m:
                 fail(f"{loc}: cannot read band line '{s}'")
@@ -1232,7 +1234,11 @@ def parse_chart(path):
                                   'drummap': m.group(8),
                                   # a lead sheet: a keyboard part on one
                                   # staff, the way a chord chart prints
-                                  'one_staff': bool(m.group(9))})
+                                  'one_staff': bool(m.group(9)),
+                                  # a jazz or funk trombone reads its
+                                  # high notes in bass clef: no change
+                                  # to tenor clef
+                                  'one_clef': bool(m.group(10))})
             continue
         if mode == 'output':
             continue        # defaults only in this increment
@@ -4508,10 +4514,17 @@ def build_plans(chart, band, groups, labels):
                 if m:
                     scoops.append((m.group(1), m.group(2)))
                     continue
-                m = re.match(r'(scoop|plop) bar (\d+) beat ([\d.]+)$', piece)
+                m = re.match(r'(scoop|plop|fall|doit) (?:at )?bar (\d+) '
+                             r'beat (\S+)$', piece)
                 if m:
-                    scoops.append((m.group(1),
-                                   (int(m.group(2)), float(m.group(3)))))
+                    # a bend on any note of the line, not only the
+                    # first or last: "fall bar 9 beat 4+"
+                    try:
+                        bt = float(m.group(3))
+                    except ValueError:
+                        bt = parse_beat(m.group(3))
+                    kind = {'fall': 'falloff'}.get(m.group(1), m.group(1))
+                    scoops.append((kind, (int(m.group(2)), bt)))
                     continue
                 if piece == 'doit':
                     doit = True
@@ -7198,6 +7211,7 @@ def _compile_rest(chart, band, groups, labels, plans, total,
         # them on ledger lines. A singer never changes clef.
         inst_ = canonical_instrument(b['instrument']) if horn else ''
         if not listen and staves == 1 and clef == 'F' and horn and \
+                not b.get('one_clef') and \
                 not inst_.endswith('voice') and \
                 chartgroove.role_of(SOUNDS.get(inst_, ('', '', 0))[1],
                                     'F') != 'bass':

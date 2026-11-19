@@ -57,6 +57,21 @@ CONSISTENCY_BONUS = 1.6      # keeping the previous beat's subdivision
 FIDELITY_WEIGHT = 2000.0
 
 
+COLLISION_COST = 50.0
+
+
+def _collides(offsets, beat_ticks, n):
+    """True when two distinct onsets in the beat snap to one slot."""
+    # attacks closer than a twelfth of a beat are one attack played a
+    # little ragged (a rolled chord, two hands), not two notes to keep
+    attacks = []
+    for o in sorted(offsets):
+        if not attacks or o - attacks[-1] >= beat_ticks / 12:
+            attacks.append(o)
+    step = beat_ticks / n
+    return len({round(o / step) for o in attacks}) < len(attacks)
+
+
 def _beat_cost(offsets, beat_ticks, n):
     """Mean distance from the onsets in one beat to an n-way subdivision."""
     if not offsets:
@@ -91,6 +106,11 @@ def choose(onsets, beat_ticks, allow=None):
                 continue
             residual = _beat_cost(offsets, beat_ticks, n)
             cost = residual * residual * FIDELITY_WEIGHT + complexity
+            if _collides(offsets, beat_ticks, n):
+                # a grid that lands two different attacks on one slot
+                # throws a played note away: never the right reading
+                # while another grid keeps them apart
+                cost += COLLISION_COST
             if previous == n:
                 cost -= CONSISTENCY_BONUS
             if best_cost is None or cost < best_cost:

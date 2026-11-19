@@ -9307,6 +9307,94 @@ def check_tenor_clef():
           chartbraille.proofread(tb, "P1", brf))
 
 
+def check_funk_horn_round():
+    """2026-11-18, horn parts for The Sound Between Us: falls and doits
+    on any note by bar and beat, a sixteenth triplet that keeps all its
+    notes, rests and ties that show the beat, a short stab that stays
+    short, the raised sixth of a minor key spelled as a natural, and a
+    trombone that stays in bass clef when asked."""
+    import tempfile
+    import smf
+    import tuplets
+    print("\n== funk horns: falls by the beat, beats you can see ==")
+    B = 480
+
+    def at(bar, beat):
+        return int(((bar - 1) * 4 + beat - 1) * B)
+    tmp = tempfile.mkdtemp()
+    demo = os.path.join(tmp, "horn.mid")
+    notes = [
+        # bar 1: a stab on 1 (a third of a beat), the re-hit on the e of 2
+        (at(1, 1), at(1, 1) + int(.32 * B), 65, 100),
+        (at(1, 2.25), at(1, 2.25) + int(.2 * B), 65, 100),
+        # bar 2: & of 3 and & of 4, the fall goes on the & of 3
+        (at(2, 3.5), at(2, 3.5) + int(.45 * B), 68, 100),
+        (at(2, 4.5), at(2, 4.5) + int(.45 * B), 70, 100),
+        # bar 3: a note on the a of 1 held over beat 2
+        (at(3, 1.75), at(3, 1.75) + int(.5 * B), 72, 100),
+        # bar 4: the descending raised sixth in D minor: D C B A
+        (at(4, 1), at(4, 1.25), 74, 90), (at(4, 1.25), at(4, 1.5), 72, 90),
+        (at(4, 1.5), at(4, 1.75), 71, 90), (at(4, 1.75), at(4, 2.5), 69, 90),
+    ]
+    smf.write(demo, notes, B, 100)
+    out, f = _build_chart(
+        "title: F\nkey: D minor\nmeter: 4/4\ntempo: 100\n"
+        "dynamics: by hand\n\nband:\n  flute, demo \"" + demo + "\"\n"
+        "  trombone, demo \"" + demo + "\" octave -1, bass clef\n\n"
+        "section A, 4 bars\n  chords: Dm, Dm, Dm, Dm\n"
+        "  flute: from demo bars 1-4, fall bar 2 beat 3.5, "
+        "doit bar 2 beat 4+\n"
+        "  trombone: from demo bars 1-4\n", "f")
+    fl = f["F — flute.musicxml"]
+    ms = re.findall(r"<measure\b.*?</measure>", fl, re.S)
+    b2 = re.findall(r"<note>.*?</note>", ms[1], re.S)
+    pitched = [n for n in b2 if "<pitch>" in n]
+    check("a fall placed by bar and beat lands on that note, not the last",
+          "<falloff/>" in pitched[0] and "<falloff/>" not in pitched[-1],
+          [("<falloff/>" in n, "<doit/>" in n) for n in pitched])
+    check("a doit placed on the & of 4 lands there",
+          "<doit/>" in pitched[-1])
+    b1 = re.findall(r"<note>.*?</note>", ms[0], re.S)
+    first = [n for n in b1 if "<pitch>" in n][0]
+    check("a short stab on the beat prints short, not a quarter tied over",
+          "<type>quarter</type>" not in first and "<tie " not in first
+          and "<tied" not in first, first)
+    rests = [n for n in re.findall(r"<note>.*?</note>", fl, re.S)
+             if "<rest" in n]
+    check("no rest is double-dotted",
+          all(n.count("<dot/>") < 2 for n in rests))
+    halves, pos = [], 0
+    div = int(re.search(r"<divisions>(\d+)", fl).group(1))
+    for n in re.findall(r"<note>.*?</note>", ms[0], re.S):
+        d = int(re.search(r"<duration>(\d+)", n).group(1))
+        if "<rest" in n and "<type>half</type>" in n:
+            halves.append(pos / div + 1)
+        if "<chord/>" not in n:
+            pos += d
+    check("a half rest sits on beat 1 or beat 3, never across the middle",
+          halves and all(h in (1.0, 3.0) for h in halves), halves)
+    b3 = [n for n in re.findall(r"<note>.*?</note>", ms[2], re.S)
+          if "<pitch>" in n]
+    check("a note struck on the a ties over the beat so the beat shows",
+          len(b3) == 2 and '<tie type="start"/>' in b3[0], len(b3))
+    b4 = re.findall(r"<step>(\w)</step>(?:<alter>(-?\d)</alter>)?",
+                    "".join(n for n in re.findall(
+                        r"<note>.*?</note>", ms[3], re.S)
+                            if "<pitch>" in n))
+    check("the raised sixth coming down spells B natural, not C flat",
+          ("C", "-1") not in b4 and ("B", "") in b4, b4)
+    tb = f["F — trombone.musicxml"]
+    check("a trombone told 'bass clef' never changes clef",
+          set(re.findall(r"<clef><sign>(\w)</sign>", tb)) == {"F"})
+    grids = tuplets.choose([0, 120, 240, 360, 480, 720, 800, 880,
+                            960, 1040, 1120, 1200], 480)
+    check("a sixteenth triplet on the & keeps its notes after a "
+          "sixteenth beat", grids == {0: 4, 1: 6, 2: 6}, grids)
+    check("a ragged chord (two hands a hair apart) stays one attack",
+          tuplets.choose([0, 20, 240], 480) == {0: 2},
+          tuplets.choose([0, 20, 240], 480))
+
+
 _HUNT_SATB = ("title: C\nkey: D\nmeter: 3/4\ntempo: 80\n{hdr}\n"
               "dynamics: by hand\n\nband:\n  soprano\n  alto\n  tenor\n"
               "  bass\n\n"
@@ -10457,6 +10545,7 @@ if __name__ == "__main__":
     check_band_hears_the_push()
     check_choir_on_two_staves()
     check_tenor_clef()
+    check_funk_horn_round()
     check_bug_hunt_round()
     check_sextuplet_numbers()
 
