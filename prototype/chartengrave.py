@@ -2604,6 +2604,7 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
     slur_open = opens if opens is not None else []
     hy_open = {}            # verse -> a hyphen waiting for its syllable
     drawn = []
+    tup_info = {}
     for key in sorted(k for k in _EXT_CARRY
                       if opens is not None and k[0] == id(opens)):
         # a melisma held over the barline: its line goes on here
@@ -2652,6 +2653,11 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
         if not run_:
             run_key_, filled_, want_ = key_, 0.0, tm_ * nominal_
             start_ = p_
+        # the group counts in its shortest value: a sixteenth triplet
+        # opening on an eighth (eighth + sixteenth) is one three, and
+        # sizing it from that first eighth ran it into the next group
+        # under one bracket
+        want_ = min(want_, tm_ * nominal_)
         run_.append(ei_)
         filled_ += nominal_
     if run_:
@@ -3015,25 +3021,26 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                               (xb, ym + dy - 0.5 * SP),
                               (xa, y1 + dy - 0.5 * SP)], fill=True)
         grp = tup_of.get(ei)
-        # drawn at the group's first NOTE: a group opening on a rest
-        # (a sextuplet's rest on the beat) has no stem of its own yet,
-        # and the number took the last group's stem, or none
-        if n0.tmod and not n0.trem2 and grp and id(grp) not in drawn \
-                and not n0.rest:
-            # centred over the tuplet's own notes, from its first stem
-            # to its last (the beam's own middle): a number set over
-            # the heads sat half a head off, left over up stems and
-            # right under down ones
-            xs = [xat(events[g][0]) for g in grp]
-            stemmed = n0.ntype != 'whole' and any(
-                not events[g][1][0].rest for g in grp)
-            off = (half - 0.55 * scale) * (1 if up else -1) \
-                if stemmed else 0.0
-            pdf.text((min(xs) + max(xs)) / 2 + off,
-                     (tip + (1.6 * SP if up else -2.6 * SP)),
-                     str(n0.tmod), size=8, font='HO', center=True)
-            drawn.append(id(grp))
+        # each tuplet group gathers its notes' reach here and is drawn
+        # once the bar's beams are down: a bracket over (or under) the
+        # whole group with the number in a gap at its middle, the way
+        # a printed part shows a triplet. A number alone floated over
+        # the first stem and read as a stray digit, and a group with
+        # rests or no beam had nothing showing what the 3 covered.
+        if n0.tmod and not n0.trem2 and grp:
+            ti_ = tup_info.setdefault(id(grp), {
+                'grp': grp, 'n': n0.tmod, 'ups': [], 'hi': [], 'lo': [],
+                'half': half, 'beamed': False})
+            stem_ = n0.ntype != 'whole'
+            ti_['ups'].append(up)
+            ti_['hi'].append(max(ys + ([tip] if stem_ and up else [])))
+            ti_['lo'].append(min(ys + ([tip] if stem_ and not up else [])))
+            if nflags:
+                ti_['beamed'] = True
     flush_beam(pdf, pend_beam)
+    for ti_ in tup_info.values():
+        draw_tuplet_bracket(pdf, ti_, [xat(events[g][0])
+                                       for g in ti_['grp']], top)
     ott = [(xat(pos), pos, notes[0].ott) for pos, notes in events
            if not notes[0].rest and notes[0].ott]
     if ott:
@@ -3277,6 +3284,37 @@ def draw_arc(pdf, sx, sy, ex, ey, arc):
              ((mx, sy + arc), (mx, ey + arc), (ex, ey)),
              ((mx, ey + arc * 0.72), (mx, sy + arc * 0.72), (sx, sy))],
             fill=True, w=0.7)
+
+
+def draw_tuplet_bracket(pdf, ti, xs, top):
+    """The tuplet's bracket: a line over the group from the first head
+    to the last, short hooks turned toward the notes, and the number in
+    a gap at the middle. It goes on the stem side, clear of the staff,
+    the stems and any beam."""
+    if not ti['hi']:
+        return
+    half = ti['half']
+    above = sum(ti['ups']) * 2 >= len(ti['ups'])
+    xa, xb = min(xs) - half, max(xs) + half
+    lift = (1.0 if ti['beamed'] else 0.0) * SP   # a sloped beam's rise
+    if above:
+        y = max(max(ti['hi']) + lift + 1.0 * SP, top + 1.2 * SP)
+        hook = -0.7 * SP
+    else:
+        y = min(min(ti['lo']) - lift - 1.0 * SP, top - STAFF - 1.2 * SP)
+        hook = 0.7 * SP
+    label = str(ti['n'])
+    size = 8
+    tw = pdf.tw(label, size, 'HO')
+    mid = (xa + xb) / 2
+    gap = tw / 2 + 0.5 * SP
+    if mid - gap > xa + 0.3 * SP:
+        pdf.line(xa, y + hook, xa, y, w=0.7)
+        pdf.line(xa, y, mid - gap, y, w=0.7)
+        pdf.line(mid + gap, y, xb, y, w=0.7)
+        pdf.line(xb, y, xb, y + hook, w=0.7)
+    # the digit sits centred on the line's height
+    pdf.text(mid, y - 0.3 * size, label, size=size, font='HO', center=True)
 
 
 def flush_beam(pdf, group):

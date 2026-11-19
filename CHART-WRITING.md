@@ -709,7 +709,10 @@ All of these ride on a `from demo` line, after commas:
 
 - **Grid words**: `eighths`, `sixteenths`, `triplets`, `eighth
   triplets`, `sixteenth triplets`. Your word beats the math: if you say
-  the bars are eighth notes, the page prints eighth notes.
+  the bars are eighth notes, the page prints eighth notes. Sixteenth
+  triplets print the way a horn player reads them: a bracketed 3 over
+  each half beat, with a tie where a note crosses the middle. Every
+  tuplet carries a bracket with its number at the middle.
 - **Phrasing is yours to ask for, in your own words.** Add `legato`
   to a from-demo line and the slurs follow your playing; where you
   breathed, the slur breaks. Add `ghosts` and the notes you played way

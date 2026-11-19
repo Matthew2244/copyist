@@ -2171,6 +2171,14 @@ def _is_tuplet(grids, b):
     return actual != normal
 
 
+def _half_triplets(grids, b, bar=BAR):
+    """A full beat on the sextuplet grid: written as two sixteenth
+    triplets (3 + 3), never as one six. Six over a beat with dotted
+    values inside read as a puzzle; players expect a 3 over each half."""
+    return (grids.get(b) == 6
+            and beat_end(b, bar) - beat_start(b, bar) == DIV)
+
+
 def _pieces(start, end, grids, bar=BAR):
     """Cut a span at barlines always, and at beat boundaries around any
     tuplet beat, so every piece lives in exactly one naming regime."""
@@ -2181,6 +2189,13 @@ def _pieces(start, end, grids, bar=BAR):
         stop = min(end, (pos // bar + 1) * bar)
         if _is_tuplet(grids, b):
             stop = min(stop, beat_end(b, bar))
+            if _half_triplets(grids, b, bar):
+                # sixteenth triplets print as two threes a beat, each
+                # over its own half (the way a horn player expects to
+                # read them), so a note across the middle ties there
+                mid = beat_start(b, bar) + DIV // 2
+                if pos < mid:
+                    stop = min(stop, mid)
         else:
             nb = b + 1
             while beat_start(nb, bar) < stop:
@@ -2310,7 +2325,17 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
             continue
         parts = _name(b - a, sub)
         bi = beat_of(a, bar)
-        if beat_end(bi, bar) - beat_start(bi, bar) == DIV // 2:
+        if _half_triplets(grids, bi, bar):
+            if b - a == DIV // 2:
+                # one sound (or one rest) filling the half: a plain
+                # eighth, with no 3 over a group of one
+                parts = [(pl, pt, dt, None) for pl, pt, dt, _ in
+                         _name(b - a, 2)]
+            else:
+                parts = [(pl, pt, dt, dict(md, actual=3, normal=2)
+                          if md and md['actual'] == 6 else md)
+                         for pl, pt, dt, md in parts]
+        elif beat_end(bi, bar) - beat_start(bi, bar) == DIV // 2:
             # the short last beat of a 7/8 or 5/8 bar holds half a
             # sextuplet: three notes print as the 3:2 they are, not a
             # six over three

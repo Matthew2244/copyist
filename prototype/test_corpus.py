@@ -9665,7 +9665,7 @@ def check_sextuplet_numbers():
         src = os.path.join(d, "t.musicxml")
         with open(src, "w") as fh:
             fh.write(xml)
-        nums, stems = [], []
+        nums, stems, flat = [], [], []
         pdf_text, pdf_line = ce.Pdf.text, ce.Pdf.line
 
         def t_(self, x, y, s_, *a, **k):
@@ -9676,6 +9676,8 @@ def check_sextuplet_numbers():
         def l_(self, x1, y1, x2, y2, *a, **k):
             if abs(x1 - x2) < 0.01 and 15 < abs(y1 - y2) < 40:
                 stems.append(x1)
+            if abs(y1 - y2) < 0.01 and x2 - x1 > 1 and k.get('w') == 0.7:
+                flat.append((x1, x2))
             return pdf_line(self, x1, y1, x2, y2, *a, **k)
         ce.Pdf.text, ce.Pdf.line = t_, l_
         try:
@@ -9687,11 +9689,20 @@ def check_sextuplet_numbers():
                 ("3", (stems[6] + stems[8]) / 2),
                 ("3", (stems[9] + stems[11]) / 2),
                 ("3", (stems[12] + stems[14]) / 2)]
+        # centred on the group's heads (2026-11-19, with the bracket):
+        # within half a head of the middle of its stems
         check(f"sextuplet and triplet numbers centred over stems {where}",
               len(stems) == 15 and len(nums) == 4
-              and all(a == c and abs(b - e) < 0.5
+              and all(a == c and abs(b - e) < 3.0
                       for (a, b), (c, e) in zip(nums, want)),
               (nums, want))
+        # 2026-11-19, Matthew: "usually a bracket with a 3". Every group
+        # gets a bracket, two halves of line either side of its number
+        check(f"every tuplet group has a bracket around its number "
+              f"{where}", len(flat) >= 2 * len(nums)
+              and all(any(abs(b - x) < 9 for a, b in flat)
+                      and any(abs(a - x) < 9 for a, b in flat)
+                      for _, x in nums), (flat, nums))
 
     # 2026-11-18: sextuplet beats that open on a rest (bar 109 of The
     # Sound Between Us) each carry their own six, not one for three beats
@@ -9733,6 +9744,37 @@ def check_sextuplet_numbers():
         ce.Pdf.text = pdf_text
     check("sextuplet beats opening on a rest each get their own six",
           len(nums) == 4, nums)
+
+
+def check_sixteenth_triplets_as_threes():
+    """2026-11-19, Matthew on bar 109 of The Sound Between Us: "triplets
+    do not look right... usually a bracket with a 3". A beat on the
+    sixteenth-triplet grid prints as two threes (3:2 sixteenths), each
+    over its own half; a note across the middle ties there, and a half
+    holding one sound is a plain eighth."""
+    import chartdemo as cd
+    print("\n== sixteenth triplets print as two threes ==")
+    D, S = cd.DIV, cd.DIV // 6
+    grids = {0: 6, 1: 6}
+    # F from the second sixteenth-triplet place through the fifth
+    cuts = cd._pieces(2 * S, 5 * S, grids)
+    check("a note across a sixteenth-triplet beat's middle ties there",
+          cuts == [(2 * S, D // 2), (D // 2, 5 * S)], cuts)
+    import convert as cv
+    table = cv.spelling_table(0, None)
+    out = {1: []}
+    cd._emit(out, 1, 0, D // 2, None, table, grids, None, 0)
+    cd._emit(out, 1, D // 2, D // 2 + S, [60], table, grids, None, 0)
+    cd._emit(out, 1, D // 2 + S, D // 2 + 3 * S, [62], table, grids,
+             None, 0)
+    xml = "".join(out[1])
+    check("a half-beat rest in a sixteenth-triplet beat is a plain "
+          "eighth, and the notes are 3:2, never 6:4",
+          "<actual-notes>6" not in xml
+          and xml.count("<actual-notes>3</actual-notes>"
+                        "<normal-notes>2</normal-notes>") == 2
+          and xml.split("</note>")[0].count("time-modification") == 0,
+          xml)
 
 
 def check_chord_spelling_by_beat():
@@ -10642,6 +10684,7 @@ if __name__ == "__main__":
     check_funk_horn_round()
     check_bug_hunt_round()
     check_sextuplet_numbers()
+    check_sixteenth_triplets_as_threes()
 
     run_fixture("two-hand-piano", "C# minor",
                 {"clean.mid": "HARD QUANTIZED",
