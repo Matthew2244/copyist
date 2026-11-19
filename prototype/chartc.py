@@ -3619,6 +3619,7 @@ def resolve_demo(chart, plans, band, labels, chart_path, findings,
                     poly=h['poly'],
                     legato=ref.get('legato', False),
                     ghost=ref.get('ghost', False),
+                    accents=ref.get('accents', False),
                     trills=not ref.get('no_trills', False),
                     ks_map=(keyswitch_map(chart, b['keyswitches'],
                                           ref['loc'])
@@ -4299,7 +4300,7 @@ def build_plans(chart, band, groups, labels):
             explode_src = None
             soli_src = None
             demo_refs, fall, quant, short = [], False, None, False
-            legato, ghost = False, False
+            legato, ghost, accents = False, False, False
             no_trills = False
             fig_lifts, lyrics_text = [], None
             verses_text = {}
@@ -4487,6 +4488,12 @@ def build_plans(chart, band, groups, labels):
                     continue
                 if piece in ('ghosts', 'ghost notes', 'ghosted'):
                     ghost = True
+                    continue
+                if piece in ('accents as played', 'my accents',
+                             'accents from my playing',
+                             'accent what i played'):
+                    # the hits you leaned on, from your velocities
+                    accents = True
                     continue
                 if piece in ('no trills', 'trills as played',
                              'no trill'):
@@ -4712,6 +4719,30 @@ def build_plans(chart, band, groups, labels):
                         anns.append((1, 'on cue'))
                     continue
                 m = re.match(r'(cresc(?:endo)?|dim(?:inuendo)?|'
+                             r'decresc(?:endo)?)\s+(?:from\s+)?bar\s+(\d+)'
+                             r'\s+beat\s+(\S+)\s+to\s+(?:bar\s+(\d+)\s+)?'
+                             r'beat\s+(\S+)$', piece)
+                if m:
+                    # a hairpin inside the bar, by beat: the swell after
+                    # a sforzando, the fade on a held pad
+                    def _bt(x):
+                        try:
+                            return float(x)
+                        except ValueError:
+                            return parse_beat(x)
+                    wa = int(m.group(2))
+                    wb = int(m.group(4) or wa)
+                    ba, bb = _bt(m.group(3)), _bt(m.group(5))
+                    if not 1 <= wa <= wb <= sec['bars'] or \
+                            (wa == wb and bb <= ba):
+                        fail(f"{loc}: the hairpin runs bar {wa} beat "
+                             f"{m.group(3)} to bar {wb} beat {m.group(5)}, "
+                             f"and {sec['name']} has {sec['bars']} bars")
+                    wedge_marks.append(
+                        ('crescendo' if piece.startswith('c')
+                         else 'diminuendo', wa, wb, ba, bb))
+                    continue
+                m = re.match(r'(cresc(?:endo)?|dim(?:inuendo)?|'
                              r'decresc(?:endo)?)\s+(?:from\s+)?'
                              r'bars?\s+(\d+)\s*(?:-|to)\s*'
                              r'(?:bar\s+)?(\d+)$', piece)
@@ -4739,7 +4770,7 @@ def build_plans(chart, band, groups, labels):
                          'lay out', 'comp', 'walk', 'slashes', 'unison',
                          'play', 'tutti', 'crescendo', 'diminuendo',
                          'text', 'enters', 'cut to', 'cut back',
-                         'explode', 'ghost', 'scoop', 'doit']
+                         'explode', 'ghost', 'scoop', 'doit', 'accents']
                 head = piece.split()[0] if piece.split() else piece
                 near = difflib.get_close_matches(head, known, n=1,
                                                  cutoff=0.6)
@@ -4824,6 +4855,7 @@ def build_plans(chart, band, groups, labels):
                                                     short=short,
                                                     legato=legato,
                                                     ghost=ghost,
+                                                    accents=accents,
                                                     no_trills=no_trills,
                                                     lyrics=lyrics_text,
                                                     verses=verses_text,
@@ -6707,13 +6739,17 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         pieces.append(metronome(text[1], *bmeter))
                     else:
                         pieces.append(direction(text, 'above'))
-                for wtype, wa, wb in plan.get('wedges', {}).get(label, ()):
+                for wtype, wa, wb, *wbeat in plan.get('wedges',
+                                                      {}).get(label, ()):
                     if wa == off + 1:
+                        woff = (int(round((wbeat[0] - 1.0) * div))
+                                if wbeat else 0)
                         pieces.append(
                             '      <direction placement="below">'
                             '<direction-type><wedge type="'
                             + wtype + '"/></direction-type>'
-                            '</direction>\n')
+                            + (f'<offset>{woff}</offset>' if woff else '')
+                            + '</direction>\n')
                 for dbar, dbeat, mark, sub in plan.get('dyns',
                                                        {}).get(label, ()):
                     if dbar == off + 1:
@@ -7039,12 +7075,20 @@ def _compile_rest(chart, band, groups, labels, plans, total,
                         if '</note>' in pieces[pi]:
                             pieces[pi] = _inject_fermata(pieces[pi])
                             break
-                for wtype, wa, wb in plan.get('wedges', {}).get(label, ()):
+                for wtype, wa, wb, *wbeat in plan.get('wedges',
+                                                      {}).get(label, ()):
                     if wb == off + 1:
+                        # appended at the bar's end: a stop inside the
+                        # bar steps back to its beat
+                        blen = div * 4 * bmeter[0] // bmeter[1]
+                        woff = (int(round((wbeat[1] - 1.0) * div)) - blen
+                                if wbeat else 0)
                         pieces.append(
                             '      <direction placement="below">'
                             '<direction-type><wedge type="stop"/>'
-                            '</direction-type></direction>\n')
+                            '</direction-type>'
+                            + (f'<offset>{woff}</offset>' if woff else '')
+                            + '</direction>\n')
                 pure_rest = (len(pieces) == 1 and not open_bl
                              and '<repeat' not in barline
                              and (pieces[0] == rest_bar(div, staves,
@@ -7405,9 +7449,13 @@ def _compile_rest(chart, band, groups, labels, plans, total,
     title = re.sub(r'\s*[/\\:]\s*', ' - ', hdr.get('title', 'chart'))
     score_path = os.path.join(outdir, f'{title} — score.musicxml')
     with open(score_path, 'w', encoding='utf-8') as f:
+        # every staff may carry changes: part_measures still prints them
+        # only over the rhythm section and over slashes (a solo, a
+        # groove, backgrounds), so a horn chart's trombone solo shows its
+        # changes in the score too, not bare slashes
         f.write(portable(document(labels,
                          directions_on=lambda l: l == labels[0],
-                         harmony_on=lambda l: l in chord_parts)))
+                         harmony_on=lambda l: True)))
     written = [score_path]
     listen_path = os.path.join(outdir, f'{title} — for listening.musicxml')
     # two passes: the first only learns what the lead plays in every

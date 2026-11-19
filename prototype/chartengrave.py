@@ -843,6 +843,10 @@ def _parse_note(t):
     n.marks = [m for m in re.findall(r'<([a-z-]+)[ />]', body)
                if m in MARK_TAGS]
     n.marks = list(dict.fromkeys(n.marks))
+    if 'doit' in n.marks and re.search(r'<doit [^>]*line-length="short"',
+                                       body):
+        # the bend up: the short hook, not a doit's long rise
+        n.marks[n.marks.index('doit')] = 'doit-short'
     n.arp = '<arpeggiate' in body
     m = re.search(r'<(glissando|slide)[^>]*type="(start|stop)"', body)
     n.gliss = m.group(2) if m else None
@@ -1077,7 +1081,10 @@ def parse_part(xml, pid):
                                        ('15mb' if k == 2 else '8vb'))
                 wg = re.search(r'<wedge type="(\w+)"', t)
                 if wg:
-                    meas['wedges'].append((pos, wg.group(1)))
+                    off = re.search(r'<offset>(-?\d+)</offset>', t)
+                    meas['wedges'].append(
+                        (pos + (int(off.group(1)) if off else 0),
+                         wg.group(1)))
                 dyn = re.search(r'<dynamics[^>]*>\s*<([a-z]+)\s*/>', t)
                 if dyn:
                     off = re.search(r'<offset>(-?\d+)</offset>', t)

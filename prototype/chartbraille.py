@@ -734,9 +734,10 @@ def _side_units(events, texts, dyns, chords, slurs, added, down,
         n = ns[0]
         pre = [expression(t) for p, t in texts if p == pos] + \
             [expression(d) for p, d in dyns if p == pos]
-        bend = next((BEND_WORDS[x.artic] for x in ns
-                     if getattr(x, 'artic', None) in BEND_WORDS
-                     and not x.rest), None)
+        bend = next((BEND_WORDS[m] for x in ns if not x.rest
+                     for m in (list(getattr(x, 'marks', None) or ())
+                               + [getattr(x, 'artic', None)])
+                     if m in BEND_WORDS), None)
         if bend:
             # no braille sign for the brass bends: the word says it,
             # ahead of the note it belongs to (22.3)

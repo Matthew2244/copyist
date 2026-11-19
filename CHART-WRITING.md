@@ -624,7 +624,10 @@ hold at the end of a phrase: the
 sign lands on that bar's last note or rest in every part, and the
 listen holds time there for everybody at once, which is the whole
 point of a fermata. On any part's line, `cresc bars 2-4` or
-`dim bars 6-8` draws the hairpin and plays the swell, and
+`dim bars 6-8` draws the hairpin and plays the swell; inside a bar,
+by beat, `cresc bar 15 beat 4+ to beat 4.75` (the swell after a
+sforzando) or `dim bar 9 beat 1.5 to bar 10 beat 1.5` (a pad fading
+out), and
 `dyn subito p` says it the way the page does. A `feel:` naming 16ths
 ("swing 16ths groove") swings the half-beat in the listen.
 
@@ -711,7 +714,11 @@ All of these ride on a `from demo` line, after commas:
   to a from-demo line and the slurs follow your playing; where you
   breathed, the slur breaks. Add `ghosts` and the notes you played way
   under the others print in parentheses, the way a funk bass part
-  should. Add `straight` when you played swung but the page should
+  should. Add `accents as played` and the hits you leaned on come
+  out marked: the notes within a few velocity steps of the loudest in
+  that passage (when the passage has real hits, forte or louder), a
+  marcato when short, an accent when held, and the line in between is
+  left to the player. Add `straight` when you played swung but the page should
   show straight eighths: onsets snap to the eighth grid and the note
   lengths stay yours (`eighths` is different: it means the line IS
   eighth notes, and will shorten longer values to say so). None of

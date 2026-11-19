@@ -634,13 +634,16 @@ def parse_score(path, only=None):
                             import chartband as _cb
                             mute = _cb.mute_kind(w)
                     wd = re.search(r'<wedge [^>]*type="(\w+)"', t)
+                    wo = re.search(r'<offset>(-?\d+)</offset>', t)
+                    # a hairpin placed inside the bar, by beat
+                    wpos = pos + (int(wo.group(1)) if wd and wo else 0)
                     if wd:
                         if wd.group(1) in ('crescendo', 'diminuendo'):
-                            wedge_open = (q0 + pos / div,
+                            wedge_open = (q0 + wpos / div,
                                           'cresc' if wd.group(1)[0] == 'c'
                                           else 'dim')
                         elif wd.group(1) == 'stop' and wedge_open:
-                            wedges.append((wedge_open[0], q0 + pos / div,
+                            wedges.append((wedge_open[0], q0 + wpos / div,
                                            wedge_open[1]))
                             wedge_open = None
                     sw = re.search(r'<swing>(.*?)</swing>', t, re.S)

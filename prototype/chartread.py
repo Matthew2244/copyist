@@ -516,12 +516,22 @@ def part_section(plan, label, chord_parts, figures=None):
                          if bar > 1 else f'Marked: {said}.')
         roads += 1
     # hairpins: printed under the staff, said with their bars
-    for wtype, wa, wb in plan.get('wedges', {}).get(label, ()):
+    for wtype, wa, wb, *wbeat in plan.get('wedges', {}).get(label, ()):
         word = 'crescendo' if wtype.startswith('cresc') else 'diminuendo'
         a_, b_ = wa + plan['start'] - 1, wb + plan['start'] - 1
-        lines.insert(1 + roads, f"{word.capitalize()} "
-                     + (f"through bar {a_}." if a_ == b_ else
-                        f"from bar {a_} to bar {b_}."))
+        if wbeat:
+            def _bw(x):
+                w_, f_ = int(x), round(x - int(x), 3)
+                return {0: f"beat {w_}", 0.25: f"the e of {w_}",
+                        0.5: f"the and of {w_}",
+                        0.75: f"the a of {w_}"}.get(f_, f"beat {x:g}")
+            lines.insert(1 + roads, f"{word.capitalize()} from "
+                         f"{_bw(wbeat[0])} in bar {a_} to {_bw(wbeat[1])}"
+                         + ("." if a_ == b_ else f" in bar {b_}."))
+        else:
+            lines.insert(1 + roads, f"{word.capitalize()} "
+                         + (f"through bar {a_}." if a_ == b_ else
+                            f"from bar {a_} to bar {b_}."))
         roads += 1
     return ("\n".join(lines) if figures else " ".join(lines))
 

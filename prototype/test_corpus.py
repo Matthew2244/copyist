@@ -9401,6 +9401,44 @@ def check_funk_horn_round():
     tb = f["F — trombone.musicxml"]
     check("a trombone told 'bass clef' never changes clef",
           set(re.findall(r"<clef><sign>(\w)</sign>", tb)) == {"F"})
+    import chartdemo
+    D_ = chartdemo.DIV
+    tl = [(0, D_ // 2, [60]), (D_, D_ + D_ // 4, [62]), (2 * D_, 3 * D_, [64]),
+          (3 * D_, 3 * D_ + D_ // 4, [65])]
+    raw = {0: (0, 0, 127), D_: (0, 0, 70), 2 * D_: (0, 0, 124),
+           3 * D_: (0, 0, 80)}
+    acc = chartdemo._accents(tl, raw)
+    check("accents as played: the hard hits, marcato when short",
+          acc == {0: "strong-accent", 2: "accent"}, acc)
+    check("a soft passage has no hits to accent",
+          chartdemo._accents(tl, {k: (0, 0, v[2] - 40)
+                                  for k, v in raw.items()}) == {})
+    _o3, f3 = _build_chart(
+        "title: H\nkey: C\nmeter: 4/4\ntempo: 100\ndynamics: by hand\n\n"
+        "band:\n  flute\n\nfigure w, 1 bars:\n  notes: C5 w\n\n"
+        "section A, 1 bars\n  chords: C\n  flute: figure w, "
+        "cresc bar 1 beat 3 to beat 4\n", "h")
+    fx = f3["H — flute.musicxml"]
+    check("a hairpin by beat starts and stops inside the bar",
+          re.search(r'<wedge type="crescendo"/></direction-type>'
+                    r'<offset>(\d+)</offset>', fx) is not None
+          and re.search(r'<wedge type="stop"/></direction-type>'
+                        r'<offset>-\d+</offset>', fx) is not None, fx[:0])
+    pm, _ = ce.parse_part(fx, "P1")
+    wg = pm[0]["wedges"]
+    check("the engraver puts the hairpin on its beats",
+          [w[1] for w in wg] == ["crescendo", "stop"]
+          and wg[1][0] - wg[0][0] > 0 and wg[0][0] > 0, wg)
+    _o2, f2 = _build_chart(
+        "title: S\nkey: F minor\nmeter: 4/4\ntempo: 100\n\nband:\n"
+        "  alto = alto sax\n  trombone\n\n"
+        "section A, 2 bars\n  chords: Fm7 Gm7@4, Abmaj7\n"
+        "  trombone: solo\n", "s")
+    sc = f2["S — score.musicxml"]
+    check("a horn chart's score prints the solo changes over the slashes",
+          sc.count("<harmony") >= 3 and "<harmony" in
+          sc.split('<part id="P2"')[1] and "<harmony" not in
+          sc.split('<part id="P1"')[1].split('<part id="P2"')[0])
     grids = tuplets.choose([0, 120, 240, 360, 480, 720, 800, 880,
                             960, 1040, 1120, 1200], 480)
     check("a sixteenth triplet on the & keeps its notes after a "

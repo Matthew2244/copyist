@@ -597,6 +597,35 @@ def _ghosts(tl, raw):
     return out
 
 
+def _accents(tl, raw):
+    """{index: 'accent' | 'strong-accent'} for the notes you hit hardest:
+    within a few velocity steps of the loudest note in the passage, when
+    that passage has real hits in it (its top is forte or louder). A
+    horn section's kicks are played at the top of the range and the
+    line in between well under it, so the hits come out marked and the
+    phrasing inside a line is left to the player. Short (an eighth or
+    less) is the big band's daht, short and fat: marcato; longer is an
+    accent."""
+    vels = [raw.get(s, (0, 0, 64))[2] for s, _, _ in tl]
+    if not vels:
+        return {}
+    top = max(vels)
+    if top < ACCENT_FLOOR:
+        return {}
+    out = {}
+    for i, (s, e, _ps) in enumerate(tl):
+        if vels[i] >= top - ACCENT_BAND:
+            out[i] = 'strong-accent' if e - s <= DIV // 2 else 'accent'
+    return out
+
+
+# the hit band: within this many velocity steps of the passage's top
+# counts as a hit, and a passage whose loudest note is under the floor
+# has none (a soft background, a ghosted groove)
+ACCENT_BAND = 6
+ACCENT_FLOOR = 110
+
+
 def _simplify(tl, raw, n_units):
     """DESIGN.md 11 'simplified': the phrase survives, the ornament
     noise goes. A note shorter than a sixteenth is absorbed, onsets
@@ -1092,6 +1121,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
                   derive_dyns=True, short=False, spoken_shift=0,
                   poly=False, grand=False, reach=17, comfortable=14,
                   legato=False, ghost=False, detail=None, meter=(4, 4),
+                  accents=False,
                   window=None, part_label="", findings=None, drums=False,
                   trills=True, ks_map=None, drum_map=None):
     """
@@ -1592,6 +1622,15 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
     slurs = (_slur_runs(timeline, raw)
              if legato and not drums else [])
     ghosts = _ghosts(timeline, raw) if ghost else set()
+    accent_of = _accents(timeline, raw) if accents and not drums else {}
+    if accents:
+        ab = sorted({at_bar + spoken_shift + timeline[i][0] // bar_ticks
+                     for i in accent_of})
+        find.add(f"{part_label}: {lift}: "
+                 + ("accents from your playing — bars "
+                    + ", ".join(str(b) for b in ab) if ab else
+                    "accents asked, but no note stands out over its "
+                    "neighbours — none written"))
     if staves_out:
         for st in staves_out:
             st['slurs'] = [_slur_runs(v, raw)
@@ -1662,6 +1701,7 @@ def resolve_range(demo, track_name, bar_lo, bar_hi, at_bar, *,
             'n_units': n_units, 'at': at_bar,
             'bars': (bar_lo, bar_hi), 'dyns': dyns,
             'slurs': slurs, 'ghosts': ghosts, 'detail': detail,
+            'accents': accent_of,
             'named_strokes': named_strokes,
             'spoken_shift': spoken_shift, 'staves': staves_out,
             'bar_ticks': bar_ticks, 'pulse_div': pulse_div,
@@ -2006,6 +2046,7 @@ def render_range(res, fifths_written, transpose_to_written, fall,
               (last_artic if is_last else None) or offs.get(ti)
               or ks_marks.get(start) or every,
               transpose_to_written, bend=bends.get(ti), bar=bar_ticks,
+              accent=(res.get('accents') or {}).get(ti),
               slur=(ti in slur_a, ti in slur_b),
               ghost=ti in ghosts,
               strokes=((res.get('named_strokes') or {}).get(start)
@@ -2239,7 +2280,7 @@ def _name(ticks, sub):
 def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
           bend=None, bar=BAR, voice=1, staff=0, slur=(False, False),
           ghost=False, lyric=None, cue=False, slash=False, drums=False,
-          trill=None, trem=None, strokes=None, verses=None):
+          trill=None, trem=None, strokes=None, verses=None, accent=None):
     staff_xml = f'        <staff>{staff}</staff>\n' if staff else ''
     strokes = strokes or {}
     pieces = _show_beats(_pieces(start, end, grids, bar), grids, bar,
@@ -2407,6 +2448,13 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                 arts = []
                 if bend and pfirst and ni == len(pitches) - 1:
                     arts.append(f'<{bend}/>')
+                if accent and pfirst and ni == len(pitches) - 1 and \
+                        artic not in ('staccato', 'staccatissimo',
+                                      'strong-accent', 'accent') and \
+                        not (artic and plast and artic == accent):
+                    # the attack you leaned on; a fall still rides the
+                    # note's release
+                    arts.append(f'<{accent}/>')
                 if artic and plast and ni == len(pitches) - 1:
                     arts.append('<doit line-length="short"/>'
                                 if artic == 'doit-short' else
@@ -2639,7 +2687,7 @@ def _say_dur(ticks):
 
 def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
             fall=False, doit=False, short=False, slurs=(), ghosts=(),
-            lyrics=None, orn=None, verses=None):
+            lyrics=None, orn=None, verses=None, accents=None):
     """One voice's timeline -> {abs_bar: [clauses]} — the run-grouping
     prose, shared by the flat path and each voice of a polyphonic part.
     `verses` lists the later verses' tokens: a note sung in them says
@@ -2648,6 +2696,7 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
     slur_a = {a for a, _ in slurs}
     slur_end = {a: b for a, b in slurs}
     ghosts = set(ghosts)
+    accents = accents or {}
     orn = orn or {}
     i = 0
     while i < len(tl):
@@ -2663,7 +2712,8 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
                and j not in bends and (j + 1) not in bends
                and (j + 1) not in slur_a
                and tl[j][0] not in orn and tl[j + 1][0] not in orn
-               and ((j + 1) in ghosts) == (i in ghosts)):
+               and ((j + 1) in ghosts) == (i in ghosts)
+               and j not in accents and (j + 1) not in accents):
             j += 1
         bar = at_bar + start // bar_ticks
         if isinstance(table, KeyedTable):
@@ -2705,6 +2755,9 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
             clauses[-1] += ", " + orn[start]
         if i in ghosts:
             clauses[-1] += ", ghosted"
+        if i == j and i in accents:
+            clauses[-1] += (", accented" if accents[i] == 'accent'
+                            else ", short and accented, a marcato")
         if i in slur_a:
             k = slur_end[i]
             eb = at_bar + tl[k][0] // bar_ticks
@@ -2849,6 +2902,7 @@ def say_range(res, concert_fifths, fall=False, findings=None, short=False,
                   bends, fall, doit, short,
                   slurs=res.get('slurs', ()),
                   ghosts=res.get('ghosts', ()),
+                  accents=res.get('accents'),
                   lyrics=res.get('lyrics'), orn=orn,
                   verses=[t for _v, t in sorted(
                       (res.get('verses') or {}).items())])
