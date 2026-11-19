@@ -122,6 +122,9 @@ ARTIC = (('staccatissimo', cell(6) + cell(2, 3, 6)),
          ('accent', cell(4, 6) + cell(2, 3, 6)),
          ('strong-accent', cell(5, 6) + cell(2, 3, 6)),
          ('tenuto', cell(4, 5, 6) + cell(2, 3, 6)))
+# the brass bends have no sign of their own: a word before the note
+BEND_WORDS = {'falloff': 'fall', 'doit': 'doit', 'doit-short': 'bend up',
+              'scoop': 'scoop', 'plop': 'plop'}
 LINE = 40                                    # cells a line
 PAGE = 25                                    # lines a page
 
@@ -731,6 +734,13 @@ def _side_units(events, texts, dyns, chords, slurs, added, down,
         n = ns[0]
         pre = [expression(t) for p, t in texts if p == pos] + \
             [expression(d) for p, d in dyns if p == pos]
+        bend = next((BEND_WORDS[x.artic] for x in ns
+                     if getattr(x, 'artic', None) in BEND_WORDS
+                     and not x.rest), None)
+        if bend:
+            # no braille sign for the brass bends: the word says it,
+            # ahead of the note it belongs to (22.3)
+            pre.append(expression(bend))
         if _groove(n) and not was_slash:
             pre.append(expression('slashes'))
         was_slash = _groove(n)

@@ -4514,8 +4514,8 @@ def build_plans(chart, band, groups, labels):
                 if m:
                     scoops.append((m.group(1), m.group(2)))
                     continue
-                m = re.match(r'(scoop|plop|fall|doit) (?:at )?bar (\d+) '
-                             r'beat (\S+)$', piece)
+                m = re.match(r'(scoop|plop|fall|doit|short doit|bend up|'
+                             r'bend) (?:at )?bar (\d+) beat (\S+)$', piece)
                 if m:
                     # a bend on any note of the line, not only the
                     # first or last: "fall bar 9 beat 4+"
@@ -4523,7 +4523,11 @@ def build_plans(chart, band, groups, labels):
                         bt = float(m.group(3))
                     except ValueError:
                         bt = parse_beat(m.group(3))
-                    kind = {'fall': 'falloff'}.get(m.group(1), m.group(1))
+                    # a bend up off the note is the short doit: up a
+                    # little off the end, not the long rip up
+                    kind = {'fall': 'falloff', 'short doit': 'doit-short',
+                            'bend up': 'doit-short', 'bend': 'doit-short'
+                            }.get(m.group(1), m.group(1))
                     scoops.append((kind, (int(m.group(2)), bt)))
                     continue
                 if piece == 'doit':

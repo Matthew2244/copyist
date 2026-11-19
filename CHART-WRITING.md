@@ -1294,7 +1294,11 @@ All of these ride on a `from demo` line, after commas:
   `fall` drops off the last note. `scoop first`, `scoop last`, or
   `scoop bar 12 beat 3.5` put the slide where you bent it, and falls
   and doits go on any note the same way: `fall bar 9 beat 4+`, `doit
-  bar 31 beat 4.5`, as many as the line has.
+  bar 31 beat 4.5`, as many as the line has. `bend up bar 19 beat 4+`
+  is the little bend up off the end of a note, a short doit, and
+  prints as a short hook. In braille every bend is said in words
+  before its note (fall, doit, bend up, scoop, plop), since braille
+  music has no sign for them.
 - **Dynamics**: `dyn mp`, `dyn f at bar 9`, `dyn sfz at bar 8 beat 4+`.
   Marks land under the note, including on off-beats and tuplet spots.
 - **Say it your way, whatever music raised you.** The same mark has a

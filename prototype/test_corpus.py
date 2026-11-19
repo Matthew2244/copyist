@@ -9343,7 +9343,7 @@ def check_funk_horn_round():
         "  trombone, demo \"" + demo + "\" octave -1, bass clef\n\n"
         "section A, 4 bars\n  chords: Dm, Dm, Dm, Dm\n"
         "  flute: from demo bars 1-4, fall bar 2 beat 3.5, "
-        "doit bar 2 beat 4+\n"
+        "doit bar 2 beat 4+, bend up bar 1 beat 2.25, scoop bar 4 beat 1\n"
         "  trombone: from demo bars 1-4\n", "f")
     fl = f["F — flute.musicxml"]
     ms = re.findall(r"<measure\b.*?</measure>", fl, re.S)
@@ -9383,6 +9383,21 @@ def check_funk_horn_round():
                             if "<pitch>" in n))
     check("the raised sixth coming down spells B natural, not C flat",
           ("C", "-1") not in b4 and ("B", "") in b4, b4)
+    check("a bend up off a note is the short doit",
+          '<doit line-length="short"/>' in ms[0])
+    import chartbraille
+    import chartengrave as ce
+    brf, _why = chartbraille.part_to_brf(fl, "P1", "F", "flute")
+    words = (">FALL", ">DOIT", ">BEND UP>", ">SCOOP")
+    flat = brf.replace("\r\n", " ")
+    check("braille says every bend in words: fall, doit, bend up, scoop",
+          all(w in flat for w in words), [w in flat for w in words])
+    check("the braille proofreader reads past the bend words",
+          chartbraille.proofread(fl, "P1", brf) == [],
+          chartbraille.proofread(fl, "P1", brf))
+    ok = ce.engrave(os.path.join(out, "F — flute.musicxml"),
+                    os.path.join(out, "F — flute.pdf"))
+    check("a part with every bend engraves", ok == (True, None), ok)
     tb = f["F — trombone.musicxml"]
     check("a trombone told 'bass clef' never changes clef",
           set(re.findall(r"<clef><sign>(\w)</sign>", tb)) == {"F"})

@@ -804,6 +804,9 @@ def _parse_note(t):
         if re.search(r'<%s[\s/>]' % a, t):
             n.artic = a
             break
+    if n.artic == 'doit' and re.search(r'<doit [^>]*line-length="short"',
+                                       t):
+        n.artic = 'doit-short'      # a bend up off the note
     n.slash = bool(re.search(r'<notehead[^>]*>slash<', t))
     # a kick is a slash with a stem: rhythm to play, not time to keep
     n.kick = n.slash and '<stem>none</stem>' not in t
@@ -875,7 +878,7 @@ ABOVE_MARKS = ('accent', 'strong-accent', 'up-bow', 'down-bow',
                'open-string', 'stopped', 'harmonic', 'mordent',
                'inverted-mordent', 'turn', 'inverted-turn')
 AFTER_MARKS = ('breath-mark', 'caesura')
-BEND_MARKS = ('falloff', 'doit', 'scoop', 'plop')
+BEND_MARKS = ('falloff', 'doit', 'doit-short', 'scoop', 'plop')
 MARK_TAGS = NEAR_MARKS + ABOVE_MARKS + AFTER_MARKS + BEND_MARKS
 
 
@@ -2794,7 +2797,7 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
             if mk in BEND_MARKS:
                 ay = (min(ys) - 2.2 * SP) if up else (max(ys) + 1.6 * SP)
                 acx = cx
-                if mk in ('fall', 'doit') and n0.dots:
+                if mk in ('falloff', 'doit', 'doit-short') and n0.dots:
                     acx = dot_x - SP     # off the end, past the dots
                 if mk in ('scoop', 'plop') and any(
                         getattr(n, 'show_acc', None) is not None
@@ -3137,6 +3140,11 @@ def draw_artic(pdf, x, y, artic):
     elif artic == 'tenuto':
         pdf.line(x - 1.2 * SP, y + 0.4 * SP, x + 1.2 * SP, y + 0.4 * SP,
                  w=1.6)
+    elif artic == 'doit-short':
+        # the bend up off the note: a short hook, half a doit's rise
+        pdf.bez([(x + SP, y), ((x + 1.8 * SP, y + 0.2 * SP),
+                               (x + 2.2 * SP, y + 0.6 * SP),
+                               (x + 2.5 * SP, y + 1.2 * SP))], w=1.4)
     elif artic in ('falloff', 'doit'):
         d = -1 if artic == 'falloff' else 1
         pdf.bez([(x + SP, y), ((x + 2.4 * SP, y + d * 0.4 * SP),

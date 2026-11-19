@@ -1867,7 +1867,8 @@ def render_range(res, fifths_written, transpose_to_written, fall,
     _SHOW_BEATS[0] = res.get('pulse_div', DIV) == DIV
     # a fall or doit placed on a note is an ending bend: it rides the
     # note's last tied piece, where the articulation goes
-    offs = {i: k for i, k in bends.items() if k in ('falloff', 'doit')}
+    offs = {i: k for i, k in bends.items()
+            if k in ('falloff', 'doit', 'doit-short')}
     bends = {i: k for i, k in bends.items() if i not in offs}
 
     bar_ticks = res.get('bar_ticks', BAR)
@@ -2407,7 +2408,9 @@ def _emit(out, at_bar, start, end, pitches, table, grids, artic, transpose,
                 if bend and pfirst and ni == len(pitches) - 1:
                     arts.append(f'<{bend}/>')
                 if artic and plast and ni == len(pitches) - 1:
-                    arts.append(f'<{artic}/>')
+                    arts.append('<doit line-length="short"/>'
+                                if artic == 'doit-short' else
+                                f'<{artic}/>')
                 if drums and strokes.get(p) == 'choke':
                     arts.append('<breath-mark/>')   # the choke comma
                 elif start in _BREATHS and plast and \
@@ -2713,6 +2716,7 @@ def _say_tl(tl, table, at_bar, bar_ticks, pulse, bends,
                             'plop': ", plopped into",
                             'falloff': ", with a fall off the end",
                             'doit': ", with a doit up off the end",
+                            'doit-short': ", bending up off the end",
                             }[bends[i]]
         if j == len(tl) - 1:
             if fall:
