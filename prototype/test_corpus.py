@@ -9655,6 +9655,47 @@ def check_sextuplet_numbers():
                       for (a, b), (c, e) in zip(nums, want)),
               (nums, want))
 
+    # 2026-11-18: sextuplet beats that open on a rest (bar 109 of The
+    # Sound Between Us) each carry their own six, not one for three beats
+    def rest(dur, typ, dots=0):
+        return (f"<note><rest/><duration>{dur}</duration><voice>1</voice>"
+                f"<type>{typ}</type>" + "<dot/>" * dots
+                + "<time-modification><actual-notes>6</actual-notes>"
+                "<normal-notes>4</normal-notes></time-modification></note>")
+    body = (rest(12, "eighth", 1) + "".join(note("C", 5, 4, "16th", 6, 4)
+                                            for _ in range(3))
+            + rest(8, "eighth") + note("D", 5, 12, "eighth", 6, 4)
+            + note("E", 5, 4, "16th", 6, 4)
+            + note("F", 5, 4, "16th", 6, 4) + note("G", 5, 8, "eighth", 6, 4)
+            + note("A", 5, 8, "eighth", 6, 4) + note("B", 5, 4, "16th", 6, 4)
+            + note("C", 5, 8, "eighth", 6, 4) + note("D", 5, 4, "16th", 6, 4)
+            + rest(12, "eighth", 1))
+    xml = ('<?xml version="1.0"?><score-partwise><part-list>'
+           '<score-part id="P1"><part-name>x</part-name></score-part>'
+           '</part-list><part id="P1"><measure number="1"><attributes>'
+           '<divisions>24</divisions><key><fifths>0</fifths></key>'
+           '<time><beats>4</beats><beat-type>4</beat-type></time>'
+           '<clef><sign>G</sign><line>2</line></clef></attributes>'
+           + body + "</measure></part></score-partwise>")
+    d = tempfile.mkdtemp()
+    src = os.path.join(d, "r.musicxml")
+    with open(src, "w") as fh:
+        fh.write(xml)
+    nums = []
+    pdf_text = ce.Pdf.text
+
+    def t2_(self, x, y, s_, *a, **k):
+        if s_ == "6":
+            nums.append(x)
+        return pdf_text(self, x, y, s_, *a, **k)
+    ce.Pdf.text = t2_
+    try:
+        ce.engrave(src, os.path.join(d, "r.pdf"))
+    finally:
+        ce.Pdf.text = pdf_text
+    check("sextuplet beats opening on a rest each get their own six",
+          len(nums) == 4, nums)
+
 
 def check_chord_spelling_by_beat():
     """A bar of four 7#9 chords a half step apart (his "play it back"

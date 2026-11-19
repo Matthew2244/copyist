@@ -2622,12 +2622,19 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
     # beat are two threes, each over its own notes, and a quarter-note
     # triplet across the beat is one
     tup_groups = []
-    run_, filled_, want_ = [], 0.0, 0.0
+    run_, filled_, want_, start_ = [], 0.0, 0.0, 0
     for ei_, (p_, ns_) in enumerate(events):
         t_ = ns_[0]
         tm_ = getattr(t_, 'tmod', None)
         key_ = (tm_, getattr(t_, 'tnorm', None))
+        # a run that started on a beat line also closes on the next
+        # one it reaches: a sextuplet opening with a dotted rest sized
+        # its group from the rest (six dotted eighths), so three beats
+        # ran together under one number
+        on_line_ = (run_ and tup_len and p_ > start_ and
+                    start_ % tup_len == 0 and p_ % tup_len == 0)
         if run_ and (not tm_ or key_ != run_key_ or filled_ >= want_ - 1e-6
+                     or on_line_
                      or p_ != events[run_[-1]][0]
                      + events[run_[-1]][1][0].dur):
             tup_groups.append(run_)
@@ -2637,6 +2644,7 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
         nominal_ = t_.dur * tm_ / (getattr(t_, 'tnorm', None) or 1)
         if not run_:
             run_key_, filled_, want_ = key_, 0.0, tm_ * nominal_
+            start_ = p_
         run_.append(ei_)
         filled_ += nominal_
     if run_:
@@ -3000,7 +3008,11 @@ def draw_stream(pdf, events, top, clef, beat_len, xat, x0, width,
                               (xb, ym + dy - 0.5 * SP),
                               (xa, y1 + dy - 0.5 * SP)], fill=True)
         grp = tup_of.get(ei)
-        if n0.tmod and not n0.trem2 and grp and id(grp) not in drawn:
+        # drawn at the group's first NOTE: a group opening on a rest
+        # (a sextuplet's rest on the beat) has no stem of its own yet,
+        # and the number took the last group's stem, or none
+        if n0.tmod and not n0.trem2 and grp and id(grp) not in drawn \
+                and not n0.rest:
             # centred over the tuplet's own notes, from its first stem
             # to its last (the beam's own middle): a number set over
             # the heads sat half a head off, left over up stems and
